@@ -10,10 +10,10 @@ The per-round logs remain in each experiment's `workspace/progress.md`; this fil
 
 ## Workload Results
 
-| Workload | Baseline used | Best robust throughput | Speedup |
+| Workload | Baseline used | Specialized robust throughput | Speedup |
 | --- | ---: | ---: | ---: |
 | Long prompts, short outputs | 508.53 tok/s robust stock rerun | 512.53 tok/s robust long-specialized rerun | 1.01x |
-| High concurrency, many short outputs | 1,035.73 tok/s robust stock rerun | 1,147.47 tok/s robust high-specialized rerun | 1.11x |
+| High concurrency, many short outputs | 1,287.07 tok/s interleaved stock rerun | 1,123.87 tok/s interleaved high-specialized rerun | 0.87x |
 | Constrained JSON decoding | 934.33 tok/s robust stock rerun | 1,353.18 tok/s robust code+FlashInfer ablation | 1.45x |
 
 Notes:
@@ -295,6 +295,8 @@ After the streaming-chunk audit, I fixed the measurement harness before rerunnin
 
 Important resource note: the stock and specialized reruns both used the same Modal resource envelope, `NVIDIA H100 80GB HBM3`, 79.18 GiB visible CUDA memory, and 57.16 GiB available KV cache. They did not use the same physical GPU UUID, so this is a same-GPU-class comparison, not a same-card comparison.
 
+Initial corrected single-run result:
+
 | Version | Median tok/s | Mean tok/s | Stddev | Min | Max | Median req/s | Validity |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
 | Stock vLLM 0.10.0 | 1,035.73 | 1,039.68 | 16.48 | 1,023.73 | 1,060.27 | 64.73 | valid |
@@ -302,7 +304,38 @@ Important resource note: the stock and specialized reruns both used the same Mod
 
 Robust speedup: `1,147.47 / 1,035.73 = 1.11x` by median true completion tokens/sec.
 
-This replaces the earlier 2.44x/6.91x high-concurrency claims. The old measurements were confounded by streaming chunk counts, possible GPU-memory-class differences, and benchmark drain accounting. The remaining measured gain is modest and noisy; the first two specialized trials were near or below stock, while the last three were faster. I would treat this as evidence of at most a small serving-path gain unless repeated runs reproduce the same median with lower variance.
+This replaced the earlier 2.44x/6.91x high-concurrency claims, but it still looked suspicious: the specialized run had much higher variance, and its trials drifted upward inside one run.
+
+Interleaved rerun on 2026-07-24:
+
+I reran the high-concurrency comparison as two A/B pairs with the same robust harness. Each run still used one Modal app container, one H100 80GB GPU, tensor parallel size 1, `gpu_memory_utilization=0.92`, `VLLM_WORKER_MULTIPROC_METHOD=spawn`, `VLLM_USE_FLASHINFER_SAMPLER=0`, non-streaming `/v1/completions`, fixed 16-token outputs, and five 60 s measurement windows after warmup. Modal assigned a different physical H100 UUID to each app run, so this is still a same-resource-class comparison rather than a same-card comparison.
+
+| Run | Engine | GPU UUID | Trial tok/s | Median tok/s | Mean tok/s | Stddev | Validity |
+| --- | --- | --- | --- | ---: | ---: | ---: | --- |
+| A1 | Stock vLLM 0.10.0 | `GPU-1e6be773-3db9-47e6-a86a-e2643cb80e14` | 1238.67, 1218.67, 1150.13, 1215.20, 1248.27 | 1218.67 | 1214.19 | 38.36 | valid |
+| B1 | High-specialized | `GPU-bafd0648-bde1-1dd7-0b93-f2efa04e52ac` | 1048.80, 1097.87, 1089.33, 1044.80, 1148.53 | 1089.33 | 1085.87 | 42.26 | valid |
+| A2 | Stock vLLM 0.10.0 | `GPU-aa6f5d6b-a6d4-a50a-8f28-7bbd19a9e7ed` | 1337.60, 1303.47, 1392.80, 1355.47, 1357.07 | 1355.47 | 1349.28 | 32.51 | valid |
+| B2 | High-specialized | `GPU-be69f171-a472-96ac-f653-d0ccc1f18cb2` | 1129.60, 1164.80, 1144.27, 1158.40, 1196.27 | 1158.40 | 1158.67 | 25.02 | valid |
+
+Aggregate over run medians:
+
+- Stock median-of-medians: 1,287.07 tok/s.
+- High-specialized median-of-medians: 1,123.87 tok/s.
+- Specialized/stock ratio: `1,123.87 / 1,287.07 = 0.87x`.
+- Pair ratios: B1/A1 = 0.89x, B2/A2 = 0.85x.
+
+Conclusion: the high-concurrency speedup claim does not survive the robust interleaved rerun. The current best reading is that the high-specialized bundle is not a proven vLLM performance improvement for this workload and likely regresses this fixed non-streaming benchmark. Confidence is medium for the direction because both new A/B pairs agree, but low for the exact 0.87x factor because physical GPU placement and high-concurrency queue dynamics still add visible run-to-run variance.
+
+Raw rerun artifacts:
+
+- `.codex/final-one-h100-measurement/results/high-robust-rerun-a1-stock.json`
+- `.codex/final-one-h100-measurement/results/high-robust-rerun-a1-stock.meta.json`
+- `.codex/final-one-h100-measurement/results/high-robust-rerun-b1-specialized.json`
+- `.codex/final-one-h100-measurement/results/high-robust-rerun-b1-specialized.meta.json`
+- `.codex/final-one-h100-measurement/results/high-robust-rerun-a2-stock.json`
+- `.codex/final-one-h100-measurement/results/high-robust-rerun-a2-stock.meta.json`
+- `.codex/final-one-h100-measurement/results/high-robust-rerun-b2-specialized.json`
+- `.codex/final-one-h100-measurement/results/high-robust-rerun-b2-specialized.meta.json`
 
 ## Constrained JSON Robust Remeasurement
 
@@ -403,7 +436,7 @@ Highest-priority issues:
 
 - The public example benchmark scripts under `examples/model-serving/llama-3-8b-h100-*` still count non-empty streaming SSE chunks as "tokens". A candidate can inflate `aggregate_throughput` by changing chunking cadence without generating more model tokens. The robust reruns above were created specifically to avoid this by using non-streaming responses and `usage.completion_tokens`, but the example bundle benchmarks should be replaced before using them as authoritative scoring workloads.
 - The public example prompts, schemas, and accuracy checkers are deterministic and candidate-visible. A candidate could specialize to those exact prompts, return canned completions, echo sentinels, or synthesize valid JSON without actually improving vLLM. These bundles are useful examples, but not hardened hidden evaluators.
-- The high-concurrency robust result is provisional. The specialized trials drift upward inside one run and have much higher variance than stock, so the 1.11x number could still reflect runtime warm-state or Modal scheduling noise.
+- The high-concurrency robust result changed after an interleaved rerun: the previous 1.11x specialized speedup became a 0.87x regression over two new A/B pairs. This is a concrete example of why the first corrected high-concurrency number was still underpowered.
 - The constrained stock robust baseline had one transient `502 Bad Gateway`; the JSON validity flag is false even though completed outputs were schema-valid and throughput excludes the failed request. The constrained speedups should be treated as supported but still needing a clean stock rerun denominator.
 - All stock/specialized comparisons used the same H100 80GB resource class, not the same physical GPU UUID. This removes the H100-vs-H100-NVL confound but does not eliminate per-card or noisy-neighbor variance.
 - The long-prompt workload is intentionally contrived with an almost fully shared 3000-word prefix. It is a prefix-cache stress test, not evidence for diverse long-document serving.
@@ -419,5 +452,5 @@ Hardening recommendations before treating these as production-quality benchmark 
 Current trust level after the audit:
 
 - Long prompts: the robust data supports "no material speedup" for a contrived prefix-cache stress test.
-- High concurrency: the robust data supports "maybe a small serving-path gain", but not a clean vLLM-internals specialization claim.
+- High concurrency: the robust interleaved data no longer supports a speedup. It supports "no proven improvement, likely regression under the fixed non-streaming harness."
 - Constrained JSON: still the most credible vLLM-internals win because the ablation isolates guided-decoding code changes, but it should be rerun with a clean stock baseline and hardened prompt/content validation.
