@@ -257,6 +257,7 @@ class DockerEnvironment:
                 ),
                 isolated=True,
                 cli_sandboxed=True,
+                host_device_reselect=False,
                 env_kind="docker",
             ),
             stop_on_close=True,
