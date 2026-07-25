@@ -1194,13 +1194,13 @@ def run_agent_loop(
                     )
                 )
                 _save_rounds_state(rounds_state_path, records)
-        if plateau_stop and passed and plateau_warning is not None:
-            ctx.lprint(
-                f"\n[plateau-stop] Stopping early — plateau detected and round passed.\n"
-                f"{plateau_warning}\n"
-                f"Resume with --start-round {round_number + 1} to continue."
-            )
-            return False
+                if plateau_stop and passed and plateau_warning is not None:
+                    ctx.lprint(
+                        f"\n[plateau-stop] Stopping early — plateau detected and round passed.\n"
+                        f"{plateau_warning}\n"
+                        f"Resume with --start-round {round_number + 1} to continue."
+                    )
+                    return False
                 if ctx.supervisor is not None:
                     ctx.supervisor.record(
                         EventType.ROUND_FINISHED,
