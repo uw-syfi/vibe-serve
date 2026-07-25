@@ -221,6 +221,7 @@ class CliAgentRunner:
         # the exception: its history is carried explicitly in each prompt, so
         # it must not depend on provider-side session state.
         self._agents: dict[str, CodingAgent] = {}
+        self._materialized_workspaces: set[Path] = set()
 
     def invoke(
         self,
@@ -327,7 +328,9 @@ class CliAgentRunner:
     ) -> str:
         """Run one CLI generation with shared setup, logging, and cleanup."""
         label = _agent_label(kind)
-        _materialize_skills(workspace, self._skills, log_file=self._run_log_file)
+        if workspace not in self._materialized_workspaces:
+            _materialize_skills(workspace, self._skills, log_file=self._run_log_file)
+            self._materialized_workspaces.add(workspace)
 
         logger = AgentLogger(
             log_file=self._run_log_file,
