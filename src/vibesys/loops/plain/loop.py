@@ -256,10 +256,22 @@ def _sync_workspace_files(
     server, the loop's ``IssueBoard``, and a human inspecting the workspace
     all see the same file. We do not copy it here.
     """
-    shutil.copy2(progress_path, workspace / "progress.md")
-    shutil.copy2(perf_metrics_path, workspace / "perf_metrics.json")
+    def _copy_if_newer(src: Path, dst: Path) -> None:
+        if not src.exists():
+            return
+        if dst.exists() and dst.stat().st_mtime >= src.stat().st_mtime:
+            return
+        shutil.copy2(src, dst)
+
+    _copy_if_newer(progress_path, workspace / "progress.md")
+    _copy_if_newer(perf_metrics_path, workspace / "perf_metrics.json")
     if issues_dir.is_dir():
-        shutil.copytree(issues_dir, workspace / "issues", dirs_exist_ok=True)
+        dst_issues = workspace / "issues"
+        if (
+            not dst_issues.exists()
+            or issues_dir.stat().st_mtime > dst_issues.stat().st_mtime
+        ):
+            shutil.copytree(issues_dir, dst_issues, dirs_exist_ok=True)
 
 
 # ---------------------------------------------------------------------------
