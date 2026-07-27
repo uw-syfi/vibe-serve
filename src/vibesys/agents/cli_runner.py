@@ -20,7 +20,6 @@ Docker command routing and per-invocation MCP install/uninstall. Each
 from __future__ import annotations
 
 import json
-import shutil
 from collections.abc import Callable, Iterable
 from datetime import UTC, datetime
 from pathlib import Path
@@ -42,6 +41,7 @@ from vibesys.agent_runner import (
     parse_typed_response_text,
 )
 from vibesys.agents.callbacks import AgentLogger
+from vibesys.agents.cli_common import agent_label, build_schema_hint, materialize_skills
 from vibesys.agents.host_resource_declarations import declare_agent_host_resources
 from vibesys.agents.progress import AgentProgress
 from vs_sandbox import HostResource, build_host_sandbox
@@ -69,106 +69,10 @@ _PROVIDER_CLASSES: dict[str, _ProviderFactory] = {
 }
 
 
-def _agent_label(kind: str) -> str:
-    """Convert ``"perf_eval"`` to ``"Perf Eval"``, etc."""
-    return kind.replace("_", " ").title()
-
-
 def _is_missing_codex_rollout(exc: RuntimeError) -> bool:
     """Return whether Codex rejected a stale resumable thread."""
     message = str(exc)
     return "thread/resume failed" in message and "no rollout found" in message
-
-
-# Per-provider CLI skill-discovery paths, matching upstream
-# vibesys-skills install.sh conventions. Each CLI tool auto-loads
-# skills from a flat directory of `<skill-name>/SKILL.md`.
-_CLI_SKILL_DIRS: tuple[str, ...] = (
-    ".claude/skills",
-    ".agents/skills",
-    ".gemini/skills",
-    ".cursor/skills",
-    ".opencode/skills",
-)
-
-
-def _discover_skill_dirs(root: Path) -> list[Path]:
-    """Return all skill directories reachable under *root*.
-
-    A "skill directory" is any directory containing a ``SKILL.md`` file.
-    This accepts both flat layouts (``.agents/skills/<name>/SKILL.md``) and
-    the tier-organized layout from vibesys-skills
-    (``skills/<tier>/<name>/SKILL.md``).
-    """
-    if (root / "SKILL.md").is_file():
-        return [root]
-    return [p.parent for p in root.rglob("SKILL.md")]
-
-
-def _materialize_skills(
-    workspace: Path, skill_dirs: list[Path], log_file: TextIO | None = None
-) -> None:
-    """Copy each skill directory into the per-CLI skill-discovery paths.
-
-    Walks each ``skill_dirs`` entry for ``SKILL.md`` files and flattens each
-    parent directory into every path under ``_CLI_SKILL_DIRS`` (one per CLI
-    convention: ``.claude/skills``, ``.agents/skills``, ``.gemini/skills``,
-    ``.cursor/skills``, ``.opencode/skills``). This makes the skills visible
-    to whichever CLI provider ends up running in the workspace without the
-    caller having to know which one was picked.
-
-    Existing destinations are replaced so skill edits are picked up across
-    iterations. Errors are logged but never raised — the loop should still
-    make progress even if a skill fails to materialize.
-    """
-    if not skill_dirs:
-        return
-
-    # Collect every skill dir across all source roots, de-duplicated by name
-    # (last writer wins — matches the prior single-source behaviour when the
-    # same skill name appears in multiple roots).
-    discovered: dict[str, Path] = {}
-    for src in skill_dirs:
-        for skill_dir in _discover_skill_dirs(src):
-            discovered[skill_dir.name] = skill_dir
-
-    if not discovered:
-        return
-
-    skip_names = {".git", "repos", "__pycache__"}
-    skip_ignore = shutil.ignore_patterns(*skip_names)
-
-    for target_rel in _CLI_SKILL_DIRS:
-        target_root = workspace / target_rel
-        target_root.mkdir(parents=True, exist_ok=True)
-        for name, src_skill in discovered.items():
-            dest = target_root / name
-            try:
-                if dest.exists() or dest.is_symlink():
-                    if dest.is_dir() and not dest.is_symlink():
-                        shutil.rmtree(dest)
-                    else:
-                        dest.unlink()
-                shutil.copytree(src_skill, dest, symlinks=True, ignore=skip_ignore)
-            except OSError as exc:
-                if log_file is not None:
-                    log_and_print(
-                        f"[skills] failed to materialize {src_skill} -> "
-                        f"{dest}: {type(exc).__name__}: {exc}",
-                        log_file,
-                    )
-
-
-def _build_schema_hint(response_cls: type[BaseModel]) -> str:
-    """Render a short instruction telling the CLI tool what JSON to emit."""
-    schema = json.dumps(response_cls.model_json_schema(), indent=2)
-    return (
-        "\n\n--\n"
-        "Return EXACTLY one JSON object that conforms to the schema below. "
-        "Do not wrap it in markdown fences. Do not include any extra prose "
-        "before or after the JSON object.\n\n"
-        f"Schema for {response_cls.__name__}:\n{schema}\n"
-    )
 
 
 class CliAgentRunner:
@@ -231,7 +135,7 @@ class CliAgentRunner:
         mcp_servers: list[MCPServerSpec] | None = None,
         tools: list[BaseTool] | None = None,  # noqa: ARG002 — deepagents-only injection point; cli uses mcp_servers
     ) -> T:
-        schema_hint = _build_schema_hint(response_cls)
+        schema_hint = build_schema_hint(response_cls)
         combined_prompt = f"{system_prompt}\n\n{user_prompt}{schema_hint}"
         text = self._generate(
             kind=kind,
@@ -243,7 +147,7 @@ class CliAgentRunner:
             progress=progress,
             mcp_servers=mcp_servers,
         )
-        label = _agent_label(kind)
+        label = agent_label(kind)
         parsed = parse_typed_response_text(text, response_cls)
         if parsed is None:
             log_and_print(
@@ -294,7 +198,7 @@ class CliAgentRunner:
             progress=progress,
             mcp_servers=mcp_servers,
         )
-        label = _agent_label(kind)
+        label = agent_label(kind)
         if text:
             log_and_print(f"\n=== {label} ROUND OUTPUT ===", self._run_log_file)
             log_markdown_and_print(text, self._run_log_file)
@@ -319,8 +223,8 @@ class CliAgentRunner:
         mcp_servers: list[MCPServerSpec] | None,
     ) -> str:
         """Run one CLI generation with shared setup, logging, and cleanup."""
-        label = _agent_label(kind)
-        _materialize_skills(workspace, self._skills, log_file=self._run_log_file)
+        label = agent_label(kind)
+        materialize_skills(workspace, self._skills, log_file=self._run_log_file)
 
         logger = AgentLogger(
             log_file=self._run_log_file,

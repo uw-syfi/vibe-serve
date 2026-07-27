@@ -6,10 +6,25 @@ from vibesys.features import FEATURES, FeatureFlag, is_feature_enabled
 
 
 def test_vibesys_declares_example_feature():
-    assert list(FeatureFlag) == [FeatureFlag.EXAMPLE_FEATURE]
+    assert FeatureFlag.EXAMPLE_FEATURE in list(FeatureFlag)
     assert FeatureFlag.EXAMPLE_FEATURE.value == "example_feature"
     assert FEATURES.definitions[FeatureFlag.EXAMPLE_FEATURE].description
     assert FEATURES.definitions[FeatureFlag.EXAMPLE_FEATURE].default is False
+
+
+def test_vibesys_declares_omnigent_agent_backend():
+    assert FeatureFlag.OMNIGENT_AGENT_BACKEND.value == "omnigent_agent_backend"
+    assert FEATURES.definitions[FeatureFlag.OMNIGENT_AGENT_BACKEND].description
+    # Opt-in by design: the evaluation retained agentshim as the default.
+    assert FEATURES.definitions[FeatureFlag.OMNIGENT_AGENT_BACKEND].default is False
+
+
+def test_every_flag_has_a_definition_and_defaults_off():
+    """New flags must ship a definition, and none may default on."""
+    for flag in FeatureFlag:
+        definition = FEATURES.definitions[flag]
+        assert definition.description
+        assert definition.default is False
 
 
 def test_is_feature_enabled_uses_manifest_default():

@@ -186,6 +186,11 @@ visibility = "private"        # private, public, or internal
 
 Provider credentials live in `.env` — see `.env.example`. The CLI flags `--agent-backend` / `--cli-provider` / `--backend` override these.
 
+Optional `[feature_flags]` entries are documented in
+[`src/vibesys/FEATURE_FLAGS.md`](src/vibesys/FEATURE_FLAGS.md). All flags default
+to off; `omnigent_agent_backend` swaps the `cli` backend from agentshim to
+Omnigent and additionally needs `uv sync --extra omnigent` on Python 3.12+.
+
 The config is validated against a typed schema on load (`vibesys/config.py`): unknown sections or keys, unknown providers/backends, and missing required fields are rejected with an error rather than silently ignored.
 
 ## Skills library

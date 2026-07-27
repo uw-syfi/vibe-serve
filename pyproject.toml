@@ -33,6 +33,13 @@ dependencies = [
     "openevolve==0.3.1",
 ]
 
+[project.optional-dependencies]
+# Opt-in backend behind the `omnigent_agent_backend` feature flag. Kept out of
+# the base dependencies because omnigent requires Python 3.12+ while VibeSys
+# (and CI) target 3.11, and because it is a fast-moving alpha — see
+# docs/omnigent-evaluation.md. Install with `uv sync --extra omnigent`.
+omnigent = ["omnigent==0.6.0; python_version >= '3.12'"]
+
 [project.scripts]
 vibesys-issue-mcp = "vs_issue_board.mcp:main"
 

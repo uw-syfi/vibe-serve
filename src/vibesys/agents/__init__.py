@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any, TextIO
 
 from vibesys.config import Config
 from vibesys.constants import DEFAULT_AGENT_BACKEND
+from vibesys.features import FeatureFlag, is_feature_enabled
 
 from .base import AgentRunner
 from .progress import AgentProgress, CandidateProgress, RoundProgress
@@ -106,6 +107,10 @@ def build_agent_runner(
         SystemExit: If the requested backend is unknown, the cli backend was
             combined with ``--docker``, or the cli backend was selected
             without a provider.
+        OmnigentUnavailableError: If the ``omnigent_agent_backend`` feature
+            flag is enabled but the requested provider has no Omnigent
+            executor, or the flag was combined with ``--docker``. Never raised
+            with the flag off, which is the default.
     """
     agent_cfg = config.agent
     backend = agent_backend or agent_cfg.backend or DEFAULT_AGENT_BACKEND
@@ -133,6 +138,47 @@ def build_agent_runner(
 
     if backend == "cli":
         provider = cli_provider or agent_cfg.cli_provider or "codex"
+        timeout = agent_cfg.cli_timeout
+
+        if is_feature_enabled(FeatureFlag.OMNIGENT_AGENT_BACKEND, config):
+            # Opt-in alternative to agentshim. Validated and constructed here
+            # so an unsupported provider or a missing optional dependency
+            # fails before the loop starts. With the flag off (the default)
+            # this branch is never entered and nothing imports omnigent.
+            from .omnigent.runner import OmnigentAgentRunner, OmnigentUnavailableError
+
+            if use_docker:
+                raise OmnigentUnavailableError(
+                    "feature flag 'omnigent_agent_backend' is not supported with "
+                    "--docker; the Omnigent container launcher is still a "
+                    "prototype under experiments/omnigent-docker-spike/. Drop "
+                    "--docker or disable the flag."
+                )
+            extra_resources = tuple(host_resources)
+            if extra_resources:
+                # These are explicit operator grants that the agentshim path
+                # feeds to declare_agent_host_resources. Omnigent's sandbox
+                # takes its own path vocabulary and this integration does not
+                # translate them, so honouring the request is impossible and
+                # dropping it silently would weaken a security boundary the
+                # caller asked for.
+                raise OmnigentUnavailableError(
+                    "the Omnigent backend cannot honour the requested host "
+                    f"resource grants ({[str(r.path) for r in extra_resources]}); "
+                    "it confines the agent to the workspace only. Disable "
+                    "'omnigent_agent_backend' to use the agentshim backend, "
+                    "which declares these through vs_sandbox."
+                )
+            return OmnigentAgentRunner(
+                provider=provider,
+                model=model_name,
+                skills=skill_source_dirs,
+                model_name=model_name or provider,
+                timeout=timeout,
+                run_log_file=run_log_file,
+                log_dir=log_dir,
+            )
+
         docker_sandboxes = None
         if use_docker:
             # The Docker CLI path reuses the DOCKER_PROVIDER_ENV registry for
@@ -146,7 +192,6 @@ def build_agent_runner(
                     f"supported: {sorted(DOCKER_PROVIDER_ENV)}"
                 )
             docker_sandboxes = backends
-        timeout = agent_cfg.cli_timeout
         # The CLI tool runs [model].name, same as the deepagents backend —
         # it's the single source of truth for the model. model.name is a
         # required field (and always validated by build_model), so it is

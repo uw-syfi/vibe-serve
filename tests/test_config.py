@@ -113,6 +113,31 @@ example_feature = true
 
         assert config.feature_flags == {FeatureFlag.EXAMPLE_FEATURE: True}
 
+    def test_omnigent_agent_backend_parsed_from_toml(self, tmp_path):
+        cfg_file = tmp_path / "agent.toml"
+        cfg_file.write_text("""\
+[model]
+name = "claude-sonnet-4-6"
+
+[feature_flags]
+omnigent_agent_backend = true
+""")
+        config = load_config(cfg_file)
+
+        assert config.feature_flags == {FeatureFlag.OMNIGENT_AGENT_BACKEND: True}
+
+    def test_omnigent_agent_backend_rejects_non_boolean(self, tmp_path):
+        cfg_file = tmp_path / "agent.toml"
+        cfg_file.write_text("""\
+[model]
+name = "claude-sonnet-4-6"
+
+[feature_flags]
+omnigent_agent_backend = "yes"
+""")
+        with pytest.raises(ValueError, match="omnigent_agent_backend"):
+            load_config(cfg_file)
+
 
 class TestLoadConfigStrict:
     """Unknown sections/keys are rejected (fail-fast), not silently dropped."""

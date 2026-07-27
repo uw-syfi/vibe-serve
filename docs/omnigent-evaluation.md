@@ -125,8 +125,8 @@ supports all four providers on host and in local Docker today
 | --- | --- | --- | --- |
 | Codex | Supported — `codex` harness | Supported: launcher demonstrated; full turn unproven | Provider exists but fixed at 2 vCPU / 4 GiB, no GPU or volumes |
 | Claude | Supported — `claude-sdk` (alias `claude`); cleanest MCP story | As Codex | As Codex |
-| Gemini | No harness on `0.6.0` — not in the `--harness` set; `main` reaches it only as a user-configured `acp:gemini-cli` with cold-only resume | No path | No path |
-| OpenCode | No harness on `0.6.0` — not in the `--harness` set; `main` adds `opencode-native`, requiring tmux and bubblewrap | No path | No path |
+| Gemini | No harness on `0.6.0` — absent from `valid_harnesses()`; `main` reaches it only as a user-configured `acp:gemini-cli` with cold-only resume | No path | No path |
+| OpenCode | Harness present but unusable headless — `opencode-native` **is** in `0.6.0`'s `valid_harnesses()` (alias `opencode`), but its `OpenCodeNativeExecutor.__init__` takes only `bridge_dir`: no `cwd`, `model`, or `os_env`. It bridges Omnigent's own web UI rather than running a turn in a caller-supplied workspace | No path | No path |
 
 Capability by support level.
 
@@ -192,11 +192,13 @@ fork more cheaply than adopting Omnigent.
 
 The container objection is resolved; these are what remain, in priority order.
 
-- **Provider coverage on the shipped release.** `0.6.0` has no `gemini` and no
-  `opencode` harness — two of VibeSys's four providers. `main` reaches Gemini
-  only as a user-configured `acp:gemini-cli` (cold-only resume, no effort
-  control) and adds `opencode-native` (needs tmux and bubblewrap). Adoption
-  today narrows the provider matrix.
+- **Provider coverage on the shipped release.** `0.6.0` runs only two of
+  VibeSys's four providers headlessly. There is no `gemini` harness at all.
+  `opencode-native` does ship, but its executor is a web-UI bridge that accepts
+  no working directory or model, so it cannot serve a VibeSys workspace turn;
+  the effect is the same as absence. `main` reaches Gemini only as a
+  user-configured `acp:gemini-cli` (cold-only resume, no effort control).
+  Adoption today narrows the provider matrix.
 - **The full turn is unproven.** The spike stops at the launcher. A real turn
   needs the `omnigent` wheel in the agent image, a reachable server, a harness
   binary, and credentials, and it runs a full `omnigent host` inside every
@@ -305,6 +307,46 @@ Pursue partial adoption when all three hold:
 The first adoption increment, when triggered, is host-path Claude and Codex
 behind the isolated `OmnigentAgentRunner`, keeping `vs-sandbox` and `agentshim`
 for GPU-Docker and for Gemini and OpenCode until their gaps close.
+
+## The opt-in flag
+
+That first increment now exists in the tree, gated off by default, so the
+remaining unknowns can be retired against running code instead of another
+spike. It changes nothing until an operator sets the flag.
+
+```toml
+[feature_flags]
+omnigent_agent_backend = true
+```
+
+- **Default off.** With the flag unset or `false`, `build_agent_runner` returns
+  the same `CliAgentRunner` it always did and nothing under
+  `src/vibesys/agents/omnigent/` is imported. The agentshim path is unchanged.
+- **Optional dependency.** `omnigent` is a `[project.optional-dependencies]`
+  extra guarded by `python_version >= '3.12'`, so the 3.11 baseline and CI
+  resolve without it. Every `omnigent` import is lazy and confined to
+  `agents/omnigent/runner.py`.
+- **Seam.** The runner drives Omnigent's in-process
+  `Executor.run_turn(messages, tools, system_prompt, config)` async event
+  stream and adapts it to the `AgentRunner` contract — the same run-log output,
+  the same `usage.jsonl` schema, and the same Pydantic response parsing as the
+  agentshim runner, which it reuses rather than reimplements.
+- **No silent fallback.** Unsupported provider, `--docker`, per-invocation MCP
+  injection, extra host resource grants, and a missing or incompatible
+  `omnigent` all raise `OmnigentUnavailableError` naming the remedy. Falling
+  back to agentshim silently would make run logs misattribute which stack
+  produced a result.
+- **Confinement is preserved but not proven equivalent.** The agentshim host
+  path wraps every agent in a `vs_sandbox` host sandbox (issue #149). Omnigent
+  spawns its own harness and will not accept a `vs_sandbox` object, so the
+  runner expresses the same intent through Omnigent's `OSEnvSpec`: write access
+  to the workspace only, backend resolved per platform, never `type="none"`.
+  Equivalence between the two mechanisms is asserted by construction, not by
+  test — a reason to keep the flag off until a full-turn spike exercises it.
+
+Still unproven and unchanged by this flag: a full turn against a live model, GPU
+execution, mid-run GPU reselect, and the container path (still a prototype under
+`experiments/omnigent-docker-spike/`, and rejected by the flag).
 
 ## Follow-up work
 
