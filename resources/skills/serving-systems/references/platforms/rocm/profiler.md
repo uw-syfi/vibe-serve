@@ -10,14 +10,14 @@ The workflow mirrors CUDA's — classify with a system timeline, then descend �
 |:--|:--|:--|
 | System timeline | `nsys` | `rocprofv3` |
 | Framework / op | torch profiler | torch profiler (works unmodified on ROCm) |
-| Kernel-internal | `ncu` | `omniperf` |
+| Kernel-internal | `ncu` | `rocprof-compute` (named `omniperf` before ROCm 6.3) |
 
 `torch.profiler` is the reason vibesys can use `ProfilerKind.TORCH` on this backend without a dedicated profiler kind — it works on ROCm as-is and covers the framework altitude.
 
 ## Notes
 
 - **Start with `rocprofv3`** for a new problem, exactly as you would start with `nsys`. The classification it produces — host-bound, launch-bound, memory-bound, collective-bound — maps onto the same finding→fix table in the contract.
-- **`omniperf` has the same overhead warning as `ncu`.** Target specific kernels; do not profile a whole run at kernel altitude.
+- **`rocprof-compute` has the same overhead warning as `ncu`.** Target specific kernels; do not profile a whole run at kernel altitude. The tool was renamed from `omniperf` in ROCm 6.3 (`rocprofiler-compute`); `omnitrace` likewise became `rocprof-sys` / `rocprofiler-systems`, which is the closer analog to `nsys` for a system timeline.
 - **Collectives** show as RCCL rather than NCCL. The topology reasoning differs — Infinity Fabric, not NVLink — see [`floor.md`](floor.md) and [`algorithms/parallelism.md`](../../algorithms/parallelism.md).
 
 ## The characteristic ROCm finding

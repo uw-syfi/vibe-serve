@@ -62,7 +62,7 @@ Only files in the portable tiers may be linked from other portable tiers. **A po
 
 - Portable → portable: normal relative links.
 - Portable → platform: link the directory (`[platforms/](../platforms/)`) or name the library as plain text. Never `](../platforms/cuda/flashinfer.md)`.
-- Contract → its own platform implementations: allowed, via the dispatch table.
+- Contract → its own platform implementations: **name the backends in a table, link only the `platforms/` directory.** A contract is a portable file too, so the same ban applies — a dispatch table that deep-links `](../platforms/cuda/x.md)` dangles on every other backend and the test rejects it.
 - Within one `platforms/<backend>/`: normal relative links (both endpoints survive together).
 
 ## SKILL.md (the router)
@@ -88,7 +88,7 @@ Keep under **300 lines**. Body sections in order:
 1. One-paragraph statement of what the skill bundles.
 2. **How to use this skill** — concise instructions on opening a specific reference vs preloading.
 3. **Default-on optimizations** — the optimization-floor recommendations (continuous batching, fused attention, CUDA graphs) with links to the relevant references.
-4. **Reference index** — every `references/<topic>.md` listed under its tier heading, each entry one line: `- [\`references/<topic>.md\`](references/<topic>.md) — <one-line trigger>.`
+4. **Reference index** — every portable-tier file listed under its tier heading, each entry one line: `- [\`references/<tier>/<topic>.md\`](references/<tier>/<topic>.md) — <one-line trigger>.` **`platforms/` is indexed as a directory, not per-file**, because only one backend survives materialization and per-file entries for absent backends would be noise.
 5. **Out of scope** — pointers to other skill collections (e.g. agent-gpu-skills for kernel writing).
 6. **Reference repos** — `$SERVE_REPOS` placeholder explanation.
 
@@ -122,7 +122,7 @@ When a `references/<topic>.md` benefits from a compatibility matrix or a "where'
 
 ### Engine source-map references
 
-Files under the `engines` tier (e.g. `references/vllm.md`, `references/sglang.md`, `references/trtllm.md`) include a **"Where's X" table**:
+Files under the `engines` tier (`references/engines/vllm.md`, `references/engines/sglang.md`, `references/engines/trtllm.md`) include a **"Where's X" table**:
 
 ```markdown
 | Need | Path in repos/<engine>/ |
@@ -162,10 +162,10 @@ This is how axis-crossing knowledge lives — not in the directory tree.
 
 ## Reference-repo path convention
 
-Repos live at `skills/serving-systems/repos/{vllm,sglang,TensorRT-LLM}/` (git submodules). Reference files cite paths via:
+Repos live at `resources/skills/serving-systems/repos/{vllm,sglang,TensorRT-LLM}/` (git submodules). Reference files cite paths via:
 
 ```
-$SERVE_REPOS = <vibesys-root>/skills/serving-systems/repos
+$SERVE_REPOS = <vibesys-root>/resources/skills/serving-systems/repos
 ```
 
 Example grep recipe:
@@ -174,7 +174,7 @@ Example grep recipe:
 rg "register.*backend" $SERVE_REPOS/vllm/vllm/v1/attention/backends/
 ```
 
-Tell the reader to export `SERVE_REPOS=$(git rev-parse --show-toplevel)/skills/serving-systems/repos` or substitute inline.
+Tell the reader to export `SERVE_REPOS=$(git rev-parse --show-toplevel)/resources/skills/serving-systems/repos` or substitute inline.
 
 The `repos/` directory is **excluded** from agent materialization (see `src/vibesys/agents/cli_runner.py::_materialize_skills`); reference paths into it are advisory grep recipes, not runtime imports.
 
@@ -210,9 +210,9 @@ The `repos/` directory is **excluded** from agent materialization (see `src/vibe
 ## Running the reference repos
 
 ```bash
-git submodule update --init skills/serving-systems/repos       # initialize all
-git submodule update --init skills/serving-systems/repos/vllm  # initialize one
-git -C skills/serving-systems/repos/vllm pull origin main      # update one
+git submodule update --init resources/skills/serving-systems/repos       # initialize all
+git submodule update --init resources/skills/serving-systems/repos/vllm  # initialize one
+git -C resources/skills/serving-systems/repos/vllm pull origin main      # update one
 ```
 
 `update-repos.sh` is the upstream sparse-checkout helper; here the repos are tracked as shallow git submodules instead.

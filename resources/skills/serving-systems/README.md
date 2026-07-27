@@ -14,7 +14,7 @@ Skills are organized by **abstraction layer** with explicit extensibility axes.
 |:-----|:-----|:--------|
 | [`models/`](references/models/) | model architecture | What does each model look like? Weight layout, attention type, tokenization, modalities. |
 | [`algorithms/`](references/algorithms/) | idea / algorithm | Cross-cutting serving concepts: continuous batching, paged attention, speculative decoding, MoE routing, parallelism, quantization schemes. |
-| [`frameworks/`](references/frameworks/) | programming framework | PyTorch / MLX / (future JAX) idioms for serving. |
+| [`frameworks/`](references/frameworks/) | programming framework | **Cross-platform only** — PyTorch and Triton idioms for serving. Platform-bound frameworks (MLX, torch-neuronx, NxD) live under that platform's directory. |
 | [`platforms/`](references/platforms/) | compute backend | One directory per `ComputeBackend` (`cuda`, `rocm`, `trainium`, `metal`, `cpu`), each with `floor.md`, `hardware.md`, `profiler.md` plus its own kernel-library notes. Only the selected backend's directory is materialized. Kernel *implementation* is out of scope; see agent-gpu-skills. |
 | [`engines/`](references/engines/) | reference system | Source-code lookup into vLLM, SGLang, TensorRT-LLM. Short SKILL.md + "where's X" grep tables. |
 | [`tooling/`](references/tooling/) | orthogonal workflow | FastAPI serving, accuracy checking, serving benchmarks, profiling, I/O handling. |
@@ -23,16 +23,18 @@ Skills are organized by **abstraction layer** with explicit extensibility axes.
 
 Each tier is designed so new entries drop in as folders:
 
-- **Add a model** → new folder under `models/` describing arch + features it needs.
-- **Add hardware** → new folder under `hardware/` with precision / collective / profiler notes.
-- **Add a framework or backend** → new folder under `frameworks/` or `backends/`.
-- **Add an engine** → new folder under `engines/` with "where's X" tables.
+- **Add a model** → new file under `models/` describing arch + features it needs.
+- **Add a platform** → new `platforms/<backend>/` directory, named for the exact `ComputeBackend` value (`cuda`, not `nvidia`). It must carry the full skeleton — `floor.md`, `hardware.md`, `profiler.md` — or `validate_skill_tree` fails the run. See [`CLAUDE.md`](CLAUDE.md).
+- **Add a cross-platform framework** → new file under `frameworks/`. Platform-bound ones go in `platforms/<backend>/`.
+- **Add an engine** → new file under `engines/` with "where's X" tables.
 
-Because axes are not fully orthogonal (FlashInfer is CUDA-only, MLX is Apple-only, MLA needs a MLA-capable backend), each `algorithms/` skill ends with a compatibility matrix (`algorithm × {backend, hardware, engine}`) so cross-axis constraints are captured where they belong.
+Because axes are not fully orthogonal (FlashInfer is CUDA-only, MLX is Apple-only, MLA needs an MLA-capable backend), each `algorithms/` file ends with a compatibility matrix (`algorithm × {kernel library, engine, backend}`) so cross-axis constraints are captured where they belong. **N/A rows are load-bearing** — "this does not apply on `trainium`, use X instead" is what stops a backend silently inheriting another's guidance.
 
 ## Kernel-level boundary
 
-This collection assumes existing kernel libraries. Writing new CUDA / Triton / CUTLASS kernels is **out of scope** — those skills live in [agent-gpu-skills](https://github.com/slowlyC/agent-gpu-skills). Each `backends/*` skill ends with a pointer back to the relevant gpu-skills entry.
+This collection assumes existing kernel libraries. Writing new CUDA / HIP / Triton / CUTLASS kernels is **out of scope** — those skills live in [agent-gpu-skills](https://github.com/slowlyC/agent-gpu-skills). Each kernel-library file under `platforms/<backend>/` ends with a pointer back to the relevant gpu-skills entry.
+
+**Exception — NKI:** writing NeuronCore kernels for AWS Trainium *is* in scope, via the bundled `neuron-nki-*` skills.
 
 ## Setup
 
@@ -59,21 +61,30 @@ vibesys-skills/
 ├── README.md, CLAUDE.md          # overview + guidance for skill authors
 ├── update-repos.sh               # upstream sparse-checkout helper (parity)
 │
-├── models/                       text-dense, text-moe, ssm-hybrid,
+├── models/                       attention-variants, text-dense, text-moe,
+│                                 ssm-hybrid,
 │                                 vision-language, speech-language,
 │                                 image-generation, video-generation,
 │                                 speech-generation, omni-multimodal
-├── algorithms/                   attention-variants, async-scheduling,
-│                                 continuous-batching, paged-attention,
-│                                 radix-prefix-caching, heterogeneous-kv-cache,
-│                                 chunked-prefill, speculative-decoding,
-│                                 disaggregated-serving, moe-routing-dispatch,
-│                                 quantization-schemes, parallelism,
-│                                 structured-output, batched-sampling
-├── frameworks/                   pytorch, triton, mlx
-├── backends/                     flashinfer, flashattention, sdpa,
-│                                 triton-kernels, cuda-graph
-├── hardware/                     nvidia, amd-mi300, apple-silicon
+├── algorithms/                   async-scheduling, continuous-batching,
+│                                 paged-attention, radix-prefix-caching,
+│                                 heterogeneous-kv-cache, chunked-prefill,
+│                                 speculative-decoding, disaggregated-serving,
+│                                 moe-routing-dispatch, quantization-schemes,
+│                                 parallelism, structured-output,
+│                                 batched-sampling, cross-attention-kv-cache
+├── frameworks/                   pytorch, triton          (cross-platform only)
+├── platforms/                    ONE dir per ComputeBackend; only the
+│   ├── cuda/                     selected backend is materialized.
+│   │                             floor, hardware, profiler + flashinfer,
+│   │                             flashattention, sdpa, cuda-graph,
+│   │                             triton-kernels, attention-backend-comparison
+│   ├── rocm/                     floor, hardware, profiler, aiter
+│   ├── trainium/                 floor, hardware, profiler + neuron-pytorch,
+│   │                             nxd-inference, nxd-kv-cache,
+│   │                             neuron-flash-attention
+│   ├── metal/                    floor, hardware, profiler, mlx, mlx-serving
+│   └── cpu/                      floor, hardware, profiler
 ├── engines/                      vllm, sglang, trtllm
 ├── tooling/                      fastapi-serving, openai-api,
 │                                 accuracy-checker, serving-benchmark,

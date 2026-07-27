@@ -7,11 +7,15 @@ The fused-kernel layer on CDNA — the ROCm answer to the question [`attention-b
 ## The stack
 
 ```
-AITER              — AMD's fused-op library (attention, GEMM, MoE, norm)
-   ↓ built on
-Composable Kernel  — templated kernel framework for CDNA
-   ↓ alongside
-Triton             — portable; how vLLM/SGLang cover ROCm gaps
+AITER              — AMD's fused-op library (attention, GEMM, MoE, norm).
+                     Its kernels are written in a mix of Triton, Composable
+                     Kernel, HIP, and hand-written assembly — several of the
+                     fastest paths (MoE, FMHA) are ASM. Triton lives *inside*
+                     AITER, not beside it.
+   ↓ drops to
+Composable Kernel  — templated kernel framework for CDNA; usable directly
+   ↓ or
+Triton             — portable; also how vLLM/SGLang cover ROCm gaps
    ↓ floor
 PyTorch SDPA       — always available, fused, slowest of the four
 ```

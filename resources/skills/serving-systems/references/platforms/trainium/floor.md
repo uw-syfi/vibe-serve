@@ -22,7 +22,7 @@ Without a warm cache, every process start pays full compilation. Set the cache d
 
 A from-scratch `torch_neuronx.trace` decode that passes the KV cache through the graph boundary every token is host-bound and slow — the cache crosses the device edge twice per token. This is the single most common Trainium serving mistake.
 
-Note this is *not* paged attention. There is no block pool and no page table; the CUDA fragmentation problem it solves doesn't exist in the same form here.
+Note the default is *not* paged attention: with static shapes there is no fragmentation problem to solve, so plain continuous batching over fixed slots needs no block pool. NxD does provide a block/paged layout (`BlockKVCacheManager`, `is_block_kv_layout`, `pa_num_blocks` / `pa_block_size`) — see [`nxd-kv-cache.md`](nxd-kv-cache.md). It is **required for prefix caching**. Use it when you need prefix reuse; skip it otherwise.
 
 ## 4. Flash attention via NKI
 

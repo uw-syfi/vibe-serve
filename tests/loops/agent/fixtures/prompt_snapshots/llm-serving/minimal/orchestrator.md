@@ -51,19 +51,25 @@ A library of curated technique-specific skills may be installed in your working 
 
 ## Optimization priority (read before choosing the next task)
 
-Serving systems have a well-established **optimization floor**: three techniques every production LLM server ships with, because each addresses a fundamental cost source the workload cannot avoid on NVIDIA hardware. Before proposing any workload-specific optimization (speculative decoding, prompt/prefix caching, grammar-constrained decoding fast paths, schema minimization, etc.), confirm all three are in place unless a specific one is **absolutely incompatible** with the objective:
+Serving systems have a well-established **optimization floor**: the techniques every production LLM server ships with, because each addresses a fundamental cost source the workload cannot avoid. Before proposing any workload-specific optimization (speculative decoding, prompt/prefix caching, grammar-constrained decoding fast paths, schema minimization, etc.), confirm the floor is in place unless a specific item is **absolutely incompatible** with the objective.
 
-1. **Continuous batching** (see `skills/serving-systems/algorithms/continuous-batching/`).
-2. **Attention kernel** — FlashInfer or FlashAttention (see `skills/serving-systems/backends/flashinfer/` and `skills/serving-systems/backends/flashattention/`).
-3. **CUDA graphs** (see `skills/serving-systems/backends/cuda-graph/`). 
+**The floor is hardware-specific.** Read `references/platforms/<backend>/floor.md` in the `serving-systems` skill — exactly one platform directory is present, the one this run targets. Do not assume the NVIDIA floor: eliminating KV padding is correct on `cuda` and inverted on `trainium` (where `neuronx-cc` needs static shapes), and graph capture does not exist on `metal` at all. Proposing a task that is right for another backend wastes the round and contradicts what the implementer is told.
 
-**Only after these three are present and verified** (profiler-confirmed kernel count drops, FlashInfer calls visible, graph replay counters non-zero) should you spend rounds on workload-specific optimizations like speculative decoding, grammar-based fast paths, or prompt / prefix caching.
+On `cuda` and `rocm` the floor is:
 
-The three exceptions that let you skip a floor item:
+1. **Continuous batching** — contract at `references/algorithms/continuous-batching.md`, implementation in your platform directory.
+2. **Fused attention kernel** — FlashInfer / FlashAttention on `cuda`, AITER / Composable Kernel on `rocm`.
+3. **Graph capture** — CUDA graphs on `cuda`, HIP graphs on `rocm`.
+
+On `trainium` and `metal` the floor is genuinely different in both content and ordering; `floor.md` for that backend is authoritative.
+
+**Only after the floor is present and verified** (profiler-confirmed kernel count drops, fused-attention calls visible, graph replay counters non-zero where the backend has capture) should you spend rounds on workload-specific optimizations like speculative decoding, grammar-based fast paths, or prompt / prefix caching.
+
+Exceptions that let you skip a floor item:
 
 - **Continuous batching**: skip when the benchmark / objective is single-batch by contract.
-- **Attention kernel**: skip when running on non-NVIDIA hardware where neither FlashInfer nor FlashAttention ships (Apple → MLX; AMD → the upstreamed FA AMD port).
-- **CUDA graphs**: skip when the decode shapes are genuinely unbucketable (very rare — even speculative-decoding tree depths and chunked-prefill chunk sizes are ≤ 16 buckets).
+- **Fused attention kernel**: never skip — every backend has one. What differs is which library.
+- **Graph capture**: not applicable on backends without it (`metal`, `cpu`; `trainium` compiles ahead of time instead). Where it does apply, skip only when decode shapes are genuinely unbucketable (very rare — even speculative-decoding tree depths and chunked-prefill chunk sizes are ≤ 16 buckets).
 
 If you skip a floor item, cite the specific incompatibility in your `reasoning`. Do NOT skip because "the current profile shows something else is the dominant cost" — the floor items *become* the dominant cost in turn once other work lands, and cycling between "revert this, try that" over exotic optimizations without the floor in place is a common failure mode of this loop.
 
@@ -72,8 +78,8 @@ If you skip a floor item, cite the specific incompatibility in your `reasoning`.
 Good round-sized tasks for this domain include:
 - "Build a self-contained FastAPI server for the reference model."
 - "Add continuous batching to the decode loop."
-- "Replace manual attention with FlashInfer batched decode."
-- "Add CUDA graph capture/replay for the decode path."
+- "Replace manual attention with the platform's fused attention kernel (FlashInfer batched decode on `cuda`)."
+- "Add graph capture/replay for the decode path (where the backend supports it)."
 - "Fix the 8 ms launch overhead shown in `linear_layer_N` (top kernel in the last profile)."
 
 ## Scoping API work

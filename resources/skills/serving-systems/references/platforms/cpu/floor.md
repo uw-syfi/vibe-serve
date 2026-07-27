@@ -35,7 +35,7 @@ Batching on an accelerator amortizes launch overhead and fills parallel units. O
 |:--|:--|
 | Graph capture (CUDA/HIP graphs) | N/A — no launch overhead to eliminate |
 | Paged attention / block pool | N/A — no discrete device pool |
-| Fused attention kernel libraries | N/A — FlashAttention/FlashInfer/AITER are all accelerator kernels |
+| Accelerator kernel libraries (FlashAttention / FlashInfer / AITER) | N/A — but **not** "no fused attention": use `torch.nn.functional.scaled_dot_product_attention`, which has a CPU flash-attention backend (fp32/bf16). oneDNN/IPEX and llama.cpp fuse too. Never materialize the full score matrix on CPU either. |
 | Async / overlap scheduling | N/A — there is no device to overlap host work against |
 | TP / PP / EP, disaggregated serving | N/A within one host |
 

@@ -113,6 +113,6 @@ TRT-LLM location: `$SERVE_REPOS/TensorRT-LLM/tensorrt_llm/_torch/pyexecutor/conn
 
 - `algorithms/attention-variants/` — orthogonal axis: which *flavor* of attention (MHA / GQA / MLA / SWA / cross) is stored in the paged pool
 - `algorithms/radix-prefix-caching/` — prefix sharing built on the block pool
-- `backends/flashinfer/` — paged attention wrappers
-- `backends/flashattention/` — `flash_attn_with_kvcache` paged mode
+- **FlashInfer** — paged attention wrappers
+- **FlashAttention** — `flash_attn_with_kvcache` paged mode
 - `algorithms/continuous-batching/` — paging enables this

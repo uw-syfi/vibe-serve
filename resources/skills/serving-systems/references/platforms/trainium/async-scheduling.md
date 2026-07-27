@@ -8,29 +8,24 @@ Implements [`algorithms/async-scheduling.md`](../../algorithms/async-scheduling.
 
 What remains is: while the device executes step N, the host must have step N+1's inputs ready to submit. If it doesn't, the queue drains and the device idles between executions.
 
-## The lever: submit before you settle
+## The lever: `async_mode`, not manual `.cpu()` placement
 
-```
-# serialized — host reads step N's output before preparing N+1
-out = model(step_input)
-tokens = out.cpu()                   # blocks; queue drains
-next_input = prepare(tokens)
+A traced `torch_neuronx` module **consumes and produces host tensors** — the runtime performs the device transfers internally. So the call already blocked by the time it returns, `out.cpu()` is a no-op, and reordering it overlaps nothing. Do not try to hand-roll a submit-then-settle pipeline; there is no future to hold.
 
-# overlapped — keep the queue non-empty
-out = model(step_input)              # submitted, executing
-... host bookkeeping that does not depend on `out` ...
-tokens = out.cpu()                   # settle only when needed
-```
+The actual switch is **`async_mode=True` on NxD's `NeuronConfig`**. It lets the runtime keep the execution queue fed across steps and is typically worth 5–20% latency. Two prerequisites:
 
-Because the KV cache is device-resident and aliased ([`nxd-kv-cache.md`](nxd-kv-cache.md)), most of step N+1's state does *not* depend on reading step N's output back to the host — the cache advanced in place. That is what makes overlap possible; a design that round-trips KV through the host has nothing to overlap.
+- **On-device sampling.** A host round-trip per token reintroduces the sync that `async_mode` exists to remove.
+- **Fused speculation**, if speculating — see [`speculative-decoding.md`](speculative-decoding.md).
+
+Because the KV cache is device-resident and aliased ([`nxd-kv-cache.md`](nxd-kv-cache.md)), step N+1's state does not depend on reading step N's output back to the host — the cache advanced in place. That is the precondition that makes `async_mode` effective; a design that round-trips KV through the host has nothing to overlap.
 
 ## Satisfying the contract's invariants here
 
 | Invariant | How |
 |:--|:--|
-| 1. Pipeline depth 2 | One execution in flight while the host prepares the next |
-| 2. Future-typed values | The device tensor before `.cpu()`; on-device sampling keeps the sampled token from becoming a host dependency |
-| 3. One ordered sync point | The single `.cpu()` per step that pulls emitted tokens for detokenization |
+| 1. Pipeline depth 2 | Managed by the runtime under `async_mode` |
+| 2. Future-typed values | Held by the runtime under `async_mode`; on-device sampling keeps the sampled token from becoming a host dependency |
+| 3. One ordered sync point | The single per-step read of emitted tokens for detokenization |
 | 4. Serialize on demand | Any host-side decision (grammar, admission on a new bucket) forces a settle; the loop degrades to synchronous |
 
 ## The dominant stall is upstream of this

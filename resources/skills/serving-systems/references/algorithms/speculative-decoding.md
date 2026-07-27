@@ -20,7 +20,9 @@ Portable across backends; pick on quality/cost grounds, not hardware.
 
 1. **One target forward per verify.** Build the verifier input as `prompt_kv + [base, d_1 … d_k]` and run *one* forward over `k+1` query positions. Doing `k+1` separate forwards gains nothing — this is the entire optimization.
 2. **Drafter decodes incrementally.** The drafter needs its own KV cache and prompt prefill, advancing only over emitted tokens. Re-running a full forward over the growing context per draft step makes the drafter cost more than the target it was meant to save.
-3. **Accept prefix, then stop.** Accept while `argmax(target_logits[i]) == d_{i+1}`; halt at the first mismatch. Position `k` yields a free bonus token.
+3. **Accept prefix, then stop.** Halt at the first rejection; position `k` yields a free bonus token. The accept test depends on the sampling mode:
+   - **Greedy** (`temperature == 0`): accept while `argmax(target_logits[i]) == d_{i+1}`.
+   - **Stochastic** (`temperature > 0`): accept with probability `min(1, p/q)` where `p` is the target's and `q` the drafter's probability for the drafted token; on rejection, resample from the normalized residual `max(0, p - q)`. Using the greedy rule here **silently biases the output distribution** — the result is no longer equivalent to sampling from the target model.
 4. **Roll back all length trackers together.** Rejected drafts already wrote K/V. Resetting only `seq_len` leaves stale K/V visible to any path that indexes by cache metadata.
 5. **Verify uses the same execution path as normal decode.** A separate eager verify path costs more than it saves and can disable the fast path for non-speculative requests too.
 
@@ -50,7 +52,7 @@ The divergence is **variable accepted length**, which is a shape change per step
 |:--|:--|
 | `cuda` | Capture per `(batch bucket, k)` shape; pad up when accept is shorter |
 | `rocm` | As cuda |
-| `trainium` | Accepted length must be bucketed and the graph pre-compiled per bucket — an unbucketed implementation triggers a recompile per distinct accept length |
+| `trainium` | Keep accepted length out of the graph shape entirely — verify at fixed width `k+1` and commit by masking. NxD's supported path is **fused speculation** (`fused_speculation`), which compiles drafter and target together and handles variable accept length internally; it is also a prerequisite for `async_mode` |
 | `metal` | No capture step; the variable shape is not a problem, and the cost model differs — evaluate whether spec decoding pays at all before building it |
 
 ## See also

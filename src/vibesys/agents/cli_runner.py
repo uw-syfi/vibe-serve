@@ -45,6 +45,7 @@ from vibesys.agents.callbacks import AgentLogger
 from vibesys.agents.host_resource_declarations import declare_agent_host_resources
 from vibesys.agents.progress import AgentProgress
 from vibesys.constants import ComputeBackend
+from vibesys.skills import foreign_platform_names, is_platforms_parent
 from vs_sandbox import HostResource, build_host_sandbox
 
 T = TypeVar("T", bound=BaseModel)
@@ -124,16 +125,11 @@ def _platform_prune_ignore(
     be called e.g. ``cpu`` is never dropped.
     """
     skip_names = {".git", "repos", "__pycache__"}
-    foreign = {b.value for b in ComputeBackend}
-    if compute_backend is not None:
-        foreign.discard(compute_backend.value)
+    foreign = foreign_platform_names(compute_backend)
 
     def _ignore(src_dir: str, names: list[str]) -> set[str]:
         ignored = {n for n in names if n in skip_names}
-        if compute_backend is not None and Path(src_dir).parts[-2:] == (
-            "references",
-            "platforms",
-        ):
+        if foreign and is_platforms_parent(src_dir):
             ignored |= {n for n in names if n in foreign}
         return ignored
 

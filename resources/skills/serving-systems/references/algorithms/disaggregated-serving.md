@@ -91,5 +91,5 @@ is inapplicable, not merely unimplemented.
 
 - `algorithms/parallelism/` — can combine with TP/PP/EP within each pool
 - `algorithms/paged-attention/` — KV layout + transfer chunking
-- `hardware/nvidia/` — NVLink / NVSwitch / NVL72 / NIC choices
+- your platform's `hardware.md` — NVLink / NVSwitch / NVL72 / NIC choices
 - `engines/sglang/`, `engines/vllm/`, `engines/trtllm/` — source

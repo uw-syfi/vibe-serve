@@ -86,6 +86,25 @@ class TestRocmSandbox:
                 log_path=None,
             )
 
+    def test_torch_wheel_index_targets_rocm(self, tmp_path):
+        """Without this, `uv add torch` in the agent's fresh venv resolves the
+        default PyPI (CUDA) wheel and the run silently falls back to CPU."""
+        impl = _make_backend(tmp_path)
+        workspace = tmp_path / "ws"
+        workspace.mkdir()
+        sb = impl.make_sandbox(
+            SandboxKind.DOCKER,
+            host_workspace=str(workspace),
+            log_path=None,
+        )
+        assert "rocm" in sb._env["UV_EXTRA_INDEX_URL"]
+
+    def test_default_image_is_pinned(self):
+        """A floating :latest tag can drift past the host kernel driver."""
+        from vibesys.backends.rocm import _DEFAULT_IMAGE
+
+        assert not _DEFAULT_IMAGE.endswith(":latest")
+
     def test_hip_visible_devices_is_respected(self, tmp_path, monkeypatch):
         monkeypatch.setenv("HIP_VISIBLE_DEVICES", "2")
         impl = _make_backend(tmp_path)

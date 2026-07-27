@@ -158,4 +158,4 @@ rg "TORCH_LIBRARY|PYBIND11_MODULE" $SERVE_REPOS/vllm/csrc/
 - `engines/sglang/`, `engines/trtllm/` — contrast vLLM's design with the other two
 - `algorithms/async-scheduling/` — vLLM's `AsyncScheduler` (at `vllm/v1/core/sched/async_scheduler.py` + `vllm/v1/worker/gpu/async_utils.py`) is the canonical example; stacks with CUDA graphs + batched sampling
 - `algorithms/*` — concept behind each source location
-- `backends/flashinfer/`, `backends/flashattention/` — how the attention backends call out
+- **FlashInfer**, **FlashAttention** — how the attention backends call out

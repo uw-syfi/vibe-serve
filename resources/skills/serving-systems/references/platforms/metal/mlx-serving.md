@@ -57,7 +57,7 @@ Quantized and unquantized layers can coexist. The usual split is quantized linea
 - **Python-side EOS comparison.** Forces a sync; fold into the step's evaluation.
 - **Unbounded KV growth.** System memory is shared; a runaway cache causes swapping, not a clean OOM.
 - **Benchmarking without warmup.** First-call compilation lands in TTFT.
-- **Assuming `mx.compile` is CUDA graphs.** It fuses ops; it does not capture launches, and the fixed-shape/stable-address rules do not apply.
+- **Assuming `mx.compile` is CUDA graphs.** It fuses ops rather than capturing launches, so the stable-address rule drops away — but it still recompiles per traced shape, so the shape discipline does not.
 
 ## See also
 

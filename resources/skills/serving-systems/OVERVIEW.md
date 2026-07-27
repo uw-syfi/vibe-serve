@@ -8,12 +8,13 @@ Skills are layered by abstraction — [`README.md`](README.md) has the full tree
 
 - [`models/`](references/models/) — what does each model look like; what serving features it needs
 - [`algorithms/`](references/algorithms/) — serving concepts (attention variants, async scheduling, continuous batching, paged attention, speculative decoding, ...)
-- [`frameworks/`](references/frameworks/) — PyTorch / MLX / Neuron (Trainium) idioms
-- [`platforms/`](references/platforms/) — how to call SDPA / FlashInfer / FlashAttention / Triton / CUDA graph
-- [`platforms/`](references/platforms/) — Hopper / Blackwell / MI300 / Apple Silicon / AWS Trainium specifics
+- [`frameworks/`](references/frameworks/) — cross-platform framework idioms (PyTorch, Triton)
+- [`platforms/`](references/platforms/) — **one directory per compute backend** (`cuda`, `rocm`, `trainium`, `metal`, `cpu`), each with its optimization `floor.md`, `hardware.md`, `profiler.md`, and its own kernel-library and framework notes. Only the backend this run targets is materialized.
 - [`engines/`](references/engines/) — source-code lookup into vLLM / SGLang / TensorRT-LLM
 - [`tooling/`](references/tooling/) — FastAPI serving, accuracy checking, benchmarking, profiling, I/O
 - [`agent-gpu-skills`](https://github.com/slowlyC/agent-gpu-skills) (separate repo) — kernel implementation; out of scope here
+
+> **Platform paths below.** Where this document names a `platforms/cuda/...` file, that is the NVIDIA answer to a question every backend has. On a non-CUDA run that directory is not present — open `references/platforms/<your backend>/floor.md` for the equivalent. Paths under `platforms/` are written as plain text rather than links for exactly this reason.
 
 ## Scope: what this collection centers on
 
@@ -98,10 +99,10 @@ The usual suspects, in order:
 
 | Symptom | Skill | Why |
 |:--------|:------|:----|
-| Many small kernels, CPU-GPU gaps | [`platforms/cuda/cuda-graph`](references/platforms/cuda/cuda-graph.md) | capture the decode pass; eliminate launch overhead |
+| Many small kernels, CPU-GPU gaps | `platforms/cuda/cuda-graph` | capture the decode pass; eliminate launch overhead |
 | Python scheduler / postproc gap between steps | [`algorithms/async-scheduling/`](references/algorithms/async-scheduling.md) | run scheduler + postproc on CPU concurrently with GPU forward |
 | Per-request Python sampling loop | [`algorithms/batched-sampling/`](references/algorithms/batched-sampling.md) | one `.tolist()` instead of one `.item()` per request |
-| Unfused op sequences | [`platforms/cuda/flashinfer`](references/platforms/cuda/flashinfer.md) | fused RMSNorm / RoPE / SiLU reduce intermediate writes |
+| Unfused op sequences | `platforms/cuda/flashinfer` | fused RMSNorm / RoPE / SiLU reduce intermediate writes |
 | HBM bandwidth saturated, low arithmetic intensity | [`algorithms/quantization-schemes/`](references/algorithms/quantization-schemes.md) | FP8 / INT4 weights halve / quarter byte traffic |
 | KV cache larger than necessary | [`algorithms/paged-attention/`](references/algorithms/paged-attention.md) + KV quant | smaller KV = less per-step HBM traffic |
 | Decode limited by single GPU bandwidth | [`algorithms/parallelism/`](references/algorithms/parallelism.md) | TP aggregates HBM bandwidth (cost: collectives) |
@@ -113,7 +114,7 @@ The usual suspects, in order:
 |:--------|:------|:----|
 | Long prompts stalling decode | [`algorithms/chunked-prefill/`](references/algorithms/chunked-prefill.md) | interleave prefill chunks with decode |
 | Repeated prompts / branching | [`algorithms/radix-prefix-caching/`](references/algorithms/radix-prefix-caching.md) | skip KV compute on shared prefix |
-| Prefill compute-bound | [`algorithms/quantization-schemes/`](references/algorithms/quantization-schemes.md) (FP8/FP4) + [`platforms/cuda/hardware`](references/platforms/cuda/hardware.md) | low-precision tensor cores accelerate matmul |
+| Prefill compute-bound | [`algorithms/quantization-schemes/`](references/algorithms/quantization-schemes.md) (FP8/FP4) + `platforms/cuda/hardware` | low-precision tensor cores accelerate matmul |
 | Prefill too big for one GPU | [`algorithms/parallelism/`](references/algorithms/parallelism.md) (TP) | shard weights and activations |
 | Prefill competing with decode | [`algorithms/disaggregated-serving/`](references/algorithms/disaggregated-serving.md) | dedicated prefill pool |
 
@@ -148,7 +149,7 @@ Separate the KV-capacity problem from the weight-capacity problem.
 | Which parallelism strategy? | [`algorithms/parallelism/`](references/algorithms/parallelism.md) |
 | MoE-specific dispatch | [`algorithms/moe-routing-dispatch/`](references/algorithms/moe-routing-dispatch.md) |
 | Separate prefill from decode workers | [`algorithms/disaggregated-serving/`](references/algorithms/disaggregated-serving.md) |
-| NVLink domain sizing | [`platforms/cuda/hardware`](references/platforms/cuda/hardware.md) |
+| NVLink domain sizing | `platforms/cuda/hardware` |
 
 Rule of thumb: stay within one NVLink domain for TP and EP; use PP or DP to cross domains.
 
@@ -204,15 +205,15 @@ At the end of Phase 2 the server handles one request at a time, correctly. That'
 
 **Phase 4 — Visit each component.** Replace naive implementations with production kernels, one component at a time.
 
-- **Attention**: [`platforms/cuda/sdpa`](references/platforms/cuda/sdpa.md) (dependency-light baseline and single-batch fixed-shape CUDA graphs), [`platforms/cuda/flashinfer`](references/platforms/cuda/flashinfer.md) (plan/run wrappers, MLA variants, cascade for shared prefixes), or [`platforms/cuda/flashattention`](references/platforms/cuda/flashattention.md) (varlen + paged `flash_attn_with_kvcache`).
-- **Non-attention fused ops** (RMSNorm, RoPE, SiLU, layer norm, fused residual): [`platforms/cuda/flashinfer`](references/platforms/cuda/flashinfer.md) fused-op section.
+- **Attention**: `platforms/cuda/sdpa` (dependency-light baseline and single-batch fixed-shape CUDA graphs), `platforms/cuda/flashinfer` (plan/run wrappers, MLA variants, cascade for shared prefixes), or `platforms/cuda/flashattention` (varlen + paged `flash_attn_with_kvcache`).
+- **Non-attention fused ops** (RMSNorm, RoPE, SiLU, layer norm, fused residual): `platforms/cuda/flashinfer` fused-op section.
 - **Sampling**: [`algorithms/batched-sampling/`](references/algorithms/batched-sampling.md) — one `.tolist()` per step instead of one `.item()` per request.
 - **Quantization** (if relevant): [`algorithms/quantization-schemes/`](references/algorithms/quantization-schemes.md) — FP8 / INT4 / FP4 as the hardware allows.
 - **Model-family-specific components**: MoE dispatch ([`algorithms/moe-routing-dispatch/`](references/algorithms/moe-routing-dispatch.md)), speculative decoding ([`algorithms/speculative-decoding/`](references/algorithms/speculative-decoding.md)), structured output ([`algorithms/structured-output/`](references/algorithms/structured-output.md)).
 
 **Phase 5 — Reduce CPU overhead.** Stop the GPU from waiting for the CPU.
 
-- [`platforms/cuda/cuda-graph`](references/platforms/cuda/cuda-graph.md) — capture the decode pass; eliminate per-kernel launch overhead. Full-graph or piecewise.
+- `platforms/cuda/cuda-graph` — capture the decode pass; eliminate per-kernel launch overhead. Full-graph or piecewise.
 - [`algorithms/async-scheduling/`](references/algorithms/async-scheduling.md) — pipeline scheduler prep and result postproc with the GPU forward (SGLang overlap scheduler, vLLM AsyncScheduler + MRV2 patterns).
 - [`frameworks/pytorch/`](references/frameworks/pytorch.md) — sync-point catalogue, multi-stream + CUDA-event patterns, warmup discipline, static preallocation, gather-based input prep.
 

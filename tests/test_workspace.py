@@ -13,10 +13,11 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from vibesys.constants import ComputeBackend
 from vibesys.run import CopySpec, InputProjectSpec, Workspace
 
 
-def _make_workspace(root, *, isolated=False, excluded_dirs=None):
+def _make_workspace(root, *, isolated=False, excluded_dirs=None, compute_backend=None):
     return Workspace(
         root,
         run_environment=SimpleNamespace(isolated=isolated),
@@ -24,7 +25,99 @@ def _make_workspace(root, *, isolated=False, excluded_dirs=None):
         log=MagicMock(),
         project_root=root.parent,
         excluded_dirs=excluded_dirs if excluded_dirs is not None else {".git", "target"},
+        compute_backend=compute_backend,
     )
+
+
+def _write_platform_skill(root):
+    """A skill carrying one references/platforms/<backend>/ dir per backend."""
+    skill = root / "serving-systems"
+    (skill / "references" / "algorithms").mkdir(parents=True)
+    (skill / "SKILL.md").write_text("# serving-systems\n")
+    (skill / "references" / "algorithms" / "continuous-batching.md").write_text("# contract\n")
+    for backend in ComputeBackend:
+        plat = skill / "references" / "platforms" / backend.value
+        plat.mkdir(parents=True)
+        (plat / "floor.md").write_text(f"# {backend.value} floor\n")
+    # Same-named dir outside references/platforms/ must survive.
+    decoy = skill / "references" / "models" / "cuda"
+    decoy.mkdir(parents=True)
+    (decoy / "note.md").write_text("# decoy\n")
+    return skill
+
+
+@pytest.mark.parametrize(
+    "selected", [ComputeBackend.CUDA, ComputeBackend.TRAINIUM, ComputeBackend.METAL]
+)
+def test_skill_copy_into_workspace_root_prunes_foreign_platforms(tmp_path, selected):
+    """The workspace-root skill copy is what the implementer prompt points at.
+
+    It must be pruned exactly like the per-CLI copies — otherwise the agent can
+    open another platform's floor and apply guidance that is wrong for its
+    hardware (eliminating KV padding is correct on cuda, inverted on trainium).
+    """
+    skill = _write_platform_skill(tmp_path / "src")
+    ws = _make_workspace(tmp_path / "ws", compute_backend=selected)
+    ws.create()
+
+    ws.copy_dir(skill, ws.root / skill.name, prune_platforms=True)
+
+    platforms = ws.root / skill.name / "references" / "platforms"
+    assert {p.name for p in platforms.iterdir()} == {selected.value}
+    # Portable tiers and same-named non-platform dirs are untouched.
+    assert (ws.root / skill.name / "references/algorithms/continuous-batching.md").is_file()
+    assert (ws.root / skill.name / "references/models/cuda/note.md").is_file()
+
+
+def test_skill_copy_without_backend_keeps_every_platform(tmp_path):
+    skill = _write_platform_skill(tmp_path / "src")
+    ws = _make_workspace(tmp_path / "ws", compute_backend=None)
+    ws.create()
+
+    ws.copy_dir(skill, ws.root / skill.name, prune_platforms=True)
+
+    platforms = ws.root / skill.name / "references" / "platforms"
+    assert {p.name for p in platforms.iterdir()} == {b.value for b in ComputeBackend}
+
+
+def test_non_skill_copies_never_prune_platforms(tmp_path):
+    """prune_platforms is opt-in; an input bundle that happens to contain a
+    references/platforms tree is copied verbatim."""
+    src = _write_platform_skill(tmp_path / "src")
+    ws = _make_workspace(tmp_path / "ws", compute_backend=ComputeBackend.CUDA)
+    ws.create()
+
+    ws.copy_dir(src, ws.root / "input")
+
+    platforms = ws.root / "input" / "references" / "platforms"
+    assert {p.name for p in platforms.iterdir()} == {b.value for b in ComputeBackend}
+
+
+def test_every_skill_copy_step_is_marked_for_pruning(tmp_path):
+    """Each of the three skill CopySpecs (root, per-CLI refresh, fresh setup)
+    must set prune_platforms; a new one added without it silently leaks."""
+    ws = _make_workspace(tmp_path / "ws")
+    skills = [tmp_path / "skills" / "serving-systems"]
+    (ws.root / ".claude" / "skills" / "serving-systems").mkdir(parents=True)
+    (ws.root / "serving-systems").mkdir(parents=True)
+
+    plan = ws.plan_setup(
+        existing=False,
+        seed=None,
+        input_dir=tmp_path / "input",
+        evaluator_source=None,
+        skill_sources=skills,
+        workspace_sources=(),
+        input_project_dir=None,
+        profiler_support_path=None,
+        profiler_support_name=None,
+    )
+
+    skill_steps = [s for s in plan if isinstance(s, CopySpec) and s.src in skills]
+    assert skill_steps, "expected skill copy steps in the plan"
+    assert all(s.prune_platforms for s in skill_steps), [
+        str(s.dest) for s in skill_steps if not s.prune_platforms
+    ]
 
 
 def test_fresh_plan_with_seed_overlays_input_and_rejects_collisions(tmp_path):
@@ -63,7 +156,7 @@ def test_fresh_plan_with_seed_overlays_input_and_rejects_collisions(tmp_path):
                 "_evaluator is reserved for the manifest-declared evaluator source"
             ),
         ),
-        CopySpec(src=skills[0], dest=ws.root / "serving-systems"),
+        CopySpec(src=skills[0], dest=ws.root / "serving-systems", prune_platforms=True),
         InputProjectSpec(project_dir=input_dir),
         CopySpec(src=tmp_path / "profilers" / "nsys", dest=ws.root / "nsys_profiler"),
     )
@@ -109,8 +202,10 @@ def test_resume_plan_only_refreshes_skills_and_missing_profiler(tmp_path):
 
     # No seed/input/evaluator/input-project copies on resume.
     assert plan == (
-        CopySpec(src=skill, dest=root / "serving-systems"),
-        CopySpec(src=skill, dest=root / ".claude" / "skills" / "serving-systems"),
+        CopySpec(src=skill, dest=root / "serving-systems", prune_platforms=True),
+        CopySpec(
+            src=skill, dest=root / ".claude" / "skills" / "serving-systems", prune_platforms=True
+        ),
         CopySpec(src=tmp_path / "profilers" / "nsys", dest=root / "nsys_profiler"),
     )
 

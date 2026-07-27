@@ -21,6 +21,33 @@ _FRONTMATTER_DELIMITER = "---"
 # different per platform and must never fall back to another's.
 PLATFORM_SKELETON: tuple[str, ...] = ("floor.md", "hardware.md", "profiler.md")
 
+# Parent path of the per-backend directories inside a skill.
+PLATFORMS_PARENT: tuple[str, str] = ("references", "platforms")
+
+
+def foreign_platform_names(compute_backend: ComputeBackend | None) -> frozenset[str]:
+    """Return the ``platforms/<backend>/`` directory names to prune.
+
+    Empty when no backend is selected (copy the tree intact). Otherwise every
+    known :class:`ComputeBackend` value except the selected one — the agent
+    must not be able to read another platform's guidance, because applying one
+    platform's optimization floor to another produces wrong work rather than
+    merely irrelevant reading.
+    """
+    if compute_backend is None:
+        return frozenset()
+    return frozenset(b.value for b in ComputeBackend if b is not compute_backend)
+
+
+def is_platforms_parent(directory: Path | str) -> bool:
+    """True when *directory* is the ``references/platforms`` dir of a skill.
+
+    Pruning keys on the parent path rather than on directory name so an
+    unrelated directory that happens to be called e.g. ``cpu`` is never
+    dropped.
+    """
+    return Path(directory).parts[-2:] == PLATFORMS_PARENT
+
 
 class SkillMetadataError(ValueError):
     """Raised when a skill or VibeSys sidecar metadata is malformed."""

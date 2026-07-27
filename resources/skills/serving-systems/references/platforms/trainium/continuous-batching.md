@@ -31,15 +31,15 @@ The ladder is the main tuning knob:
 | Few, wide buckets | Less compilation, more padded waste per request |
 | Many, narrow buckets | Tighter fit, more compiled artifacts and longer warmup |
 
-Start with powers of two over the expected prompt distribution (e.g. 512 / 1024 / 2048 / 4096) and one or two decode-extent buckets. Every bucket must be compiled and cached at warmup — a bucket first reached in production is a stall.
+Start with powers of two over the expected prompt distribution (e.g. 512 / 1024 / 2048 / 4096) and one or two decode-extent buckets. Every bucket must be compiled and cached at warmup. On the `torch_xla` lazy-tensor path a bucket first reached in production compiles on the hot path; on the traced / `ModelBuilder` path recommended here, all buckets are built ahead of time and NxD picks the smallest that fits, so an out-of-ladder input raises instead. Either way the ladder must cover the workload.
 
 Combine with a persistent compile cache ([`floor.md`](floor.md) §2) so the ladder is paid for once across process restarts, not once per start.
 
 ## KV cache
 
-Use the device-resident, in-place cache — [`nxd-kv-cache.md`](nxd-kv-cache.md). This is the decisive decode optimization and it composes directly with the static-slot design: the resident buffers are sized `B × L_bucket` and aliased across steps, so admission and eviction are slot bookkeeping rather than allocation.
+Use the device-resident, in-place cache — [`nxd-kv-cache.md`](nxd-kv-cache.md). This is the decisive decode optimization and it composes directly with the static-slot design: the cache is allocated **once** at `(kv_cache_batch_size, num_kv_heads, max_len, head_dim)` with `max_len` fixed at construction — not one cache per bucket. Buckets vary the compiled graph's extent over that single buffer, so admission and eviction are slot bookkeeping rather than allocation.
 
-Do **not** build a block pool and page table. There is no fragmentation problem to solve — the buffers are statically sized — and the indirection costs without paying.
+For plain continuous batching, do **not** hand-roll a block pool and page table: the buffers are statically sized, so there is no fragmentation to solve and the indirection costs without paying. If the workload needs **prefix caching**, that is the exception — NxD's block KV layout (`BlockKVCacheManager`, `is_block_kv_layout`, `pa_num_blocks` / `pa_block_size`) is the supported path and is required for it. See [`nxd-kv-cache.md`](nxd-kv-cache.md).
 
 ## Satisfying the contract's invariants here
 
@@ -53,7 +53,7 @@ Do **not** build a block pool and page table. There is no fragmentation problem 
 
 ## Pitfalls
 
-- **A bucket reached first in production.** Compile stall mid-serving. Warm every bucket at startup.
+- **A bucket not in the ladder.** On the lazy path this is a compile stall mid-serving; on the traced path it raises. Cover the workload's distribution at build time.
 - **Slot count as a tuning dial at runtime.** Changing `B` is a new shape. Fix it at compile time.
 - **Host-side sampling.** A per-token device→host round trip dominates step time here; it undoes the batching win.
 - **Assuming padded slots are free.** They consume the same compute as real ones. Utilization, not just throughput, should drive the slot count.

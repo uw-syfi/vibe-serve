@@ -902,6 +902,10 @@ class TestDevicePassthrough:
         for group in ("video", "render"):
             i = cmd.index(group)
             assert cmd[i - 1] == "--group-add"
+        # Recorded so a reattaching shell reconstructs the same device access;
+        # without it the container user cannot open /dev/kfd and every HIP call
+        # fails — the exact failure --group-add exists to prevent.
+        assert sandbox._metadata["group_add"] == ["video", "render"]
 
     @patch("subprocess.run")
     def test_no_group_add_by_default(self, mock_run, tmp_path):

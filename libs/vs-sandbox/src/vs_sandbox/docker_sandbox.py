@@ -416,6 +416,7 @@ class DockerSandbox(BaseSandbox):
             "image": self._image,
             "gpus": self._gpus,
             "devices": list(self._devices),
+            "group_add": list(self._group_add),
             "entrypoint": self._entrypoint,
             "shm_size": self._shm_size,
             "bind_mounts": [[host, container, ro] for host, container, ro in self._bind_mounts],

@@ -75,7 +75,7 @@ Capture-and-replay rules — apply to every graph:
 - All input tensors live at **fixed device addresses** for the lifetime of the graph (preallocate during startup; in-place `copy_` to refresh per call).
 - No `.item()`, no Python branching on tensor values, no dynamic-shape `slice` against a Python int *inside* the captured forward.
 - Causal masks / position IDs are preallocated and the captured forward indexes them — no per-call mask allocation.
-- Use a graph-friendly attention backend (see `backends/attention-backend-comparison.md`). FlashInfer's batched wrappers are the typical choice; FlashInfer's single-request wrappers and SDPA-with-dynamic-shape break capture.
+- Use a graph-friendly attention backend (see [`attention-backend-comparison.md`](attention-backend-comparison.md)). FlashInfer's batched wrappers are the typical choice; FlashInfer's single-request wrappers and SDPA-with-dynamic-shape break capture.
 
 Static-vs-graph differential validation at startup: run each forward eagerly, then via the captured graph on the same inputs, and compare logits before serving any traffic. Off-by-N-byte aliasing of internal scratchpads typically surfaces only at the *last* query position; a per-position max-logit-diff log catches it cleanly.
 

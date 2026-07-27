@@ -17,6 +17,7 @@ Any correct implementation, on any backend, must hold all five:
 3. **Admission between steps, never mid-step.** The active set is read once per forward. Mutating it during a step races the scheduler against the accelerator.
 4. **Independent finish.** A request that hits EOS or `max_tokens` leaves the batch without disturbing the others' KV state or positions.
 5. **No per-request host sync on the hot path.** One synchronization per step, not one per request. This is where naive implementations lose most of their throughput.
+6. **Admission is gated on KV capacity, and exhaustion has a defined policy.** Never admit a request whose KV cannot be allocated, and decide up front what happens when the cache fills mid-decode — preempt-and-recompute, swap out, or refuse. An implementation with no policy here degrades into thrashing or an OOM under exactly the load it was built for.
 
 ## Failure modes if skipped
 
@@ -24,7 +25,8 @@ Any correct implementation, on any backend, must hold all five:
 |:--|:--|
 | Throughput flat as concurrency rises | requests are serialized; admission isn't between-step |
 | Output degrades only for short requests in a mixed batch | invariant 1 or 2 — position/mask derived from the batch, not the request |
-| Per-step time scales with batch size, not with the largest member | per-request host sync (invariant 5) |
+| Per-step time scales with batch size, not with the largest member | per-request work on the hot path — host sync (invariant 5) is the usual culprit, but any per-request Python in the step does it |
+| Throughput collapses or OOMs at high concurrency | no admission gating or no exhaustion policy (invariant 6) |
 | Correct at batch 1, wrong at batch > 1 | masking of unused KV extent (invariant 2) |
 
 ## Platform implementations
@@ -33,12 +35,14 @@ The KV-storage strategy is the part that diverges, because it follows the backen
 
 | Backend | Strategy | Why |
 |:--|:--|:--|
-| `cuda` | Eliminate padding — variable-length packing or paged KV | Dynamic shapes are free; padding wastes HBM and FLOPs |
-| `rocm` | As cuda | Same dynamic-shape model |
-| `trainium` | **Bucketed static shapes** — padding is required, not a flaw | `neuronx-cc` recompiles per shape; a dynamic batch triggers a recompile storm |
+| `cuda` | Remove padding from *attention* (variable-length packing or paged KV); bucket the *batch* dimension for graph capture | Padding wastes HBM and FLOPs; a capture miss costs an eager fallback, in microseconds |
+| `rocm` | As cuda | Same shape model |
+| `trainium` | Bucket **both** batch and sequence extent; pad up to the bucket | `neuronx-cc` compiles per shape, so a bucket miss costs a compile — minutes, not microseconds |
 | `metal` | Unified memory, no separate device pool | Nothing to page; pressure is system-wide, not device-local |
 
-**Read your backend's file before implementing.** The strategies are not variations on one design — on `cuda` the goal is removing padding, and on `trainium` padding to a bucket is the correct answer. Applying the CUDA arc on Trainium produces a scheduler that fights the compiler.
+Both accelerator families bucket and pad — what differs is **granularity** (batch only vs. batch *and* sequence extent) and the **cost of a miss** (eager fallback vs. a compile). That difference is large enough to change the design: on `cuda` you push padding out of attention and accept a shape ladder for capture; on `trainium` padding to a bucket is the answer at every level, and the CUDA advice to eliminate it will fight the compiler.
+
+**Read your backend's file before implementing.**
 
 ## See also
 

@@ -148,4 +148,4 @@ rg "TRITONBACKEND_|class.*Backend" \
 - `engines/vllm/`, `engines/sglang/` — contrast runtime designs
 - `algorithms/async-scheduling/` — TRT-LLM sidesteps Python scheduler overhead by running the batch manager in C++ (`cpp/tensorrt_llm/batch_manager/`); covered there as an alternative to async Python scheduling
 - `algorithms/*`
-- `hardware/nvidia/` — TRT-LLM tracks the latest NVIDIA ISA (Hopper sm_90a, Blackwell sm_100a) fastest
+- your platform's `hardware.md` — TRT-LLM tracks the latest NVIDIA ISA (Hopper sm_90a, Blackwell sm_100a) fastest

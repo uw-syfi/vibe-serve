@@ -6,9 +6,11 @@ Implements [`algorithms/async-scheduling.md`](../../algorithms/async-scheduling.
 
 The CUDA implementation builds an explicit two-stream pipeline with events ordering a non-blocking D2H copy against the next step's preparation.
 
-MLX has no stream/event model to orchestrate, and it is **already deferred by default**: operations build a graph and nothing executes until something forces materialization. The overlap the CUDA design constructs by hand is what lazy evaluation gives you for free.
+MLX *does* have streams — `mx.new_stream`, `mx.default_stream`, the `mx.stream()` context manager, `mx.synchronize()`, and a `stream=` kwarg on every op. So the reason not to port the CUDA design is not "the API is missing."
 
-Constructing an explicit pipeline on top requires materializing intermediate values to sequence them — which forces exactly the synchronization the pipeline was meant to avoid. This is a case where the platform-specific file exists to say *don't port the other one*.
+The reason is that MLX is **already deferred by default** and **inserts cross-stream dependencies automatically**. Operations build a graph; nothing executes until something forces materialization, and the runtime orders work across streams for you. The overlap the CUDA design constructs by hand with explicit `wait_stream` ordering is what lazy evaluation plus automatic dependency tracking already provides.
+
+Hand-rolling a two-stream pipeline therefore adds bookkeeping without adding overlap. Reach for `mx.stream()` when you genuinely want independent work on separate queues (e.g. overlapping an unrelated encoder), not to rebuild the decode pipeline.
 
 ## The actual lever: where you evaluate
 
@@ -55,7 +57,7 @@ See [`profiler.md`](profiler.md) for the trace pattern.
 
 | CUDA concern | Here |
 |:--|:--|
-| Stream creation and `wait_stream` ordering | N/A |
+| Explicit `wait_stream` ordering | Unnecessary — MLX inserts cross-stream dependencies automatically (`mx.stream()` exists if you want separate queues) |
 | CUDA events as memory barriers | N/A |
 | Non-blocking D2H copy | N/A — no transfer |
 | Graph capture interacting with multi-stream regions | N/A |

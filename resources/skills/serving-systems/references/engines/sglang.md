@@ -164,4 +164,4 @@ rg "class.*QuantScheme|get_quant_method|apply_weights" \
 - `engines/vllm/`, `engines/trtllm/`
 - `algorithms/async-scheduling/` — SGLang's overlap scheduler (`event_loop_overlap`, `FutureMap`, `forward_stream` / `schedule_stream`) is the canonical "zero-overhead" implementation; the skill walks through the code
 - `algorithms/*` — concepts behind each source location
-- `backends/flashinfer/` — used by FlashInfer + FlashInfer-MLA backends here
+- **FlashInfer** — used by FlashInfer + FlashInfer-MLA backends here

@@ -50,9 +50,19 @@ from vibesys.profilers import ProfilerKind
 from vs_sandbox import DockerSandbox
 
 # ROCm PyTorch image. Carries the ROCm runtime + a matching torch build.
-# Override with ``--docker-image`` when the host ROCm version differs —
-# the container's ROCm must be compatible with the host kernel driver.
-_DEFAULT_IMAGE = "rocm/pytorch:latest"
+# Pinned rather than ``:latest`` for reproducibility and because the
+# container's ROCm must stay compatible with the host kernel driver —
+# a floating tag is the one most likely to drift past it. Override with
+# ``--docker-image`` when the host ROCm version differs.
+_DEFAULT_IMAGE = "rocm/pytorch:rocm6.3_ubuntu22.04_py3.10_pytorch_release_2.4.0"
+
+# PyTorch wheel index matching the image's ROCm. The agent is instructed to
+# use ``uv add torch`` in a fresh venv, which is isolated from the image's
+# site-packages; without this it resolves the default PyPI wheel, which is a
+# CUDA build. On an AMD host that silently yields ``torch.cuda.is_available()
+# == False`` and a CPU fallback — a wrong-hardware run that looks like a
+# correctness failure. Mirrors CudaBackend's driver-matched index.
+_TORCH_INDEX_URL = "https://download.pytorch.org/whl/rocm6.3"
 
 # The compute driver node, required for any HIP program.
 _KFD_DEVICE = "/dev/kfd"
@@ -202,7 +212,8 @@ class RocmBackend:
 
     def _build_env(self, extra: dict[str, str]) -> dict[str, str]:
         """ROCm runtime env, with caller extras taking precedence."""
-        env: dict[str, str] = {}
+        # ``uv add torch`` must resolve a ROCm wheel, not the default CUDA one.
+        env: dict[str, str] = {"UV_EXTRA_INDEX_URL": _TORCH_INDEX_URL}
         # Respect an operator-pinned device selection; otherwise leave the
         # runtime to enumerate every forwarded GPU.
         visible = os.environ.get("HIP_VISIBLE_DEVICES")

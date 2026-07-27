@@ -505,4 +505,4 @@ tensor construction. Instead:
   fixed).
 - `graph.replay()` reads from the static tensors.
 
-See `backends/cuda-graph/SKILL.md` for the broader capture lifecycle.
+See [`cuda-graph.md`](cuda-graph.md) for the broader capture lifecycle.

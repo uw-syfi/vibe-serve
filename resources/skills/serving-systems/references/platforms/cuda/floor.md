@@ -34,11 +34,11 @@ Capture the decode step; keep prefill eager or capture a ladder of shapes. Most 
 2. **Prefix caching** — [`algorithms/radix-prefix-caching.md`](../../algorithms/radix-prefix-caching.md); dramatic on RAG / few-shot / agent workloads.
 3. **Chunked prefill** — [`algorithms/chunked-prefill.md`](../../algorithms/chunked-prefill.md); smooths TPOT under mixed load.
 4. **Async scheduling** — [`async-scheduling.md`](async-scheduling.md); once launch overhead is gone, the Python scheduler is next.
-5. **Quantization** — [`algorithms/quantization-schemes.md`](../../algorithms/quantization-schemes.md); FP8 from Hopper, FP4 from Blackwell.
+5. **Quantization** — [`algorithms/quantization-schemes.md`](../../algorithms/quantization-schemes.md); FP8 from Ada (sm_89) and Hopper, FP4 from Blackwell.
 
 ## Hardware floor
 
-Feature availability is generation-gated — see [`hardware.md`](hardware.md). FP8 needs Hopper+, FP4 needs Blackwell, FA3 needs sm_90+. Check the target GPU before designing around a precision.
+Feature availability is generation-gated — see [`hardware.md`](hardware.md). FP8 needs Ada (sm_89) or Hopper+, FP4 needs Blackwell, FA3 needs sm_90+. L40S/L4 are Ada and do have FP8 tensor cores — don't rule them out for quantized serving. Check the target GPU before designing around a precision.
 
 ## See also
 

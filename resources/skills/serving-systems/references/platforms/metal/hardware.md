@@ -25,6 +25,7 @@ Apple doesn't publish GPU compute in standard TFLOP/s tables; the serving-releva
 | Pro | ~150–273 GB/s | 18–64 GB | 14–20 |
 | Max | ~300–546 GB/s | 32–128 GB | 30–40 |
 | Ultra (M1 / M2) | ~800 GB/s | 128–192 GB | 60–76 |
+| Ultra (M3) | ~819 GB/s | up to **512 GB** | up to 80 |
 
 Treat these as tiers rather than exact per-model figures — bandwidth varies within a tier across generations, and the tier is what determines whether a given model is servable. Confirm the exact figure for the target machine.
 

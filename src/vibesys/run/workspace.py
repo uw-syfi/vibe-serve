@@ -20,9 +20,11 @@ from typing import TYPE_CHECKING
 
 from vibesys.input_manifest import WorkspaceSource
 from vibesys.input_project import materialize_input_project
+from vibesys.skills import foreign_platform_names, is_platforms_parent
 
 if TYPE_CHECKING:
     from vibesys.backends.base import ComputeBackendImpl
+    from vibesys.constants import ComputeBackend
     from vibesys.sandbox.run_environment import RunEnvironment
 
 # Dirs excluded from workspace copy, git tracking, and the
@@ -77,6 +79,10 @@ class CopySpec:
     # ``_evaluator`` mount point reserved for the manifest-declared source.
     require_absent: Path | None = None
     require_absent_message: str = ""
+    # Skill copies prune ``references/platforms/<other-backend>/`` so the agent
+    # only ever sees its own platform's guidance.  See
+    # :func:`vibesys.skills.foreign_platform_names`.
+    prune_platforms: bool = False
 
 
 @dataclass(frozen=True)
@@ -108,9 +114,11 @@ class Workspace:
         log: Callable[[str], None],
         project_root: Path,
         excluded_dirs: Iterable[str] = EXCLUDED_WORKSPACE_DIRS,
+        compute_backend: "ComputeBackend | None" = None,
     ) -> None:
         self.root = root
         self.excluded_dirs = set(excluded_dirs)
+        self._compute_backend = compute_backend
         self._run_environment = run_environment
         self._backend = backend
         self._log = log
@@ -166,11 +174,11 @@ class Workspace:
         for src in skill_sources:
             rel = src.name
             if (self.root / rel).exists():
-                steps.append(CopySpec(src=src, dest=self.root / rel))
+                steps.append(CopySpec(src=src, dest=self.root / rel, prune_platforms=True))
             for cli_rel in _CLI_SKILL_DIRS:
                 cli_target = self.root / cli_rel / rel
                 if cli_target.exists():
-                    steps.append(CopySpec(src=src, dest=cli_target))
+                    steps.append(CopySpec(src=src, dest=cli_target, prune_platforms=True))
 
         if not existing:
             if seed is not None:
@@ -206,7 +214,7 @@ class Workspace:
                 )
 
             for src in skill_sources:
-                steps.append(CopySpec(src=src, dest=self.root / src.name))
+                steps.append(CopySpec(src=src, dest=self.root / src.name, prune_platforms=True))
 
             if input_project_dir is not None:
                 steps.append(InputProjectSpec(project_dir=input_project_dir))
@@ -258,6 +266,7 @@ class Workspace:
                 extra_excludes=step.extra_excludes,
                 respect_source_gitignore=step.respect_gitignore,
                 reject_collisions=step.reject_collisions,
+                prune_platforms=step.prune_platforms,
             )
 
     def materialize_git_source(self, source: WorkspaceSource) -> None:
@@ -355,8 +364,12 @@ class Workspace:
         extra_excludes: frozenset[str] = frozenset(),
         respect_source_gitignore: bool = False,
         reject_collisions: bool = False,
+        prune_platforms: bool = False,
     ) -> None:
         skip = self.excluded_dirs | {"_mounts"} | set(extra_excludes)
+        foreign_platforms = (
+            foreign_platform_names(self._compute_backend) if prune_platforms else frozenset()
+        )
         ignored_paths = (
             self._source_gitignored_paths(src) if respect_source_gitignore else frozenset()
         )
@@ -373,7 +386,16 @@ class Workspace:
 
         def _ignore(directory: str, names: list[str]) -> list[str]:
             parent = Path(directory)
-            return [name for name in names if name in skip or _is_ignored(parent / name)]
+            pruned = (
+                foreign_platforms
+                if foreign_platforms and is_platforms_parent(directory)
+                else frozenset()
+            )
+            return [
+                name
+                for name in names
+                if name in skip or name in pruned or _is_ignored(parent / name)
+            ]
 
         children = [
             child for child in src.iterdir() if child.name not in skip and not _is_ignored(child)

@@ -120,5 +120,5 @@ portable and the *thresholds* as `cuda`-specific.
 
 - `algorithms/moe-routing-dispatch/` — EP is half of the MoE story
 - `algorithms/disaggregated-serving/` — orthogonal to parallelism; can combine
-- `hardware/nvidia/` — NVLink domain sizes (HGX-8, NVL72)
+- your platform's `hardware.md` — NVLink domain sizes (HGX-8, NVL72)
 - `engines/*` — concrete implementations

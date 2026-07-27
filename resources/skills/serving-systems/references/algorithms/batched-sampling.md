@@ -102,8 +102,8 @@ platform's floor.
 
 ## See also
 
-- `backends/flashinfer/` — fused sampler kernels
+- **FlashInfer** — fused sampler kernels
 - `algorithms/async-scheduling/` — pushes the remaining sampling sync (copy_event.synchronize) off the hot path
 - `algorithms/structured-output/`
 - `algorithms/speculative-decoding/` — rejection-sample verify uses the same machinery
-- `backends/cuda-graph/`
+- **graph capture**

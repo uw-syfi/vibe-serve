@@ -18,7 +18,7 @@ Never run naive `softmax(QKᵀ)V`. On CDNA the options are:
 | Option | When |
 |:--|:--|
 | **AITER** | AMD's fused-op library; the closest analog to FlashInfer. First choice where it covers the variant. |
-| **Composable Kernel (CK)** | The template layer AITER builds on; use directly for variants AITER doesn't cover. |
+| **Composable Kernel (CK)** | One of the layers AITER is built from (alongside Triton, HIP, and ASM); use directly for variants AITER doesn't cover. |
 | **Triton** | Portable fallback; runs on CDNA and is how vLLM/SGLang cover ROCm gaps. See [`frameworks/triton.md`](../../frameworks/triton.md). |
 | **PyTorch SDPA** | Floor. Fused, available, slower than the above. |
 
@@ -50,4 +50,4 @@ Capture decode, keep prefill eager or bucketed. The shape-stability and address-
 
 - [`hardware.md`](hardware.md) — MI300X / MI325X / MI350X specs, GFX IDs, precision support
 - [`aiter.md`](aiter.md) — AITER / Composable Kernel
-- [`profiler.md`](profiler.md) — rocprofv3 / omniperf
+- [`profiler.md`](profiler.md) — rocprofv3 / rocprof-compute

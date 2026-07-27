@@ -58,5 +58,5 @@ compiled bucket ladder rather than being chosen freely — see that platform's
 
 - `algorithms/continuous-batching/` — prerequisite
 - `algorithms/paged-attention/` — paged KV makes mixed batches efficient
-- `backends/cuda-graph/` — capture strategy for mixed batches
+- **graph capture** — capture strategy for mixed batches
 - `tooling/serving-benchmark/` — TTFT vs TPOT measurement

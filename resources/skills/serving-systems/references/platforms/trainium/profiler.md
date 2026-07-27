@@ -13,7 +13,7 @@ The invariant that matters most here: **exclude compilation.** A Trainium profil
 | Signal | Meaning |
 |:--|:--|
 | Long gaps between executions | host-bound — the runtime queue is starving; check for per-token host sync |
-| Recompilation events mid-run | an unbucketed shape reached the compiler; fix the bucket ladder |
+| Recompilation events mid-run | an unbucketed shape reached the compiler (lazy-tensor path only — a traced deployment raises instead); fix the bucket ladder |
 | KV transfer at the graph boundary | the cache is crossing the device edge per token — see [`nxd-kv-cache.md`](nxd-kv-cache.md) |
 | High SBUF/PSUM pressure | activation peak; consider the NKI flash kernel ([`neuron-flash-attention.md`](neuron-flash-attention.md)) |
 

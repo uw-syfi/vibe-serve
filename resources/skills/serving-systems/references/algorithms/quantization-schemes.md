@@ -115,5 +115,5 @@ one. Backend values are exact `ComputeBackend` names.
 
 - [`models/text-moe/`](../models/text-moe.md) — FP8 block quant is the native format for DeepSeek
 - `algorithms/moe-routing-dispatch/` — MoE-specific quant kernels
-- `backends/flashinfer/`, `backends/flashattention/` — quant-aware attention kernels
-- `hardware/nvidia/` — precision support by generation (Hopper FP8, Blackwell FP4)
+- **FlashInfer**, **FlashAttention** — quant-aware attention kernels
+- your platform's `hardware.md` — precision support by generation (Hopper FP8, Blackwell FP4)

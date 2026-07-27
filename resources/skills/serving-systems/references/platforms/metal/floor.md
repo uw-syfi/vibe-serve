@@ -22,7 +22,7 @@ Do **not** build an explicit two-stream pipeline on top of this — see [`algori
 
 Fuses elementwise chains and removes graph-construction overhead per step. Apply to the decode step function, not to individual ops.
 
-This is the nearest analog to CUDA graphs, but it is kernel fusion, not launch-capture — the fixed-shape and stable-address requirements of graph capture do not apply.
+This is the nearest analog to CUDA graphs, but it is kernel fusion, not launch-capture. Address stability is a non-issue (MLX arrays are immutable), but **shape stability still matters**: `mx.compile` caches by traced shape and dtype and recompiles on a new shape. Warm it at the shapes you intend to serve.
 
 ## 4. Fused attention via `mx.fast`
 

@@ -176,7 +176,7 @@ The KV-absorb forward over `forced_ids` is the perf-critical step of jump-forwar
 - Causal mask over `[forced chunk + existing prefix]` against the same KV cache used by the verifier path
 - Discardable logits (the forced tokens are already grammar-determined)
 
-Apply the same capture rules as any other captured forward: stable-address tensors, no `.item()` inside the captured region, no internal-scratchpad allocations. Use FlashInfer's batched wrappers with `use_cuda_graph=True` (or SDPA) for the attention call inside the captured graph; do **not** use FlashInfer's `single_prefill_with_kv_cache` — it allocates internal scratchpads that alias under capture and produce divergent logits at the last query position. See `backends/attention-backend-comparison.md`.
+Apply the same capture rules as any other captured forward: stable-address tensors, no `.item()` inside the captured region, no internal-scratchpad allocations. Use FlashInfer's batched wrappers with `use_cuda_graph=True` (or SDPA) for the attention call inside the captured graph; do **not** use FlashInfer's `single_prefill_with_kv_cache` — it allocates internal scratchpads that alias under capture and produce divergent logits at the last query position. See **the attention-backend picker**.
 
 **Threshold should be low.** With graph-captured absorb, the per-span cost is ~0.5 ms regardless of `L`, and each absorbed token saves a ~9 ms decode replay. Break-even is ~`L > 0.05`, so the threshold can be **2** (every forced span absorbs). Setting the threshold to 6+ because eager is the only path defeats the optimization for the most common JSON forced spans.
 

@@ -397,6 +397,7 @@ def _assemble_run_context(
         backend=backend_impl,
         log=logger.lprint,
         project_root=PROJECT_ROOT,
+        compute_backend=backend,
     )
     workspace_files.create()
 
@@ -640,6 +641,7 @@ def _assemble_candidate_context(
         backend=parent.backend_impl,
         log=logger.lprint,
         project_root=PROJECT_ROOT,
+        compute_backend=parent.backend,
     )
 
     # Reuse the parent's already-provisioned Modal model volume: the shared

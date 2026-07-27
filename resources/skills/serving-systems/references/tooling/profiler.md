@@ -47,7 +47,7 @@ The mapping from finding to remedy is portable even though the tools aren't:
 | Backend | System | Framework | Kernel |
 |:--|:--|:--|:--|
 | `cuda` | Nsight Systems (`nsys`) | torch profiler | Nsight Compute (`ncu`) |
-| `rocm` | `rocprofv3` | torch profiler | `omniperf` |
+| `rocm` | `rocprofv3` / `rocprof-sys` | torch profiler | `rocprof-compute` |
 | `trainium` | `neuron-explorer` | torch profiler | NKI profile tooling |
 | `metal` | Instruments | MLX metal trace | Instruments GPU counters |
 | `cpu` | `perf` / Instruments | torch profiler | `perf annotate` |
