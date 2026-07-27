@@ -333,14 +333,13 @@ Skip it and the first request pays JIT compile + autotune latency (seconds), CUD
 - **`nn.Parameter` vs `register_buffer`.** Parameters get saved in `state_dict` and copied by DDP; buffers are persistent-but-not-trained. Use buffer for fixed lookup tables (rotary-embedding tables, positions).
 - **`model.to(torch.bfloat16)` then `.to(device)`.** Order matters for memory; prefer constructing in target dtype on target device.
 - **Custom op without fake-tensor impl.** Works in eager; breaks under compile. Always register `register_fake`.
-- **`torch.compile` + non-CUDA-graph-safe kernel.** `reduce-overhead` captures; autotune kernels break capture. See [`backends/triton-kernels/`](../backends/triton-kernels.md).
+- **`torch.compile` + non-CUDA-graph-safe kernel.** `reduce-overhead` captures; autotune kernels break capture. See the `triton-kernels.md` note under [`platforms/`](../platforms/) (cuda and rocm).
 
 ## See also
 
 - [`algorithms/async-scheduling/`](../algorithms/async-scheduling.md) — the system-level view: how production engines (SGLang overlap, vLLM AsyncScheduler + MRV2) compose these primitives
-- [`backends/cuda-graph/`](../backends/cuda-graph.md) — works hand-in-glove with `torch.compile(mode="reduce-overhead")` and requires the preallocation discipline above
-- [`backends/triton-kernels/`](../backends/triton-kernels.md) — `torch.library.triton_op` integration, autotune-warmup rule
+- [`platforms/`](../platforms/) — graph capture works hand-in-glove with `torch.compile(mode="reduce-overhead")` and requires the preallocation discipline above; see the selected backend's graph-capture and Triton notes. Backends without capture (metal) get no benefit from `reduce-overhead`.
 - [`algorithms/batched-sampling/`](../algorithms/batched-sampling.md) — another sync source to eliminate on the critical path
 - [`algorithms/parallelism/`](../algorithms/parallelism.md) — distributed setup
 - [`tooling/profiler/`](../tooling/profiler.md) — the only way to verify your overlap actually overlapped
-- [`frameworks/mlx/`](mlx.md) — when on Apple Silicon instead
+- [`platforms/`](../platforms/) — the selected backend's framework notes (MLX on `metal`, torch-neuronx / NxD on `trainium`)

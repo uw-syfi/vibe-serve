@@ -246,7 +246,7 @@ Expect to write or extend the serving layer for anything beyond these paths.
 - [`models/speech-language/`](speech-language.md) — audio-input (ASR) counterpart
 - [`models/omni-multimodal/`](omni-multimodal.md) — when the TTS stack is the "talker + code2wav" end of a full omni model (Qwen-Omni, MiMo-Audio)
 - [`algorithms/continuous-batching/`](../algorithms/continuous-batching.md) — AR TTS fits this pattern; hierarchical models add a second batching axis
-- [`algorithms/attention-variants/`](../algorithms/attention-variants.md) — Zonos is SSM+attention hybrid; many backbones are standard GQA/MQA
+- [`models/attention-variants/`](attention-variants.md) — Zonos is SSM+attention hybrid; many backbones are standard GQA/MQA
 - [`tooling/io-handling/`](../tooling/io-handling.md) — streaming audio output, SSE / chunked HTTP
 - [`OVERVIEW.md`](../../OVERVIEW.md) — generative-media scope caveat
 - VoxServe source: <https://github.com/vox-serve/vox-serve> — concrete implementations of all 8 models above

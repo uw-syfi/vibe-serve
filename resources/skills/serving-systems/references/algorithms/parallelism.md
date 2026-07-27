@@ -84,6 +84,12 @@ Bandwidth requirements: all-to-all and all-reduce roughly scale linearly with hi
 
 ## Compatibility
 
+Every scheme below needs more than one device. On `metal` (single SoC) and
+`cpu` all of them are **N/A**; on `trainium` the axes exist but the topology is
+NeuronLink, so the NVLink-derived sizing rules do not carry over. The tuning
+advice in this file is written against NVLink domains — treat the *concepts* as
+portable and the *thresholds* as `cuda`-specific.
+
 | Scheme | vLLM | SGLang | TRT-LLM |
 |:-------|:-----|:-------|:--------|
 | TP | ✓ | ✓ | ✓ |

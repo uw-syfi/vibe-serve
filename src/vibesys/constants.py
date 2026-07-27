@@ -40,6 +40,14 @@ class ComputeBackend(StrEnum):
       profiling uses ``neuron-explorer`` instead of nsys.  Modal offers
       no Trainium, so ``TrainiumBackend.make_sandbox`` raises on
       ``SandboxKind.MODAL``.
+    - ``ROCM`` (AMD Instinct) targets CDNA GPUs via a ROCm PyTorch
+      container.  The host's ``/dev/kfd`` and ``/dev/dri/*`` nodes are
+      passed through (``--device`` + ``--group-add``, *not* ``--gpus``);
+      profiling reuses ``torch`` since ``torch.profiler`` works on ROCm.
+      Modal offers no AMD GPUs, so ``RocmBackend.make_sandbox`` raises on
+      ``SandboxKind.MODAL``.  **Experimental**: wired end to end but not
+      yet exercised against MI300-class hardware, and like ``METAL`` the
+      curriculum is not wired up.
     - ``CPU`` has no GPU at all: device selection and the hardware
       monitor are no-ops and only local execution is supported (no
       Docker/Modal GPU passthrough). It targets CPU-bound workloads
@@ -51,6 +59,7 @@ class ComputeBackend(StrEnum):
     CUDA = "cuda"
     METAL = "metal"
     TRAINIUM = "trainium"
+    ROCM = "rocm"
     CPU = "cpu"
 
 

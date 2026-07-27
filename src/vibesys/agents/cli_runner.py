@@ -44,6 +44,7 @@ from vibesys.agent_runner import (
 from vibesys.agents.callbacks import AgentLogger
 from vibesys.agents.host_resource_declarations import declare_agent_host_resources
 from vibesys.agents.progress import AgentProgress
+from vibesys.constants import ComputeBackend
 from vs_sandbox import HostResource, build_host_sandbox
 
 T = TypeVar("T", bound=BaseModel)
@@ -105,8 +106,45 @@ def _discover_skill_dirs(root: Path) -> list[Path]:
     return [p.parent for p in root.rglob("SKILL.md")]
 
 
+def _platform_prune_ignore(
+    compute_backend: ComputeBackend | None,
+) -> Callable[[str, list[str]], set[str]]:
+    """Build a ``copytree`` ignore callable that prunes foreign platform dirs.
+
+    Skills may carry a ``references/platforms/<backend>/`` tree with one
+    directory per :class:`~vibesys.constants.ComputeBackend`. Only the
+    selected backend's directory is materialized; the rest are dropped so an
+    agent cannot read (and act on) another platform's guidance. Applying one
+    platform's optimization floor to another produces wrong work — eliminating
+    KV padding is correct on ``cuda`` and inverted on ``trainium`` — so this
+    is a correctness guard, not just a context-size saving.
+
+    Pruning is keyed on the *parent* path ending in ``references/platforms``
+    rather than on directory name, so an unrelated directory that happens to
+    be called e.g. ``cpu`` is never dropped.
+    """
+    skip_names = {".git", "repos", "__pycache__"}
+    foreign = {b.value for b in ComputeBackend}
+    if compute_backend is not None:
+        foreign.discard(compute_backend.value)
+
+    def _ignore(src_dir: str, names: list[str]) -> set[str]:
+        ignored = {n for n in names if n in skip_names}
+        if compute_backend is not None and Path(src_dir).parts[-2:] == (
+            "references",
+            "platforms",
+        ):
+            ignored |= {n for n in names if n in foreign}
+        return ignored
+
+    return _ignore
+
+
 def _materialize_skills(
-    workspace: Path, skill_dirs: list[Path], log_file: TextIO | None = None
+    workspace: Path,
+    skill_dirs: list[Path],
+    compute_backend: ComputeBackend | None = None,
+    log_file: TextIO | None = None,
 ) -> None:
     """Copy each skill directory into the per-CLI skill-discovery paths.
 
@@ -116,6 +154,10 @@ def _materialize_skills(
     ``.cursor/skills``, ``.opencode/skills``). This makes the skills visible
     to whichever CLI provider ends up running in the workspace without the
     caller having to know which one was picked.
+
+    When ``compute_backend`` is set, ``references/platforms/<other>/`` trees
+    are pruned so only the selected backend's guidance reaches the agent —
+    see :func:`_platform_prune_ignore`.
 
     Existing destinations are replaced so skill edits are picked up across
     iterations. Errors are logged but never raised — the loop should still
@@ -135,8 +177,7 @@ def _materialize_skills(
     if not discovered:
         return
 
-    skip_names = {".git", "repos", "__pycache__"}
-    skip_ignore = shutil.ignore_patterns(*skip_names)
+    skip_ignore = _platform_prune_ignore(compute_backend)
 
     for target_rel in _CLI_SKILL_DIRS:
         target_root = workspace / target_rel
@@ -182,6 +223,7 @@ class CliAgentRunner:
         provider: str,
         model: str | None = None,
         skills: list[Path] | None = None,
+        compute_backend: ComputeBackend | None = None,
         model_name: str | None = None,
         timeout: int | None = None,
         run_log_file: TextIO | None = None,
@@ -203,6 +245,7 @@ class CliAgentRunner:
         self._provider_cls = _PROVIDER_CLASSES[provider]
         self._model = model
         self._skills: list[Path] = list(skills or [])
+        self._compute_backend = compute_backend
         self._model_name = model_name
         self._timeout = timeout
         self._run_log_file = run_log_file
@@ -327,7 +370,12 @@ class CliAgentRunner:
     ) -> str:
         """Run one CLI generation with shared setup, logging, and cleanup."""
         label = _agent_label(kind)
-        _materialize_skills(workspace, self._skills, log_file=self._run_log_file)
+        _materialize_skills(
+            workspace,
+            self._skills,
+            compute_backend=self._compute_backend,
+            log_file=self._run_log_file,
+        )
 
         logger = AgentLogger(
             log_file=self._run_log_file,

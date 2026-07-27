@@ -7,7 +7,7 @@ serving optimization on Trainium, and it's the one thing a from-scratch
 
 > Read [`neuron-pytorch.md`](neuron-pytorch.md) first (why everything compiles to
 > static graphs) and [`nxd-inference.md`](nxd-inference.md) (what NxD is). For the
-> serving algorithm, [`../algorithms/paged-attention.md`](../algorithms/paged-attention.md).
+> serving algorithm, [`../algorithms/paged-attention.md`](../../algorithms/paged-attention.md).
 
 ## The problem this solves
 

@@ -153,5 +153,5 @@ Expect users to wait. Serving architecture is throughput-first (batch many jobs 
 
 - [`models/image-generation/`](image-generation.md) — shared diffusion foundations
 - [`algorithms/quantization-schemes/`](../algorithms/quantization-schemes.md) — FP8 / FP4 for video DiTs
-- [`hardware/nvidia/`](../hardware/nvidia.md) — Blackwell FP4 + NVL72 domain relevant here
+- [`platforms/`](../platforms/) — `hardware.md` for the selected backend; on cuda, Blackwell FP4 + the NVL72 domain are relevant here
 - [`OVERVIEW.md`](../../OVERVIEW.md) — generative-media scope caveat

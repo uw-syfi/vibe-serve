@@ -1,6 +1,6 @@
 # NVIDIA GPUs for serving
 
-Hardware spec reference across five generations. For backend / algorithm / kernel-choice guidance, see the relevant [`backends/*`](../../backends/) and [`algorithms/*`](../../algorithms/) skills.
+Hardware spec reference across five generations. For kernel-library guidance see the sibling files in this directory; for portable algorithm contracts see [`algorithms/*`](../../algorithms/).
 
 ## Generations at a glance
 
@@ -150,5 +150,7 @@ L40S, L4, A10, T4, and the RTX PRO 6000 Workstation have **no NVLink**. Multi-GP
 
 ## See also
 
-- [`hardware/amd-mi300/`](amd-mi300.md) — AMD Instinct MI300 family
-- [`hardware/apple-silicon/`](apple-silicon.md) — Apple M-series
+- [`floor.md`](floor.md) — the CUDA optimization floor
+- [`profiler.md`](profiler.md) — nsys / ncu / torch profiler on this hardware
+
+Other platforms' hardware notes live under their own `platforms/<backend>/hardware.md` and are not materialized on a CUDA run.

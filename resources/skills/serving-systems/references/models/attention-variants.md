@@ -56,7 +56,7 @@ Q from sequence A, K/V from sequence B (fixed once B is produced):
 - **mllama (Llama-3.2 Vision)**: Q from text; K/V from image features. Cross-attention layers are interleaved with self-attention in the decoder stack.
 - **Flamingo-style**: same pattern.
 
-Cross-attention **should cache K/V once per encoder pass** — computing them every decode step is a common silent perf disaster. For the compute-once context-pool implementation (non-causal paged prefill, plan-once reuse, RoPE skip), see [`cross-attention-kv-cache.md`](cross-attention-kv-cache.md).
+Cross-attention **should cache K/V once per encoder pass** — computing them every decode step is a common silent perf disaster. For the compute-once context-pool implementation (non-causal paged prefill, plan-once reuse, RoPE skip), see [`cross-attention-kv-cache.md`](../algorithms/cross-attention-kv-cache.md).
 
 ### Sparse attention (token / block sparsity on long contexts)
 
@@ -192,8 +192,8 @@ How these attention variants are implemented at the kernel level (FA3 WGMMA pipe
 
 ## See also
 
-- [`algorithms/paged-attention/`](paged-attention.md) — orthogonal: how KV is stored (block-based, non-contiguous)
-- [`backends/flashattention/`](../backends/flashattention.md), [`backends/flashinfer/`](../backends/flashinfer.md) — kernels that implement these variants
+- [`algorithms/paged-attention/`](../algorithms/paged-attention.md) — orthogonal: how KV is stored (block-based, non-contiguous)
+- [`platforms/`](../platforms/) — kernels that implement these variants on the selected backend
 - [`models/text-dense/`](../models/text-dense.md), [`models/text-moe/`](../models/text-moe.md), [`models/ssm-hybrid/`](../models/ssm-hybrid.md), [`models/vision-language/`](../models/vision-language.md), [`models/speech-language/`](../models/speech-language.md), [`models/video-generation/`](../models/video-generation.md) — per-family variants in practice
-- [`algorithms/speculative-decoding/`](speculative-decoding.md) — tree attention for verification
-- [`algorithms/quantization-schemes/`](quantization-schemes.md) — KV quantization interacts with head-sharing
+- [`algorithms/speculative-decoding/`](../algorithms/speculative-decoding.md) — tree attention for verification
+- [`algorithms/quantization-schemes/`](../algorithms/quantization-schemes.md) — KV quantization interacts with head-sharing

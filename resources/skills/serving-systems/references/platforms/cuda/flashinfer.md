@@ -75,7 +75,7 @@ MLA operates on compressed KV (`c_kv` latent) plus a decoupled-RoPE head dim (`k
 - `flashinfer.decode.BatchDecodeMlaWithPagedKVCacheWrapper` — decode-only, query-absorption trick for the hot path
 - `flashinfer.trtllm_batch_decode_with_kv_cache_mla` — trtllm-gen MLA decode, often fastest on Blackwell
 
-Plan args for MLA are richer than the standard paged case: `ckv_indptr`, `kpe_indptr`, `kv_lora_rank`, `qk_nope_head_dim`, `qk_rope_head_dim`, `sm_scale`. Writes into the MLA paged pool go through `flashinfer.page.append_paged_mla_kv_cache` — **not** the standard `append_paged_kv_cache`, which assumes dense K/V. See [`models/text-moe/`](../models/text-moe.md).
+Plan args for MLA are richer than the standard paged case: `ckv_indptr`, `kpe_indptr`, `kv_lora_rank`, `qk_nope_head_dim`, `qk_rope_head_dim`, `sm_scale`. Writes into the MLA paged pool go through `flashinfer.page.append_paged_mla_kv_cache` — **not** the standard `append_paged_kv_cache`, which assumes dense K/V. See [`models/text-moe/`](../../models/text-moe.md).
 
 ### Cascade attention (shared-prefix workloads)
 
@@ -193,7 +193,7 @@ For the batched wrappers:
 4. **Use the same wrapper for batch=1.** Single-request decode goes through the batched wrapper with `batch_size=1`. The plan cost is paid once per batch-composition change (not per step) and the per-step `.run()` is what gets captured into the graph.
 5. **Differential validate.** Run the same input eagerly and via the captured graph at startup; compare logits per query position. Internal-scratchpad aliasing surfaces only at the last query position.
 
-See [`backends/cuda-graph/`](cuda-graph.md) for the full lifecycle.
+See [`platforms/cuda/cuda-graph/`](cuda-graph.md) for the full lifecycle.
 
 ## Tensor shapes by phase
 
@@ -292,11 +292,11 @@ Writing FlashInfer-style kernels from scratch: see `agent-gpu-skills` (`cuda-ski
 
 ## See also
 
-- [`algorithms/attention-variants/`](../algorithms/attention-variants.md) — MHA / GQA / MLA / SWA wrappers in context
-- [`algorithms/paged-attention/`](../algorithms/paged-attention.md)
-- [`algorithms/batched-sampling/`](../algorithms/batched-sampling.md)
-- [`backends/cuda-graph/`](cuda-graph.md)
-- [`models/text-moe/`](../models/text-moe.md) — MLA variants (DeepSeek family)
+- [`models/attention-variants/`](../../models/attention-variants.md) — MHA / GQA / MLA / SWA wrappers in context
+- [`algorithms/paged-attention/`](../../algorithms/paged-attention.md)
+- [`algorithms/batched-sampling/`](../../algorithms/batched-sampling.md)
+- [`platforms/cuda/cuda-graph/`](cuda-graph.md)
+- [`models/text-moe/`](../../models/text-moe.md) — MLA variants (DeepSeek family)
 
 
 ---

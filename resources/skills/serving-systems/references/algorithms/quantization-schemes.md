@@ -67,6 +67,9 @@ Orthogonal to weight/activation quant:
 
 ## Compatibility
 
+Hardware support is generation-gated, so the floor column is the load-bearing
+one. Backend values are exact `ComputeBackend` names.
+
 | Scheme | vLLM | SGLang | TRT-LLM | HW floor |
 |:-------|:-----|:-------|:--------|:---------|
 | FP8 per-tensor W+A | ✓ | ✓ | ✓ | Hopper+ |
@@ -79,7 +82,16 @@ Orthogonal to weight/activation quant:
 | GGUF | ✓ | ✓ | — | CPU or GPU |
 | bitsandbytes (nf4 / int8) | ✓ | ✓ | — | wide |
 | KV cache FP8 | ✓ (kv_cache.py) | ✓ (kv_cache.py) | ✓ | Hopper+ |
-| KVFP4 | — | ✓ (kvfp4_tensor.py) | ✓ | Blackwell |
+| KVFP4 | — | ✓ (kvfp4_tensor.py) | ✓ | `cuda` Blackwell |
+
+### Non-CUDA backends
+
+| Backend | Native path | Notes |
+|:--|:--|:--|
+| `rocm` | FP8 (E4M3/E5M2), INT8, INT4 weight-only | FP8 native from MI300 (CDNA3), FP4 from CDNA4. Kernel coverage is narrower than NVIDIA — confirm the scheme is implemented before designing around it. |
+| `metal` | `mx.quantize` group-wise INT4 / INT8 | No external toolchain; the fast kernels consume quantized weights directly. **The highest-leverage optimization on this backend** — decode is bandwidth-bound, so fewer bytes per token converts almost linearly to tokens/sec. Group size 64 is a reasonable default. No FP8/FP4. |
+| `trainium` | BF16 default; FP8 on Trn2 | Quantization is secondary here — the decisive decode win is the device-resident KV cache, not precision. |
+| `cpu` | INT8 / INT4 weight-only, GGUF (Q4_K_M, Q5_K_S) | Largest single win on CPU: decode is bandwidth-bound and the arithmetic units are narrow. |
 
 ## Engine pointers
 

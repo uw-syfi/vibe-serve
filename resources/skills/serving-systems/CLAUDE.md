@@ -10,15 +10,19 @@ This collection follows the [agentskills.io](https://agentskills.io/specificatio
 skills/serving-systems/
 ├── SKILL.md                   # the only skill — keep tiny; routes to references/
 ├── references/
-│   ├── algorithms/            # serving algorithms
+│   ├── algorithms/            # portable serving-algorithm contracts
 │   │   ├── <topic>.md         # main note for the topic
 │   │   └── <topic>-<sub>.md   # follow-up details (main file links to it)
-│   ├── backends/              # kernel-library backends (FlashInfer, FA, …)
 │   ├── engines/               # vLLM / SGLang / TensorRT-LLM source maps
-│   ├── frameworks/            # PyTorch / Triton / MLX
-│   ├── hardware/              # NVIDIA / AMD / Apple specifics
+│   ├── frameworks/            # cross-platform only: PyTorch / Triton
 │   ├── models/                # model-architecture notes
-│   └── tooling/               # OpenAI API / profiler / benchmark / etc.
+│   ├── tooling/               # OpenAI API / benchmark / IO / etc.
+│   └── platforms/             # ONE dir per ComputeBackend value
+│       ├── cuda/              #   floor.md + hardware.md + profiler.md
+│       ├── rocm/              #   + that platform's kernel/framework notes
+│       ├── trainium/
+│       ├── metal/
+│       └── cpu/
 ├── repos/                     # vLLM / SGLang / TensorRT-LLM submodules
 │                              # (excluded from agent materialization)
 └── README.md, OVERVIEW.md, CLAUDE.md, update-repos.sh   # repo docs
@@ -27,7 +31,39 @@ skills/serving-systems/
 Why this shape:
 
 - The agentskills spec loads every skill's `name + description` at startup. With ~50 topics, having each as its own skill burns ~5k tokens of always-loaded context. As one skill with references, only ~360 chars of `description` lives in the always-loaded pool; the body and reference files are read on demand.
-- Within `references/`, content is grouped one level deep by tier so the source tree is browsable and the index in SKILL.md mirrors the on-disk layout. Sub-references for one topic (e.g. `cuda-graph-runner.md` for `cuda-graph.md`) sit flat next to the main file inside the same tier dir — never a third level of nesting.
+- Within `references/`, content is grouped one level deep by tier so the source tree is browsable and the index in SKILL.md mirrors the on-disk layout. Sub-references for one topic (e.g. `cuda-graph-runner.md` for `cuda-graph.md`) sit flat next to the main file inside the same tier dir.
+- `references/platforms/<backend>/` is the **single exception** to the one-level rule. Directory names must be exact `ComputeBackend` values (`cuda`, not `nvidia`) because `_materialize_skills` prunes foreign platforms by literal name match, and `validate_skill_tree` rejects anything else.
+
+## Portability: the A/B/C rule
+
+Every reference falls into one of three classes. Getting this wrong is the main way this collection goes bad, because a platform-specific claim in a portable file is *wrong work* on other backends, not merely noise.
+
+| Class | What | Where it lives |
+|:--|:--|:--|
+| **A — portable** | Concept + compatibility matrix. Platform-specificity confined to table cells. | `algorithms/`, `models/`, `tooling/`, `frameworks/` — one copy |
+| **B — portable question, divergent answer** | The problem generalizes; the technique forks per backend. | Contract in the portable tier + `platforms/<backend>/<topic>.md` per backend |
+| **C — platform-only** | A specific library, tool, or ISA. | `platforms/<backend>/` only |
+
+The test for B vs A: **would following this file on another backend produce wrong work?** Not "does it mention CUDA" — grepping for vendor strings misclassifies. `continuous-batching` teaches "eliminate padding", which inverts on Trainium where bucketed padding is required; that is B. `radix-prefix-caching` has a GPU→CPU→NVMe tier ladder that is merely inapplicable under unified memory; that is A with a scope note.
+
+Scale the response to severity:
+
+| Situation | Action |
+|:--|:--|
+| Platform named in a table cell | Add a row, including explicit **N/A** rows |
+| Section inapplicable but harmless | Scope note in place ("Applies to: cuda, rocm") |
+| Advice that is **wrong** elsewhere | Fork: contract + `platforms/<backend>/<topic>.md` |
+
+Only write a platform variant where that backend has a real answer. A missing file is honest signal; `validate_skill_tree` surfaces skeleton gaps.
+
+## Link discipline (required — pruning depends on it)
+
+Only files in the portable tiers may be linked from other portable tiers. **A portable file must never markdown-link into `platforms/<backend>/`**, because materialization prunes every non-selected platform and the link would dangle.
+
+- Portable → portable: normal relative links.
+- Portable → platform: link the directory (`[platforms/](../platforms/)`) or name the library as plain text. Never `](../platforms/cuda/flashinfer.md)`.
+- Contract → its own platform implementations: allowed, via the dispatch table.
+- Within one `platforms/<backend>/`: normal relative links (both endpoints survive together).
 
 ## SKILL.md (the router)
 
@@ -62,8 +98,8 @@ The body's job is *only* to route. All technical content lives in `references/`.
 
 ### Naming and location
 
-- Topic notes live at `references/<tier>/<topic>.md`, where `<tier>` is one of `algorithms`, `backends`, `engines`, `frameworks`, `hardware`, `models`, `tooling`.
-- For follow-up depth on one topic, use `<topic>-<sub>.md` flat **inside the same tier dir** — e.g. `references/backends/cuda-graph.md` + `references/backends/cuda-graph-runner.md`. The main `<topic>.md` must link to its sub-files explicitly. Don't introduce a third nesting level.
+- Topic notes live at `references/<tier>/<topic>.md`, where `<tier>` is one of `algorithms`, `engines`, `frameworks`, `models`, `tooling`, or `platforms/<backend>`.
+- For follow-up depth on one topic, use `<topic>-<sub>.md` flat **inside the same tier dir** — e.g. `references/platforms/cuda/cuda-graph.md` + `references/platforms/cuda/cuda-graph-runner.md`. The main `<topic>.md` must link to its sub-files explicitly.
 - Name files by what they *contain*, not by section number (`paged-kv-cache.md`, not `design-1.md`).
 
 ### Body
@@ -82,7 +118,7 @@ The body's job is *only* to route. All technical content lives in `references/`.
 
 ### Cross-references
 
-When a `references/<topic>.md` benefits from a compatibility matrix or a "where's X" table, include it in-file. Cross-link to other reference files freely with relative paths from the skill root, e.g. `[backends/cuda-graph](references/backends/cuda-graph.md)`.
+When a `references/<topic>.md` benefits from a compatibility matrix or a "where's X" table, include it in-file. Cross-link to other reference files with relative paths, subject to the link discipline above.
 
 ### Engine source-map references
 
@@ -95,9 +131,9 @@ Files under the `engines` tier (e.g. `references/vllm.md`, `references/sglang.md
 | Scheduler | python/sglang/srt/managers/scheduler.py |
 ```
 
-### Backend / kernel-library references
+### Kernel-library references
 
-Files under the `backends` tier end with:
+Files documenting a kernel library (under `platforms/<backend>/`) end with:
 
 ```markdown
 ## Out of scope — kernel implementation
@@ -115,9 +151,12 @@ Files under the `algorithms` tier include a compatibility matrix near the end:
 
 | Implementation | Engine | Backend / library | Hardware |
 |:--|:--|:--|:--|
-| FlashInfer paged KV attention | SGLang, vLLM | flashinfer | NVIDIA (sm_80+) |
-| FA3 variable-length | vLLM v1 | flashattention | NVIDIA Hopper+ |
+| FlashInfer paged KV attention | SGLang, vLLM | flashinfer | `cuda` (sm_80+) |
+| FA3 variable-length | vLLM v1 | flashattention | `cuda` (Hopper+) |
+| Resident aliased KV buffers | — | NxD | `trainium` — **N/A**, not paged; see `nxd-kv-cache.md` |
 ```
+
+The hardware column uses exact `ComputeBackend` values so the mapping is greppable. **Include N/A rows** — "this does not apply here, use X instead" is as useful as a positive entry, and its absence is what lets a backend silently inherit another's guidance.
 
 This is how axis-crossing knowledge lives — not in the directory tree.
 
@@ -142,17 +181,26 @@ The `repos/` directory is **excluded** from agent materialization (see `src/vibe
 ## What not to include
 
 - **No frontmatter on `references/**/*.md` files.** They're not skills; they're follow-up reading.
-- **No third nesting level inside `references/`.** One tier subdir is the limit; sub-references live flat next to the main file with `<topic>-<sub>.md` naming.
+- **No third nesting level inside `references/`**, except `platforms/<backend>/`. Sub-references live flat next to the main file with `<topic>-<sub>.md` naming.
+- **No vendor names for platform directories.** `cuda`/`rocm`, never `nvidia`/`amd` — validation rejects them.
 - **No tier subdirectories with their own `SKILL.md`.** The single top-level SKILL.md is the only skill.
 - **No emojis** unless the user explicitly asks.
 - **No kernel-implementation details.** Link to agent-gpu-skills instead.
 
 ## Adding a topic
 
-1. Decide which tier it belongs to (models / algorithms / backends / frameworks / hardware / engines / tooling).
-2. Create `references/<tier>/<topic>.md` with the body conventions above. No frontmatter.
-3. Edit `SKILL.md`'s "Reference index" section to add a one-line entry under the right tier heading. The link path must be `references/<tier>/<topic>.md`.
-4. If the topic crosses axes, update the compatibility matrix in the relevant `references/algorithms/<algorithm>.md`.
+1. Classify it A / B / C using the rule above.
+2. Decide the tier (models / algorithms / frameworks / engines / tooling, or `platforms/<backend>`).
+3. Create the file with the body conventions above. No frontmatter.
+4. Edit `SKILL.md`'s "Reference index" to add a one-line entry under the right heading.
+5. If the topic crosses axes, update the compatibility matrix in the relevant `references/algorithms/<algorithm>.md` — including N/A rows for backends where it does not apply.
+
+## Adding a platform
+
+1. Add the variant to `ComputeBackend` in `vibesys/constants.py` and wire the runtime impl + prompt fragments (see `vibesys/templates/_backend/README.md`).
+2. Create `references/platforms/<backend>/` with the full skeleton: `floor.md`, `hardware.md`, `profiler.md`. `validate_skill_tree` fails the run if any is missing.
+3. Add platform rows to the compatibility matrices in `algorithms/`, using explicit N/A where a technique does not apply.
+4. Add `platforms/<backend>/<topic>.md` only for category-B topics where this backend has a genuinely different answer.
 
 ## Editing a topic
 

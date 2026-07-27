@@ -14,7 +14,7 @@ The template itself: pre-RMSNorm + attention + SwiGLU MLP + rotary positions + t
 | Component | Typical choice | Variants |
 |:----------|:---------------|:---------|
 | Norm | **RMSNorm**, pre-norm placement | (LayerNorm in older models) |
-| Attention | **GQA** (grouped-query) | MHA (Llama-2), MQA (rare); see [`algorithms/attention-variants/`](../algorithms/attention-variants.md) |
+| Attention | **GQA** (grouped-query) | MHA (Llama-2), MQA (rare); see [`models/attention-variants/`](attention-variants.md) |
 | Positional | **Rotary** (RoPE) | many scaling variants — see below |
 | MLP | **SwiGLU**: `down(silu(gate(x)) * up(x))` | GeLU in older / Phi-3 |
 | Head | untied `lm_head` (Llama / Qwen3) | tied in Gemma, some Phi |
@@ -97,9 +97,9 @@ Engines usually fuse Q/K/V and gate/up into single linear layers; the loader con
 - **Llama-4 dense vs MoE.** Llama-4 has both dense and MoE variants (Scout / Maverick MoE); don't point a dense serving path at a MoE config.
 ## See also
 
-- [`algorithms/attention-variants/`](../algorithms/attention-variants.md) — MHA / MQA / GQA / SWA / QK-norm catalog + backend compatibility
+- [`models/attention-variants/`](attention-variants.md) — MHA / MQA / GQA / SWA / QK-norm catalog + backend compatibility
 - [`tooling/io-handling/`](../tooling/io-handling.md) — tokenization, chat templates (per-family BOS / turn-marker conventions), BOS double-add pitfalls
 - [`engines/vllm/`](../engines/vllm.md), [`engines/sglang/`](../engines/sglang.md), [`engines/trtllm/`](../engines/trtllm.md) — where each engine implements these models
-- [`algorithms/*`](../../algorithms/) — every standard serving algorithm applies to this family (text-dense is the default calibration target)
+- [`algorithms/*`](../algorithms/) — every standard serving algorithm applies to this family (text-dense is the default calibration target)
 - [`models/text-moe/`](text-moe.md) — the MoE variant
-- [`backends/flashinfer/`](../backends/flashinfer.md), [`backends/flashattention/`](../backends/flashattention.md) — attention backends
+- [`platforms/`](../platforms/) — the selected backend's fused-attention kernel

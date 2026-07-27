@@ -2,9 +2,9 @@
 
 How a PyTorch model actually runs on a NeuronCore. Read this before writing a
 Trainium serving path. For hardware, see
-[`hardware/aws-trainium.md`](../hardware/aws-trainium.md); for custom kernels,
+[`platforms/trainium/hardware.md`](hardware.md); for custom kernels,
 the vendored **`neuron-nki-*`** skills; for the generic (CUDA) PyTorch serving
-idioms, [`pytorch.md`](pytorch.md).
+idioms, [`pytorch.md`](../../frameworks/pytorch.md).
 
 > Scope: **Trainium2 + current Neuron SDK only.** Ignore `torch-neuron` (Inf1,
 > archived) and legacy `transformers-neuronx` in older docs.
@@ -72,7 +72,7 @@ buckets are instant across rounds. Treat a cache miss on the hot path as a bug.
   trace is the device path.
 - **Weights**: load with `transformers` / `safetensors` on CPU, then let the
   trace/compile move them on-device. Build your own `nn.Module` with explicit
-  layers (see [`pytorch.md`](pytorch.md) for fusion/remapping patterns) — the
+  layers (see [`pytorch.md`](../../frameworks/pytorch.md) for fusion/remapping patterns) — the
   Neuron path is orthogonal to how you author the module.
 
 ## Gotchas
@@ -101,6 +101,6 @@ dropping to a Triton/CUDA kernel.
 - [`nxd-inference.md`](nxd-inference.md) — the high-level AWS inference library
   (what NOT to import if the task wants a from-scratch model, but useful for the
   patterns).
-- [`algorithms/continuous-batching.md`](../algorithms/continuous-batching.md),
-  [`algorithms/paged-attention.md`](../algorithms/paged-attention.md) — the
+- [`platforms/trainium/continuous-batching.md`](continuous-batching.md),
+  [`algorithms/paged-attention.md`](../../algorithms/paged-attention.md) — the
   serving algorithms still apply; just implement them over static-shape graphs.

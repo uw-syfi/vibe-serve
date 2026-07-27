@@ -144,7 +144,7 @@ Image / video preprocessing (resize, tile, normalize, patchify, frame sampling, 
 
 ## See also
 
-- [`algorithms/attention-variants/`](../algorithms/attention-variants.md) — cross-attention (mllama) and M-RoPE 3D-position attention in context
+- [`models/attention-variants/`](attention-variants.md) — cross-attention (mllama) and M-RoPE 3D-position attention in context
 - [`tooling/io-handling/`](../tooling/io-handling.md) — preprocessing + placeholder expansion
 - [`algorithms/disaggregated-serving/`](../algorithms/disaggregated-serving.md) — vision-worker disaggregation
 - [`models/speech-language/`](speech-language.md) — contrast with audio encoder-decoder

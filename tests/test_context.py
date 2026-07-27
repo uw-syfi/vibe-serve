@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from vibesys.constants import ComputeBackend
 from vibesys.context import (
     _close_after_construction_failure,
     _RunContext,
@@ -512,6 +513,7 @@ def test_candidate_context_cleans_up_when_agent_runner_construction_fails(tmp_pa
         exp_dir=tmp_path,
         git=MagicMock(),
         run_environment=MagicMock(),
+        backend=ComputeBackend.CUDA,
         backend_impl=_FakeBackend(),
         EXCLUDED_WORKSPACE_DIRS={".git", "target"},
         accuracy_command="check-accuracy",

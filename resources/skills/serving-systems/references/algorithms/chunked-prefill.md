@@ -27,6 +27,11 @@ Common starting points: 512 tokens for aggressive latency, 2048–4096 as a bala
 
 ## Compatibility
 
+Chunking is a scheduler-level technique and applies on every backend that
+serves concurrent requests. On `trainium` the chunk sizes must come from the
+compiled bucket ladder rather than being chosen freely — see that platform's
+`continuous-batching.md`.
+
 | Implementation | Engine | Enabled by | Notes |
 |:---------------|:-------|:-----------|:------|
 | Sarathi-style chunked prefill | vLLM v1 | on by default | `vllm/v1/core/sched/scheduler.py` budgets via `max_num_batched_tokens` |
@@ -43,7 +48,7 @@ Common starting points: 512 tokens for aggressive latency, 2048–4096 as a bala
 
 ## Pitfalls
 
-- **CUDA-graph capture assumes fixed shape.** Chunked-prefill forwards have variable total-token counts; capture decode-only and keep prefill eager, or capture a small ladder of prefill shapes.
+- **Graph capture assumes fixed shape** (`cuda`, `rocm`). Chunked-prefill forwards have variable total-token counts; capture decode-only and keep prefill eager, or capture a small ladder of prefill shapes. On `trainium` this is stricter — an unbucketed chunk size is a recompile, not just a missed capture.
 - **Position IDs across chunks.** Chunk 2 starts at `past_len = len(chunk_1)`; bookkeep per request.
 - **Sampling on the last chunk only.** Non-terminal chunks produce logits that must be discarded (or not computed if the kernel allows).
 - **Quantized activations with small chunks.** Per-tensor activation scales calibrated on full prefill may over/underflow on small chunks; per-token scales avoid this.

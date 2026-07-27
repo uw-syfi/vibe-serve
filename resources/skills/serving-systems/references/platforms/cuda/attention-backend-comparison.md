@@ -3,9 +3,9 @@
 A serving system has three credible options. The right pick depends on workload shape, hardware generation, and whether you need to capture the forward in a CUDA graph.
 
 For deep usage of a backend, open the per-backend reference:
-- [`backends/flashinfer.md`](flashinfer.md) — paged batched wrappers (the default)
-- [`backends/flashattention.md`](flashattention.md) — FA2 / FA3 direct kernels
-- [`backends/sdpa.md`](sdpa.md) — PyTorch `F.scaled_dot_product_attention` baseline
+- [`platforms/cuda/flashinfer.md`](flashinfer.md) — paged batched wrappers (the default)
+- [`platforms/cuda/flashattention.md`](flashattention.md) — FA2 / FA3 direct kernels
+- [`platforms/cuda/sdpa.md`](sdpa.md) — PyTorch `F.scaled_dot_product_attention` baseline
 
 ## TL;DR — default is FlashInfer batched
 

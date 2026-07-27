@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, TextIO
 
 from vibesys.config import Config
-from vibesys.constants import DEFAULT_AGENT_BACKEND
+from vibesys.constants import DEFAULT_AGENT_BACKEND, ComputeBackend
 
 from .base import AgentRunner
 from .progress import AgentProgress, CandidateProgress, RoundProgress
@@ -63,6 +63,7 @@ def build_agent_runner(
     backends: dict[str, Any] | None,
     skills: list[str],
     skill_source_dirs: list[Path],
+    compute_backend: ComputeBackend | None = None,
     model: Any,
     model_name: str,
     run_log_file: TextIO | None,
@@ -163,6 +164,7 @@ def build_agent_runner(
             provider=provider,
             model=model_name,
             skills=skill_source_dirs,
+            compute_backend=compute_backend,
             model_name=model_name or provider,
             timeout=timeout,
             run_log_file=run_log_file,

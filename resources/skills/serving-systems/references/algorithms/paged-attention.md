@@ -44,12 +44,19 @@ Helper `flashinfer.page.get_batch_indices_positions` converts these into per-tok
 
 ## Compatibility
 
-| Implementation | Engines | Backends | Hardware | Notes |
-|:---------------|:--------|:---------|:---------|:------|
-| FlashInfer paged | SGLang, vLLM | `backends/flashinfer/` | NVIDIA sm_80+ | NHD layout, plan/run pattern |
-| FlashAttention 2/3 paged | vLLM v1 | `backends/flashattention/` | NVIDIA (FA3: sm_90+) | `flash_attn_with_kvcache(..., block_table=...)`; validate CUDA graphs with growing `cache_seqlens` or capture by bucket |
-| Triton paged | vLLM, SGLang fallback | `backends/triton-kernels/` | NVIDIA + AMD | reference impl |
-| vLLM custom PagedAttention | vLLM (optional path) | `$SERVE_REPOS/vllm/csrc/attention/` | NVIDIA | written for v0, still used in places |
+Paging solves fragmentation in a **discrete device memory pool**. Backends
+without one need a different design, so the N/A rows below are as load-bearing
+as the positive ones.
+
+| Implementation | Engines | Kernel library | Backend | Notes |
+|:---------------|:--------|:---------------|:--------|:------|
+| FlashInfer paged | SGLang, vLLM | flashinfer | `cuda` (sm_80+) | NHD layout, plan/run pattern |
+| FlashAttention 2/3 paged | vLLM v1 | flashattention | `cuda` (FA3: sm_90+) | `flash_attn_with_kvcache(..., block_table=...)`; validate graph capture with growing `cache_seqlens` or capture by bucket |
+| Triton paged | vLLM, SGLang fallback | triton | `cuda`, `rocm` | reference impl; the portable path on CDNA |
+| vLLM custom PagedAttention | vLLM (optional path) | `$SERVE_REPOS/vllm/csrc/attention/` | `cuda` | written for v0, still used in places |
+| **N/A — resident aliased buffers** | — | NxD `KVCacheManager` | `trainium` | Static shapes remove the fragmentation problem; a block pool adds indirection for nothing. Use the resident in-place cache instead. |
+| **N/A — unified memory** | — | — | `metal` | No separate device pool to fragment; allocate per-request arrays normally. |
+| **N/A** | — | — | `cpu` | No device pool. |
 
 ## Engine pointers
 

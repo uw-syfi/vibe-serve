@@ -186,6 +186,12 @@ class TrainiumComputeBackendFragment(ComputeBackendFragment):
     backend = ComputeBackend.TRAINIUM
 
 
+class RocmComputeBackendFragment(ComputeBackendFragment):
+    """Fragments for the ROCm backend (AMD Instinct GPUs)."""
+
+    backend = ComputeBackend.ROCM
+
+
 class CpuComputeBackendFragment(ComputeBackendFragment):
     """Fragments for the CPU backend (no GPU — CPU-bound targets)."""
 
@@ -196,6 +202,7 @@ _FRAGMENT_IMPLS: dict[ComputeBackend, type[ComputeBackendFragment]] = {
     ComputeBackend.CUDA: CudaComputeBackendFragment,
     ComputeBackend.METAL: MetalComputeBackendFragment,
     ComputeBackend.TRAINIUM: TrainiumComputeBackendFragment,
+    ComputeBackend.ROCM: RocmComputeBackendFragment,
     ComputeBackend.CPU: CpuComputeBackendFragment,
 }
 

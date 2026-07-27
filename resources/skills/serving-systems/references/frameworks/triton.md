@@ -8,7 +8,7 @@ The fastest kernel is the one you don't write. Before considering a custom Trito
 
 | If you're thinking of... | Check first |
 |:-------------------------|:------------|
-| attention + anything | [`backends/flashinfer/`](../backends/flashinfer.md), [`backends/flashattention/`](../backends/flashattention.md) |
+| attention + anything | the fused-attention kernels in [`platforms/`](../platforms/) for the selected backend (FlashInfer / FlashAttention on cuda, AITER on rocm, NKI flash on trainium) |
 | RMSNorm, LayerNorm, SwiGLU, RoPE | flashinfer fused ops (`rmsnorm`, `fused_add_rmsnorm`, `silu_and_mul`, `apply_rope_pos_ids`); [liger-kernel](https://github.com/linkedin/Liger-Kernel) |
 | cross-entropy + logits scale | liger-kernel, flashinfer `logits_processor` |
 | MoE grouped-GEMM + dispatch | flashinfer `fused_moe`, `flashinfer.gemm.group_gemm_*`, vLLM fused_moe, SGLang `sgl-kernel` / CUTLASS-MoE |
@@ -159,12 +159,10 @@ Stop and reconsider if:
 ## Out of scope
 
 - **How to write Triton kernels** (block sizes, autotune config design, Hopper-specific features like TMA / WGMMA / warp specialization, Gluon) → [`agent-gpu-skills`](https://github.com/slowlyC/agent-gpu-skills) `triton-skill`
-- **Using pre-written Triton kernels** in an engine (invocation, warmup, cache management) → [`backends/triton-kernels/`](../backends/triton-kernels.md)
+- **Using pre-written Triton kernels** in an engine (invocation, warmup, cache management) → `triton-kernels.md` under [`platforms/`](../platforms/) (cuda and rocm only)
 
 ## See also
 
-- [`backends/triton-kernels/`](../backends/triton-kernels.md) — consuming existing Triton kernels
-- [`backends/flashinfer/`](../backends/flashinfer.md), [`backends/flashattention/`](../backends/flashattention.md) — check these first before writing anything
-- [`backends/cuda-graph/`](../backends/cuda-graph.md) — warmup discipline for custom kernels in captured regions
+- [`platforms/`](../platforms/) — the selected backend's kernel libraries. Check the platform's fused-attention kernel before writing anything, and its graph-capture note for warmup discipline inside captured regions.
 - [`frameworks/pytorch/`](pytorch.md) — `torch.library.triton_op` / `wrap_triton` / `register_fake`
 - [`tooling/profiler/`](../tooling/profiler.md) — required before deciding anything needs fusing

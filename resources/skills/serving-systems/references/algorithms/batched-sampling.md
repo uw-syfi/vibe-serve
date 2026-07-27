@@ -76,7 +76,15 @@ Engines support pluggable per-request logits processors (for watermarking, rep p
 - **Logprobs request**: if a caller wants `logprobs=True`, capture top-k probs before the sample kernel, pass through to response.
 - **Beam search**: different beast — serving engines usually don't do it. If needed, keep it out of the hot path.
 
-## CUDA-graph compatibility
+## Backend notes
+
+The vectorize-parameters / one-sync-per-step design is portable — only the
+spelling of "sync" changes. On `metal` the equivalent violation is a `.item()`
+or Python comparison forcing materialization inside the loop; on `trainium` it
+is host-side sampling, which is why on-device sampling is part of that
+platform's floor.
+
+## CUDA-graph compatibility (`cuda`, `rocm`)
 
 - **Flashinfer samplers: graph-compatible** (regular CUDA kernels, fixed shapes).
 - **Per-request parameter tensors: fine** (stable shape = `max_batch`, pad unused slots).

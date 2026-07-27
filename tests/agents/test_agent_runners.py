@@ -15,6 +15,7 @@ from vibesys.agents.cli_runner import CliAgentRunner
 from vibesys.agents.deepagents_runner import DeepAgentsRunner
 from vibesys.agents.progress import RoundProgress
 from vibesys.config import Config
+from vibesys.constants import ComputeBackend
 from vibesys.schemas import (
     JudgeResponse,
     Verdict,
@@ -519,6 +520,90 @@ class TestCliAgentRunner:
             assert (workspace / cli_dir / "myskill" / "SKILL.md").exists()
             assert (workspace / cli_dir / "myskill" / "file.txt").read_text() == "hello skill"
             assert (workspace / cli_dir / "tool-skill" / "SKILL.md").exists()
+
+    def _run_with_platform_skill(self, monkeypatch, tmp_path, compute_backend):
+        """Materialize a skill carrying references/platforms/<backend>/ trees."""
+        skill_src = tmp_path / "serving-systems"
+        skill_src.mkdir()
+        (skill_src / "SKILL.md").write_text("# serving-systems\n")
+        # Portable tier — must survive on every backend.
+        algorithms = skill_src / "references" / "algorithms"
+        algorithms.mkdir(parents=True)
+        (algorithms / "continuous-batching.md").write_text("# contract\n")
+        # One directory per backend under references/platforms/.
+        for backend in ComputeBackend:
+            plat = skill_src / "references" / "platforms" / backend.value
+            plat.mkdir(parents=True)
+            (plat / "floor.md").write_text(f"# {backend.value} floor\n")
+        # A same-named directory *outside* references/platforms/ must not be
+        # pruned — prune keys on the parent path, not the bare name.
+        decoy = skill_src / "references" / "models" / "cuda"
+        decoy.mkdir(parents=True)
+        (decoy / "note.md").write_text("# decoy\n")
+
+        captured: list = []
+        fake_cls = _make_fake_agent_class(
+            generate_returns='{"analysis": "ok", "feedback": "", "verdict": "pass"}',
+            captured=captured,
+        )
+        monkeypatch.setitem(
+            __import__(
+                "vibesys.agents.cli_runner",
+                fromlist=["_PROVIDER_CLASSES"],
+            )._PROVIDER_CLASSES,
+            "claude",
+            fake_cls,
+        )
+
+        runner = CliAgentRunner(
+            provider="claude",
+            model="m",
+            skills=[skill_src],
+            compute_backend=compute_backend,
+            run_log_file=None,
+        )
+        workspace = tmp_path / "ws"
+        workspace.mkdir()
+        runner.invoke(
+            kind="judge",
+            workspace=workspace,
+            system_prompt="sys",
+            user_prompt="usr",
+            response_cls=JudgeResponse,
+            fallback_factory=_judge_fallback,
+            round_label="judge #1",
+        )
+        return workspace / ".claude/skills" / "serving-systems" / "references"
+
+    @pytest.mark.parametrize(
+        "selected", [ComputeBackend.CUDA, ComputeBackend.TRAINIUM, ComputeBackend.METAL]
+    )
+    def test_materialize_prunes_foreign_platform_dirs(self, monkeypatch, tmp_path, selected):
+        """Only the selected backend's platform guidance reaches the agent.
+
+        Applying one platform's floor to another produces wrong work — the
+        CUDA guidance to eliminate KV padding is inverted on Trainium — so the
+        foreign trees must be absent, not merely deprioritized.
+        """
+        refs = self._run_with_platform_skill(monkeypatch, tmp_path, selected)
+
+        platforms = refs / "platforms"
+        assert {p.name for p in platforms.iterdir()} == {selected.value}
+        assert (platforms / selected.value / "floor.md").exists()
+
+    def test_materialize_keeps_portable_tiers_and_same_named_dirs(self, monkeypatch, tmp_path):
+        """Pruning is scoped to references/platforms/, not to directory names."""
+        refs = self._run_with_platform_skill(monkeypatch, tmp_path, ComputeBackend.TRAINIUM)
+
+        assert (refs / "algorithms" / "continuous-batching.md").exists()
+        # `models/cuda/` shares a name with a backend but is not a platform dir.
+        assert (refs / "models" / "cuda" / "note.md").exists()
+
+    def test_materialize_without_backend_keeps_every_platform(self, monkeypatch, tmp_path):
+        """No selected backend (e.g. non-run tooling) copies the tree intact."""
+        refs = self._run_with_platform_skill(monkeypatch, tmp_path, None)
+
+        assert {p.name for p in (refs / "platforms").iterdir()} == {b.value for b in ComputeBackend}
 
     def test_cli_runner_materializes_single_skill_with_nested_content(self, monkeypatch, tmp_path):
         # Single-skill source (SKILL.md at the root, sub-dirs are reference

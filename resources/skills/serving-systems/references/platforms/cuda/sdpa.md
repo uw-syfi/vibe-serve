@@ -181,7 +181,7 @@ CUDA graph, use agent-gpu-skills's CUDA / Triton / CUTLASS skills.
 
 ## See also
 
-- [`backends/cuda-graph/`](cuda-graph.md) — capture lifecycle and full vs piecewise graph patterns
-- [`backends/flashattention/`](flashattention.md) — FlashAttention integration and paged KV contract
-- [`backends/flashinfer/`](flashinfer.md) — FlashInfer paged KV wrappers and fused ops
-- [`frameworks/pytorch/`](../frameworks/pytorch.md) — PyTorch serving idioms and `attn_implementation`
+- [`platforms/cuda/cuda-graph/`](cuda-graph.md) — capture lifecycle and full vs piecewise graph patterns
+- [`platforms/cuda/flashattention/`](flashattention.md) — FlashAttention integration and paged KV contract
+- [`platforms/cuda/flashinfer/`](flashinfer.md) — FlashInfer paged KV wrappers and fused ops
+- [`frameworks/pytorch/`](../../frameworks/pytorch.md) — PyTorch serving idioms and `attn_implementation`

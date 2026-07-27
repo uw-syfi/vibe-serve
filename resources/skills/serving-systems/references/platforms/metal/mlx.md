@@ -138,6 +138,6 @@ Common mistakes:
 
 ## See also
 
-- [`hardware/apple-silicon/`](../hardware/apple-silicon.md) — hardware side
-- [`algorithms/quantization-schemes/`](../algorithms/quantization-schemes.md) — MLX quant contrasted with GGUF / AWQ
-- [`frameworks/pytorch/`](pytorch.md) — porting-from comparisons
+- [`platforms/metal/hardware/`](hardware.md) — hardware side
+- [`algorithms/quantization-schemes/`](../../algorithms/quantization-schemes.md) — MLX quant contrasted with GGUF / AWQ
+- [`frameworks/pytorch/`](../../frameworks/pytorch.md) — porting-from comparisons

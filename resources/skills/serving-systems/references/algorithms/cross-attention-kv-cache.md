@@ -36,7 +36,7 @@ RoPE: cross labels **never plan or apply RoPE**. If the plan/apply are label-key
 
 ## Why non-causal prefill is the right primitive
 
-A single decode query token attending to the full fixed context is exactly a **1-query, N-key non-causal attention** — i.e. a prefill with `causal=False` where the "prefill" is one query row and the KV is the paged context. So the existing `FlashInferPrefillWrapper` (see [`../backends/flashinfer.md`](../backends/flashinfer.md)) handles it directly: independent `qo_indptr` (decoder queries) and `paged_kv_indptr`/`indices` (encoder pages), `causal=False`. You reuse the persistent-wrapper / static-buffer / pre-plan machinery for free — **CUDA-graph compatibility comes along with it** (see [`../backends/cuda-graph.md`](../backends/cuda-graph.md)), because capture only sees the run, and the run is a plain planned wrapper call.
+A single decode query token attending to the full fixed context is exactly a **1-query, N-key non-causal attention** — i.e. a prefill with `causal=False` where the "prefill" is one query row and the KV is the paged context. So the existing `FlashInferPrefillWrapper` (see [`platforms/`](../platforms/)) handles it directly: independent `qo_indptr` (decoder queries) and `paged_kv_indptr`/`indices` (encoder pages), `causal=False`. You reuse the persistent-wrapper / static-buffer / pre-plan machinery for free — **CUDA-graph compatibility comes along with it** (see [`platforms/`](../platforms/)), because capture only sees the run, and the run is a plain planned wrapper call.
 
 ## Prefill-vs-decode
 
@@ -68,9 +68,9 @@ The paged-context-pool row is the reusable one for large or many-source contexts
 ## Cross-refs
 
 - [`../models/speech-language.md`](../models/speech-language.md) — the encoder-decoder ASR family (Whisper) this is the decode-time engine for; two KV caches per layer.
-- [`../algorithms/attention-variants.md`](attention-variants.md) — where cross-attention sits among the masking-pattern variants.
+- [`../algorithms/attention-variants.md`](../models/attention-variants.md) — where cross-attention sits among the masking-pattern variants.
 - [`../algorithms/paged-attention.md`](paged-attention.md) — the self-attention paged cache the context pool sits beside.
 - [`../algorithms/heterogeneous-kv-cache.md`](heterogeneous-kv-cache.md) — when multiple cache types (here: self + one-or-more context pools) share an allocator.
-- [`../backends/flashinfer.md`](../backends/flashinfer.md) — the prefill wrapper (`causal=False`) that runs the context attention.
+- [`platforms/`](../platforms/) — the prefill wrapper (`causal=False`) that runs the context attention.
 
 A concrete offline testbed for this recipe: the `whisper-large-v3` model-serving target (encoder-decoder ASR, self-attn KV + a single `default` cross-attention context pool).

@@ -340,4 +340,4 @@ Use this to scope a new endpoint:
 
 - [`tooling/fastapi-serving/`](fastapi-serving.md) — FastAPI + lifespan + async patterns for the endpoints above (focus is text but the async-lock / streaming recipes transfer)
 - [`tooling/io-handling/`](io-handling.md) — tokenization, chat templates, multimodal preprocessing, incremental UTF-8 detokenization, SSE formatting
-- [`models/*`](../../models/) — each modality's model-architecture side
+- [`models/*`](../models/) — each modality's model-architecture side

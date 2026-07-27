@@ -171,5 +171,5 @@ CFG combined with FP8 is standard on production Flux serving.
 - [`models/video-generation/`](video-generation.md) — closely related, adds temporal dim and much higher memory
 - [`models/omni-multimodal/`](omni-multimodal.md) — when image generation is one head of a unified text + image model (BAGEL, Hunyuan-Image3, MammothModa2)
 - [`algorithms/quantization-schemes/`](../algorithms/quantization-schemes.md) — FP8 for Flux / SD3
-- [`backends/cuda-graph/`](../backends/cuda-graph.md) — denoiser steps are graph-friendly
+- [`platforms/`](../platforms/) — denoiser steps are graph-friendly where the backend supports capture (cuda, rocm)
 - [`OVERVIEW.md`](../../OVERVIEW.md) — the scope note specifically calls out generative media as a non-default setting

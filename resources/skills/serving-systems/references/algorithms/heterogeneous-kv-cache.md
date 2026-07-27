@@ -162,5 +162,5 @@ The vision case is the most unusual — assigning a **random** `prefix_length` p
 - [`algorithms/paged-attention/`](paged-attention.md) — the single-type allocator this generalizes
 - [`algorithms/radix-prefix-caching/`](radix-prefix-caching.md) — trie structure that sits above `get_possible_prefix`
 - [`models/ssm-hybrid/`](../models/ssm-hybrid.md) — the concrete motivation for SSM-state cache
-- [`algorithms/attention-variants/`](attention-variants.md) — per-variant hit policies (SWA, chunked-local, MLA, cross)
+- [`models/attention-variants/`](../models/attention-variants.md) — per-variant hit policies (SWA, chunked-local, MLA, cross)
 - Jenga paper: [arXiv 2503.18292](https://arxiv.org/abs/2503.18292)

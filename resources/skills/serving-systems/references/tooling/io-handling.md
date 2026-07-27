@@ -153,7 +153,7 @@ End-of-stream:
 data: [DONE]\n\n
 ```
 
-See [`tooling/fastapi-serving/#openai-api-spec`](../fastapi-serving/#openai-api-spec) for the exact chunk shape.
+See [`tooling/fastapi-serving/#openai-api-spec`](fastapi-serving.md) for the exact chunk shape.
 
 ## Pitfalls
 

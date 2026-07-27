@@ -19,7 +19,7 @@ footprint, replicated across every layer of a single traced graph. That
 batch size / decode-unroll width on a single 24 GB logical core. Flash attention
 tiles the computation and never builds the full matrix, **cutting the activation
 peak** — which is what lets you fit a larger batch (the lever that breaks the
-host-bound throughput plateau). See [`aws-trainium.md`](../hardware/aws-trainium.md)
+host-bound throughput plateau). See [`aws-trainium.md`](hardware.md)
 for the HBM math and [`nxd-kv-cache.md`](nxd-kv-cache.md) for the resident cache.
 
 ## API
@@ -78,5 +78,5 @@ are the next options — or write your own with the **`neuron-nki-*`** skills.
 ## Related
 
 - [`nxd-kv-cache.md`](nxd-kv-cache.md) — device-resident KV cache (pair with this).
-- [`aws-trainium.md`](../hardware/aws-trainium.md) — the 24 GB/core HBM budget.
+- [`aws-trainium.md`](hardware.md) — the 24 GB/core HBM budget.
 - the bundled **`neuron-nki-*`** skills — to write/extend attention kernels.

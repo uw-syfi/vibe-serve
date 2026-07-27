@@ -137,7 +137,7 @@ For real-time transcription:
 
 ## See also
 
-- [`algorithms/attention-variants/`](../algorithms/attention-variants.md) — cross-attention semantics and the "compute once, reuse" rule for cross-attn KV
+- [`models/attention-variants/`](attention-variants.md) — cross-attention semantics and the "compute once, reuse" rule for cross-attn KV
 - [`tooling/io-handling/`](../tooling/io-handling.md) — log-mel extraction
 - [`algorithms/continuous-batching/`](../algorithms/continuous-batching.md) — encoder-decoder batching specifics
 - [`models/vision-language/`](vision-language.md) — contrast splice vs cross-attention families

@@ -1,0 +1,3 @@
+Profiler-guided analysis on ROCm is not yet wired up in this repository. `torch.profiler` works on ROCm and is the available framework-altitude tool; `rocprofv3` (system timeline) and `omniperf` (kernel altitude) are the ROCm equivalents of nsys and ncu but have no toolkit here yet.
+
+Diagnose from benchmark evidence instead: sweep concurrency to find saturation, compare TTFT against TPOT to separate prefill from decode cost, and check whether throughput scales with batch size. If you reach for a profiler, `torch.profiler` with a Chrome trace export is the supported path.

@@ -2,7 +2,7 @@
 
 Hardware spec reference for **Trainium2 (Trn2)** — the only Trainium generation
 this note covers. For how PyTorch maps onto this hardware see
-[`frameworks/neuron-pytorch.md`](../frameworks/neuron-pytorch.md); for writing
+[`platforms/trainium/neuron-pytorch.md`](neuron-pytorch.md); for writing
 custom kernels, the vendored **`neuron-nki-*`** skills.
 
 > Ignore Inf1/Trn1 and NeuronCore-v1/v2 material in older AWS docs — it does not
@@ -71,7 +71,7 @@ A single `trn2.3xlarge` (one chip, 4 logical cores, 96 GiB) comfortably holds an
 
 - **Compiled, static-shape graphs.** NeuronCores run graphs compiled ahead of
   time by `neuronx-cc`; dynamic shapes trigger recompiles (minutes each). Bucket
-  prompt/decode lengths. See [`frameworks/neuron-pytorch.md`](../frameworks/neuron-pytorch.md).
+  prompt/decode lengths. See [`platforms/trainium/neuron-pytorch.md`](neuron-pytorch.md).
 - **BF16 baseline, FP8 for throughput.** The tensor engine does ~2× FP8 vs BF16.
 - **KV cache lives in HBM**; 96 GiB is generous for a single 8B model — favor
   large batch / long context before sharding.

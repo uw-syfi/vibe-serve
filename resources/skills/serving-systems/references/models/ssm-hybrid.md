@@ -144,7 +144,7 @@ A causal 1D convolution sits in front of every Mamba block and some GDN blocks. 
 
 ## See also
 
-- [`algorithms/attention-variants/`](../algorithms/attention-variants.md) — SSM in context with quadratic attention and linear-attention cousins (RetNet, RWKV, DeltaNet)
+- [`models/attention-variants/`](attention-variants.md) — SSM in context with quadratic attention and linear-attention cousins (RetNet, RWKV, DeltaNet)
 - [`algorithms/continuous-batching/`](../algorithms/continuous-batching.md) — SSM state batching differs from KV
 - [`algorithms/radix-prefix-caching/`](../algorithms/radix-prefix-caching.md) — SGLang's `mamba_radix_cache` extends radix to SSM states
 - [`algorithms/heterogeneous-kv-cache/`](../algorithms/heterogeneous-kv-cache.md) — allocator and prefix-cache design for mixed layer types (Jenga)

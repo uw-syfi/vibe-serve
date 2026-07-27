@@ -31,7 +31,7 @@ Fine-grained MoE is the modern pattern; coarse-grained stuck around via Mixtral-
 The most operationally demanding open architecture. Every MoE + attention optimization lands here first.
 
 - 61 layers (first 3 dense MLP, remaining MoE)
-- **MLA attention**: compressed KV latent `c_kv` (dim ~512) + small decoupled-RoPE head dim; decode uses the **query-absorption trick** to compute attention directly on compressed KV — see [`algorithms/attention-variants/`](../algorithms/attention-variants.md)
+- **MLA attention**: compressed KV latent `c_kv` (dim ~512) + small decoupled-RoPE head dim; decode uses the **query-absorption trick** to compute attention directly on compressed KV — see [`models/attention-variants/`](attention-variants.md)
 - MoE block: 256 routed experts + **1 shared expert** (always-on), top-8 with **group-limited routing** (pick top-g groups first)
 - **Auxiliary-loss-free load balancing** — bias adjusted at train time; per-expert bias becomes a persistent serving-side routing offset
 - **MTP heads** trained jointly — used as native speculative drafters
@@ -121,7 +121,7 @@ Matches how [`algorithms/parallelism/`](../algorithms/parallelism.md) describes 
 
 ## See also
 
-- [`algorithms/attention-variants/`](../algorithms/attention-variants.md) — MLA in context with other head-sharing schemes
+- [`models/attention-variants/`](attention-variants.md) — MLA in context with other head-sharing schemes
 - [`algorithms/moe-routing-dispatch/`](../algorithms/moe-routing-dispatch.md) — routing + dispatch + expert-FFN kernels + EPLB
 - [`algorithms/parallelism/`](../algorithms/parallelism.md) — DP-attention + EP-MoE canonical layout
 - [`algorithms/speculative-decoding/`](../algorithms/speculative-decoding.md) — MTP as draft

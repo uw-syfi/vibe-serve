@@ -124,6 +124,6 @@ Writing Triton or Gluon kernels from scratch: see `agent-gpu-skills`'s `triton-s
 
 ## See also
 
-- [`backends/cuda-graph/`](cuda-graph.md) — capture-time pitfalls
-- [`frameworks/pytorch/`](../frameworks/pytorch.md) — torch.compile integration
-- [`tooling/profiler/`](../tooling/profiler.md) — analyzing launch behavior
+- [`platforms/cuda/cuda-graph/`](cuda-graph.md) — capture-time pitfalls
+- [`frameworks/pytorch/`](../../frameworks/pytorch.md) — torch.compile integration
+- [`platforms/cuda/profiler/`](profiler.md) — analyzing launch behavior

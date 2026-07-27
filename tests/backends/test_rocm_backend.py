@@ -1,0 +1,171 @@
+"""Tests for the ROCm (AMD Instinct) backend."""
+
+from __future__ import annotations
+
+import argparse
+
+import pytest
+from deepagents.backends import LocalShellBackend
+
+from vibesys import backends
+from vibesys.backends import SandboxKind
+from vibesys.backends.rocm import RocmBackend, _discover_rocm_devices
+from vibesys.constants import ComputeBackend
+from vibesys.main import _add_common_args
+from vibesys.profilers import ProfilerKind
+from vibesys.prompts import (
+    _FRAGMENT_IMPLS,
+    _TEMPLATES_DIR,
+    ComputeBackendFragment,
+    RocmComputeBackendFragment,
+)
+
+
+def _make_backend(tmp_path, devices=("/dev/kfd", "/dev/dri/renderD128")) -> RocmBackend:
+    impl = backends.get(ComputeBackend.ROCM, log_dir=tmp_path / "logs")
+    # Pin a deterministic device set so tests don't depend on host hardware.
+    impl._devices = list(devices)
+    return impl
+
+
+class TestRocmRegistry:
+    def test_rocm_in_registry(self, tmp_path):
+        impl = backends.get(ComputeBackend.ROCM, log_dir=tmp_path)
+        assert isinstance(impl, RocmBackend)
+        assert impl.name is ComputeBackend.ROCM
+        # torch.profiler works on ROCm, so no dedicated profiler kind is needed.
+        assert impl.profiler_kind is ProfilerKind.TORCH
+
+
+class TestRocmSandbox:
+    def test_local_returns_local_shell_backend(self, tmp_path):
+        impl = _make_backend(tmp_path)
+        workspace = tmp_path / "ws"
+        workspace.mkdir()
+        sb = impl.make_sandbox(
+            SandboxKind.LOCAL,
+            host_workspace=str(workspace),
+            log_path=None,
+            extra_env={"FOO": "bar"},
+        )
+        assert isinstance(sb, LocalShellBackend)
+
+    def test_docker_forwards_kfd_and_dri_without_gpus_flag(self, tmp_path):
+        """AMD GPUs come in via --device, not the NVIDIA-only --gpus."""
+        impl = _make_backend(tmp_path, devices=["/dev/kfd", "/dev/dri/renderD128"])
+        workspace = tmp_path / "ws"
+        workspace.mkdir()
+        sb = impl.make_sandbox(
+            SandboxKind.DOCKER,
+            host_workspace=str(workspace),
+            log_path=None,
+        )
+        assert sb._devices == ["/dev/kfd", "/dev/dri/renderD128"]
+        assert sb._gpus is None
+
+    def test_docker_adds_device_groups(self, tmp_path):
+        """/dev/kfd and /dev/dri/* are group-owned; without these the container
+        user cannot open them and every HIP call fails at runtime."""
+        impl = _make_backend(tmp_path)
+        workspace = tmp_path / "ws"
+        workspace.mkdir()
+        sb = impl.make_sandbox(
+            SandboxKind.DOCKER,
+            host_workspace=str(workspace),
+            log_path=None,
+        )
+        assert sb._group_add == ["video", "render"]
+
+    def test_modal_raises(self, tmp_path):
+        """Modal has no AMD GPUs — fail loudly rather than silently on CPU."""
+        impl = _make_backend(tmp_path)
+        with pytest.raises(ValueError, match="does not support Modal"):
+            impl.make_sandbox(
+                SandboxKind.MODAL,
+                host_workspace=str(tmp_path),
+                log_path=None,
+            )
+
+    def test_hip_visible_devices_is_respected(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("HIP_VISIBLE_DEVICES", "2")
+        impl = _make_backend(tmp_path)
+        workspace = tmp_path / "ws"
+        workspace.mkdir()
+        sb = impl.make_sandbox(
+            SandboxKind.DOCKER,
+            host_workspace=str(workspace),
+            log_path=None,
+        )
+        assert sb._env.get("HIP_VISIBLE_DEVICES") == "2"
+
+    def test_caller_env_overrides_backend_env(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("HIP_VISIBLE_DEVICES", "2")
+        impl = _make_backend(tmp_path)
+        workspace = tmp_path / "ws"
+        workspace.mkdir()
+        sb = impl.make_sandbox(
+            SandboxKind.DOCKER,
+            host_workspace=str(workspace),
+            log_path=None,
+            extra_env={"HIP_VISIBLE_DEVICES": "0"},
+        )
+        assert sb._env.get("HIP_VISIBLE_DEVICES") == "0"
+
+
+class TestRocmDeviceDiscovery:
+    def test_no_kfd_means_no_devices(self, tmp_path, monkeypatch):
+        """A host without /dev/kfd yields an empty list rather than raising."""
+        monkeypatch.setattr("vibesys.backends.rocm.os.path.exists", lambda _p: False)
+        assert _discover_rocm_devices() == []
+
+    def test_kfd_leads_and_render_nodes_follow(self, monkeypatch):
+        monkeypatch.setattr("vibesys.backends.rocm.os.path.exists", lambda _p: True)
+        monkeypatch.setattr(
+            "vibesys.backends.rocm.glob.glob",
+            lambda _pat: ["/dev/dri/renderD129", "/dev/dri/renderD128"],
+        )
+        assert _discover_rocm_devices() == [
+            "/dev/kfd",
+            "/dev/dri/renderD128",
+            "/dev/dri/renderD129",
+        ]
+
+
+class TestRocmDevice:
+    def test_no_monitor(self, tmp_path):
+        impl = _make_backend(tmp_path)
+        assert impl.make_monitor(tmp_path) is None
+
+    def test_reselect_is_noop(self, tmp_path):
+        impl = _make_backend(tmp_path)
+        impl.reselect_device()
+        assert impl.selected_device is None
+
+
+class TestRocmCli:
+    def test_argparse_accepts_rocm(self):
+        parser = argparse.ArgumentParser()
+        _add_common_args(parser)
+        ns = parser.parse_args(["--backend", "rocm"])
+        assert ns.backend is ComputeBackend.ROCM
+
+
+class TestRocmPromptFragments:
+    def test_every_fragment_name_exists_for_rocm(self):
+        """`Prompt.__init__` calls validate(); a missing .j2 fails the run."""
+        RocmComputeBackendFragment.validate()
+
+    def test_rocm_is_registered_in_the_fragment_impl_table(self):
+        """An unregistered backend raises at prompt construction time."""
+        assert _FRAGMENT_IMPLS[ComputeBackend.ROCM] is RocmComputeBackendFragment
+
+    def test_every_backend_has_a_fragment_impl(self):
+        """Adding a ComputeBackend without fragments breaks every run on it."""
+        assert set(_FRAGMENT_IMPLS) == set(ComputeBackend)
+
+    def test_rocm_fragments_are_non_empty(self):
+        """Empty .j2 is a legal 'hard skip', but ROCm has real content for all
+        three — an accidental empty file would silently drop prompt guidance."""
+        backend_dir = _TEMPLATES_DIR / "_backend" / ComputeBackend.ROCM.value
+        for name in ComputeBackendFragment.NAMES:
+            assert (backend_dir / f"{name}.j2").read_text().strip()

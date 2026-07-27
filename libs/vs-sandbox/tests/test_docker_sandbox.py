@@ -881,6 +881,42 @@ class TestDevicePassthrough:
         assert sandbox._metadata["devices"] == ["/dev/neuron0", "/dev/neuron1"]
 
     @patch("subprocess.run")
+    def test_group_add_emits_group_add_flags(self, mock_run, tmp_path):
+        """AMD /dev/kfd and /dev/dri/* are group-owned; without --group-add the
+        container user cannot open them and every HIP call fails at runtime."""
+        sandbox = DockerSandbox(
+            host_workspace=str(tmp_path / "workspace"),
+            image="rocm/pytorch:latest",
+            gpus=None,
+            devices=["/dev/kfd", "/dev/dri/renderD128"],
+            group_add=["video", "render"],
+        )
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="abc123\n", stderr=""
+        )
+
+        sandbox.start()
+
+        cmd = mock_run.call_args_list[0][0][0]
+        assert cmd.count("--group-add") == 2
+        for group in ("video", "render"):
+            i = cmd.index(group)
+            assert cmd[i - 1] == "--group-add"
+
+    @patch("subprocess.run")
+    def test_no_group_add_by_default(self, mock_run, tmp_path):
+        sandbox = DockerSandbox(
+            host_workspace=str(tmp_path / "workspace"),
+            image="img",
+        )
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="abc123\n", stderr=""
+        )
+        sandbox.start()
+        cmd = mock_run.call_args_list[0][0][0]
+        assert "--group-add" not in cmd
+
+    @patch("subprocess.run")
     def test_no_devices_by_default(self, mock_run, tmp_path):
         sandbox = DockerSandbox(
             host_workspace=str(tmp_path / "workspace"),

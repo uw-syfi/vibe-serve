@@ -45,7 +45,7 @@ length. Three practical patterns:
 
 For one fixed-max graph, keep `k_cache` / `v_cache` full-sized and mutate only
 the static mask values before replay. Do not slice `:cur_len` inside a graph
-you expect to reuse for another length. See [`backends/sdpa/`](sdpa.md)
+you expect to reuse for another length. See [`platforms/cuda/sdpa/`](sdpa.md)
 for the single-batch implementation pattern.
 
 ### FlashInfer
@@ -85,7 +85,7 @@ int32 at a fixed maximum size:
 
 ### Triton-based backends
 
-Autotune is the landmine. Warmup must cover every shape the engine will replay at — otherwise the first replay triggers autotune inside the captured region, corrupting the graph. See [`backends/triton-kernels/`](triton-kernels.md).
+Autotune is the landmine. Warmup must cover every shape the engine will replay at — otherwise the first replay triggers autotune inside the captured region, corrupting the graph. See [`platforms/cuda/triton-kernels/`](triton-kernels.md).
 
 ## Full-graph from-scratch pattern
 
@@ -276,7 +276,7 @@ Everything above focuses on the decoder loop. Other components along a serving p
 | LLaVA-NeXT | dynamic 1×1 / 1×2 / 2×2 / ... tile grids | capture one graph per grid configuration (~8 total) |
 | Qwen2-VL / Qwen3-VL (NaViT) | variable resolution within `min_pixels` / `max_pixels` bounds | bucket by token count; one graph per bucket |
 
-For the NaViT case, choose N buckets covering the resolution range (e.g., 256 / 512 / 1024 / 2048 / 4096 tokens) and pad to the nearest bucket before invoking the graph. See [`models/vision-language/`](../models/vision-language.md).
+For the NaViT case, choose N buckets covering the resolution range (e.g., 256 / 512 / 1024 / 2048 / 4096 tokens) and pad to the nearest bucket before invoking the graph. See [`models/vision-language/`](../../models/vision-language.md).
 
 ### Whisper encoder (speech-language)
 
@@ -304,7 +304,7 @@ Flow-matching models (SD3, Flux) are identical from a capture perspective. Step-
 
 Mimi, SNAC, DAC, EnCodec: token sequence → waveform. Shape is determined by the codec's fixed frame rate × number of frames decoded per call. Capture per `(codec, decode_chunk_size)` pair.
 
-For VoxServe-class serving (see [`models/speech-generation/`](../models/speech-generation.md)), the `detokenize_interval` defines chunk size; one graph per codec / chunk-size pair.
+For VoxServe-class serving (see [`models/speech-generation/`](../../models/speech-generation.md)), the `detokenize_interval` defines chunk size; one graph per codec / chunk-size pair.
 
 ### Cross-attention (encoder-decoder models)
 
@@ -333,13 +333,13 @@ On Llama-3.2-1B-Instruct, CUDA graphs reduce per-token decode latency by ~4-5x (
 
 ## See also
 
-- [`algorithms/async-scheduling/`](../algorithms/async-scheduling.md) — hides *scheduler-level* CPU overhead; orthogonal to the kernel-launch overhead CUDA graphs address, and stacks with it. Covers vLLM's MRV2 which manages piecewise capture.
-- [`algorithms/batched-sampling/`](../algorithms/batched-sampling.md) — the sampler is one of the kernels typically inside the captured decode pass
-- [`backends/flashinfer/`](flashinfer.md) — FlashInfer wrappers are CUDA-graph-safe when configured with static buffers (`use_cuda_graph=True`)
-- [`backends/flashattention/`](flashattention.md) — FA `flash_attn_with_kvcache` is graph-safe only for fixed/bucketed effective lengths; `varlen_func` usually left eager or piecewise
-- [`backends/triton-kernels/`](triton-kernels.md) — autotune warmup before capture is mandatory
-- [`frameworks/pytorch/`](../frameworks/pytorch.md) — `torch.compile(mode="reduce-overhead")` uses CUDA graphs under the hood; the piecewise backend is a `torch.compile` custom backend
-- [`models/vision-language/`](../models/vision-language.md), [`models/speech-language/`](../models/speech-language.md), [`models/speech-generation/`](../models/speech-generation.md), [`models/image-generation/`](../models/image-generation.md), [`models/video-generation/`](../models/video-generation.md) — the components discussed in "Capturing non-LLM-decoder components"
+- [`platforms/cuda/async-scheduling/`](async-scheduling.md) — hides *scheduler-level* CPU overhead; orthogonal to the kernel-launch overhead CUDA graphs address, and stacks with it. Covers vLLM's MRV2 which manages piecewise capture.
+- [`algorithms/batched-sampling/`](../../algorithms/batched-sampling.md) — the sampler is one of the kernels typically inside the captured decode pass
+- [`platforms/cuda/flashinfer/`](flashinfer.md) — FlashInfer wrappers are CUDA-graph-safe when configured with static buffers (`use_cuda_graph=True`)
+- [`platforms/cuda/flashattention/`](flashattention.md) — FA `flash_attn_with_kvcache` is graph-safe only for fixed/bucketed effective lengths; `varlen_func` usually left eager or piecewise
+- [`platforms/cuda/triton-kernels/`](triton-kernels.md) — autotune warmup before capture is mandatory
+- [`frameworks/pytorch/`](../../frameworks/pytorch.md) — `torch.compile(mode="reduce-overhead")` uses CUDA graphs under the hood; the piecewise backend is a `torch.compile` custom backend
+- [`models/vision-language/`](../../models/vision-language.md), [`models/speech-language/`](../../models/speech-language.md), [`models/speech-generation/`](../../models/speech-generation.md), [`models/image-generation/`](../../models/image-generation.md), [`models/video-generation/`](../../models/video-generation.md) — the components discussed in "Capturing non-LLM-decoder components"
 
 
 ---

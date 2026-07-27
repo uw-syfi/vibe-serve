@@ -227,7 +227,7 @@ Simpler, wasteful under heterogeneous request lengths. Fine for early correctnes
 - Free pages when requests finish.
 - Rebuild `block_table` for each active decode batch.
 
-Production-oriented. Matches the paged-attention design used by vLLM and SGLang (see [`algorithms/paged-attention/`](../algorithms/paged-attention.md)).
+Production-oriented. Matches the paged-attention design used by vLLM and SGLang (see [`algorithms/paged-attention/`](../../algorithms/paged-attention.md)).
 
 ## RoPE handling
 
@@ -355,7 +355,7 @@ result after `cache_seqlens` was increased, for both contiguous and paged KV.
 For growing decode, either capture by length/bucket, use fixed-length padding,
 or leave FA eager and capture the surrounding model piecewise.
 
-See [`backends/cuda-graph/`](cuda-graph.md) for the capture lifecycle.
+See [`platforms/cuda/cuda-graph/`](cuda-graph.md) for the capture lifecycle.
 
 ## Per-engine integration
 
@@ -409,11 +409,11 @@ Writing FlashAttention-style kernels from scratch: see `agent-gpu-skills`'s `tri
 
 ## See also
 
-- [`algorithms/attention-variants/`](../algorithms/attention-variants.md) — MHA / MQA / GQA / SWA / cross-attention catalog this backend implements
-- [`backends/flashinfer/`](flashinfer.md) — higher-level wrapper alternative (plan/run, native paged KV)
-- [`algorithms/paged-attention/`](../algorithms/paged-attention.md) — paged-KV design patterns across engines
-- [`backends/cuda-graph/`](cuda-graph.md) — capture lifecycle for graph-safe decode
-- [`hardware/nvidia/`](../hardware/nvidia.md) — where FA3 wins (Hopper section)
+- [`models/attention-variants/`](../../models/attention-variants.md) — MHA / MQA / GQA / SWA / cross-attention catalog this backend implements
+- [`platforms/cuda/flashinfer/`](flashinfer.md) — higher-level wrapper alternative (plan/run, native paged KV)
+- [`algorithms/paged-attention/`](../../algorithms/paged-attention.md) — paged-KV design patterns across engines
+- [`platforms/cuda/cuda-graph/`](cuda-graph.md) — capture lifecycle for graph-safe decode
+- [`platforms/cuda/hardware/`](hardware.md) — where FA3 wins (Hopper section)
 
 
 ---

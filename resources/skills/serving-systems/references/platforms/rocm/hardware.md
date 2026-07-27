@@ -1,6 +1,6 @@
 # AMD Instinct MI300 family
 
-Hardware spec reference. For ROCm kernel / engine guidance, see the [`backends/*`](../../backends/) and [`engines/*`](../../engines/) skills.
+Hardware spec reference. For the ROCm optimization floor see [`floor.md`](floor.md); for kernel-library guidance see [`aiter.md`](aiter.md).
 
 ## SKU matrix
 
@@ -35,4 +35,6 @@ Beyond a node: Ethernet / InfiniBand with RDMA (RoCE). No NVL72-equivalent domai
 
 ## See also
 
-- [`hardware/nvidia/`](nvidia.md) — NVIDIA Hopper + Blackwell specs
+- [`floor.md`](floor.md) — the ROCm optimization floor
+- [`aiter.md`](aiter.md) — AITER / Composable Kernel, the fused-attention path on CDNA
+- [`profiler.md`](profiler.md) — rocprof / omniperf

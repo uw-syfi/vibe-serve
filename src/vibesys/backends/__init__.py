@@ -61,11 +61,13 @@ def get(
 def _register_defaults() -> None:
     from vibesys.backends.cuda import CudaBackend
     from vibesys.backends.local import cpu_backend, metal_backend
+    from vibesys.backends.rocm import RocmBackend
     from vibesys.backends.trainium import TrainiumBackend
 
     register(ComputeBackend.CUDA, CudaBackend)
     register(ComputeBackend.METAL, metal_backend)
     register(ComputeBackend.TRAINIUM, TrainiumBackend)
+    register(ComputeBackend.ROCM, RocmBackend)
     register(ComputeBackend.CPU, cpu_backend)
 
 

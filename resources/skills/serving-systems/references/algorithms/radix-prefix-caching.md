@@ -19,7 +19,12 @@ Match granularity matters:
 
 ## Hierarchical tiers (HiCache / offload)
 
-When GPU-resident cache isn't enough, tier outward:
+**Applies to: `cuda`, `rocm`.** This section assumes a discrete device pool
+that is smaller than host RAM. Under unified memory (`metal`) there is no
+GPU→CPU tier — it is the same physical memory — and on `cpu` the first tier is
+already host RAM. The radix matching above is portable; only this ladder is not.
+
+When device-resident cache isn't enough, tier outward:
 
 ```
 GPU HBM (fastest, scarce)

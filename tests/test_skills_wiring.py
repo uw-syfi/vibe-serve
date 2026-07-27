@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -11,6 +12,7 @@ from vibesys.constants import PROJECT_ROOT, ComputeBackend
 from vibesys.domains.base import DomainName
 from vibesys.main import load_config_and_skills
 from vibesys.skills import (
+    PLATFORM_SKELETON,
     SkillMetadataError,
     _is_in_hidden_dir,
     discover_sidecar_rules,
@@ -18,6 +20,7 @@ from vibesys.skills import (
     load_sidecar_rules,
     load_skill_frontmatter,
     resolve_skill_source_dirs,
+    validate_platform_layout,
     validate_skill_tree,
 )
 
@@ -265,3 +268,149 @@ def test_discover_skill_dirs_accepts_single_skill_root(tmp_path):
     skill_dir = _write_skill(tmp_path, "portable")
 
     assert discover_skill_dirs(skill_dir) == [skill_dir]
+
+
+# -- references/platforms/ layout ------------------------------------------
+
+
+def _write_platform(skill_dir: Path, backend: str, *, skeleton=PLATFORM_SKELETON) -> Path:
+    platform_dir = skill_dir / "references" / "platforms" / backend
+    platform_dir.mkdir(parents=True)
+    for name in skeleton:
+        platform_dir.joinpath(name).write_text(f"# {backend} {name}\n", encoding="utf-8")
+    return platform_dir
+
+
+def test_skill_without_platforms_tree_still_validates(tmp_path):
+    skill_dir = _write_skill(tmp_path, "portable")
+
+    validate_platform_layout(skill_dir)  # no references/platforms/ — nothing to check
+
+
+def test_complete_platform_skeleton_validates(tmp_path):
+    skill_dir = _write_skill(tmp_path, "multi")
+    _write_platform(skill_dir, "cuda")
+    _write_platform(skill_dir, "trainium")
+
+    validate_platform_layout(skill_dir)
+
+
+@pytest.mark.parametrize("missing", PLATFORM_SKELETON)
+def test_platform_missing_a_skeleton_file_fails(tmp_path, missing):
+    skill_dir = _write_skill(tmp_path, "gappy")
+    _write_platform(skill_dir, "metal", skeleton=[n for n in PLATFORM_SKELETON if n != missing])
+
+    with pytest.raises(SkillMetadataError, match=f"missing required file.*{missing}"):
+        validate_platform_layout(skill_dir)
+
+
+def test_platform_dir_must_be_a_known_compute_backend(tmp_path):
+    skill_dir = _write_skill(tmp_path, "typo")
+    _write_platform(skill_dir, "nvidia")  # vendor name, not a ComputeBackend value
+
+    with pytest.raises(SkillMetadataError, match="unknown platform director"):
+        validate_platform_layout(skill_dir)
+
+
+def test_validate_skill_tree_enforces_platform_layout(tmp_path):
+    skill_dir = _write_skill(tmp_path, "gappy")
+    _write_platform(skill_dir, "cuda", skeleton=["floor.md"])
+
+    with pytest.raises(SkillMetadataError, match="missing required file"):
+        validate_skill_tree(tmp_path)
+
+
+def test_serving_systems_platform_dirs_cover_every_compute_backend():
+    """Every backend a run can select must have its own guidance.
+
+    Without this, selecting a backend silently falls back to reading another
+    platform's floor — which is wrong work, not merely missing work.
+    """
+    platforms = (
+        PROJECT_ROOT / "resources" / "skills" / "serving-systems" / "references" / "platforms"
+    )
+    present = {p.name for p in platforms.iterdir() if p.is_dir()}
+
+    assert present == {backend.value for backend in ComputeBackend}
+
+
+# -- link discipline: portable tiers must not link into platforms/ ----------
+
+SERVING_SYSTEMS = PROJECT_ROOT / "resources" / "skills" / "serving-systems"
+PORTABLE_TIERS = ("algorithms", "models", "tooling", "frameworks", "engines")
+# `](...)` targets that resolve into a platform directory.
+_PLATFORM_LINK = re.compile(r"\]\((?:\.{1,2}/)*platforms/[a-z0-9]+/[^)]+\)")
+
+
+def _portable_reference_files() -> list[Path]:
+    refs = SERVING_SYSTEMS / "references"
+    return sorted(f for tier in PORTABLE_TIERS for f in (refs / tier).rglob("*.md"))
+
+
+def test_portable_references_never_link_into_a_platform_dir():
+    """Materialization prunes every non-selected platform directory, so a
+    markdown link from a portable file into ``platforms/<backend>/<file>``
+    dangles on every other backend. Link the directory or name the library as
+    plain text instead.
+    """
+    offenders = {
+        f.relative_to(SERVING_SYSTEMS): _PLATFORM_LINK.findall(f.read_text(encoding="utf-8"))
+        for f in _portable_reference_files()
+    }
+    offenders = {path: hits for path, hits in offenders.items() if hits}
+
+    assert not offenders, "portable references must not deep-link into platforms/: " + "; ".join(
+        f"{path} -> {hits}" for path, hits in offenders.items()
+    )
+
+
+def test_portable_references_have_no_links_to_removed_tiers():
+    """`backends/` and `hardware/` dissolved into `platforms/`; a leftover link
+    to either is a dead path in every workspace, not just foreign ones."""
+    stale = re.compile(r"\]\((?:\.{1,2}/)*(?:backends|hardware)/[^)]*\)")
+    offenders = {
+        f.relative_to(SERVING_SYSTEMS): stale.findall(f.read_text(encoding="utf-8"))
+        for f in (SERVING_SYSTEMS / "references").rglob("*.md")
+    }
+    offenders = {path: hits for path, hits in offenders.items() if hits}
+
+    assert not offenders, "links to removed tiers: " + "; ".join(
+        f"{path} -> {hits}" for path, hits in offenders.items()
+    )
+
+
+def _strip_code_blocks(text: str) -> str:
+    """Drop fenced blocks so kernel-launch syntax like ``k[grid](x, y)`` isn't
+    mistaken for a markdown link."""
+    out, fenced = [], False
+    for line in text.splitlines():
+        if line.lstrip().startswith("```"):
+            fenced = not fenced
+            continue
+        if not fenced:
+            out.append(line)
+    return "\n".join(out)
+
+
+def test_serving_systems_internal_links_resolve():
+    """Every relative markdown link inside the skill points at a real file.
+
+    ``CLAUDE.md`` is excluded: as the authoring guide it cites illustrative
+    paths (``references/<topic>.md``) and one deliberate counter-example of a
+    link the discipline forbids.
+    """
+    broken: list[str] = []
+    link = re.compile(r"\]\((?!https?://|#)([^)]+)\)")
+    for md in SERVING_SYSTEMS.rglob("*.md"):
+        rel = md.relative_to(SERVING_SYSTEMS)
+        if "repos" in rel.parts or rel.name == "CLAUDE.md":
+            continue
+        body = _strip_code_blocks(md.read_text(encoding="utf-8"))
+        for target in link.findall(body):
+            path = target.split("#", 1)[0]
+            if not path or path.startswith("$"):
+                continue
+            if not (md.parent / path).exists():
+                broken.append(f"{rel} -> {target}")
+
+    assert not broken, "broken internal links:\n" + "\n".join(broken)
