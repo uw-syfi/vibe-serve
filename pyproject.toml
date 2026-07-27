@@ -35,10 +35,10 @@ dependencies = [
 
 [project.optional-dependencies]
 # Opt-in backend behind the `omnigent_agent_backend` feature flag. Kept out of
-# the base dependencies because omnigent requires Python 3.12+ while VibeSys
-# (and CI) target 3.11, and because it is a fast-moving alpha — see
-# docs/omnigent-evaluation.md. Install with `uv sync --extra omnigent`.
-omnigent = ["omnigent==0.6.0; python_version >= '3.12'"]
+# the base dependencies because it is a fast-moving alpha with no stability
+# policy — see docs/omnigent-evaluation.md — so end users who never enable the
+# flag should not carry it. Install with `uv sync --extra omnigent`.
+omnigent = ["omnigent==0.6.0"]
 
 [project.scripts]
 vibesys-issue-mcp = "vs_issue_board.mcp:main"
@@ -60,6 +60,11 @@ dev = [
     "pytest",
     "pytest-cov",
     "ruff>=0.6",
+    # Optional for users, required for contributors: without it pyright cannot
+    # resolve the Omnigent backend and its tests silently skip. `uv sync --dev`
+    # (what CI runs) therefore installs it. Version comes from the extra, so
+    # there is one pin.
+    "vibesys[omnigent]",
 ]
 test = [
     "hypothesis",

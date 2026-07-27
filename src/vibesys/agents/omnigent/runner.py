@@ -12,14 +12,13 @@ so both backends produce the same run-log output, the same ``usage.jsonl``
 records, and the same parsed Pydantic responses.
 
 The entire Omnigent contact surface is this one module — the "isolate hard"
-boundary the evaluation spike established. ``omnigent`` is imported lazily
-inside :meth:`OmnigentAgentRunner._executor_class` and
-:func:`_drive_turn` so that:
-
-- VibeSys keeps working on Python 3.11, where ``omnigent`` (which requires
-  3.12+) cannot be installed at all; and
-- a missing optional dependency surfaces as an actionable error at the moment
-  the flag is used, not as an import failure at process start.
+boundary the evaluation spike established. Every ``omnigent`` import is
+function-local rather than module-level so that a user who enabled the flag
+without installing the optional extra gets an actionable
+:class:`OmnigentUnavailableError` at the moment the flag is used, rather than
+an ``ImportError`` at process start. Contributors and CI always have the
+package (the ``dev`` group pulls ``vibesys[omnigent]``), so these are ordinary
+typed imports and the event classes below keep real types.
 
 Skill materialization, the JSON schema hint, and response parsing are reused
 from the agentshim runner rather than reimplemented, so a prompt-shape change
@@ -102,31 +101,21 @@ def resolve_executor_spec(provider: str) -> OmnigentExecutorSpec:
     return spec
 
 
-def _import_omnigent(module: str) -> Any:
-    """Import an ``omnigent`` module, or raise an actionable error.
+def _missing_omnigent(what: str, exc: ImportError) -> OmnigentUnavailableError:
+    """Build the actionable error for an unimportable Omnigent symbol.
 
-    Every Omnigent symbol in this file is resolved through here rather than
-    with a static ``from omnigent import ...``. That is not stylistic: the
-    package is an optional extra that is absent on the 3.11 baseline and in
-    CI, where static imports fail pyright's ``reportMissingImports`` and
-    degrade the imported names to ``object`` — which then breaks the
-    ``isinstance`` dispatch in :func:`_drive_turn`. Going through importlib
-    keeps this module type-checkable with the dependency uninstalled, which
-    is the configuration CI actually type-checks in.
-
-    Raises:
-        OmnigentUnavailableError: If the package is missing or the module
-            moved, naming the extra and the remedy.
+    ``omnigent`` is an optional extra, so a user who enabled the flag without
+    installing it must get a remedy rather than a bare ``ImportError``.
+    Contributors and CI always have it: the ``dev`` dependency group pulls
+    ``vibesys[omnigent]``, which is what lets this module use ordinary typed
+    imports instead of ``Any``-returning indirection.
     """
-    try:
-        return import_module(module)
-    except ImportError as exc:
-        raise OmnigentUnavailableError(
-            f"feature flag 'omnigent_agent_backend' is enabled but "
-            f"{module!r} is not importable ({type(exc).__name__}: {exc}). "
-            "Install the optional extra with `uv sync --extra omnigent` on "
-            "Python 3.12+, or disable the flag to use the agentshim backend."
-        ) from exc
+    return OmnigentUnavailableError(
+        f"feature flag 'omnigent_agent_backend' is enabled but {what} is not "
+        f"importable ({type(exc).__name__}: {exc}). Install the optional extra "
+        "with `uv sync --extra omnigent`, or disable the flag to use the "
+        "agentshim backend."
+    )
 
 
 def _sandbox_backend_for_platform() -> str:
@@ -222,9 +211,12 @@ def _build_os_tools(os_env_spec: Any, workspace: Path) -> tuple[list[dict[str, A
         OmnigentUnavailableError: If Omnigent cannot resolve an OS environment
             for the spec, which would otherwise yield a silently toolless agent.
     """
-    create_os_environment = _import_omnigent("omnigent.inner.os_env").create_os_environment
-    tool_context_cls = _import_omnigent("omnigent.tools.base").ToolContext
-    build_os_env_tools = _import_omnigent("omnigent.tools.builtins.os_env").build_os_env_tools
+    try:
+        from omnigent.inner.os_env import create_os_environment
+        from omnigent.tools.base import ToolContext
+        from omnigent.tools.builtins.os_env import build_os_env_tools
+    except ImportError as exc:
+        raise _missing_omnigent("omnigent's OS-environment tools", exc) from exc
 
     os_env = create_os_environment(os_env_spec)
     if os_env is None:
@@ -237,7 +229,7 @@ def _build_os_tools(os_env_spec: Any, workspace: Path) -> tuple[list[dict[str, A
     tools = build_os_env_tools(os_env)
     by_name = {tool.name(): tool for tool in tools}
     schemas = [_flatten_tool_schema(tool) for tool in tools]
-    context = tool_context_cls(task_id="vibesys", agent_id="vibesys", workspace=workspace)
+    context = ToolContext(task_id="vibesys", agent_id="vibesys", workspace=workspace)
 
     async def dispatch(name: str, args: dict[str, Any]) -> Any:
         tool = by_name.get(name)
@@ -268,11 +260,10 @@ async def _drive_turn(
     the concatenated :class:`TextChunk` stream is the fallback for executors
     that stream without repeating the full response at the end.
     """
-    omni = _import_omnigent("omnigent")
-    text_chunk_cls = omni.TextChunk
-    tool_call_request_cls = omni.ToolCallRequest
-    tool_call_complete_cls = omni.ToolCallComplete
-    turn_complete_cls = omni.TurnComplete
+    try:
+        from omnigent import TextChunk, ToolCallComplete, ToolCallRequest, TurnComplete
+    except ImportError as exc:
+        raise _missing_omnigent("omnigent's executor event types", exc) from exc
 
     chunks: list[str] = []
     response: str | None = None
@@ -287,17 +278,17 @@ async def _drive_turn(
     # turn. Dicts are what actually works, so dicts are what we send.
     messages: list[Any] = [{"role": "user", "content": prompt}]
     async for event in executor.run_turn(messages, tool_schemas or [], system_prompt):
-        if isinstance(event, text_chunk_cls):
+        if isinstance(event, TextChunk):
             chunks.append(event.text)
             logger.log_text(event.text)
-        elif isinstance(event, tool_call_request_cls):
+        elif isinstance(event, ToolCallRequest):
             logger.on_tool_call(event.name, event.args)
-        elif isinstance(event, tool_call_complete_cls):
+        elif isinstance(event, ToolCallComplete):
             logger.on_tool_result(
                 event.name,
                 event.error if event.error is not None else event.result,
             )
-        elif isinstance(event, turn_complete_cls):
+        elif isinstance(event, TurnComplete):
             response = event.response
             usage = event.usage or {}
 
@@ -404,13 +395,7 @@ class OmnigentAgentRunner:
         try:
             module = import_module(self._spec.module)
         except ImportError as exc:
-            raise OmnigentUnavailableError(
-                "feature flag 'omnigent_agent_backend' is enabled but the "
-                "'omnigent' package is not importable "
-                f"({type(exc).__name__}: {exc}). Install the optional extra "
-                "with `uv sync --extra omnigent` on Python 3.12+, or disable "
-                "the flag to use the agentshim backend."
-            ) from exc
+            raise _missing_omnigent(f"{self._spec.module!r}", exc) from exc
 
         try:
             return getattr(module, self._spec.class_name)
@@ -453,12 +438,15 @@ class OmnigentAgentRunner:
         This is Omnigent's confinement, not ``vs_sandbox``'s. The two have not
         been proven equivalent; see docs/omnigent-evaluation.md.
         """
-        datamodel = _import_omnigent("omnigent.inner.datamodel")
+        try:
+            from omnigent.inner.datamodel import OSEnvSandboxSpec, OSEnvSpec
+        except ImportError as exc:
+            raise _missing_omnigent("omnigent's OS-environment datamodel", exc) from exc
 
-        return datamodel.OSEnvSpec(
+        return OSEnvSpec(
             type="caller_process",
             cwd=str(workspace),
-            sandbox=datamodel.OSEnvSandboxSpec(
+            sandbox=OSEnvSandboxSpec(
                 type=_sandbox_backend_for_platform(),
                 write_paths=[str(workspace)],
             ),

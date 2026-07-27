@@ -12,11 +12,11 @@ The parts that *can* be tested hermetically are in
 
 ## Running it
 
-Requires the optional extra on Python 3.12+, plus `bwrap` on Linux (or
-`sandbox-exec` on macOS), and an authenticated `claude` or `codex` CLI:
+Requires `bwrap` on Linux (or `sandbox-exec` on macOS) and an authenticated
+`claude` or `codex` CLI. The omnigent dependency comes with the dev group:
 
 ```bash
-uv sync --extra omnigent
+uv sync --dev
 ```
 
 ```bash

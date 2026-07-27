@@ -10,9 +10,11 @@ The contract these tests protect is asymmetric on purpose:
   the remedy, because a silent fallback to agentshim would make run logs
   misattribute which stack produced a result.
 
-Tests that need the real ``omnigent`` package are skipped when it is absent
-(it requires Python 3.12+ and is an optional extra), so the suite stays green
-on the 3.11 baseline CI runs.
+Tests that need the real ``omnigent`` package are guarded by
+``requires_omnigent``. That guard is a safety net, not the expected path: the
+``dev`` dependency group pulls ``vibesys[omnigent]``, so ``uv sync --dev`` —
+what CI runs — installs it and these tests execute. They skip only for someone
+who deliberately synced without dev dependencies.
 """
 
 from __future__ import annotations
@@ -208,6 +210,8 @@ class TestProviderRegistry:
 
 
 class TestMissingDependency:
+    _MODULE = "omnigent.inner.claude_sdk_executor"
+
     def test_import_error_names_the_extra(self, monkeypatch):
         runner = OmnigentAgentRunner(provider="claude")
         monkeypatch.setattr(
@@ -219,8 +223,11 @@ class TestMissingDependency:
             runner._executor_class()
 
         message = str(exc.value)
+        # Must name both remedies: install the extra, or turn the flag off.
         assert "--extra omnigent" in message
-        assert "3.12" in message
+        assert "omnigent_agent_backend" in message
+        assert "agentshim" in message
+        assert self._MODULE in message
 
     def test_incompatible_version_names_the_class(self, monkeypatch):
         runner = OmnigentAgentRunner(provider="codex")
@@ -322,7 +329,7 @@ class TestUsageRecord:
 
 requires_omnigent = pytest.mark.skipif(
     importlib.util.find_spec("omnigent") is None,
-    reason="omnigent is an optional extra requiring Python 3.12+",
+    reason="omnigent is an optional extra; install it with `uv sync --dev`",
 )
 
 

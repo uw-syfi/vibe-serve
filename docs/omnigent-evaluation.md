@@ -215,9 +215,9 @@ The container objection is resolved; these are what remain, in priority order.
   published SDK whose headline examples target a removed route. Building against
   the internal `SandboxLauncher` ABC is a bet on the project's trajectory.
 
-Explicitly not blockers: the `requires-python = ">=3.12"` floor is real (it
-breaks a shared lock against VibeSys's `>=3.11` and the 3.11 CI leg) but a
-subprocess or separate-venv integration sidesteps it, as the spike does; the
+Explicitly not blockers: the `requires-python = ">=3.12"` floor was a real
+constraint when this was written — VibeSys was `>=3.11` and CI ran a 3.11 leg —
+but #247 raised the floor to 3.12, so the conflict is gone entirely; the
 absence of schema-constrained final output is parity, not a regression; per-
 session MCP isolation, durable resume, cancellation, and per-turn token
 accounting are genuine wins.
@@ -323,9 +323,13 @@ omnigent_agent_backend = true
   the same `CliAgentRunner` it always did and nothing under
   `src/vibesys/agents/omnigent/` is imported. The agentshim path is unchanged.
 - **Optional dependency.** `omnigent` is a `[project.optional-dependencies]`
-  extra guarded by `python_version >= '3.12'`, so the 3.11 baseline and CI
-  resolve without it. Every `omnigent` import is lazy and confined to
-  `agents/omnigent/runner.py`.
+  extra, so end users who never enable the flag do not carry a fast-moving
+  alpha. Contributors and CI do get it: the `dev` dependency group pulls
+  `vibesys[omnigent]`, so `uv sync --dev` installs it and the backend's tests
+  actually run rather than silently skipping. Every `omnigent` import is still
+  function-local and confined to `agents/omnigent/runner.py`, so a user who
+  enables the flag without the extra gets an actionable error instead of an
+  `ImportError` at startup.
 - **Seam.** The runner drives Omnigent's in-process
   `Executor.run_turn(messages, tools, system_prompt, config)` async event
   stream and adapts it to the `AgentRunner` contract — the same run-log output,

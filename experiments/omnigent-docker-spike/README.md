@@ -5,10 +5,11 @@ environment be added *on top of* Omnigent, rather than accepting that Omnigent
 ships no container provider? This spike answers yes for the launcher contract,
 and marks exactly where the evidence stops.
 
-It is an experiment artifact, not production wiring. It runs on Python 3.12
-against `omnigent==0.6.0` (the current PyPI release) and is deliberately kept
-out of `src/` because VibeSys CI runs Python 3.11, where Omnigent cannot
-install. See [`docs/omnigent-evaluation.md`](../../docs/omnigent-evaluation.md)
+It is an experiment artifact, not production wiring. It runs against
+`omnigent==0.6.0` (the current PyPI release) and is deliberately kept out of
+`src/` because it drives Omnigent's *managed-host* flow, which needs a running
+Omnigent server — unlike the in-process executor path that the
+`omnigent_agent_backend` flag ships. See [`docs/omnigent-evaluation.md`](../../docs/omnigent-evaluation.md)
 for the full evaluation this supports.
 
 ## What it shows

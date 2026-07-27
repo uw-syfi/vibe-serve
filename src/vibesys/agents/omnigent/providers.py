@@ -3,8 +3,8 @@
 This module is the *application configuration* half of the Omnigent backend:
 it names the executor class for every supported provider and owns nothing
 else. It deliberately does not import ``omnigent`` — the mapping is data, so
-it stays importable on Python 3.11 (where ``omnigent`` cannot be installed)
-and unit-testable without the optional dependency.
+it stays importable and unit-testable without the optional dependency
+installed.
 
 :mod:`vibesys.agents.omnigent.runner` is the implementation half: it resolves
 these entries to real classes at call time.

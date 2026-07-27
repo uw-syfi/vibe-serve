@@ -47,7 +47,8 @@ for why the evaluation landed on "retain agentshim as the default". With the
 flag off, nothing under `vibesys/agents/omnigent/` is imported and the
 agentshim path is unchanged.
 
-Enabling it requires the optional extra, which only resolves on Python 3.12+:
+Enabling it requires the optional extra. Contributors already have it —
+`uv sync --dev` pulls `vibesys[omnigent]` — but an end-user install needs:
 
 ```bash
 uv sync --extra omnigent

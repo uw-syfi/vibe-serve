@@ -5008,6 +5008,7 @@ dev = [
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "ruff" },
+    { name = "vibesys", extra = ["omnigent"] },
 ]
 test = [
     { name = "hypothesis" },
@@ -5028,7 +5029,7 @@ requires-dist = [
     { name = "loguru", specifier = ">=0.7.2" },
     { name = "mcp", specifier = ">=1.0" },
     { name = "modal", specifier = ">=1.4.2" },
-    { name = "omnigent", marker = "python_full_version >= '3.12' and extra == 'omnigent'", specifier = "==0.6.0" },
+    { name = "omnigent", marker = "extra == 'omnigent'", specifier = "==0.6.0" },
     { name = "openai", specifier = ">=1.28.0" },
     { name = "openevolve", specifier = "==0.3.1" },
     { name = "pydantic", specifier = ">=2" },
@@ -5053,6 +5054,7 @@ dev = [
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "ruff", specifier = ">=0.6" },
+    { name = "vibesys", extras = ["omnigent"] },
 ]
 test = [
     { name = "hypothesis" },
