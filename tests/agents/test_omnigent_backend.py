@@ -1005,10 +1005,19 @@ class TestToolExecutorSeam:
     agent that looks equipped but fails every action mid-run.
     """
 
+    # Provider -> the CLI binary its executor needs at construction time.
+    # CodexExecutor raises ImportError without it; ClaudeSDKExecutor falls back
+    # to the SDK's bundled CLI, so it constructs anywhere.
+    _PROVIDER_BINARY = {"claude": None, "codex": "codex"}
+
     @pytest.mark.parametrize("provider", ["claude", "codex"])
     def test_the_seam_exists_on_the_pinned_version(self, provider):
         """Fails loudly if a version bump moves the attribute."""
         from vibesys.agents.omnigent.runner import _TOOL_EXECUTOR_ATTR
+
+        binary = self._PROVIDER_BINARY[provider]
+        if binary is not None and shutil.which(binary) is None:
+            pytest.skip(f"{provider} executor needs the {binary!r} CLI to construct")
 
         runner = OmnigentAgentRunner(provider=provider)
         executor_cls = runner._executor_class()
@@ -1020,6 +1029,26 @@ class TestToolExecutorSeam:
             f"{executor_cls.__name__} no longer exposes {_TOOL_EXECUTOR_ATTR!r}; "
             "the Omnigent backend can no longer give agents their tools"
         )
+
+    def test_a_missing_provider_cli_is_attributed_to_the_flag(self, tmp_path, monkeypatch):
+        """Omnigent reports a missing CLI as ImportError from the constructor."""
+
+        class _NeedsCli:
+            def __init__(self, **_kwargs):
+                raise ImportError("CodexExecutor requires the 'codex' CLI on PATH.")
+
+        runner = OmnigentAgentRunner(provider="codex")
+        monkeypatch.setattr(runner, "_executor_class", lambda: _NeedsCli)
+
+        with pytest.raises(OmnigentUnavailableError) as exc:
+            runner._build_executor(Path(tmp_path))
+
+        message = str(exc.value)
+        assert "omnigent_agent_backend" in message
+        assert "codex" in message
+        # Omnigent's own wording is preserved rather than discarded.
+        assert "CLI on PATH" in message
+        assert "agentshim" in message
 
     def test_a_moved_seam_fails_at_construction(self, tmp_path, monkeypatch):
         from vibesys.agents.omnigent import runner as runner_mod

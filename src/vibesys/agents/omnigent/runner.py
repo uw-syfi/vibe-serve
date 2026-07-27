@@ -504,11 +504,24 @@ class OmnigentAgentRunner:
         """
         executor_cls = self._executor_class()
         os_env_spec = self._build_os_env(workspace)
-        executor = executor_cls(
-            cwd=str(workspace),
-            model=self._model,
-            os_env=os_env_spec,
-        )
+        try:
+            executor = executor_cls(
+                cwd=str(workspace),
+                model=self._model,
+                os_env=os_env_spec,
+            )
+        except ImportError as exc:
+            # Omnigent signals "the provider's CLI is not on PATH" as an
+            # ImportError from the constructor (CodexExecutor does this). Its
+            # text is useful, so keep it, but attribute it to the flag — the
+            # operator otherwise has no hint which setting pulled in a
+            # dependency on a binary they do not have.
+            raise OmnigentUnavailableError(
+                f"feature flag 'omnigent_agent_backend' is enabled but the "
+                f"{self._provider!r} provider is not usable: {exc} Install the "
+                "CLI, switch provider, or disable the flag to use the agentshim "
+                "backend."
+            ) from exc
         if not hasattr(executor, _TOOL_EXECUTOR_ATTR):
             raise OmnigentUnavailableError(
                 f"{executor_cls.__name__} has no {_TOOL_EXECUTOR_ATTR!r} slot, so "
