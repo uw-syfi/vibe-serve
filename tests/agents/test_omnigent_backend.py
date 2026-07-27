@@ -22,6 +22,8 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import shutil
+import sys
 import tempfile
 from io import StringIO
 from pathlib import Path
@@ -333,6 +335,31 @@ requires_omnigent = pytest.mark.skipif(
 )
 
 
+def _sandbox_backend_available() -> bool:
+    """Whether this host can actually build Omnigent's platform sandbox.
+
+    Omnigent resolves the backend binary when an OS environment is created, so
+    tests that build real ``sys_os_*`` tools need it present. GitHub's runners
+    do not ship ``bwrap``. Mirrors the ``VIBESYS_REQUIRE_SANDBOX_TESTS`` escape
+    hatch used by ``tests/_agent_cli/test_hostsandbox.py`` so a Linux CI job
+    that does install bubblewrap can force these on.
+    """
+    if os.environ.get("VIBESYS_REQUIRE_SANDBOX_TESTS") == "1":
+        return True
+    if sys.platform.startswith("linux"):
+        return shutil.which("bwrap") is not None
+    if sys.platform == "darwin":
+        return shutil.which("sandbox-exec") is not None
+    return False
+
+
+requires_sandbox_backend = pytest.mark.skipif(
+    not _sandbox_backend_available(),
+    reason="requires the platform sandbox backend (bwrap / sandbox-exec) "
+    "(set VIBESYS_REQUIRE_SANDBOX_TESTS=1 to force)",
+)
+
+
 class _FakeExecutor:
     """Stands in for an Omnigent executor, emitting a scripted event stream."""
 
@@ -482,6 +509,7 @@ class TestExecutorResolution:
         assert "cwd" in params
         assert "model" in params
 
+    @requires_sandbox_backend
     def test_build_executor_attaches_os_tools_and_dispatcher(self, tmp_path):
         runner = OmnigentAgentRunner(provider="claude", model="claude-sonnet-4-6")
 
@@ -500,6 +528,47 @@ class TestExecutorResolution:
 
 
 @requires_omnigent
+class TestMissingSandboxBackend:
+    """A host without bwrap must get the flag's error, not a bare OSError."""
+
+    def test_missing_backend_binary_is_translated(self, tmp_path, monkeypatch):
+        from vibesys.agents.omnigent.runner import _build_os_tools
+
+        monkeypatch.setattr(
+            "omnigent.inner.os_env.create_os_environment",
+            MagicMock(
+                side_effect=OSError("linux_bwrap sandbox requires the 'bwrap' binary on PATH.")
+            ),
+        )
+        spec = OmnigentAgentRunner(provider="claude")._build_os_env(Path(tmp_path))
+
+        with pytest.raises(OmnigentUnavailableError) as exc:
+            _build_os_tools(spec, Path(tmp_path))
+
+        message = str(exc.value)
+        assert "omnigent_agent_backend" in message
+        assert "bwrap" in message
+        # Running unconfined must never be offered as the way out.
+        assert "agentshim" in message
+        assert "disable the flag" in message
+
+    def test_declining_to_build_an_env_is_also_an_error(self, tmp_path, monkeypatch):
+        """A None env would mean a sandboxed but toolless agent."""
+        from vibesys.agents.omnigent.runner import _build_os_tools
+
+        monkeypatch.setattr(
+            "omnigent.inner.os_env.create_os_environment", MagicMock(return_value=None)
+        )
+        spec = OmnigentAgentRunner(provider="claude")._build_os_env(Path(tmp_path))
+
+        with pytest.raises(OmnigentUnavailableError) as exc:
+            _build_os_tools(spec, Path(tmp_path))
+
+        assert "no file or shell tools" in str(exc.value)
+
+
+@requires_omnigent
+@requires_sandbox_backend
 class TestOsTools:
     """Covers the tool layer a live turn proved was missing."""
 
@@ -547,6 +616,7 @@ class TestOsTools:
 
 
 @requires_omnigent
+@requires_sandbox_backend
 class TestLifecycle:
     def test_close_is_idempotent(self, tmp_path):
         runner = OmnigentAgentRunner(provider="claude")

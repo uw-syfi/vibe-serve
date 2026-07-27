@@ -209,7 +209,9 @@ def _build_os_tools(os_env_spec: Any, workspace: Path) -> tuple[list[dict[str, A
 
     Raises:
         OmnigentUnavailableError: If Omnigent cannot resolve an OS environment
-            for the spec, which would otherwise yield a silently toolless agent.
+            for the spec — either because it declines to build one (which would
+            yield a silently toolless agent) or because the platform's sandbox
+            backend is unusable, most often a missing ``bwrap`` binary.
     """
     try:
         from omnigent.inner.os_env import create_os_environment
@@ -218,7 +220,21 @@ def _build_os_tools(os_env_spec: Any, workspace: Path) -> tuple[list[dict[str, A
     except ImportError as exc:
         raise _missing_omnigent("omnigent's OS-environment tools", exc) from exc
 
-    os_env = create_os_environment(os_env_spec)
+    try:
+        os_env = create_os_environment(os_env_spec)
+    except OSError as exc:
+        # Omnigent resolves the sandbox backend binary here and raises a bare
+        # OSError when it is absent. Translate it: the operator needs to know
+        # this came from the opt-in flag and what the two remedies are.
+        # Running the agent unconfined is deliberately not one of them.
+        raise OmnigentUnavailableError(
+            "feature flag 'omnigent_agent_backend' is enabled but this host "
+            f"cannot provide the {_sandbox_backend_for_platform()!r} sandbox "
+            f"the Omnigent backend confines agents with ({exc}). Install the "
+            "sandbox backend, or disable the flag to use the agentshim "
+            "backend, which confines agents through vs_sandbox instead."
+        ) from exc
+
     if os_env is None:
         raise OmnigentUnavailableError(
             "Omnigent could not resolve an OS environment for workspace "

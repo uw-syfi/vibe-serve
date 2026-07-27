@@ -88,9 +88,17 @@ does that too — without it the agent starts sandboxed and toolless. Reaching
 that seam requires assigning Omnigent's private `_tool_executor` attribute,
 which is the most upgrade-fragile line in the integration.
 
-Requires `bwrap` on Linux (or `sandbox-exec` on macOS). A live end-to-end probe
-lives at `experiments/omnigent-agent-backend/live_turn.py`; both supported
-providers pass it.
+Requires the platform sandbox backend — `bwrap` on Linux
+(`apt install bubblewrap`) or `sandbox-exec` on macOS. Omnigent resolves it when
+the agent's OS environment is created; if it is missing, the flag raises
+`OmnigentUnavailableError` naming the remedy rather than running the agent
+unconfined. GitHub's runners do not ship `bwrap`, so the tests that build a real
+OS environment skip there under the repo's existing
+`VIBESYS_REQUIRE_SANDBOX_TESTS` convention.
+
+A live end-to-end probe lives at
+`experiments/omnigent-agent-backend/live_turn.py`; both supported providers pass
+it.
 
 ## Config
 
