@@ -693,3 +693,302 @@ class TestWorkspaceConfinement:
         assert env_a.sandbox.write_paths == [str(a)]
         assert env_b.sandbox.write_paths == [str(b)]
         assert str(b) not in env_a.sandbox.write_paths
+
+
+@requires_omnigent
+class TestTurnPathWithFakeExecutor:
+    """Covers invoke / invoke_text / _generate / close without bwrap or creds.
+
+    The live probe in ``experiments/omnigent-agent-backend/`` exercises these
+    against real CLIs, but it needs credentials and a sandbox backend, so CI
+    cannot run it. Injecting a fake executor covers the same control flow —
+    logging, parsing, fallback, usage records, executor reuse, and teardown —
+    on any host.
+    """
+
+    @staticmethod
+    def _runner(tmp_path, events, **kwargs):
+        runner = OmnigentAgentRunner(provider="claude", model_name="m", **kwargs)
+        executor = _FakeExecutor(events)
+        schemas = [{"name": "sys_os_read", "description": "d", "parameters": {}}]
+        # Bypass _build_executor so no OS environment (and so no bwrap) is needed.
+        runner._build_executor = lambda _ws: (executor, schemas)  # type: ignore[method-assign]
+        return runner, executor
+
+    def test_invoke_parses_a_structured_response(self, tmp_path):
+        from omnigent import TurnComplete
+
+        payload = '{"analysis":"a","feedback":"f","verdict":"pass"}'
+        runner, _ = self._runner(tmp_path, [TurnComplete(response=payload)])
+
+        result = runner.invoke(
+            kind="judge",
+            workspace=tmp_path,
+            system_prompt="sys",
+            user_prompt="ask",
+            response_cls=JudgeResponse,
+            fallback_factory=_judge_fallback,
+            round_label="r1",
+        )
+
+        assert result.analysis == "a"
+        assert result.verdict == Verdict.PASS
+        runner.close()
+
+    def test_invoke_falls_back_on_unparseable_output(self, tmp_path):
+        from omnigent import TurnComplete
+
+        runner, _ = self._runner(tmp_path, [TurnComplete(response="not json at all")])
+
+        result = runner.invoke(
+            kind="judge",
+            workspace=tmp_path,
+            system_prompt="sys",
+            user_prompt="ask",
+            response_cls=JudgeResponse,
+            fallback_factory=_judge_fallback,
+            round_label="r1",
+        )
+
+        # The contract is fallback, never raise.
+        assert result.analysis == "fb"
+        runner.close()
+
+    def test_invoke_sends_the_schema_hint(self, tmp_path):
+        from omnigent import TurnComplete
+
+        runner, executor = self._runner(tmp_path, [TurnComplete(response="{}")])
+
+        runner.invoke(
+            kind="judge",
+            workspace=tmp_path,
+            system_prompt="sys",
+            user_prompt="ask",
+            response_cls=JudgeResponse,
+            fallback_factory=_judge_fallback,
+            round_label="r1",
+        )
+
+        messages, _, system_prompt, _ = executor.calls[0]
+        assert system_prompt == "sys"
+        assert "JudgeResponse" in messages[0]["content"]
+        runner.close()
+
+    def test_invoke_text_returns_the_raw_response(self, tmp_path):
+        from omnigent import TurnComplete
+
+        runner, _ = self._runner(tmp_path, [TurnComplete(response="hello there")])
+
+        text = runner.invoke_text(
+            kind="chat",
+            workspace=tmp_path,
+            system_prompt="sys",
+            user_prompt="hi",
+            round_label="r1",
+        )
+
+        assert text == "hello there"
+        runner.close()
+
+    def test_invoke_text_handles_an_empty_turn(self, tmp_path):
+        from omnigent import TurnComplete
+
+        runner, _ = self._runner(tmp_path, [TurnComplete(response=None)])
+
+        text = runner.invoke_text(
+            kind="implementer",
+            workspace=tmp_path,
+            system_prompt="sys",
+            user_prompt="hi",
+            round_label="r1",
+        )
+
+        assert text == ""
+        runner.close()
+
+    def test_env_overrides_apply_during_the_turn_and_are_restored(self, tmp_path):
+        from omnigent import TurnComplete
+
+        seen: list[str | None] = []
+
+        class _EnvProbe(_FakeExecutor):
+            def run_turn(self, messages, tools, system_prompt, config=None):
+                seen.append(os.environ.get("CUDA_VISIBLE_DEVICES"))
+                return super().run_turn(messages, tools, system_prompt, config)
+
+        runner = OmnigentAgentRunner(provider="claude", model_name="m")
+        executor = _EnvProbe([TurnComplete(response="ok")])
+        runner._build_executor = lambda _ws: (executor, [])  # type: ignore[method-assign]
+        os.environ.pop("CUDA_VISIBLE_DEVICES", None)
+
+        runner.invoke_text(
+            kind="implementer",
+            workspace=tmp_path,
+            system_prompt="sys",
+            user_prompt="hi",
+            env={"CUDA_VISIBLE_DEVICES": "2"},
+            round_label="r1",
+        )
+
+        assert seen == ["2"]
+        assert "CUDA_VISIBLE_DEVICES" not in os.environ
+        runner.close()
+
+    def test_usage_record_is_written_per_turn(self, tmp_path):
+        from omnigent import TurnComplete
+
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+        runner, _ = self._runner(
+            tmp_path,
+            [TurnComplete(response="ok", usage={"input_tokens": 3, "output_tokens": 4})],
+            log_dir=log_dir,
+        )
+
+        runner.invoke_text(
+            kind="implementer",
+            workspace=tmp_path,
+            system_prompt="sys",
+            user_prompt="hi",
+            round_label="r1",
+        )
+
+        record = json.loads((log_dir / "usage.jsonl").read_text().strip())
+        assert record["input_tokens"] == 3
+        assert record["output_tokens"] == 4
+        assert record["provider"] == "claude"
+        runner.close()
+
+    def test_a_failed_turn_still_writes_its_usage_record(self, tmp_path):
+        """Tokens were spent either way; an audit gap on failure defeats the point."""
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+
+        class _Boom(_FakeExecutor):
+            def run_turn(self, messages, tools, system_prompt, config=None):
+                raise RuntimeError("harness exploded")
+
+        runner = OmnigentAgentRunner(provider="claude", model_name="m", log_dir=log_dir)
+        runner._build_executor = lambda _ws: (_Boom([]), [])  # type: ignore[method-assign]
+
+        with pytest.raises(RuntimeError, match="harness exploded"):
+            runner.invoke_text(
+                kind="implementer",
+                workspace=tmp_path,
+                system_prompt="sys",
+                user_prompt="hi",
+                round_label="r1",
+            )
+
+        assert (log_dir / "usage.jsonl").read_text().strip()
+        runner.close()
+
+    def test_the_run_log_records_the_backend_and_provider(self, tmp_path):
+        from omnigent import TurnComplete
+
+        log = StringIO()
+        runner, _ = self._runner(tmp_path, [TurnComplete(response="ok")], run_log_file=log)
+
+        runner.invoke_text(
+            kind="implementer",
+            workspace=tmp_path,
+            system_prompt="sys",
+            user_prompt="hi",
+            round_label="r1",
+        )
+
+        written = log.getvalue()
+        assert "backend: omnigent" in written
+        assert "provider: claude" in written
+        assert "harness: claude-sdk" in written
+        runner.close()
+
+    def test_executors_are_reused_per_kind_but_not_for_chat(self, tmp_path):
+        from omnigent import TurnComplete
+
+        built: list[str] = []
+
+        def _build(_ws):
+            built.append("x")
+            return _FakeExecutor([TurnComplete(response="ok")]), []
+
+        runner = OmnigentAgentRunner(provider="claude", model_name="m")
+        runner._build_executor = _build  # type: ignore[method-assign]
+
+        for _ in range(2):
+            runner.invoke_text(
+                kind="implementer",
+                workspace=tmp_path,
+                system_prompt="s",
+                user_prompt="u",
+                round_label="r",
+            )
+        assert len(built) == 1, "implementer executor should be cached"
+
+        for _ in range(2):
+            runner.invoke_text(
+                kind="chat", workspace=tmp_path, system_prompt="s", user_prompt="u", round_label="r"
+            )
+        assert len(built) == 3, "chat must start a fresh session each turn"
+        runner.close()
+
+    def test_close_awaits_executor_close(self, tmp_path):
+        from omnigent import TurnComplete
+
+        closed: list[bool] = []
+
+        class _Closable(_FakeExecutor):
+            async def close(self):
+                closed.append(True)
+
+        runner = OmnigentAgentRunner(provider="claude", model_name="m")
+        runner._build_executor = lambda _ws: (_Closable([TurnComplete(response="ok")]), [])  # type: ignore[method-assign]
+        runner.invoke_text(
+            kind="implementer",
+            workspace=tmp_path,
+            system_prompt="s",
+            user_prompt="u",
+            round_label="r",
+        )
+
+        runner.close()
+
+        assert closed == [True]
+
+    def test_close_survives_a_failing_executor_close(self, tmp_path):
+        from omnigent import TurnComplete
+
+        class _BadClose(_FakeExecutor):
+            async def close(self):
+                raise RuntimeError("close blew up")
+
+        log = StringIO()
+        runner = OmnigentAgentRunner(provider="claude", model_name="m", run_log_file=log)
+        runner._build_executor = lambda _ws: (_BadClose([TurnComplete(response="ok")]), [])  # type: ignore[method-assign]
+        runner.invoke_text(
+            kind="implementer",
+            workspace=tmp_path,
+            system_prompt="s",
+            user_prompt="u",
+            round_label="r",
+        )
+
+        runner.close()  # must not raise
+
+        assert "executor close failed" in log.getvalue()
+        assert runner._loop is None
+
+
+@requires_omnigent
+class TestLazyPackageExports:
+    def test_runner_symbols_resolve_through_package_getattr(self):
+        import vibesys.agents.omnigent as pkg
+
+        assert pkg.OmnigentAgentRunner is OmnigentAgentRunner
+        assert pkg.OmnigentUnavailableError is OmnigentUnavailableError
+
+    def test_unknown_attribute_still_raises(self):
+        import vibesys.agents.omnigent as pkg
+
+        with pytest.raises(AttributeError, match="no attribute"):
+            _ = pkg.NoSuchThing
