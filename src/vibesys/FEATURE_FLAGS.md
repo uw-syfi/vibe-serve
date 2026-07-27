@@ -80,6 +80,17 @@ workspace only, with the backend chosen per platform (bubblewrap on Linux,
 Seatbelt on macOS) and never set to `none`. The two mechanisms have **not** been
 proven equivalent, which is one more reason the flag is off by default.
 
+Confining the agent is not the same as equipping it. Omnigent routes file and
+shell access through `sys_os_read` / `sys_os_write` / `sys_os_edit` /
+`sys_os_shell` MCP tools that the caller must build and dispatch, so the runner
+does that too — without it the agent starts sandboxed and toolless. Reaching
+that seam requires assigning Omnigent's private `_tool_executor` attribute,
+which is the most upgrade-fragile line in the integration.
+
+Requires `bwrap` on Linux (or `sandbox-exec` on macOS). A live end-to-end probe
+lives at `experiments/omnigent-agent-backend/live_turn.py`; both supported
+providers pass it.
+
 ## Config
 
 `src/vibesys/config.py` parses `[feature_flags]` from `agent.toml` with

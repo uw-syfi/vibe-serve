@@ -20,6 +20,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import tempfile
 from io import StringIO
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -385,6 +386,13 @@ class TestDriveTurn:
         assert usage == {"input_tokens": 5, "output_tokens": 7}
 
     def test_prompt_and_system_prompt_reach_run_turn(self):
+        """Messages must be plain dicts.
+
+        ``run_turn`` is annotated ``list[Message]``, but 0.6.0's executors read
+        the entries with ``.get()``. Passing the advertised dataclass raises
+        ``AttributeError: 'Message' object has no attribute 'get'`` on a live
+        turn, which no fake-executor test would catch.
+        """
         from omnigent import TurnComplete
 
         executor, _, _ = self._run([TurnComplete(response="x")])
@@ -393,8 +401,33 @@ class TestDriveTurn:
         assert system_prompt == "s"
         assert tools == []
         assert len(messages) == 1
-        assert messages[0].role == "user"
-        assert messages[0].content == "p"
+        assert isinstance(messages[0], dict)
+        assert messages[0]["role"] == "user"
+        assert messages[0]["content"] == "p"
+
+    def test_tool_schemas_are_forwarded(self):
+        """An empty tool list leaves the agent with no filesystem access."""
+        import asyncio
+
+        from omnigent import TurnComplete
+
+        from vibesys.agents.callbacks import AgentLogger
+        from vibesys.agents.omnigent.runner import _drive_turn
+
+        executor = _FakeExecutor([TurnComplete(response="x")])
+        schemas = [{"name": "sys_os_read", "description": "d", "parameters": {}}]
+        asyncio.run(
+            _drive_turn(
+                executor,
+                prompt="p",
+                system_prompt="s",
+                logger=AgentLogger(agent_label="Judge"),
+                tool_schemas=schemas,
+            )
+        )
+
+        _, tools, _, _ = executor.calls[0]
+        assert tools == schemas
 
     def test_tool_events_are_logged(self):
         from omnigent import ToolCallComplete, ToolCallRequest, TurnComplete
@@ -442,12 +475,96 @@ class TestExecutorResolution:
         assert "cwd" in params
         assert "model" in params
 
-    def test_build_executor_targets_the_workspace(self, tmp_path):
+    def test_build_executor_attaches_os_tools_and_dispatcher(self, tmp_path):
         runner = OmnigentAgentRunner(provider="claude", model="claude-sonnet-4-6")
 
-        executor = runner._build_executor(Path(tmp_path))
+        executor, schemas = runner._build_executor(Path(tmp_path))
 
         assert executor is not None
+        # Without these the agent has no filesystem access at all.
+        assert {s["name"] for s in schemas} == {
+            "sys_os_read",
+            "sys_os_write",
+            "sys_os_edit",
+            "sys_os_shell",
+        }
+        assert executor._tool_executor is not None
+        runner.close()
+
+
+@requires_omnigent
+class TestOsTools:
+    """Covers the tool layer a live turn proved was missing."""
+
+    def test_schemas_are_flat_not_openai_function_shaped(self, tmp_path):
+        """`run_turn` reads name/description off the top level.
+
+        Passing `get_schema()` verbatim registers MCP tools with empty names,
+        and the agent reports having no file tools.
+        """
+        from vibesys.agents.omnigent.runner import _build_os_tools
+
+        spec = OmnigentAgentRunner(provider="claude")._build_os_env(Path(tmp_path))
+        schemas, _ = _build_os_tools(spec, Path(tmp_path))
+
+        for schema in schemas:
+            assert schema["name"]
+            assert "function" not in schema
+            assert schema["parameters"]["type"] == "object"
+
+    def test_dispatcher_executes_a_real_read(self, tmp_path):
+        import asyncio
+
+        from vibesys.agents.omnigent.runner import _build_os_tools
+
+        (tmp_path / "NOTES.md").write_text("launch code 4417\n")
+        spec = OmnigentAgentRunner(provider="claude")._build_os_env(Path(tmp_path))
+        _, dispatch = _build_os_tools(spec, Path(tmp_path))
+
+        result = asyncio.run(dispatch("sys_os_read", {"path": "NOTES.md"}))
+
+        assert "4417" in str(result)
+
+    def test_dispatcher_reports_unknown_tools(self):
+        import asyncio
+
+        from vibesys.agents.omnigent.runner import _build_os_tools
+
+        with tempfile.TemporaryDirectory() as tmp:
+            spec = OmnigentAgentRunner(provider="claude")._build_os_env(Path(tmp))
+            _, dispatch = _build_os_tools(spec, Path(tmp))
+
+            result = asyncio.run(dispatch("nope", {}))
+
+        assert "unknown tool" in str(result)
+
+
+@requires_omnigent
+class TestLifecycle:
+    def test_close_is_idempotent(self, tmp_path):
+        runner = OmnigentAgentRunner(provider="claude")
+        runner._build_executor(Path(tmp_path))
+
+        runner.close()
+        runner.close()
+
+        assert runner._executors == {}
+        assert runner._loop is None
+
+    def test_turns_share_one_loop(self, tmp_path):
+        """A per-turn asyncio.run would strand cached executors on a dead loop."""
+        runner = OmnigentAgentRunner(provider="claude")
+
+        async def _noop() -> str:
+            return "ok"
+
+        runner._run_async(_noop())
+        first = runner._loop
+        runner._run_async(_noop())
+
+        assert runner._loop is first
+        assert first is not None and not first.is_closed()
+        runner.close()
 
 
 @requires_omnigent

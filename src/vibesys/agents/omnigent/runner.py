@@ -153,12 +153,83 @@ def _patched_environ(overrides: dict[str, str] | None) -> Generator[None]:
                 os.environ[key] = str(old)
 
 
+def _flatten_tool_schema(tool: Any) -> dict[str, Any]:
+    """Convert a ``Tool.get_schema()`` payload into executor ``ToolSpec`` shape.
+
+    ``get_schema()`` returns OpenAI-function shape
+    (``{"type": "function", "function": {"name", "description", "parameters"}}``),
+    but ``run_turn`` reads ``schema.get("name")`` / ``("description")`` /
+    ``("parameters")`` off the top level (claude_sdk_executor.py:735-743).
+    Passing the nested form registers MCP tools with empty names, which the
+    agent then cannot see.
+    """
+    function = tool.get_schema().get("function", {})
+    return {
+        "name": function.get("name"),
+        "description": function.get("description"),
+        "parameters": function.get("parameters", {"type": "object", "properties": {}}),
+    }
+
+
+def _build_os_tools(os_env_spec: Any, workspace: Path) -> tuple[list[dict[str, Any]], Any]:
+    """Build Omnigent's ``sys_os_*`` tools and a dispatcher for them.
+
+    Passing ``os_env`` to an executor confines the agent, but it does **not**
+    give it filesystem access: Omnigent routes file and shell operations
+    through ``sys_os_read`` / ``sys_os_write`` / ``sys_os_edit`` /
+    ``sys_os_shell`` MCP tools, and the executor expects its caller to supply
+    both the schemas and a dispatcher. Omnigent's own scaffold does this in
+    ``ToolManager._register_os_env_tools``; VibeSys drives the executor
+    directly, so it has to do the same.
+
+    Without this the agent starts with no file tools at all and answers
+    "I don't have a file-reading tool available" — verified live before this
+    was wired in.
+
+    Returns:
+        ``(schemas, dispatch)`` where *schemas* goes to ``run_turn``'s
+        ``tools`` argument and *dispatch* is the async ``(name, args)``
+        callable the executor invokes per tool call.
+
+    Raises:
+        OmnigentUnavailableError: If Omnigent cannot resolve an OS environment
+            for the spec, which would otherwise yield a silently toolless agent.
+    """
+    from omnigent.inner.os_env import create_os_environment
+    from omnigent.tools.base import ToolContext
+    from omnigent.tools.builtins.os_env import build_os_env_tools
+
+    os_env = create_os_environment(os_env_spec)
+    if os_env is None:
+        raise OmnigentUnavailableError(
+            "Omnigent could not resolve an OS environment for workspace "
+            f"{workspace}; the agent would start with no file or shell tools. "
+            "Disable 'omnigent_agent_backend' to use the agentshim backend."
+        )
+
+    tools = build_os_env_tools(os_env)
+    by_name = {tool.name(): tool for tool in tools}
+    schemas = [_flatten_tool_schema(tool) for tool in tools]
+    context = ToolContext(task_id="vibesys", agent_id="vibesys", workspace=workspace)
+
+    async def dispatch(name: str, args: dict[str, Any]) -> Any:
+        tool = by_name.get(name)
+        if tool is None:
+            return {"error": f"unknown tool {name!r}"}
+        # ``Tool.invoke`` is sync and calls ``asyncio.run`` internally, so it
+        # must not execute on this thread's running loop.
+        return await asyncio.to_thread(tool.invoke, json.dumps(args), context)
+
+    return schemas, dispatch
+
+
 async def _drive_turn(
     executor: Any,
     *,
     prompt: str,
     system_prompt: str,
     logger: AgentLogger,
+    tool_schemas: list[dict[str, Any]] | None = None,
 ) -> tuple[str, dict[str, Any]]:
     """Consume one ``run_turn`` event stream into ``(text, usage)``.
 
@@ -171,7 +242,6 @@ async def _drive_turn(
     that stream without repeating the full response at the end.
     """
     from omnigent import (
-        Message,
         TextChunk,
         ToolCallComplete,
         ToolCallRequest,
@@ -182,8 +252,15 @@ async def _drive_turn(
     response: str | None = None
     usage: dict[str, Any] = {}
 
-    messages = [Message(role="user", content=prompt)]
-    async for event in executor.run_turn(messages, [], system_prompt):
+    # ``run_turn`` is annotated ``list[Message]``, but on 0.6.0 both the
+    # Claude and Codex executors consume the list as plain dicts —
+    # ``msg.get("role")`` / ``msg.get("content")`` / ``msg.get("session_id")``
+    # (claude_sdk_executor.py:1831,2857; codex_executor.py:942,968). Passing
+    # the advertised ``Message`` dataclass raises
+    # ``AttributeError: 'Message' object has no attribute 'get'`` on the first
+    # turn. Dicts are what actually works, so dicts are what we send.
+    messages: list[Any] = [{"role": "user", "content": prompt}]
+    async for event in executor.run_turn(messages, tool_schemas or [], system_prompt):
         if isinstance(event, TextChunk):
             chunks.append(event.text)
             logger.log_text(event.text)
@@ -237,7 +314,58 @@ class OmnigentAgentRunner:
         # Executors are cached per kind to mirror the agentshim runner's
         # session reuse. "chat" is excluded there because provider session IDs
         # go stale; the same reasoning applies to a resident harness process.
-        self._executors: dict[str, Any] = {}
+        self._executors: dict[str, tuple[Any, list[dict[str, Any]]]] = {}
+        # One loop for the runner's whole life. A cached executor holds an SDK
+        # client and subprocess transports bound to the loop that created them,
+        # so a fresh ``asyncio.run`` per turn would strand them on a closed
+        # loop — observed live as "Event loop is closed" during teardown.
+        self._loop: asyncio.AbstractEventLoop | None = None
+
+    def _run_async(self, coro: Any) -> Any:
+        """Drive *coro* on this runner's long-lived event loop."""
+        loop = self._loop
+        if loop is None or loop.is_closed():
+            loop = asyncio.new_event_loop()
+            self._loop = loop
+        return loop.run_until_complete(coro)
+
+    def close(self) -> None:
+        """Release cached executors and the runner's event loop.
+
+        Idempotent, and safe to call after a failed turn. Callers that never
+        invoke it leak one loop per runner until process exit, which is the
+        same lifetime the agentshim runner's cached agents have.
+        """
+        loop = self._loop
+        for executor, _ in self._executors.values():
+            close = getattr(executor, "close", None)
+            if close is None:
+                continue
+            try:
+                result = close()
+                if asyncio.iscoroutine(result) and loop is not None and not loop.is_closed():
+                    loop.run_until_complete(result)
+            except Exception as exc:  # noqa: BLE001 — cleanup must not mask the caller's error
+                log_and_print(
+                    f"[omnigent] executor close failed: {type(exc).__name__}: {exc}",
+                    self._run_log_file,
+                )
+        self._executors.clear()
+        if loop is not None and not loop.is_closed():
+            # Let the SDK's subprocess transports finish tearing down before
+            # the loop goes away. Without the drain their ``__del__`` runs
+            # against a closed loop and raises "Event loop is closed" during
+            # interpreter shutdown.
+            try:
+                loop.run_until_complete(loop.shutdown_asyncgens())
+                loop.run_until_complete(asyncio.sleep(0))
+            except Exception as exc:  # noqa: BLE001 — best-effort drain
+                log_and_print(
+                    f"[omnigent] loop drain failed: {type(exc).__name__}: {exc}",
+                    self._run_log_file,
+                )
+            loop.close()
+        self._loop = None
 
     def _executor_class(self) -> type[Any]:
         """Import and return the Omnigent executor class for this provider.
@@ -310,13 +438,26 @@ class OmnigentAgentRunner:
             ),
         )
 
-    def _build_executor(self, workspace: Path) -> Any:
+    def _build_executor(self, workspace: Path) -> tuple[Any, list[dict[str, Any]]]:
+        """Construct an executor confined to *workspace* with OS tools attached.
+
+        Returns the executor and the tool schemas to hand ``run_turn``. The
+        dispatcher is installed on the executor's ``_tool_executor`` slot,
+        which is how Omnigent's own ``ExecutorAdapter`` wires it
+        (runtime/harnesses/_executor_adapter.py:302). That attribute is
+        private, so this is the single most churn-prone line in the
+        integration and one more reason the flag ships off by default.
+        """
         executor_cls = self._executor_class()
-        return executor_cls(
+        os_env_spec = self._build_os_env(workspace)
+        executor = executor_cls(
             cwd=str(workspace),
             model=self._model,
-            os_env=self._build_os_env(workspace),
+            os_env=os_env_spec,
         )
+        schemas, dispatch = _build_os_tools(os_env_spec, workspace)
+        executor._tool_executor = dispatch
+        return executor, schemas
 
     def invoke(
         self,
@@ -445,11 +586,12 @@ class OmnigentAgentRunner:
         )
 
         reuse_executor = kind != "chat"
-        executor = self._executors.get(kind) if reuse_executor else None
-        if executor is None:
-            executor = self._build_executor(workspace)
+        entry = self._executors.get(kind) if reuse_executor else None
+        if entry is None:
+            entry = self._build_executor(workspace)
             if reuse_executor:
-                self._executors[kind] = executor
+                self._executors[kind] = entry
+        executor, tool_schemas = entry
 
         log_and_print(f"\n=== {label} ROUND START: {round_label} ===", self._run_log_file)
         log_and_print(
@@ -464,12 +606,13 @@ class OmnigentAgentRunner:
         usage: dict[str, Any] = {}
         try:
             with _patched_environ(env):
-                text, usage = asyncio.run(
+                text, usage = self._run_async(
                     _drive_turn(
                         executor,
                         prompt=user_prompt,
                         system_prompt=system_prompt,
                         logger=logger,
+                        tool_schemas=tool_schemas,
                     )
                 )
         except OmnigentUnavailableError:

@@ -344,9 +344,51 @@ omnigent_agent_backend = true
   Equivalence between the two mechanisms is asserted by construction, not by
   test — a reason to keep the flag off until a full-turn spike exercises it.
 
-Still unproven and unchanged by this flag: a full turn against a live model, GPU
-execution, mid-run GPU reselect, and the container path (still a prototype under
-`experiments/omnigent-docker-spike/`, and rejected by the flag).
+### What the live runs settled
+
+The full turn is no longer unproven. Driving `OmnigentAgentRunner` against the
+locally authenticated CLIs, in a throwaway workspace, both providers pass:
+
+| Check | claude | codex |
+| --- | --- | --- |
+| Reads a workspace file through the sandbox | pass | pass |
+| Structured Pydantic response parsed | pass | pass |
+| `usage.jsonl` records written | pass | pass |
+
+Three defects surfaced only under a live turn — none of which a fake-executor
+unit test could have caught, and all now fixed and regression-tested:
+
+1. **`run_turn` does not accept the type it advertises.** It is annotated
+   `list[Message]`, but 0.6.0's executors read entries with `.get()`
+   (`claude_sdk_executor.py:1831,2857`; `codex_executor.py:942,968`). Passing
+   the exported `Message` dataclass raises `AttributeError: 'Message' object
+   has no attribute 'get'` on the first turn. Plain dicts are what work.
+2. **`os_env` confines the agent but gives it no tools.** Filesystem and shell
+   access run through `sys_os_read` / `sys_os_write` / `sys_os_edit` /
+   `sys_os_shell` MCP tools that the *caller* must build and dispatch;
+   Omnigent's own scaffold does this in `ToolManager._register_os_env_tools`.
+   Without it the agent answers *"I don't have a file-reading tool available"*
+   — confined, sandboxed, and useless. The dispatcher is installed on the
+   executor's **private** `_tool_executor` attribute, which is how Omnigent's
+   `ExecutorAdapter` does it (`_executor_adapter.py:302`); that line is the
+   most churn-prone in the integration.
+3. **`Tool.get_schema()` is not `ToolSpec`.** It returns OpenAI-function shape
+   (`{"function": {"name", ...}}`) while `run_turn` reads `name` off the top
+   level, so passing it verbatim registers MCP tools with empty names and the
+   agent sees no tools. The schemas need flattening.
+
+Point 2 is the substantive finding for the adoption decision: the in-process
+`Executor` is **not** a standalone seam. A working coding agent needs the tool
+layer above it, and reaching it means one private-attribute assignment.
+
+Remaining caveats: the executor caches an SDK client bound to the loop that
+created it, so the runner keeps one long-lived event loop and exposes `close()`
+(a per-turn `asyncio.run` strands transports on a dead loop). `claude_agent_sdk`
+still emits *"Event loop is closed"* from transport `__del__` at interpreter
+shutdown — reproducible with the raw SDK, independent of VibeSys, and cosmetic.
+Still unproven: GPU execution, mid-run GPU reselect, multi-round loops at real
+scale, and the container path (a prototype under
+`experiments/omnigent-docker-spike/`, rejected by the flag).
 
 ## Follow-up work
 
