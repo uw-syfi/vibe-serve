@@ -8,6 +8,12 @@ This summarizes the three Llama 3.1 8B H100 optimization loops run with Modal an
 
 The per-round logs remain in each experiment's `workspace/progress.md`; this file records the headline process and accepted results.
 
+The robust remeasurement harnesses, the stock/specialized serving wrappers, and
+the raw per-trial result JSON described below were run out of tree and are not
+committed. Every number reported here is reproduced in the tables inline, so
+this document stands on its own; rerunning a measurement means rebuilding the
+harness from the methodology bullets in each section.
+
 ## Workload Results
 
 | Workload | Baseline used | Specialized robust throughput | Speedup |
@@ -247,12 +253,6 @@ I reran the long-prompts/short-outputs workload after fixing the same benchmark 
 
 Representativeness caveat: this accepted benchmark is still deliberately artificial. It uses 64 prompts with the same 3000-word prefix and only a tiny per-request suffix, which makes it a best-case prefix-cache workload. It should not be generalized to long prompts with mostly unique documents, retrieval chunks, code files, or chat histories without a separate benchmark that varies prefix sharing.
 
-Workload implementation:
-
-- Benchmark: `.codex/final-one-h100-measurement/long_robust_tokens_benchmark.py`
-- Stock wrapper: `.codex/final-one-h100-measurement/robust-high-baseline90`
-- Specialized wrapper: `.codex/final-one-h100-measurement/worktrees/long-specialized/workspace`
-
 Resource note: both accepted runs used one Modal `H100` app container, tensor parallel size 1, `NVIDIA H100 80GB HBM3`, and 79.18 GiB visible CUDA memory. They did not use the same physical GPU UUID. Stock used `GPU-7cec38f4-5f2e-c2da-71bf-78acca9d70fb`; specialized used `GPU-d3323cea-2720-7856-5906-22a0f5342697`.
 
 Rejected attempts:
@@ -270,13 +270,6 @@ Rejected attempts:
 Robust speedup: `512.53 / 508.53 = 1.01x` by median true completion tokens/sec.
 
 Interpretation: this is a tie, not a meaningful long-prompt specialization win. Fixing FlashInfer was the correct engineering move because the specialized wrapper intended to benchmark with `VLLM_USE_FLASHINFER_SAMPLER=1`, and the accepted run confirmed that path was active. But this workload emits only 16 output tokens after long repeated prompts, so the measured path is dominated by prefill, prefix-cache behavior, scheduler cadence, and request admission. FlashInfer affects sampling during decode, which is a small fraction of this workload. The long-specialized engine params, including `max_num_batched_tokens=4096` and small CUDA graph capture sizes, did not produce a stable gain over stock in the corrected harness.
-
-Raw result files:
-
-- `.codex/final-one-h100-measurement/results/long-robust-baseline90-rerun.json`
-- `.codex/final-one-h100-measurement/results/long-robust-baseline90-rerun.meta.json`
-- `.codex/final-one-h100-measurement/results/long-robust-specialized.json`
-- `.codex/final-one-h100-measurement/results/long-robust-specialized.meta.json`
 
 ## High Concurrency Robust Remeasurement
 
@@ -326,17 +319,6 @@ Aggregate over run medians:
 
 Conclusion: the high-concurrency speedup claim does not survive the robust interleaved rerun. The current best reading is that the high-specialized bundle is not a proven vLLM performance improvement for this workload and likely regresses this fixed non-streaming benchmark. Confidence is medium for the direction because both new A/B pairs agree, but low for the exact 0.87x factor because physical GPU placement and high-concurrency queue dynamics still add visible run-to-run variance.
 
-Raw rerun artifacts:
-
-- `.codex/final-one-h100-measurement/results/high-robust-rerun-a1-stock.json`
-- `.codex/final-one-h100-measurement/results/high-robust-rerun-a1-stock.meta.json`
-- `.codex/final-one-h100-measurement/results/high-robust-rerun-b1-specialized.json`
-- `.codex/final-one-h100-measurement/results/high-robust-rerun-b1-specialized.meta.json`
-- `.codex/final-one-h100-measurement/results/high-robust-rerun-a2-stock.json`
-- `.codex/final-one-h100-measurement/results/high-robust-rerun-a2-stock.meta.json`
-- `.codex/final-one-h100-measurement/results/high-robust-rerun-b2-specialized.json`
-- `.codex/final-one-h100-measurement/results/high-robust-rerun-b2-specialized.meta.json`
-
 ## Constrained JSON Robust Remeasurement
 
 I reran the constrained-decoding workload with the same measurement fixes used for the high-concurrency rerun:
@@ -349,12 +331,6 @@ I reran the constrained-decoding workload with the same measurement fixes used f
 - Added explicit HTTP connection limits equal to concurrency.
 - Added `/health` metadata and `X-Benchmark-Instance` response headers to ensure requests stayed on one Modal app container.
 - Guarded the specialized run to the same H100 memory class reported by stock: `NVIDIA H100 80GB HBM3`, 79.18 GiB visible CUDA memory, tensor parallel size 1, `max_containers=1`, `buffer_containers=0`.
-
-Workload implementation:
-
-- Benchmark: `.codex/final-one-h100-measurement/constrained_robust_tokens_benchmark.py`
-- Stock wrapper: `.codex/final-one-h100-measurement/robust-constrained-baseline90`
-- Specialized wrapper: `.codex/final-one-h100-measurement/robust-constrained-specialized`
 
 Resource note: both runs used the same Modal H100 resource envelope and the same visible CUDA memory size, but not the same physical GPU UUID. Stock used `GPU-e6b8157b-1412-b603-5bec-e41f46d345eb`; specialized used `GPU-fa87039a-c176-63ad-cf0d-b60f1544b661`.
 
@@ -386,13 +362,6 @@ Detailed constrained-decoding changes:
 - The patched path keeps the same request-id-to-logits-row mapping, but reuses pinned CPU and GPU bitmask staging buffers keyed by `(num_logit_rows, bitmask_width)` instead of allocating a fresh sorted bitmask each decode step. It then copies only the contiguous structured spans when there are a few spans, falling back to a full bulk copy for highly fragmented batches.
 - The patch detects the constrained-workload hot case where the sorted structured row indices cover every logits row exactly once, from row 0 through `num_logit_rows - 1`. In that all-guided case, the `indices` argument is redundant, so it calls `xgrammar.apply_token_bitmask_inplace_torch_compile(logits, gpu_bitmask)` without `indices`. Mixed guided/free-form batches still call xgrammar with `indices=out_indices`, so unstructured rows remain unmasked.
 - The intended effect was to remove repeated per-token overhead on the decode path: Python/list work around `out_indices`, fresh CPU allocation and row sorting, unnecessary host-to-device movement for unchanged rows, and TorchDynamo/xgrammar recompilation pressure from variable `len(indices)`. Profiling before the patch showed dynamic-`indices` recompilation warnings; profiling after the patch no longer showed those warnings in the active measurement window.
-
-Raw result files:
-
-- `.codex/final-one-h100-measurement/results/constrained-robust-baseline90.json`
-- `.codex/final-one-h100-measurement/results/constrained-robust-baseline90.meta.json`
-- `.codex/final-one-h100-measurement/results/constrained-robust-specialized.json`
-- `.codex/final-one-h100-measurement/results/constrained-robust-specialized.meta.json`
 
 ## Constrained JSON Robust Ablation
 
@@ -429,14 +398,6 @@ Why stock vLLM has the more general implementation:
 Stock vLLM has to handle mixed serving batches. A single logits batch can contain unconstrained chat requests next to JSON-schema requests, and the structured-output requests can appear at arbitrary row positions. The scheduler provides a compact grammar bitmask only for the structured requests, so the general path has to map request ids to current logits rows, build a full sorted bitmask aligned to the logits tensor, track `indices` for the rows that actually need masking, copy the bitmask to GPU, and call xgrammar with those `indices`. That is the right shape for correctness across arbitrary mixed constrained/unconstrained batches.
 
 The constrained benchmark has a narrower shape: every active request is a structured JSON request, and the relevant logits rows are usually one contiguous structured span. Under that workload specialization, the `indices` list is redundant because every row needs masking. The patch removes overhead by reusing CPU/GPU grammar-bitmask staging buffers, copying contiguous spans instead of rebuilding and moving a fresh full bitmask each step, and calling xgrammar without dynamic `indices` in the all-rows-structured case. This matters because grammar masking is on the per-token decode path; small Python allocation, sorting, copy, and TorchDynamo shape costs repeat once per generated token across the whole concurrent batch.
-
-Raw ablation result files:
-
-- `.codex/final-one-h100-measurement/results/constrained-robust-ablate-params-only.json`
-- `.codex/final-one-h100-measurement/results/constrained-robust-ablate-params-fi.json`
-- `.codex/final-one-h100-measurement/results/constrained-robust-ablate-code-only.json`
-- `.codex/final-one-h100-measurement/results/constrained-robust-ablate-code-fi.json`
-- `.codex/final-one-h100-measurement/results/constrained-robust-ablate-code-params-no-fi.json`
 
 ## Adversarial Benchmark Audit
 
