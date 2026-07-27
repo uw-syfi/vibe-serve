@@ -6,7 +6,7 @@ correctness (candidate vs a real Redis oracle) and scored by real YCSB.
 
 ## Prerequisites
 
-- Python 3.11+ and `uv`
+- Python 3.12+ and `uv`
 - Java 8+ — YCSB (`apt install default-jre` / `brew install openjdk`)
 - Redis — the accuracy oracle (`apt install redis-server` / `brew install redis`)
 - Claude Code (`claude`) — drives the agent loop

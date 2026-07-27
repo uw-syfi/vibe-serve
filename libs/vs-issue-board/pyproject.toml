@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "vs-issue-board"
 version = "0.1.0"
 description = "Reusable JSON-backed issue board utilities"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
     "mcp>=1.0",
     "pydantic>=2",

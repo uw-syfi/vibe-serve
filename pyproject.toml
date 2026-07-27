@@ -7,7 +7,7 @@ name = "vibesys"
 version = "0.1.0"
 description = "AI agent framework for generating bespoke systems from application, workload, and hardware requirements"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
     "agentshim>=0.5.0",
     "deepagents",
@@ -67,12 +67,23 @@ pythonpath = ["."]
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py312"
 src = ["src", "tests", "libs/vs-feature-flags/src", "libs/vs-feature-flags/tests", "libs/vs-github/src", "libs/vs-github/tests", "libs/vs-issue-board/src", "libs/vs-issue-board/tests", "libs/vs-sandbox/src", "libs/vs-sandbox/tests"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "W"]
-ignore = ["E501"]
+ignore = [
+    "E501",
+    # PEP 695 type-parameter syntax (`def f[T]()`, `class C[T]`, `type X = ...`)
+    # only becomes lintable at target-version py312, so raising the floor
+    # surfaced 11 of these at once. The repo has not adopted that syntax, and
+    # this is not the change to adopt it in: ruff marks the rewrites unsafe,
+    # and the hits include vendored reference code under `resources/skills/`
+    # that VibeSys does not own. Moving to PEP 695 is a separate decision.
+    "UP040",
+    "UP046",
+    "UP047",
+]
 
 [tool.pyright]
 typeCheckingMode = "strict"
@@ -85,7 +96,7 @@ typeCheckingMode = "strict"
 reportUnknownMemberType = "none"
 reportUnknownVariableType = "none"
 reportUnknownArgumentType = "none"
-pythonVersion = "3.11"
+pythonVersion = "3.12"
 include = ["src", "libs/vs-feature-flags/src", "libs/vs-github/src", "libs/vs-issue-board/src", "libs/vs-sandbox/src"]
 executionEnvironments = [
     { root = "libs/vs-feature-flags/src" },

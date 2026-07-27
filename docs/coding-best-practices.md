@@ -65,7 +65,7 @@ adapters or presentation layers that consume its results.
 
 ## Python Code
 
-- Use typed Python 3.11+ patterns already present in the repo.
+- Use typed Python 3.12+ patterns already present in the repo.
 - Use Pydantic models for external contracts: config files, metadata files,
   structured agent responses, persisted state, and other boundary objects.
 - Use `StrEnum`, `Literal`, and typed registries for closed sets instead of raw

@@ -55,7 +55,7 @@ Each candidate is a git commit; the outer loop only advances on Judge-validated 
 
 ## Installation
 
-Requires Python 3.11+.
+Requires Python 3.12+.
 
 ```bash
 uv sync
