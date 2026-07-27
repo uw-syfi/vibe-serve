@@ -64,6 +64,16 @@ from vibesys.agents.progress import AgentProgress
 
 T = TypeVar("T", bound=BaseModel)
 
+_TOOL_EXECUTOR_ATTR = "_tool_executor"
+"""Omnigent's per-executor tool-dispatch slot.
+
+Named here rather than inlined so the one place VibeSys reaches into
+Omnigent's internals is greppable, and so the guard in
+:meth:`OmnigentAgentRunner._build_executor` and its test agree by construction.
+It is a convention across all 11 of Omnigent 0.6.0's executors, but it is
+declared on none of them publicly.
+"""
+
 
 class OmnigentUnavailableError(RuntimeError):
     """Raised when the Omnigent backend is requested but cannot be used.
@@ -471,12 +481,26 @@ class OmnigentAgentRunner:
     def _build_executor(self, workspace: Path) -> tuple[Any, list[dict[str, Any]]]:
         """Construct an executor confined to *workspace* with OS tools attached.
 
-        Returns the executor and the tool schemas to hand ``run_turn``. The
-        dispatcher is installed on the executor's ``_tool_executor`` slot,
-        which is how Omnigent's own ``ExecutorAdapter`` wires it
-        (runtime/harnesses/_executor_adapter.py:302). That attribute is
-        private, so this is the single most churn-prone line in the
-        integration and one more reason the flag ships off by default.
+        Returns the executor and the tool schemas to hand ``run_turn``.
+
+        The dispatcher is installed on :data:`_TOOL_EXECUTOR_ATTR`, which is
+        how Omnigent's own ``ExecutorAdapter`` wires it
+        (``runtime/harnesses/_executor_adapter.py:302``). It is a private
+        attribute with no public setter and no declaration on the ``Executor``
+        ABC — the single most upgrade-fragile point in this integration. On
+        0.6.0 there is no alternative in-process route: the Claude executor
+        hardcodes its base tool set to ``["Skill"]``, so ``sys_os_*`` MCP tools
+        plus this dispatcher are the only way an agent reaches the filesystem.
+        Omnigent's supported alternative is its server plus a per-conversation
+        HTTP harness subprocess, which is a far larger commitment than an
+        experimental flag warrants.
+
+        The presence check is the point: if a future Omnigent renames the
+        attribute, assigning it would silently create a dead one, Omnigent
+        would read ``None``, and every tool call would come back as
+        ``{"error": "No tool executor for ..."}`` — an agent that looks
+        equipped but fails every action mid-run. Failing at construction turns
+        that into a startup error naming the cause.
         """
         executor_cls = self._executor_class()
         os_env_spec = self._build_os_env(workspace)
@@ -485,8 +509,16 @@ class OmnigentAgentRunner:
             model=self._model,
             os_env=os_env_spec,
         )
+        if not hasattr(executor, _TOOL_EXECUTOR_ATTR):
+            raise OmnigentUnavailableError(
+                f"{executor_cls.__name__} has no {_TOOL_EXECUTOR_ATTR!r} slot, so "
+                "VibeSys cannot give the agent its file and shell tools. The "
+                "installed omnigent has moved this seam away from what this "
+                "integration was written against (0.6.0). Disable "
+                "'omnigent_agent_backend' to use the agentshim backend."
+            )
         schemas, dispatch = _build_os_tools(os_env_spec, workspace)
-        executor._tool_executor = dispatch
+        setattr(executor, _TOOL_EXECUTOR_ATTR, dispatch)
         return executor, schemas
 
     def invoke(

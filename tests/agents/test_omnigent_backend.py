@@ -992,3 +992,54 @@ class TestLazyPackageExports:
 
         with pytest.raises(AttributeError, match="no attribute"):
             _ = pkg.NoSuchThing
+
+
+@requires_omnigent
+class TestToolExecutorSeam:
+    """Guards the one private Omnigent attribute this integration depends on.
+
+    There is no public setter and it is absent from the ``Executor`` ABC, so an
+    upgrade could move it. Left unguarded that degrades silently: the
+    assignment would create a dead attribute, Omnigent would read ``None``, and
+    every tool call would return ``{"error": "No tool executor ..."}`` — an
+    agent that looks equipped but fails every action mid-run.
+    """
+
+    @pytest.mark.parametrize("provider", ["claude", "codex"])
+    def test_the_seam_exists_on_the_pinned_version(self, provider):
+        """Fails loudly if a version bump moves the attribute."""
+        from vibesys.agents.omnigent.runner import _TOOL_EXECUTOR_ATTR
+
+        runner = OmnigentAgentRunner(provider=provider)
+        executor_cls = runner._executor_class()
+
+        # Constructed without os_env so no sandbox backend is needed here.
+        executor = executor_cls(cwd=".", model=None)
+
+        assert hasattr(executor, _TOOL_EXECUTOR_ATTR), (
+            f"{executor_cls.__name__} no longer exposes {_TOOL_EXECUTOR_ATTR!r}; "
+            "the Omnigent backend can no longer give agents their tools"
+        )
+
+    def test_a_moved_seam_fails_at_construction(self, tmp_path, monkeypatch):
+        from vibesys.agents.omnigent import runner as runner_mod
+
+        class _Renamed:
+            """An executor whose dispatch slot has been renamed upstream."""
+
+            def __init__(self, **_kwargs):
+                self._dispatch_callback = None  # not _tool_executor
+
+        runner = OmnigentAgentRunner(provider="claude")
+        monkeypatch.setattr(runner, "_executor_class", lambda: _Renamed)
+        monkeypatch.setattr(
+            runner_mod, "_build_os_tools", MagicMock(side_effect=AssertionError("unreachable"))
+        )
+
+        with pytest.raises(OmnigentUnavailableError) as exc:
+            runner._build_executor(Path(tmp_path))
+
+        message = str(exc.value)
+        assert "_tool_executor" in message
+        assert "omnigent_agent_backend" in message
+        assert "agentshim" in message

@@ -385,6 +385,27 @@ Point 2 is the substantive finding for the adoption decision: the in-process
 `Executor` is **not** a standalone seam. A working coding agent needs the tool
 layer above it, and reaching it means one private-attribute assignment.
 
+### Can the private `_tool_executor` dependency be removed?
+
+Investigated on `0.6.0`; today the answer is no, and the reasons bound how far
+the in-process seam can be trusted.
+
+| Route | Verdict |
+| --- | --- |
+| Public setter or ABC declaration | None exists. The attribute is a convention across all 11 executors but declared on none of them — `omnigent/inner/executor.py` never mentions it. Omnigent's own `ExecutorAdapter` sets it by plain attribute assignment (`_executor_adapter.py:302`), so VibeSys does exactly what Omnigent does internally. |
+| Let the harness use its native tools instead | Impossible for Claude: `claude_sdk_executor.py:2170` hardcodes `base_tools = ["Skill"]`, and the `enable_native_tools` value derived from `os_env` is assigned to `self._os_env` and then never read — dead state. Codex *does* keep native tools, but they need a `codex-linux-sandbox` binary and would give a different confinement model on one of the two providers. Verified by running a Codex turn with no tool schemas: it reports its shell is broken. |
+| Drive Omnigent's supported scaffold instead | That means its server plus a per-conversation HTTP harness subprocess. Every module implementing it (`_scaffold`, `_runner`, `_executor_adapter`) is private; the public contract is REST. This is the heavyweight architecture the evaluation already declined, and far more than an experimental flag warrants. |
+| Upstream a public `set_tool_executor` on the ABC | The right long-term fix, and a small patch given the existing 11-way convention. Does not unblock today. |
+
+The mitigation shipped instead is a construction-time presence check. Without
+it the failure mode is quiet: assigning a renamed attribute would create a dead
+one, Omnigent would read `None`, and `_build_mcp_tools` would answer every tool
+call with `{"error": "No tool executor for ..."}` — an agent that looks equipped
+but fails every action mid-run. The check turns that into a startup
+`OmnigentUnavailableError` naming the cause, and a test asserts the seam still
+exists on the pinned version so a version bump fails in CI rather than in a
+user's run.
+
 Remaining caveats: the executor caches an SDK client bound to the loop that
 created it, so the runner keeps one long-lived event loop and exposes `close()`
 (a per-turn `asyncio.run` strands transports on a dead loop). `claude_agent_sdk`
