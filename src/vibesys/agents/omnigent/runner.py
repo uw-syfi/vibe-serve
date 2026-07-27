@@ -102,6 +102,33 @@ def resolve_executor_spec(provider: str) -> OmnigentExecutorSpec:
     return spec
 
 
+def _import_omnigent(module: str) -> Any:
+    """Import an ``omnigent`` module, or raise an actionable error.
+
+    Every Omnigent symbol in this file is resolved through here rather than
+    with a static ``from omnigent import ...``. That is not stylistic: the
+    package is an optional extra that is absent on the 3.11 baseline and in
+    CI, where static imports fail pyright's ``reportMissingImports`` and
+    degrade the imported names to ``object`` — which then breaks the
+    ``isinstance`` dispatch in :func:`_drive_turn`. Going through importlib
+    keeps this module type-checkable with the dependency uninstalled, which
+    is the configuration CI actually type-checks in.
+
+    Raises:
+        OmnigentUnavailableError: If the package is missing or the module
+            moved, naming the extra and the remedy.
+    """
+    try:
+        return import_module(module)
+    except ImportError as exc:
+        raise OmnigentUnavailableError(
+            f"feature flag 'omnigent_agent_backend' is enabled but "
+            f"{module!r} is not importable ({type(exc).__name__}: {exc}). "
+            "Install the optional extra with `uv sync --extra omnigent` on "
+            "Python 3.12+, or disable the flag to use the agentshim backend."
+        ) from exc
+
+
 def _sandbox_backend_for_platform() -> str:
     """Return the Omnigent sandbox backend identifier for this host.
 
@@ -195,9 +222,9 @@ def _build_os_tools(os_env_spec: Any, workspace: Path) -> tuple[list[dict[str, A
         OmnigentUnavailableError: If Omnigent cannot resolve an OS environment
             for the spec, which would otherwise yield a silently toolless agent.
     """
-    from omnigent.inner.os_env import create_os_environment
-    from omnigent.tools.base import ToolContext
-    from omnigent.tools.builtins.os_env import build_os_env_tools
+    create_os_environment = _import_omnigent("omnigent.inner.os_env").create_os_environment
+    tool_context_cls = _import_omnigent("omnigent.tools.base").ToolContext
+    build_os_env_tools = _import_omnigent("omnigent.tools.builtins.os_env").build_os_env_tools
 
     os_env = create_os_environment(os_env_spec)
     if os_env is None:
@@ -210,7 +237,7 @@ def _build_os_tools(os_env_spec: Any, workspace: Path) -> tuple[list[dict[str, A
     tools = build_os_env_tools(os_env)
     by_name = {tool.name(): tool for tool in tools}
     schemas = [_flatten_tool_schema(tool) for tool in tools]
-    context = ToolContext(task_id="vibesys", agent_id="vibesys", workspace=workspace)
+    context = tool_context_cls(task_id="vibesys", agent_id="vibesys", workspace=workspace)
 
     async def dispatch(name: str, args: dict[str, Any]) -> Any:
         tool = by_name.get(name)
@@ -241,12 +268,11 @@ async def _drive_turn(
     the concatenated :class:`TextChunk` stream is the fallback for executors
     that stream without repeating the full response at the end.
     """
-    from omnigent import (
-        TextChunk,
-        ToolCallComplete,
-        ToolCallRequest,
-        TurnComplete,
-    )
+    omni = _import_omnigent("omnigent")
+    text_chunk_cls = omni.TextChunk
+    tool_call_request_cls = omni.ToolCallRequest
+    tool_call_complete_cls = omni.ToolCallComplete
+    turn_complete_cls = omni.TurnComplete
 
     chunks: list[str] = []
     response: str | None = None
@@ -261,17 +287,17 @@ async def _drive_turn(
     # turn. Dicts are what actually works, so dicts are what we send.
     messages: list[Any] = [{"role": "user", "content": prompt}]
     async for event in executor.run_turn(messages, tool_schemas or [], system_prompt):
-        if isinstance(event, TextChunk):
+        if isinstance(event, text_chunk_cls):
             chunks.append(event.text)
             logger.log_text(event.text)
-        elif isinstance(event, ToolCallRequest):
+        elif isinstance(event, tool_call_request_cls):
             logger.on_tool_call(event.name, event.args)
-        elif isinstance(event, ToolCallComplete):
+        elif isinstance(event, tool_call_complete_cls):
             logger.on_tool_result(
                 event.name,
                 event.error if event.error is not None else event.result,
             )
-        elif isinstance(event, TurnComplete):
+        elif isinstance(event, turn_complete_cls):
             response = event.response
             usage = event.usage or {}
 
@@ -427,12 +453,12 @@ class OmnigentAgentRunner:
         This is Omnigent's confinement, not ``vs_sandbox``'s. The two have not
         been proven equivalent; see docs/omnigent-evaluation.md.
         """
-        from omnigent.inner.datamodel import OSEnvSandboxSpec, OSEnvSpec
+        datamodel = _import_omnigent("omnigent.inner.datamodel")
 
-        return OSEnvSpec(
+        return datamodel.OSEnvSpec(
             type="caller_process",
             cwd=str(workspace),
-            sandbox=OSEnvSandboxSpec(
+            sandbox=datamodel.OSEnvSandboxSpec(
                 type=_sandbox_backend_for_platform(),
                 write_paths=[str(workspace)],
             ),
