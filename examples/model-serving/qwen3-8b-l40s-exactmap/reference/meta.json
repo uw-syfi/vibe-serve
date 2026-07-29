@@ -1,0 +1,6 @@
+{
+  "model_id": "Qwen/Qwen3-8B",
+  "revision": "b968826d9c46dd6066d109eabc6255188de91218",
+  "weight_sha256": "8f51132290852a4ab4070da7e075f9a6e14f2e14553663e25211fdd99c170222",
+  "task": "text-generation"
+}
