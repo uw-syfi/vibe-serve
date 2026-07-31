@@ -17,6 +17,7 @@ import json
 import math
 import random
 import time
+from dataclasses import dataclass
 
 import httpx
 
@@ -58,6 +59,33 @@ PROMPT_POOL = [
 # ---------------------------------------------------------------------------
 
 
+@dataclass
+class ConcurrencyStats:
+    """Track driver tasks separately from active HTTP response streams."""
+
+    in_flight_requests: int = 0
+    max_in_flight_requests: int = 0
+    active_streams: int = 0
+    max_active_streams: int = 0
+
+    def request_started(self) -> None:
+        self.in_flight_requests += 1
+        self.max_in_flight_requests = max(
+            self.max_in_flight_requests,
+            self.in_flight_requests,
+        )
+
+    def request_finished(self) -> None:
+        self.in_flight_requests -= 1
+
+    def stream_opened(self) -> None:
+        self.active_streams += 1
+        self.max_active_streams = max(self.max_active_streams, self.active_streams)
+
+    def stream_closed(self) -> None:
+        self.active_streams -= 1
+
+
 async def send_request(
     client: httpx.AsyncClient,
     url: str,
@@ -65,6 +93,7 @@ async def send_request(
     prompt: str,
     max_tokens: int,
     temperature: float,
+    concurrency_stats: ConcurrencyStats | None = None,
 ) -> dict:
     """Send a single streaming completion request and measure timings."""
     body = {
@@ -82,28 +111,40 @@ async def send_request(
     finish_reason = None
     error = None
 
+    if concurrency_stats is not None:
+        concurrency_stats.request_started()
     try:
-        async with client.stream("POST", url, json=body, timeout=120.0) as resp:
-            resp.raise_for_status()
-            async for raw_line in resp.aiter_lines():
-                if not raw_line.startswith("data: "):
-                    continue
-                payload = raw_line[len("data: ") :]
-                if payload.strip() == "[DONE]":
-                    t_done = time.perf_counter()
-                    break
-                chunk = json.loads(payload)
-                text = chunk["choices"][0]["text"]
-                reason = chunk["choices"][0].get("finish_reason")
-                if reason is not None:
-                    finish_reason = reason
-                if text:
-                    output_tokens += 1
-                    if t_first_token is None:
-                        t_first_token = time.perf_counter()
-    except Exception as exc:
-        error = str(exc)
-        t_done = time.perf_counter()
+        try:
+            async with client.stream("POST", url, json=body, timeout=120.0) as resp:
+                resp.raise_for_status()
+                if concurrency_stats is not None:
+                    concurrency_stats.stream_opened()
+                try:
+                    async for raw_line in resp.aiter_lines():
+                        if not raw_line.startswith("data: "):
+                            continue
+                        payload = raw_line[len("data: ") :]
+                        if payload.strip() == "[DONE]":
+                            t_done = time.perf_counter()
+                            break
+                        chunk = json.loads(payload)
+                        text = chunk["choices"][0]["text"]
+                        reason = chunk["choices"][0].get("finish_reason")
+                        if reason is not None:
+                            finish_reason = reason
+                        if text:
+                            output_tokens += 1
+                            if t_first_token is None:
+                                t_first_token = time.perf_counter()
+                finally:
+                    if concurrency_stats is not None:
+                        concurrency_stats.stream_closed()
+        except Exception as exc:
+            error = str(exc)
+            t_done = time.perf_counter()
+    finally:
+        if concurrency_stats is not None:
+            concurrency_stats.request_finished()
 
     # Compute metrics
     if t_done is None:
@@ -168,6 +209,46 @@ def format_stats(values: list[float], unit: str = "ms", multiplier: float = 1000
 # ---------------------------------------------------------------------------
 
 
+def http_limits_for(concurrency: int | None) -> httpx.Limits:
+    """Return limits that cannot cap a requested closed-loop concurrency."""
+    if concurrency is not None:
+        return httpx.Limits(
+            max_connections=concurrency,
+            max_keepalive_connections=concurrency,
+        )
+    return httpx.Limits(max_connections=None, max_keepalive_connections=100)
+
+
+async def run_warmup(
+    client: httpx.AsyncClient,
+    url: str,
+    prompts: list[str],
+    args: argparse.Namespace,
+    rng: random.Random,
+) -> list[dict]:
+    """Issue discarded requests before measurement using the benchmark shape."""
+    if args.warmup_requests == 0:
+        return []
+
+    warmup_concurrency = min(args.warmup_requests, args.concurrency or 1)
+    semaphore = asyncio.Semaphore(warmup_concurrency)
+
+    async def warmup_request() -> dict:
+        async with semaphore:
+            return await send_request(
+                client,
+                url,
+                args.model,
+                rng.choice(prompts),
+                args.max_tokens,
+                args.temperature,
+            )
+
+    return await asyncio.gather(
+        *[asyncio.create_task(warmup_request()) for _ in range(args.warmup_requests)]
+    )
+
+
 async def run_closed_loop(
     client: httpx.AsyncClient,
     url: str,
@@ -175,6 +256,7 @@ async def run_closed_loop(
     args: argparse.Namespace,
     rng: random.Random,
     t_bench_start: float,
+    concurrency_stats: ConcurrencyStats,
 ) -> list[dict]:
     """Closed-loop driver: `args.concurrency` workers send requests back-to-back.
 
@@ -208,6 +290,7 @@ async def run_closed_loop(
                 prompt,
                 args.max_tokens,
                 args.temperature,
+                concurrency_stats,
             )
             results.append(result)
 
@@ -217,6 +300,7 @@ async def run_closed_loop(
 
 async def run_benchmark(args: argparse.Namespace) -> dict:
     rng = random.Random(args.seed)
+    warmup_rng = random.Random(args.seed)
     url = args.url.rstrip("/") + args.endpoint
 
     # Build prompt list
@@ -231,8 +315,27 @@ async def run_benchmark(args: argparse.Namespace) -> dict:
     total_requests = args.num_requests if not use_duration else 10**9
 
     results: list[dict] = []
+    concurrency_stats = ConcurrencyStats()
+    limits = http_limits_for(args.concurrency)
 
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(limits=limits) as client:
+        t_warmup_start = time.perf_counter()
+        warmup_results = await run_warmup(client, url, prompts, args, warmup_rng)
+        warmup_duration = time.perf_counter() - t_warmup_start
+        warmup_errors = [r for r in warmup_results if r["error"] is not None]
+        if warmup_results:
+            print(
+                f"Warm-up:           {len(warmup_results) - len(warmup_errors)}/"
+                f"{len(warmup_results)} requests completed in {warmup_duration:.1f}s; "
+                "results discarded"
+            )
+        if warmup_errors:
+            first_error = warmup_errors[0]["error"]
+            raise RuntimeError(
+                f"{len(warmup_errors)} warm-up request(s) failed; measurement not started. "
+                f"First error: {first_error}"
+            )
+
         t_bench_start = time.perf_counter()
 
         if args.concurrency:
@@ -240,7 +343,15 @@ async def run_benchmark(args: argparse.Namespace) -> dict:
             # sending requests back-to-back. In-flight count is bounded to
             # `concurrency`, producing a deterministic saturating operating
             # point (overrides the open-loop Poisson `--rate` path).
-            results = await run_closed_loop(client, url, prompts, args, rng, t_bench_start)
+            results = await run_closed_loop(
+                client,
+                url,
+                prompts,
+                args,
+                rng,
+                t_bench_start,
+                concurrency_stats,
+            )
         else:
             # Open-loop load: Poisson arrivals at `--rate`, fire-and-forget.
             tasks: list[asyncio.Task] = []
@@ -259,6 +370,7 @@ async def run_benchmark(args: argparse.Namespace) -> dict:
                         prompt,
                         args.max_tokens,
                         args.temperature,
+                        concurrency_stats,
                     )
                 )
                 tasks.append(task)
@@ -299,6 +411,10 @@ async def run_benchmark(args: argparse.Namespace) -> dict:
     print(f"Backend URL:       {args.url.rstrip('/')}{args.endpoint}")
     print(f"Duration:          {wall_clock:.1f}s")
     print(f"Completed:         {len(successes)}/{len(results)} requests ({len(errors)} errors)")
+    print(f"Requested workers: {args.concurrency if args.concurrency else 'open-loop'}")
+    print(f"Connection limit:  {limits.max_connections if limits.max_connections else 'unlimited'}")
+    print(f"Max in flight:     {concurrency_stats.max_in_flight_requests}")
+    print(f"Max active streams:{concurrency_stats.max_active_streams:>5}")
     print()
     print("Throughput:")
     print(f"  Request:         {len(successes) / wall_clock:.2f} req/s")
@@ -334,7 +450,17 @@ async def run_benchmark(args: argparse.Namespace) -> dict:
             "max_tokens": args.max_tokens,
             "temperature": args.temperature,
             "seed": args.seed,
+            "warmup_requests": args.warmup_requests,
         },
+        "load_concurrency": {
+            "requested_workers": args.concurrency,
+            "client_max_connections": limits.max_connections,
+            "max_in_flight_requests": concurrency_stats.max_in_flight_requests,
+            "max_active_streams": concurrency_stats.max_active_streams,
+        },
+        "warmup_num_requests": len(warmup_results),
+        "warmup_num_failed": len(warmup_errors),
+        "warmup_actual_duration": warmup_duration,
         "num_requests": len(results),
         "num_completed": len(successes),
         "num_failed": len(errors),
@@ -411,6 +537,12 @@ def main() -> None:
     parser.add_argument("--max-tokens", type=int, default=128, help="Max tokens per request")
     parser.add_argument("--temperature", type=float, default=0, help="Sampling temperature")
     parser.add_argument(
+        "--warmup-requests",
+        type=int,
+        default=4,
+        help="Discard this many requests before starting measurement (default: 4)",
+    )
+    parser.add_argument(
         "--prompt-len",
         type=int,
         default=None,
@@ -424,6 +556,10 @@ def main() -> None:
         help="If set, write structured results to this JSON file path",
     )
     args = parser.parse_args()
+    if args.concurrency is not None and args.concurrency <= 0:
+        parser.error("--concurrency must be greater than zero")
+    if args.warmup_requests < 0:
+        parser.error("--warmup-requests must be zero or greater")
     asyncio.run(run_benchmark(args))
 
 

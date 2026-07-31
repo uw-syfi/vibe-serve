@@ -25,6 +25,11 @@ sweep. At every point, keep the request shape fixed with `--duration 20`,
 shorten the output length: tiny workloads make throughput degenerate into
 first-token latency and provide no useful batching or scheduling signal.
 
+Wait for the server health endpoint before the sweep and keep the same server
+process alive across every point. The benchmark sends four discarded requests
+before each measured point. Canonical measurements keep this default warm-up so
+one-time request-path initialization is excluded consistently.
+
 Run the benchmark client on the same host as the server and send requests over
 the loopback interface (for example, `http://127.0.0.1:<port>`). This keeps
 external network routing and ingress variability out of TTFT, TPOT, and
@@ -33,21 +38,31 @@ serving path. Provision enough host CPU for the client so load generation does
 not become the bottleneck.
 
 Start at concurrency 1 and double through `2, 4, 8, 16, 32, 64, 128`. If
-throughput is still increasing materially at 128, continue doubling until the
-sweep includes at least one overloaded point beyond the best sustainable point,
-subject to the server's documented admission limit. A point is overloaded when
-requests fail or time out, throughput falls materially below the best earlier
-point, or latency rises sharply without a material throughput gain. Confirm a
-suspected boundary by testing intermediate concurrency values between the last
-rising point and the first overloaded point, then repeat the best point and its
-neighbors. Do not classify ordinary run-to-run noise as overload.
+throughput at 128 is more than 3% above the best earlier point, continue doubling
+until the sweep includes at least one overloaded point beyond the best
+sustainable point, subject to the server's documented admission limit. A point
+is overloaded when requests fail or time out, output throughput is below 95% of
+the best earlier point, or output throughput is no higher than 103% of that best
+point while p99 TTFT or p99 end-to-end latency exceeds 2x the last confirmed
+sustainable point.
+Confirm a suspected boundary by testing intermediate concurrency values between
+the last rising point and the first overloaded point, then repeat the best point
+and its neighbors. Do not classify ordinary run-to-run noise as overload.
 
 Retain and report every sweep row. The canonical `aggregate_throughput` is the
 highest value among non-overloaded points. Report TTFT, TPOT, and
 `p99_latency_ms` from that same concurrency and repetition; do not combine
 throughput from one operating point with latency from another. If the sweep
-stops while throughput is still materially increasing, it has not established
-a peak and must not be reported as one.
+stops while throughput is still rising by more than 3%, it has not established a
+peak and must not be reported as one.
+
+The benchmark result's `load_concurrency` block must show that the client HTTP
+connection limit is at least the requested worker count. Check its observed
+`max_in_flight_requests` and `max_active_streams` values for client-side or
+admission-path bottlenecks before treating a latency cliff as server overload.
+Short targeted checks around a previously confirmed boundary are useful for
+hypothesis testing, but they cannot replace this canonical sweep or establish a
+new peak.
 
 ## Headline metric (`perf_metric`) and Pareto metrics — canonical fields, do not leave null
 
