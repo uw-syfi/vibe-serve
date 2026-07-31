@@ -16,37 +16,48 @@ as the parent on both axes and strictly better on one. Raising throughput by
 inflating tail latency (e.g. unbounded batch sizes) is a real trade-off, not a
 free win — it moves you along the frontier, it does not dominate.
 
-## Benchmark protocol — run EXACTLY this
+## Benchmark protocol — sweep to the overload boundary
 
-Both axes are only comparable across candidates if every candidate is measured
-under the **same fixed saturating load**. When you (the profiler) run the
-benchmark, use these flags verbatim and change **only** `--url` (the live server)
-and `--output-json` (the output path):
+The canonical score is the highest sustainable output-token throughput reached
+before the server becomes overloaded. Measure it with a closed-loop concurrency
+sweep. At every point, keep the request shape fixed with `--duration 20`,
+`--max-tokens 128`, and `--temperature 0`. Do not use `--num-requests 1` or
+shorten the output length: tiny workloads make throughput degenerate into
+first-token latency and provide no useful batching or scheduling signal.
 
-```
-<benchmark_command> --url <SERVER_URL> --concurrency 16 --duration 20 --max-tokens 128 --temperature 0 --output-json <PATH>
-```
+Run the benchmark client on the same host as the server and send requests over
+the loopback interface (for example, `http://127.0.0.1:<port>`). This keeps
+external network routing and ingress variability out of TTFT, TPOT, and
+throughput measurements while still exercising the OpenAI-compatible HTTP/SSE
+serving path. Provision enough host CPU for the client so load generation does
+not become the bottleneck.
 
-- `--concurrency 16` drives a **closed-loop** load of exactly 16 in-flight
-  requests, so `aggregate_throughput` measures true server capacity (not the
-  arrival rate) and `p99_latency_ms` measures tail latency under contention.
-- Do **not** use `--num-requests 1`, do not lower `--concurrency`, and do not
-  shorten `--max-tokens`. A single-request or tiny workload makes throughput
-  degenerate into first-token latency and gives the search no signal about
-  batching or scheduling.
-- The fixed 16-way load is also what bounds the frontier: no candidate can "win"
-  the latency axis by serving fewer requests, because every candidate faces the
-  identical load. A server that fails or starves most requests loses throughput
-  and trips the benchmark-sanity / accuracy gates.
+Start at concurrency 1 and double through `2, 4, 8, 16, 32, 64, 128`. If
+throughput is still increasing materially at 128, continue doubling until the
+sweep includes at least one overloaded point beyond the best sustainable point,
+subject to the server's documented admission limit. A point is overloaded when
+requests fail or time out, throughput falls materially below the best earlier
+point, or latency rises sharply without a material throughput gain. Confirm a
+suspected boundary by testing intermediate concurrency values between the last
+rising point and the first overloaded point, then repeat the best point and its
+neighbors. Do not classify ordinary run-to-run noise as overload.
+
+Retain and report every sweep row. The canonical `aggregate_throughput` is the
+highest value among non-overloaded points. Report TTFT, TPOT, and
+`p99_latency_ms` from that same concurrency and repetition; do not combine
+throughput from one operating point with latency from another. If the sweep
+stops while throughput is still materially increasing, it has not established
+a peak and must not be reported as one.
 
 ## Headline metric (`perf_metric`) and Pareto metrics — canonical fields, do not leave null
 
 Headline metric: `aggregate_throughput` (output tok/s)
 
 The scalar `perf_metric` (used for plateau detection and the scalar fallback) is
-**`aggregate_throughput`** read directly from the benchmark JSON. In addition,
-because this is a Pareto run, populate `ProfilerSummary.metrics` with **both**
-objective values using these exact keys, read verbatim from the benchmark JSON:
+the peak sustainable **`aggregate_throughput`** selected by the concurrency
+sweep. In addition, because this is a Pareto run, populate
+`ProfilerSummary.metrics` with **both** objective values using these exact keys
+from the selected operating point in the benchmark JSON:
 
 ```
 metrics = {

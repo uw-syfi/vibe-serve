@@ -61,12 +61,14 @@ PROMPT_POOL = [
 async def send_request(
     client: httpx.AsyncClient,
     url: str,
+    model: str,
     prompt: str,
     max_tokens: int,
     temperature: float,
 ) -> dict:
     """Send a single streaming completion request and measure timings."""
     body = {
+        "model": model,
         "prompt": prompt,
         "max_tokens": max_tokens,
         "temperature": temperature,
@@ -199,7 +201,14 @@ async def run_closed_loop(
                     return
                 sent += 1
             prompt = rng.choice(prompts)
-            result = await send_request(client, url, prompt, args.max_tokens, args.temperature)
+            result = await send_request(
+                client,
+                url,
+                args.model,
+                prompt,
+                args.max_tokens,
+                args.temperature,
+            )
             results.append(result)
 
     await asyncio.gather(*[asyncio.create_task(worker()) for _ in range(args.concurrency)])
@@ -243,7 +252,14 @@ async def run_benchmark(args: argparse.Namespace) -> dict:
 
                 prompt = rng.choice(prompts)
                 task = asyncio.create_task(
-                    send_request(client, url, prompt, args.max_tokens, args.temperature)
+                    send_request(
+                        client,
+                        url,
+                        args.model,
+                        prompt,
+                        args.max_tokens,
+                        args.temperature,
+                    )
                 )
                 tasks.append(task)
                 sent += 1
@@ -311,6 +327,7 @@ async def run_benchmark(args: argparse.Namespace) -> dict:
     result_dict = {
         "config": {
             "url": args.url.rstrip("/") + args.endpoint,
+            "model": args.model,
             "rate": args.rate,
             "concurrency": args.concurrency,
             "duration": args.duration,
@@ -371,6 +388,11 @@ def main() -> None:
     )
     parser.add_argument("--url", default="http://localhost:8000", help="Server base URL")
     parser.add_argument("--endpoint", default="/v1/completions", help="API endpoint path")
+    parser.add_argument(
+        "--model",
+        default="meta-llama/Llama-3.1-8B-Instruct",
+        help="Served model name included in the OpenAI request body",
+    )
     parser.add_argument("--rate", type=float, default=1.0, help="Request rate (req/s, Poisson)")
     parser.add_argument(
         "--concurrency",
