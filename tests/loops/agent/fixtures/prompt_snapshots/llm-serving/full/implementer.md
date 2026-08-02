@@ -126,6 +126,12 @@ For an expensive multi-point evaluation, checkpoint each completed row and the
 current phase atomically. A late timeout, optional repeat, or post-processing
 failure must leave earlier raw rows recoverable. Do not keep the only copy of a
 long sweep in process memory until the final point.
+When a remote controller returns measured rows to a local wrapper, persist that
+raw response atomically before reading a baseline artifact, selecting an
+operating point, enriching a summary, or running optional analysis. Write the
+raw response and phase identity even when later local post-processing fails.
+Treat comparison and presentation artifacts as rebuildable views over the raw
+measurement, never as its only durable copy.
 
 Apply stated performance thresholds with the retained benchmark variance in
 view. A single sub-percent miss is not a mechanism-level falsification when

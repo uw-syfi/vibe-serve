@@ -235,6 +235,8 @@ def test_llm_serving_rendered_prompts_keep_required_domain_content():
     assert "preflight must exercise the newly changed" in prompts["implementer"]
     assert "minimum activation condition" in prompts["implementer"]
     assert "checkpoint each completed row" in prompts["implementer"]
+    assert "raw response atomically" in prompts["implementer"]
+    assert "raw response atomically" in prompts["single_agent"]
     assert "not every integer" in prompts["orchestrator"]
     assert "describes a removed mechanism" in prompts["judge"]
     assert "buffered generation, not token streaming" in prompts["judge"]

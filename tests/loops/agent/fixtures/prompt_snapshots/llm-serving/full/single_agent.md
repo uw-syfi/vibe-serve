@@ -93,6 +93,12 @@ gate fails. Use zero minimum-warm replicas, one accelerator unless the workload
 requires more, a short finite idle/scaledown timeout, an outer command timeout,
 and `finally` teardown. Do not keep a paid accelerator warm across agent
 reasoning turns.
+When a remote controller returns measured rows to a local wrapper, persist that
+raw response atomically before reading a baseline artifact, selecting an
+operating point, enriching a summary, or running optional analysis. Write the
+raw response and phase identity even when later local post-processing fails.
+Treat comparison and presentation artifacts as rebuildable views over the raw
+measurement, never as its only durable copy.
 
 ## Profiling step
 
