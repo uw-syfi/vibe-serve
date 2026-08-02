@@ -308,6 +308,39 @@ def test_llm_serving_rendered_prompts_keep_required_domain_content():
     assert "CUDA graphs" not in prompts["orchestrator"]
 
 
+def test_orchestrator_rejects_quantitative_use_of_perturbed_profiles():
+    context = _CONTEXTS["full"]
+    rendered = render_template(
+        "orchestrator_plan_prompt.j2",
+        template_dir=_TEMPLATE_DIR,
+        objective=context["objective"],
+        profiler_summary={
+            "bottlenecks": "sampling looks expensive",
+            "suggestions": "optimize sampling",
+            "analysis": "profiled throughput is lower than control",
+            "perf_metric": None,
+            "perf_unit": None,
+        },
+        regression_info=None,
+        exhaustion_info=None,
+        roadmap_text=context["roadmap_text"],
+        recent_progress_text=context["recent_progress_text"],
+        progress_location=context["progress_location"],
+        roadmap_location=context["roadmap_location"],
+        plateau_warning=None,
+        runtime_notes=context["runtime_notes"],
+        env_kind=context["env_kind"],
+        domain_orchestrator=_domain_section(DomainName.LLM_SERVING, "orchestrator", context),
+        official_eval_every=3,
+        provisional_candidates=0,
+        official_eval_cadence_due=False,
+    )
+
+    assert "profile changed the\nheadline metric by more than 10%" in rendered
+    assert "Do not turn it into exclusive phase shares" in rendered
+    assert "causal A/B experiment instead" in rendered
+
+
 def test_pre_round_prompt_does_not_profile_a_future_rollback_target():
     rendered = render_template(
         "orchestrator_pre_round_prompt.j2",

@@ -50,6 +50,8 @@ library symbols when symbol information permits. Look for producer/consumer hot
 paths, atomic or spin-loop cost, full/empty retry behavior, copy and slot-offset
 cost, context switches, CPU migrations, cache misses, and possible false sharing.
 
+{% include "profilers/_observer_effect.j2" %}
+
 ## Output
 
 Return exactly one JSON object. Do not wrap in markdown fences.

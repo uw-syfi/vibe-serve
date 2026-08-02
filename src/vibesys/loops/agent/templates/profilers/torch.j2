@@ -84,6 +84,8 @@ Use the exact capture command above only when it matches the domain's artifact c
 Include HTTP, async, and batching overhead by instrumenting the server with two admin endpoints and using `capture-server`. See the docstring of `analyze_torch_profile.py` for the required `/admin/profile/start` and `/admin/profile/stop` contract.
 {% endif %}
 
+{% include "profilers/_observer_effect.j2" %}
+
 ## Performance metric — do not duplicate an accepted canonical run
 
 The profiler is read-only and does not create a new candidate. If `progress/`

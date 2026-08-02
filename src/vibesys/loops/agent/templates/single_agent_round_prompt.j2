@@ -158,6 +158,10 @@ to the objective. Report structured capability or permission failures rather tha
 substituting evidence from another profiler.
 {% endif %}
 
+{% if profiler_kind != "none" %}
+{% include "profilers/_observer_effect.j2" %}
+{% endif %}
+
 Profiler focus this round: {{ profile_focus or "general bottleneck analysis on the steady-state benchmark path" }}.
 
 ### Headline performance metric (`perf_metric` / `perf_unit`)

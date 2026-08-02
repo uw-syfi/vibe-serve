@@ -70,6 +70,8 @@ Classify into exactly one of: `cpu_launch_bound`, `python_overhead_bound`, `inpu
 
 Cite concrete numbers from the analysis output as evidence.
 
+{% include "profilers/_observer_effect.j2" %}
+
 ## Performance metric — use the OBJECTIVE's named headline field, exactly
 
 `perf_metric` is the round's headline performance number that the framework's plateau detector and round-over-round comparisons trust. Plateau detection compares the raw float across rounds — **so the unit must not change between rounds**. A unit flip (tok/s → latency_ms, etc.) silently breaks the comparison.

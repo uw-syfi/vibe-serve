@@ -47,6 +47,8 @@ Benchmark command: {{ benchmark_command }}
 5. Report the benchmark's declared `primary_value` as `perf_metric`; internal
    span latency is diagnostic evidence, not the scored result.
 
+{% include "profilers/_observer_effect.j2" %}
+
 ## Output
 
 Return exactly one JSON object. Do not wrap in markdown fences.

@@ -40,7 +40,12 @@ Is the problem known to be inside a specific kernel?
    annotated scope boundary when diagnosing synchronization or overlap: that
    creates the serialization being measured. CUDA events around asynchronous
    host scopes are ordering markers, not exclusive attribution, unless a
-   timeline proves which queued device work lies between them.
+   timeline proves which queued device work lies between them. If the headline
+   metric changes by more than 10%, classify the profile as perturbed: use it
+   for activation, ordering, graph coverage, fallback, or presence evidence,
+   but not phase shares, removable milliseconds, Amdahl bounds, or hypothesis
+   ranking. If no comparable control exists, apply the same restriction and
+   call the capture uncalibrated.
 
 ## Tool 1: PyTorch Profiler (`torch.profiler`)
 

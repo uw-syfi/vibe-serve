@@ -256,3 +256,19 @@ def test_domain_specific_keywords_do_not_leak_to_vetted_domains(
     assert not failures, (
         f"{leak_check.source_domain} knowledge leaked into vetted prompts:\n" + "\n".join(failures)
     )
+
+
+def test_profiler_prompts_calibrate_observer_effects():
+    prompts = _render_prompt_bundle(DomainName.LLM_SERVING, modality="text_generation")
+
+    for prompt_name in (
+        "single_agent_nsys",
+        "single_agent_torch",
+        "profiler_nsys",
+        "profiler_torch",
+        "profiler_neuron",
+    ):
+        rendered = prompts[prompt_name]
+        assert "observer_effect_fraction" in rendered
+        assert "differ by more than 10%" in rendered
+        assert "must not be converted into exclusive phase shares" in rendered

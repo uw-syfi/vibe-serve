@@ -14,6 +14,17 @@ optimizations, and refresh it when progress plateaus.
 Do not treat an uncalibrated hardware peak or a profiler self-time summary as a
 prediction of service performance.
 
+Calibrate profiler observer effects before using phase attribution. Compare the
+profiled run with an uninstrumented control at the same candidate, workload
+shape, and operating point. If the headline metric differs by more than 10%,
+or the capture changes synchronization, scheduling, or the critical path, mark
+the capture `perturbed`. If no comparable control exists, mark it
+`uncalibrated`. A perturbed or uncalibrated trace can prove path activation,
+ordering, graph coverage, fallback, or the presence of work, but its accumulated
+durations must not become exclusive phase shares, removable milliseconds,
+Amdahl ceilings, or hypothesis rankings. Obtain a lower-overhead measurement or
+use a causal A/B experiment instead of informally discounting observer overhead.
+
 ## Model three different ceilings
 
 | Ceiling | Question | Inputs |
