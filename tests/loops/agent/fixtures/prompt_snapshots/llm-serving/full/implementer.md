@@ -168,6 +168,15 @@ schema, and service smoke—run them as adjacent phases on one initialized
 resource when their state is compatible. Do not pay a separate model/service
 cold start for every repaired hook merely because each writes a distinct
 artifact.
+Apply it to observer-effect validation too. When a profiled workload and its
+matched uninstrumented control use the same model, image, and runtime state,
+run them as adjacent phases of one remote callable on one initialized resource
+whenever profiler state can be enabled or disabled safely. Prefer control first
+when enabling the profiler could contaminate later work. A local entrypoint
+that makes two `.remote()` calls is two accelerator startups, not one bounded
+controller; separate output artifacts do not justify that duplication. Split
+the pair only when a clean process boundary is required for measurement
+validity, and retain that concrete reason.
 When a target-runtime failure can be localized with a small discrete bisection
 or variant matrix—such as enabling independent sub-blocks, testing a few static
 shapes, or toggling compiler options—run those compatible variants as

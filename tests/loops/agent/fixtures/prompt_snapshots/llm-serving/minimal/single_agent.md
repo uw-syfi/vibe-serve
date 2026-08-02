@@ -108,6 +108,13 @@ If self-review finds several target-hardware repairs on the unchanged
 candidate, validate compatible correctness, profiler-contract, and smoke hooks
 as adjacent phases of that same controller. Do not cold-start one accelerator
 per output artifact.
+When validating profiler observer effect, run the matched uninstrumented
+control and profiled workload as adjacent phases of one remote callable on the
+same initialized model whenever profiler state can be toggled safely. Prefer
+control first if profiler initialization may contaminate subsequent work. A
+local entrypoint that issues two `.remote()` calls still pays for two
+accelerator startups and is not container reuse. Split the pair only when a
+clean process boundary is required for valid measurement, and record why.
 For a small, reset-safe capability bisection over sub-blocks, shapes, or runtime
 options, run the variants as checkpointed point-local phases of that controller
 instead of paying one cold accelerator start per variant. Split them only when

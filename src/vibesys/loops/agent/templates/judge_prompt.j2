@@ -125,6 +125,13 @@ On a retry, also flag separate cold accelerator starts for each repaired
 correctness, profiler-contract, or smoke hook when those checks could safely run
 as adjacent phases on one initialized candidate. Distinct output artifacts do
 not by themselves justify distinct paid startups.
+For observer-effect evidence, inspect whether the matched uninstrumented control
+and profiled workload ran as adjacent phases of one remote callable on one
+initialized model when safe. A local wrapper that issues two `.remote()` calls
+is two accelerator startups, not one controller. Flag that duplication unless
+the evidence names a concrete measurement-validity reason requiring a clean
+process boundary; profiler contamination can justify a split, distinct artifact
+paths cannot.
 Flag one-cold-start-per-variant capability bisection when a small set of
 sub-block, shape, or runtime-option variants could safely run as checkpointed,
 point-local phases on one initialized resource. Verify that reused variants

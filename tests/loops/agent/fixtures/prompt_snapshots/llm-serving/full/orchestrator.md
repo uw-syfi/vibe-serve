@@ -306,6 +306,14 @@ This also applies to repair rounds after judge feedback. When the same unchanged
 candidate needs multiple target-hardware validations, require compatible
 correctness, profiler-contract, and smoke checks to run as phases of one
 initialized controller instead of assigning one cold deployment per artifact.
+For observer-effect checks, require the matched uninstrumented control and
+profiled workload to run as adjacent phases of one remote callable on the same
+initialized model when profiler state can be enabled or disabled safely.
+Normally put the control first if profiler initialization may contaminate the
+process. Do not describe a local wrapper that issues two `.remote()` calls as
+one controller: it still creates two paid accelerator startups. Allow separate
+workers only when the plan names a concrete measurement-validity reason that
+requires a clean process boundary.
 If the next decision is a small capability bisection or variant matrix over
 compatible sub-blocks, shapes, or runtime options, require those variants to run
 as point-local checkpointed phases on the same initialized resource with an
