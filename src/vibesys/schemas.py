@@ -36,6 +36,25 @@ class Verdict(StrEnum):
     FAIL = "fail"
 
 
+class HypothesisOutcome(StrEnum):
+    """Implementer-owned status for the active experimental hypothesis.
+
+    ``SUPPORTED`` and ``NOMINATED`` are deliberately distinct from
+    ``PROVEN``: an implementer may submit evidence for independent review,
+    but only the judge can establish that the scoped hypothesis held.
+    ``NOMINATED`` additionally asks the framework to run its global gates for
+    the current candidate.
+    """
+
+    CONTINUE = "continue"
+    SUPPORTED = "supported"
+    NOMINATED = "nominated"
+    DISPROVEN = "disproven"
+    IMPLEMENTATION_FAILED = "implementation_failed"
+    INCONCLUSIVE = "inconclusive"
+    BLOCKED = "blocked"
+
+
 class PerfTrend(StrEnum):
     IMPROVED = "improved"
     REGRESSED = "regressed"
@@ -53,6 +72,43 @@ class ImplementerResponse(BaseModel):
     summary: str = Field(description="What was implemented or changed this iteration.")
     expected_behavior: str = Field(
         description="What behavior is expected (e.g. 'server starts on port 8000, /health returns 200')."
+    )
+    hypothesis_outcome: HypothesisOutcome = Field(
+        default=HypothesisOutcome.NOMINATED,
+        description=(
+            "continue while more implementation or targeted evaluation is needed; "
+            "supported when the scoped hypothesis is complete and ready for review "
+            "without global candidate gates; "
+            "nominated when the current candidate is ready for independent review; "
+            "otherwise a terminal explanation of why the hypothesis did not proceed."
+        ),
+    )
+    evidence: str = Field(
+        default="",
+        description="Observed evidence supporting the reported hypothesis outcome.",
+    )
+    next_step: str = Field(
+        default="",
+        description="Concrete next action when continuing, blocked, or inconclusive.",
+    )
+    perf_metric: FiniteFloat | None = Field(
+        default=None,
+        description=(
+            "Headline metric copied from a fresh canonical evaluation artifact; "
+            "None when no canonical evaluation completed this round."
+        ),
+    )
+    perf_unit: str | None = Field(
+        default=None,
+        description="Unit of perf_metric; None when perf_metric is None.",
+    )
+    metrics: dict[str, FiniteFloat] = Field(
+        default_factory=dict,
+        description="Objective metrics copied from the same selected evaluation row.",
+    )
+    evaluation_artifact: str | None = Field(
+        default=None,
+        description="Workspace-relative path to the retained canonical evaluation summary.",
     )
 
 
@@ -154,7 +210,7 @@ class ProfilerResponse(BaseModel):
         description="Top bottlenecks identified, ordered by impact. Each bottleneck should name the specific kernel or operation and its contribution to total time."
     )
     suggestions: str = Field(
-        description="Actionable optimization suggestions for the implementer, tied to specific bottlenecks. E.g. 'Fuse the 12 RMSNorm kernel launches into a single FlashInfer call' or 'Enable CUDA graphs to eliminate 6ms of CPU launch overhead'."
+        description="Actionable optimization suggestions tied to measured bottlenecks and their estimated end-to-end impact."
     )
 
 
@@ -288,9 +344,32 @@ class OrchestratorPlan(BaseModel):
     orchestrator.
     """
 
-    task: str = Field(description="Well-scoped task description handed to the implementer.")
+    hypothesis_id: str = Field(
+        default="",
+        description=(
+            "Stable short identifier for the hypothesis. Reuse it across rounds while "
+            "the same implementer investigation remains active."
+        ),
+    )
+    hypothesis: str = Field(
+        default="",
+        description="Causal, falsifiable claim explaining why the proposed change should help.",
+    )
+    activation_evidence: str = Field(
+        default="",
+        description="Observable evidence that the intended code path or mechanism actually ran.",
+    )
+    falsification_criteria: str = Field(
+        default="",
+        description="Evidence that would disprove the causal hypothesis for this workload.",
+    )
+    invariants: str = Field(
+        default="",
+        description="Correctness and workload properties that must remain true during the experiment.",
+    )
+    task: str = Field(description="Well-scoped implementation work handed to the implementer.")
     pass_criteria: str = Field(
-        description="Feature-level pass criteria for the judge. The framework always runs the accuracy checker and benchmark sanity in addition."
+        description="Feature-level pass criteria for the judge. Input-declared trusted gates run separately when configured."
     )
     revert_to_round: int | None = Field(
         default=None,

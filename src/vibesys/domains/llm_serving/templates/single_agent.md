@@ -20,7 +20,10 @@ Model weights are at `/model` (do NOT redownload).
 
 ## Required: read the relevant skill BEFORE writing code
 
-The `serving-systems` skill is installed in your working directory with a `references/` library covering every kernel, library, algorithm, and technique relevant to this work. Open every reference that covers a topic named in the task before you write code that touches it. The cost of opening one wrong file is tiny; coding from priors is the single most common reason this loop wastes rounds. In your `summary`, name each reference you opened and the recommendation that shaped your implementation.
+The `serving-systems` skill provides technical references. Use it only after
+measured evidence and the active hypothesis identify a concrete mechanism.
+Open the smallest relevant set before editing that mechanism, and name in your
+summary what contract or pitfall each reference clarified.
 
 ## Reward-hack discipline (you are also the judge — do not let yourself cheat)
 

@@ -21,16 +21,34 @@ python torch_profiler/analyze_torch_profile.py capture \
   --prompt "The capital of France is"
 ```
 
-Use this mode for kernel-level optimization (fused norm/rope/attention, CUDA graphs, dtypes). It does not cover HTTP, batching, or queueing overhead.
+Use this mode for device-kernel-level evidence. It does not cover HTTP,
+admission, scheduling, or queueing overhead, so do not extrapolate it to the
+full service without an end-to-end measurement.
 
 For Modal torch profiling, the implementer's `main.py` is required to expose `@app.local_entrypoint() modal_profile(output, num_iters, max_tokens, prompt)`. Invoke it from the editor container:
 
 ```
-modal run main.py::modal_profile -- \
+uv run modal run main.py::modal_profile \
   --output /workspace/prof.json \
   --num-iters 20 \
   --max-tokens 32 \
   --prompt "The capital of France is"
 ```
 
-This dispatches to a `@app.function profile_remote(...)` running on the Modal GPU, which wraps the same workload the benchmark exercises in `torch.profiler` and returns the analyzer-compatible JSON.
+Modal local-entrypoint arguments are Click options: pass them directly, use
+kebab-case, and do not insert a `--` separator. Run Modal through the workspace
+environment (`uv run modal`), because importing `main.py` occurs locally before
+dispatch.
+
+This dispatches to a `@app.function profile_remote(...)` running on the Modal
+GPU and returns analyzer-compatible JSON. The conventional implementation is an
+in-process device microprofile; it does **not** exercise HTTP, scheduler,
+admission, or multi-request batching unless the candidate explicitly implements
+a live-service profiling endpoint. If the requested focus is one of those
+service-level mechanisms and that endpoint is absent, report the contract gap
+instead of presenting a batch-1 profile as production-path evidence.
+
+Run Modal jobs for the same app serially. Do not launch a benchmark, wrapper
+capture, and direct-function fallback concurrently: they can steal the same app
+label, consume multiple GPUs, and make artifact writeback ambiguous. Monitor the
+first dispatch to completion or a definite failure before choosing a fallback.

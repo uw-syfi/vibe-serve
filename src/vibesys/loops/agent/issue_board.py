@@ -1,13 +1,10 @@
-"""The agent loop's issue board (roadmap.md + progress.md).
+"""The agent loop's durable roadmap and progress memory.
 
-The agent loop's "issue board" is two markdown files in the workspace:
+The issue board supports two backward-compatible layouts:
 
-  - ``roadmap.md`` — strategic memory the Orchestrator owns end-to-end.
-    Free-form; the framework only seeds the header on round 1 and threads
-    the contents back into the orchestrator's prompt each round.
-  - ``progress.md`` — per-round audit log. The orchestrator, profiler,
-    implementer, and judge each append one block per round; the
-    orchestrator reads the full file when planning the next round.
+  - ``roadmap.md`` + ``progress.md`` — the original compact layout.
+  - ``roadmap/index.md`` + ``progress/round-NNNN.md`` — a layout that stays
+    scannable when a run grows to hundreds of rounds.
 
 Both surfaces together are this loop's planning artifact, parallel to
 the plain loop's structured :class:`~vibesys.loops.plain.issue_board.IssueBoard`
@@ -27,6 +24,44 @@ from vibesys.schemas import (
     SingleAgentRoundResponse,
 )
 
+MEMORY_LAYOUTS = ("files", "directories")
+# The roadmap carries durable strategy, while progress files are an audit trail.
+# Keep only a small recency window in fresh-session prompts so long runs do not
+# repeatedly pay to inject verbose implementer and judge reports. Older rounds
+# remain available in the workspace for targeted inspection.
+_RECENT_PROGRESS_ROUNDS = 4
+
+
+def resolve_paths(workspace: Path, layout: str) -> tuple[Path, Path]:
+    """Resolve both memory locations, preserving the layout of resumed runs."""
+    if layout not in MEMORY_LAYOUTS:
+        raise ValueError(f"Unknown memory layout {layout!r}; choose from {', '.join(MEMORY_LAYOUTS)}")
+
+    def resolve(name: str) -> Path:
+        legacy = workspace / f"{name}.md"
+        directory = workspace / name
+        if legacy.exists() and directory.exists():
+            raise ValueError(
+                f"Both {legacy.name} and {directory.name}/ exist; keep only one {name} layout"
+            )
+        if legacy.exists():
+            return legacy
+        if directory.exists():
+            return directory
+        return directory if layout == "directories" else legacy
+
+    return resolve("roadmap"), resolve("progress")
+
+
+def display_path(path: Path, workspace: Path) -> str:
+    """Return an agent-facing workspace-relative memory location."""
+    location = path.relative_to(workspace).as_posix()
+    return f"{location}/" if path.suffix != ".md" else location
+
+
+def _roadmap_document(roadmap_path: Path) -> Path:
+    return roadmap_path if roadmap_path.suffix == ".md" else roadmap_path / "index.md"
+
 # ---------------------------------------------------------------------------
 # roadmap.md — orchestrator's strategic memory
 # ---------------------------------------------------------------------------
@@ -40,9 +75,9 @@ your next prompt — it does not parse it, so format it however you find
 useful, but follow these conventions so the structure stays legible:
 
 - **Major** items: structural changes expected to move the headline
-  performance metric meaningfully (e.g. "Implement EAGLE3 speculative
-  decoding", "Add CUDA graphs to verifier decode", "Replace manual
-  attention with FlashAttention"). Usually 1-3 rounds each.
+  performance metric meaningfully. Derive them from measured bottlenecks and
+  the objective rather than from examples supplied by the framework. Usually
+  1-3 rounds each.
 - **Minor** items: bug fixes, polish, gates (correctness recoveries,
   tiny kernel swaps, accuracy bumps). Usually 1 round each.
 - Use one of these four statuses, and note rounds spent on each
@@ -52,9 +87,8 @@ useful, but follow these conventions so the structure stays legible:
   - `done` — implemented, profiler-verified, hitting (close to) predicted impact.
   - `parked` — implementation is buggy or incomplete, but you believe the
     *direction* is sound. Returnable to `in_progress` later. Use this when
-    the metric isn't moving for an *implementation* reason (zero acceptance
-    on EAGLE3, capture failures on CUDA graphs, …) rather than a workload
-    reason.
+    the metric isn't moving for an *implementation* reason rather than a
+    workload reason.
   - `abandoned` — the *direction* itself doesn't fit this workload. Strict
     requirement (see below) before flipping to this state.
 - For each item include a one-line *why* (predicted impact, what
@@ -70,35 +104,22 @@ explicitly when you do).
 These two are not the same thing and the loop's behavior degrades if you
 treat them as one bucket:
 
-- **`parked`** is the right call when (a) you predicted the technique
-  would help, (b) the implementation passes the judge / pytest / accuracy
-  gate, but (c) the headline metric didn't move *because the implementation
-  appears to have a bug or is incomplete*. Symptoms: zero acceptance on a
-  speculative decoder, all-fallback paths on what should be the fast path,
-  a CUDA graph capturing but never replaying, etc. The direction itself is
-  still believable; you just couldn't make the implementation good enough
-  in the rounds you spent. Mark `parked` and move to a different Major;
-  return to it when (i) you have a hypothesis for the bug, or (ii) other
-  levers are exhausted.
+- **`parked`** is the right call when (a) you predicted the change would help,
+  (b) the implementation satisfies correctness gates, but (c) the headline
+  metric did not move because the intended path did not activate or the
+  implementation is incomplete. The direction itself remains believable.
+  Mark it `parked`, move to a different Major, and return when you have a
+  concrete debugging hypothesis or other measured avenues are exhausted.
 
-- **`abandoned`** is the right call only when the *direction itself* is
-  the wrong fit for this workload. Examples: continuous batching on a
-  workload contractually limited to single-batch, MTP on a model that
-  doesn't ship MTP heads, paged attention when the engine's fixed-shape
-  KV path is already optimal at this batch size. Each requires a
-  *mechanism-level* autopsy explaining why the technique cannot help
-  *here* (not "it didn't pay off in 3 rounds"). If you can't write that
-  mechanism, the right status is `parked`, not `abandoned`.
+- **`abandoned`** is the right call only when the *direction itself* is the
+  wrong fit for this workload. It requires a mechanism-level autopsy explaining
+  why the change cannot help here, not merely that a few measurements were
+  flat. If you cannot write that mechanism, use `parked` instead.
 
-**Hard rule for `abandoned` autopsies:** you must name a code-level or
-hardware-level mechanism — not a behavioral observation. A perf number
-("+0% TPOT") is not a mechanism; "the workload is single-batch by
-contract so continuous batching cannot raise arithmetic intensity" is.
-If acceptance on a speculative decoder is zero, that is *not* a reason
-to abandon — it's a debugging task, and the right status is `parked`
-with a hypothesis. Spec decode acceptance debugging has a checklist in
-`references/algorithms/speculative-decoding.md` ("Debugging 0
-acceptance"); read it before parking or abandoning.
+**Hard rule for `abandoned` autopsies:** name a code-level, system-level, or
+hardware-level mechanism—not a behavioral observation. A flat performance
+number alone is not a mechanism. If activation evidence is absent, treat that
+as a debugging task and use `parked` with a concrete hypothesis.
 
 ## Major
 
@@ -127,9 +148,10 @@ def ensure_roadmap_file(roadmap_path: Path) -> None:
 
     Idempotent; safe to call every round.
     """
-    if not roadmap_path.exists():
-        roadmap_path.parent.mkdir(parents=True, exist_ok=True)
-        roadmap_path.write_text(_ROADMAP_HEADER)
+    document = _roadmap_document(roadmap_path)
+    if not document.exists():
+        document.parent.mkdir(parents=True, exist_ok=True)
+        document.write_text(_ROADMAP_HEADER)
 
 
 def read_roadmap(roadmap_path: Path) -> str:
@@ -137,9 +159,10 @@ def read_roadmap(roadmap_path: Path) -> str:
 
     Callers thread this into the orchestrator's prompt verbatim.
     """
-    if not roadmap_path.exists():
+    document = _roadmap_document(roadmap_path)
+    if not document.exists():
         return ""
-    return roadmap_path.read_text()
+    return document.read_text()
 
 
 # ---------------------------------------------------------------------------
@@ -148,24 +171,49 @@ def read_roadmap(roadmap_path: Path) -> str:
 
 
 _PROGRESS_HEADER = "# Progress\n\n"
+_PROGRESS_README = """# Progress
+
+Each round has its own `round-NNNN.md` audit log. The framework injects a
+bounded recent window into the orchestrator prompt; older rounds remain
+available for targeted inspection.
+"""
 
 
 def ensure_progress_file(progress_path: Path) -> None:
     """Create the progress file with a header if it doesn't exist."""
-    if not progress_path.exists():
+    if progress_path.suffix == ".md" and not progress_path.exists():
+        progress_path.parent.mkdir(parents=True, exist_ok=True)
         progress_path.write_text(_PROGRESS_HEADER)
+    elif progress_path.suffix != ".md":
+        progress_path.mkdir(parents=True, exist_ok=True)
+        readme = progress_path / "README.md"
+        if not readme.exists():
+            readme.write_text(_PROGRESS_README)
 
 
-def read_progress(progress_path: Path) -> str:
-    """Return the full progress file contents or an empty string if missing."""
+def read_progress(
+    progress_path: Path, *, recent_rounds: int = _RECENT_PROGRESS_ROUNDS
+) -> str:
+    """Return progress, bounded to recent per-round files in directory mode."""
     if not progress_path.exists():
         return ""
-    return progress_path.read_text()
+    if progress_path.is_file():
+        return progress_path.read_text()
+    round_files = sorted(progress_path.glob("round-[0-9][0-9][0-9][0-9].md"))
+    selected = round_files[-recent_rounds:] if recent_rounds > 0 else round_files
+    return "\n\n".join(path.read_text().rstrip() for path in selected)
 
 
-def _append(progress_path: Path, block: str) -> None:
+def _append(progress_path: Path, block: str, round_number: int) -> None:
     ensure_progress_file(progress_path)
-    with progress_path.open("a", encoding="utf-8") as fh:
+    document = (
+        progress_path
+        if progress_path.suffix == ".md"
+        else progress_path / f"round-{round_number:04d}.md"
+    )
+    if not document.exists() and document != progress_path:
+        document.write_text(f"# Round {round_number}\n\n")
+    with document.open("a", encoding="utf-8") as fh:
         if not block.endswith("\n"):
             block += "\n"
         fh.write(block + "\n")
@@ -180,7 +228,7 @@ def append_pre_round_decision(
         f"- **profile_focus**: {decision.profile_focus}\n"
         f"- **reasoning**: {decision.reasoning}\n"
     )
-    _append(progress_path, block)
+    _append(progress_path, block, round_number)
 
 
 def append_profiler_summary(
@@ -197,7 +245,7 @@ def append_profiler_summary(
         f"### Suggestions\n{summary.suggestions}\n\n"
         f"### Analysis\n{summary.analysis}\n"
     )
-    _append(progress_path, block)
+    _append(progress_path, block, round_number)
 
 
 def append_orchestrator_plan(
@@ -209,22 +257,58 @@ def append_orchestrator_plan(
     block = (
         f"## Round {round_number} — Orchestrator (plan)\n"
         f"{revert_line}"
+        f"- **hypothesis_id**: {plan.hypothesis_id or '(unspecified)'}\n"
         f"- **reasoning**: {plan.reasoning}\n\n"
+        f"### Hypothesis\n{plan.hypothesis or '(unspecified)'}\n\n"
+        f"### Activation evidence\n{plan.activation_evidence or '(unspecified)'}\n\n"
+        f"### Falsification criteria\n{plan.falsification_criteria or '(unspecified)'}\n\n"
+        f"### Invariants\n{plan.invariants or '(unspecified)'}\n\n"
         f"### Task\n{plan.task}\n\n"
         f"### Pass criteria\n{plan.pass_criteria}\n"
     )
-    _append(progress_path, block)
+    _append(progress_path, block, round_number)
+
+
+def append_hypothesis_continuation(
+    progress_path: Path,
+    round_number: int,
+    *,
+    plan: OrchestratorPlan,
+    started_round: int,
+) -> None:
+    block = (
+        f"## Round {round_number} — Active hypothesis continuation\n"
+        f"- **hypothesis_id**: {plan.hypothesis_id}\n"
+        f"- **started_round**: {started_round}\n"
+        "- **designer_invocation**: skipped; implementer retains ownership\n\n"
+        f"### Hypothesis\n{plan.hypothesis or '(unspecified)'}\n\n"
+        f"### Current task\n{plan.task}\n"
+    )
+    _append(progress_path, block, round_number)
 
 
 def append_implementer(
     progress_path: Path, round_number: int, retry: int, response: ImplementerResponse
 ) -> None:
+    perf_line = ""
+    if response.perf_metric is not None:
+        unit = response.perf_unit or ""
+        perf_line = (
+            f"- **perf_metric**: {response.perf_metric} {unit}\n".rstrip()
+            + "\n"
+            + f"- **metrics**: {response.metrics}\n"
+            + f"- **evaluation_artifact**: {response.evaluation_artifact or '(missing)'}\n"
+        )
     block = (
         f"## Round {round_number} — Implementer (attempt {retry})\n"
-        f"- **expected_behavior**: {response.expected_behavior}\n\n"
-        f"### Summary\n{response.summary}\n"
+        f"- **expected_behavior**: {response.expected_behavior}\n"
+        f"- **hypothesis_outcome**: {response.hypothesis_outcome.value}\n"
+        f"- **next_step**: {response.next_step or '(none)'}\n\n"
+        f"{perf_line}"
+        f"### Summary\n{response.summary}\n\n"
+        f"### Evidence\n{response.evidence or '(none)'}\n"
     )
-    _append(progress_path, block)
+    _append(progress_path, block, round_number)
 
 
 def append_judge(
@@ -236,7 +320,23 @@ def append_judge(
         f"### Analysis\n{response.analysis}\n\n"
         f"### Feedback\n{response.feedback}\n"
     )
-    _append(progress_path, block)
+    _append(progress_path, block, round_number)
+
+
+def append_judge_skipped(
+    progress_path: Path,
+    round_number: int,
+    *,
+    outcome: str,
+    judge_every: int,
+) -> None:
+    block = (
+        f"## Round {round_number} — Independent review deferred\n"
+        f"- **implementer_outcome**: {outcome}\n"
+        f"- **policy**: review every {judge_every} rounds, on nomination, and on the final round\n"
+        "- **official_gates**: not run; all evidence this round is provisional\n"
+    )
+    _append(progress_path, block, round_number)
 
 
 def append_single_agent_round(
@@ -261,7 +361,7 @@ def append_single_agent_round(
         f"### Suggestions\n{response.suggestions}\n\n"
         f"### Profile analysis\n{response.profile_analysis}\n"
     )
-    _append(progress_path, block)
+    _append(progress_path, block, round_number)
 
 
 def append_framework_accuracy_gate(
@@ -280,7 +380,7 @@ def append_framework_accuracy_gate(
         f"- **command**: `{command}`\n\n"
         f"### Output\n{output or '(no output)'}\n"
     )
-    _append(progress_path, block)
+    _append(progress_path, block, round_number)
 
 
 def append_framework_benchmark(
@@ -303,7 +403,7 @@ def append_framework_benchmark(
         f"{metric_line}\n"
         f"### Output\n{output or '(no output)'}\n"
     )
-    _append(progress_path, block)
+    _append(progress_path, block, round_number)
 
 
 def append_exhaustion_note(
@@ -314,4 +414,4 @@ def append_exhaustion_note(
         f"- **attempts**: {attempts}\n"
         f"- **last_feedback**: {last_feedback}\n"
     )
-    _append(progress_path, block)
+    _append(progress_path, block, round_number)

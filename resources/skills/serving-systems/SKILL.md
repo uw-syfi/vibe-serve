@@ -155,6 +155,8 @@ Each entry below is one file under [`references/`](references/). The bracketed p
 
 - [`references/tooling/openai-api.md`](references/tooling/openai-api.md) — OpenAI-compatible HTTP per modality — text (`/v1/completions`, `/v1/chat/completions`), image (`/v1/images/generations`), TTS (`/v1/audio/speech`), STT (`/v1/audio/transcriptions`), video (`/v1/videos` + async polling), realtime audio (WS `/v1/realtime`).
 
+- [`references/tooling/performance-modeling.md`](references/tooling/performance-modeling.md) — Analytical serving-performance modeling — roofline, Amdahl bounds, end-to-end time accounting, architecture ceilings, profiler calibration, and plateau-driven hypothesis selection.
+
 - [`references/tooling/profiler.md`](references/tooling/profiler.md) — GPU performance profilers for LLM/multimodal serving: PyTorch Profiler (Python-level op aggregation, Chrome trace), Nsight Systems (`nsys`, system-timeline / launch-gap / NCCL diagnosis), Nsight Compute (`ncu`, kernel metrics / occupancy / roofline).
 
 - [`references/tooling/serving-benchmark.md`](references/tooling/serving-benchmark.md) — Benchmark an LLM serving endpoint — TTFT, TPOT, ITL, end-to-end latency, throughput, p50/p95/p99 across concurrency and ISL/OSL sweeps.

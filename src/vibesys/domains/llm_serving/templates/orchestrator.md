@@ -1,41 +1,57 @@
-## Optimization priority (read before choosing the next task)
+## Evidence-led optimization method
 
-Serving systems have a well-established **optimization floor**: three techniques every production LLM server ships with, because each addresses a fundamental cost source the workload cannot avoid on NVIDIA hardware. Before proposing any workload-specific optimization (speculative decoding, prompt/prefix caching, grammar-constrained decoding fast paths, schema minimization, etc.), confirm all three are in place unless a specific one is **absolutely incompatible** with the objective:
+First establish the smallest faithful, runnable serving baseline required by
+the input contract. After that, choose work from measured end-to-end evidence
+rather than from a memorized list of popular techniques.
 
-1. **Continuous batching** (see `skills/serving-systems/algorithms/continuous-batching/`).
-2. **Attention kernel** — FlashInfer or FlashAttention (see `skills/serving-systems/backends/flashinfer/` and `skills/serving-systems/backends/flashattention/`).
-3. **CUDA graphs** (see `skills/serving-systems/backends/cuda-graph/`). 
+For every proposed hypothesis:
 
-**Only after these three are present and verified** (profiler-confirmed kernel count drops, FlashInfer calls visible, graph replay counters non-zero) should you spend rounds on workload-specific optimizations like speculative decoding, grammar-based fast paths, or prompt / prefix caching.
+1. Identify the measured workload phase or critical-path cost it removes.
+2. Bound the maximum possible end-to-end gain from that cost before investing.
+3. Prefer the smallest change that tests the causal mechanism cleanly.
+4. Require observable activation evidence from the production serving path.
+5. State what result would falsify the hypothesis and preserve all workload,
+   model-fidelity, and operator constraints.
 
-The three exceptions that let you skip a floor item:
+When the objective names a measured reference target, quantify the remaining
+multiplicative gap before choosing the next round. If the candidate is still
+more than 2x from that target, do not spend a canonical round on a mechanism
+whose own measured cost or defensible upper bound can only yield a single-digit
+percentage improvement, unless it is necessary correctness or measurement
+work. Choose a bottleneck class with enough headroom to remove a material part
+of the gap (as a default, at least 20%) and put the arithmetic in `reasoning`.
+Small tuning remains appropriate as a targeted probe, but repeated local
+frontier nudges are not a substitute for a structural path to the target.
 
-- **Continuous batching**: skip when the benchmark / objective is single-batch by contract.
-- **Attention kernel**: skip when running on non-NVIDIA hardware where neither FlashInfer nor FlashAttention ships (Apple → MLX; AMD → the upstreamed FA AMD port).
-- **CUDA graphs**: skip when the decode shapes are genuinely unbucketable (very rare — even speculative-decoding tree depths and chunked-prefill chunk sizes are ≤ 16 buckets).
+At the first valid baseline, after a material architecture change, and whenever
+the framework reports a plateau, open
+`skills/serving-systems/references/tooling/performance-modeling.md` and refresh
+the analytical performance model before proposing another optimization. In
+`reasoning`, reconcile client-observed time with non-overlapping measured cost
+centers, report the unexplained residual, distinguish the hardware/workload
+ceiling from the current-architecture ceiling, and calculate an Amdahl or
+roofline-based end-to-end bound for the proposed mechanism. Use ranges and name
+the assumptions. If uncertainty changes which hypothesis has the most
+headroom, request the smallest discriminating profile instead of guessing.
 
-If you skip a floor item, cite the specific incompatibility in your `reasoning`. Do NOT skip because "the current profile shows something else is the dominant cost" — the floor items *become* the dominant cost in turn once other work lands, and cycling between "revert this, try that" over exotic optimizations without the floor in place is a common failure mode of this loop.
-
-## LLM-serving task examples
-
-Good round-sized tasks for this domain include:
-- "Build a self-contained FastAPI server for the reference model."
-- "Add continuous batching to the decode loop."
-- "Replace manual attention with FlashInfer batched decode."
-- "Add CUDA graph capture/replay for the decode path."
-- "Fix the 8 ms launch overhead shown in `linear_layer_N` (top kernel in the last profile)."
+Do not choose a technique merely because other serving systems commonly use it.
+Consult a technical reference only after the evidence identifies the mechanism
+you need to understand.
 
 ## Scoping API work
 
-When your task touches HTTP endpoint or message-schema work, name the specific endpoint(s) and point the implementer at the authoritative skill file — typically `skills/serving-systems/tooling/openai-api/SKILL.md` (per-modality OpenAI-compatible contracts). You can start with a single endpoint (e.g. "`POST /v1/completions` only, streaming SSE") and grow the surface as the roadmap progresses.
+When a task touches an endpoint or message schema, name the exact surface being
+changed and point the implementer to the authoritative contract reference.
+Grow the API only as required by the objective and evaluator.
 
-## LLM-serving performance criteria
+## Performance criteria
 
-This matters whenever a round adds a path that *trades per-call work for fewer calls* (speculative decoding, xgrammar jump-forward, batched extend, prefix caching, prompt caching, larger CUDA-graph buckets). A wider or heavier kernel can win on the headline metric while losing on per-call latency — that's the entire point of the technique. Pass criteria like *"verify_replay_ms < decode_replay_ms"* or *"graph replay ≤ X ms"* can't see those wins and will silently kill correct implementations. Phrase the gate on the headline metric instead, and tell the implementer to wire any runtime fallback the same way: *"after N steady requests, if the new path's headline metric trails the existing baseline path's by more than M%, fall back"*. Avoid asking for a startup-only gate that uses a fixed per-call time threshold — it can't see acceptance/forced-token/host-side effects and will give the wrong answer.
+An implementation can make an individual operation slower while reducing how
+often it runs. Per-call timing alone therefore cannot establish an end-to-end
+win. Phrase performance gates on the objective's headline metric and use
+lower-level measurements only as causal evidence. Avoid startup-only fixed
+timing thresholds that do not capture the full request path.
 
-For static-inspection criteria, prefer wordings like:
-
-- "no `torch.profiler.profile(...)` invocations in `main.py` or any module the implementer added"
-- "no per-token `torch.cat` against the KV cache in `main.py`'s decode path"
-
-Avoid broad clauses like "no profiler/Nsight code"; those trip on framework-provided profiler directories.
+For static-inspection criteria, name the implementer-owned file and prohibited
+behavior precisely. Avoid repository-wide clauses that also match
+framework-provided evaluator or profiler directories.

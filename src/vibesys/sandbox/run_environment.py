@@ -85,6 +85,9 @@ class RunEnvironmentView:
     # candidates share one app and the judge reads stale logs from the first
     # (possibly broken) deploy for every later candidate.
     modal_app_name: str | None = None
+    # Extra wall-clock budget for environment-owned setup that wraps a trusted
+    # command, such as deploying a fresh service and waiting for readiness.
+    framework_setup_timeout_seconds: int = 0
 
 
 @dataclass(frozen=True)
@@ -357,6 +360,9 @@ class ModalEnvironment(_NoopWorkspaceRecovery):
 
         bind_mounts, docker_symlinks, passthrough = _container_mount_plan(request)
         extra_init_commands, cli_provider_env = _cli_container_setup(request)
+        evaluator_helper = request.project_root / "src/vibesys/sandbox/modal_evaluator.py"
+        evaluator_container_path = "/opt/vibesys-modal-evaluator.py"
+        bind_mounts.append((str(evaluator_helper), evaluator_container_path, True))
 
         # Mount host Modal auth so `modal run` inside the container
         # authenticates as the host user.
@@ -384,6 +390,7 @@ class ModalEnvironment(_NoopWorkspaceRecovery):
             extra_env=cli_provider_env,
             extra_init_commands=extra_init_commands,
             setup_fns=setup_fns,
+            attach_accelerator=False,
         )
         log: Callable[[str], None] = request.log or (lambda _: None)
         log(
@@ -394,16 +401,28 @@ class ModalEnvironment(_NoopWorkspaceRecovery):
         sandbox.start()  # pyright: ignore[reportAttributeAccessIssue]
 
         app_name = _modal_app_name(request.workspace, fallback=self.config.app)
+        setup_timeout_seconds = 600
+        evaluator_prefix = (
+            f"python {evaluator_container_path} "
+            f"--readiness-timeout-seconds {setup_timeout_seconds} --"
+        )
         return _DefaultRunEnvironmentSession(
             sandbox=sandbox,
             view=RunEnvironmentView(
-                paths=_isolated_paths(request),
+                paths=AgentPaths(
+                    accuracy_command=_prefix_command(evaluator_prefix, request.accuracy_command),
+                    benchmark_command=_prefix_command(evaluator_prefix, request.benchmark_command),
+                    profiler_support=(
+                        request.profiler_support_name if request.profiler_support_path else None
+                    ),
+                ),
                 prompt_notes=_modal_runtime_notes(self.config.gpu, app_name),
                 isolated=True,
                 cli_sandboxed=True,
                 host_device_reselect=False,
                 env_kind="modal",
                 modal_app_name=app_name,
+                framework_setup_timeout_seconds=setup_timeout_seconds,
             ),
             stop_on_close=True,
         )
@@ -619,15 +638,30 @@ def _modal_runtime_notes(gpu: str, app_name: str) -> str:
         "`@modal.enter()` for model load and `@modal.method()` for "
         "inference. Define benchmark / profile entry points as "
         f"`@app.function(image=..., gpu={gpu!r}, volumes=...)`.\n"
-        "  - To run any GPU work: `modal run main.py::<function>`. "
+        "  - Treat the Modal container as the authoritative runtime. The "
+        "Python, accelerator, package, compiler, and library versions in "
+        "this editor container may differ and must not be used to infer "
+        "remote compatibility. When diagnosing an environment or dependency "
+        "failure, first capture the relevant runtime fingerprint from a "
+        "small function using the same Modal image and hardware as the "
+        "candidate (for example, the actual package/runtime versions and "
+        "toolchain paths named by the error). Preserve that output with the "
+        "experiment, then base compatibility changes on the remote evidence.\n"
+        "  - To run any GPU work: `uv run modal run main.py::<function>`. "
         "The Modal CLI is installed and authenticated (`~/.modal.toml` "
-        "is mounted from the host).\n"
+        "is mounted from the host). Use local-entrypoint Click options "
+        "directly in kebab-case; do not insert a `--` separator. A remote "
+        "function's completion message does not mean the local entrypoint "
+        "has exited: it may still be copying returned artifacts into the "
+        "workspace. Do not interrupt the wrapper until the command exits "
+        "cleanly and every required local output exists. If writeback seems "
+        "delayed, poll that process and the expected files instead of "
+        "launching a duplicate Modal job.\n"
         "  - Model weights are pre-staged in Modal Volumes by the "
         "framework before this round started. Read the model metadata "
         "files in your reference/input directory (typically "
-        "`reference/meta.json` for the primary model and "
-        "`reference/draft_meta.json` for any speculative-decoding draft "
-        "model when applicable) to learn the `model_id` for each. "
+        "`reference/meta.json`, plus metadata for any optional auxiliary "
+        "model declared by the input) to learn each `model_id`. "
         "The framework normalizes each `model_id` into the volume "
         "name with this exact rule (matches "
         "`vibesys/modal_model_setup.py::_volume_name_for`):\n"
@@ -661,9 +695,8 @@ def _modal_runtime_notes(gpu: str, app_name: str) -> str:
         "`modal run main.py::<fn>` or a deploy + `/health` probe BEFORE "
         "relying on the endpoint.\n"
         "  - Use `scaledown_window=120` on `@app.cls` so back-to-back "
-        "benchmark calls reuse the warm container (KV cache, CUDA graphs, "
-        "compiled grammars, etc. preserved between invocations within the "
-        "warm window). Note: Modal renamed `container_idle_timeout` to "
+        "benchmark calls reuse the warm container and preserve loaded state "
+        "between invocations. Note: Modal renamed `container_idle_timeout` to "
         "`scaledown_window` (Feb 2025); the old name raises a deprecation "
         "error in current Modal SDK versions, so do NOT use it.\n"
         "  - Do NOT run `python main.py` to start a long-lived FastAPI "
@@ -743,6 +776,12 @@ def _isolated_paths(request: RunEnvironmentRequest) -> AgentPaths:
         benchmark_command=request.benchmark_command,
         profiler_support=(request.profiler_support_name if request.profiler_support_path else None),
     )
+
+
+def _prefix_command(prefix: str, command: str | None) -> str | None:
+    if not command:
+        return None
+    return f"{prefix} {command}"
 
 
 def _docker_workspace_run(

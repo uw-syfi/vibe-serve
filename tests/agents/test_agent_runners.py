@@ -181,6 +181,32 @@ class TestDeepAgentsRunner:
         assert "response_format" not in mock_create.call_args.kwargs
         assert mock_run.call_args.args[1] == "what happened?"
 
+    def test_deepagents_runner_sessions_are_explicit_and_role_scoped(self):
+        runner = DeepAgentsRunner(
+            model="m",
+            backends={},
+            skills=[],
+            model_name="m",
+            run_log_file=None,
+        )
+
+        first = runner._session(
+            kind="implementer", reuse_session=True, session_key="hypothesis:a"
+        )
+        continued = runner._session(
+            kind="implementer", reuse_session=True, session_key="hypothesis:a"
+        )
+        other_role = runner._session(
+            kind="judge", reuse_session=True, session_key="hypothesis:a"
+        )
+        fresh = runner._session(
+            kind="implementer", reuse_session=False, session_key="hypothesis:a"
+        )
+
+        assert continued is first
+        assert other_role is not first
+        assert fresh is not first
+
 
 # ---------------------------------------------------------------------------
 # Helpers for CLI runner tests
@@ -293,6 +319,45 @@ class TestCliAgentRunner:
         assert result.verdict == Verdict.PASS
         assert len(captured) == 1
         assert captured[0].generate_calls[0]["cwd"] == str(workspace)
+
+    def test_cli_runner_obeys_explicit_session_policy(self, monkeypatch, tmp_path):
+        captured: list = []
+        fake_cls = _make_fake_agent_class(
+            generate_returns='{"analysis": "ok", "feedback": "", "verdict": "pass"}',
+            captured=captured,
+        )
+        monkeypatch.setitem(
+            __import__(
+                "vibesys.agents.cli_runner",
+                fromlist=["_PROVIDER_CLASSES"],
+            )._PROVIDER_CLASSES,
+            "codex",
+            fake_cls,
+        )
+        runner = CliAgentRunner(provider="codex", model="m", run_log_file=None)
+        workspace = tmp_path / "ws"
+        workspace.mkdir()
+
+        def invoke(*, session_key: str, reuse_session: bool) -> None:
+            runner.invoke(
+                kind="judge",
+                workspace=workspace,
+                system_prompt="sys",
+                user_prompt="usr",
+                response_cls=JudgeResponse,
+                fallback_factory=_judge_fallback,
+                round_label="review",
+                reuse_session=reuse_session,
+                session_key=session_key,
+            )
+
+        invoke(session_key="hypothesis:a", reuse_session=True)
+        invoke(session_key="hypothesis:a", reuse_session=True)
+        assert len(captured) == 1
+        invoke(session_key="hypothesis:b", reuse_session=True)
+        assert len(captured) == 2
+        invoke(session_key="hypothesis:a", reuse_session=False)
+        assert len(captured) == 3
 
     @pytest.mark.parametrize("provider", ["claude", "gemini", "codex", "opencode"])
     def test_host_resource_declarations_apply_to_every_local_cli_provider(

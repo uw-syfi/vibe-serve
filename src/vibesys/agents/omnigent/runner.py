@@ -379,21 +379,10 @@ class OmnigentAgentRunner:
         invoke it leak one loop per runner until process exit, which is the
         same lifetime the agentshim runner's cached agents have.
         """
-        loop = self._loop
         for executor, _ in self._executors.values():
-            close = getattr(executor, "close", None)
-            if close is None:
-                continue
-            try:
-                result = close()
-                if asyncio.iscoroutine(result) and loop is not None and not loop.is_closed():
-                    loop.run_until_complete(result)
-            except Exception as exc:  # noqa: BLE001 — cleanup must not mask the caller's error
-                log_and_print(
-                    f"[omnigent] executor close failed: {type(exc).__name__}: {exc}",
-                    self._run_log_file,
-                )
+            self._close_executor(executor)
         self._executors.clear()
+        loop = self._loop
         if loop is not None and not loop.is_closed():
             # Let the SDK's subprocess transports finish tearing down before
             # the loop goes away. Without the drain their ``__del__`` runs
@@ -409,6 +398,21 @@ class OmnigentAgentRunner:
                 )
             loop.close()
         self._loop = None
+
+    def _close_executor(self, executor: Any) -> None:
+        """Close one cached or intentionally one-shot executor safely."""
+        close = getattr(executor, "close", None)
+        if close is None:
+            return
+        try:
+            result = close()
+            if asyncio.iscoroutine(result):
+                self._run_async(result)
+        except Exception as exc:  # noqa: BLE001 — cleanup must not mask the caller's error
+            log_and_print(
+                f"[omnigent] executor close failed: {type(exc).__name__}: {exc}",
+                self._run_log_file,
+            )
 
     def _executor_class(self) -> type[Any]:
         """Import and return the Omnigent executor class for this provider.
@@ -549,6 +553,8 @@ class OmnigentAgentRunner:
         progress: AgentProgress | None = None,
         mcp_servers: list[MCPServerSpec] | None = None,
         tools: list[BaseTool] | None = None,  # noqa: ARG002 — deepagents-only injection point
+        reuse_session: bool | None = None,
+        session_key: str | None = None,
     ) -> T:
         schema_hint = build_schema_hint(response_cls)
         text = self._generate(
@@ -561,6 +567,8 @@ class OmnigentAgentRunner:
             invocation_id=invocation_id,
             progress=progress,
             mcp_servers=mcp_servers,
+            reuse_session=reuse_session,
+            session_key=session_key,
         )
         label = agent_label(kind)
         parsed = parse_typed_response_text(text, response_cls)
@@ -598,6 +606,8 @@ class OmnigentAgentRunner:
         progress: AgentProgress | None = None,
         mcp_servers: list[MCPServerSpec] | None = None,
         tools: list[BaseTool] | None = None,  # noqa: ARG002 — deepagents-only
+        reuse_session: bool | None = None,
+        session_key: str | None = None,
     ) -> str:
         text = self._generate(
             kind=kind,
@@ -609,6 +619,8 @@ class OmnigentAgentRunner:
             invocation_id=invocation_id,
             progress=progress,
             mcp_servers=mcp_servers,
+            reuse_session=reuse_session,
+            session_key=session_key,
         )
         label = agent_label(kind)
         if text:
@@ -634,6 +646,8 @@ class OmnigentAgentRunner:
         invocation_id: str | None,
         progress: AgentProgress | None,
         mcp_servers: list[MCPServerSpec] | None,
+        reuse_session: bool | None,
+        session_key: str | None,
     ) -> str:
         """Run one Omnigent turn with the agentshim runner's logging contract."""
         label = agent_label(kind)
@@ -660,12 +674,15 @@ class OmnigentAgentRunner:
             invocation_id=invocation_id,
         )
 
-        reuse_executor = kind != "chat"
-        entry = self._executors.get(kind) if reuse_executor else None
+        reuse_executor = kind != "chat" and (
+            reuse_session if reuse_session is not None else True
+        )
+        cache_key = f"{kind}:{session_key}" if session_key else kind
+        entry = self._executors.get(cache_key) if reuse_executor else None
         if entry is None:
             entry = self._build_executor(workspace)
             if reuse_executor:
-                self._executors[kind] = entry
+                self._executors[cache_key] = entry
         executor, tool_schemas = entry
 
         log_and_print(f"\n=== {label} ROUND START: {round_label} ===", self._run_log_file)
@@ -701,6 +718,11 @@ class OmnigentAgentRunner:
             # audit record is written on both paths — same rule as the
             # agentshim runner.
             self._write_usage_record(kind=kind, round_label=round_label, usage=usage)
+            if not reuse_executor:
+                # Fresh designer/judge/chat sessions are deliberately absent
+                # from the cache, so they must be released after this turn
+                # rather than waiting for runner.close().
+                self._close_executor(executor)
         return text
 
     def _write_usage_record(self, *, kind: str, round_label: str, usage: dict[str, Any]) -> None:

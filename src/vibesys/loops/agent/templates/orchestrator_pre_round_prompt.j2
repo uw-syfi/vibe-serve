@@ -8,7 +8,11 @@ This call has ONE job: decide whether a profiling pass is needed **before** you 
 
 ## Progress so far
 
-Read `progress.md` in your working directory. The end of the file has the most recent rounds.
+The durable progress artifact is `{{ progress_location|default('progress.md') }}`. A bounded recent window is included below; inspect older round files only when they are relevant.
+
+```
+{{ recent_progress_text|default('(no prior progress)') or '(no prior progress)' }}
+```
 
 {% if regression_info %}
 ## Regression detected

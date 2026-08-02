@@ -746,6 +746,15 @@ def _load_objective(bundle: InputBundle) -> str:
     return bundle.objective
 
 
+def _with_operator_constraints(objective: str, constraints: list[str]) -> str:
+    """Add run-specific invariants without mutating the input bundle."""
+    normalized = [constraint.strip() for constraint in constraints if constraint.strip()]
+    if not normalized:
+        return objective
+    lines = "\n".join(f"- {constraint}" for constraint in normalized)
+    return f"{objective.rstrip()}\n\n## Operator constraints\n\n{lines}\n"
+
+
 # ===========================================================================
 # agent loop  (--outer-loop agent)
 # ===========================================================================
@@ -765,6 +774,12 @@ def _detect_resume_round(exp_dir: Path) -> int:
 
 def _prune_rounds_state(exp_dir: Path, keep_up_to: int) -> None:
     """Trim rounds.json to entries with round < ``keep_up_to``."""
+    # An explicit rewind invalidates continuation state from the discarded
+    # rounds. The next run must ask the designer for a fresh hypothesis.
+    active_hypothesis = exp_dir / "logs" / "active_hypothesis.json"
+    if active_hypothesis.exists():
+        active_hypothesis.unlink()
+
     rounds_json = exp_dir / "logs" / "rounds.json"
     if not rounds_json.exists():
         return
@@ -783,6 +798,35 @@ def _build_agent_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--max-rounds", type=int, default=24)
     parser.add_argument("--max-retries-per-round", type=int, default=3)
+    parser.add_argument(
+        "--constraint",
+        action="append",
+        default=[],
+        metavar="TEXT",
+        help=(
+            "Add a run-specific invariant to every agent's workload objective. "
+            "Repeat the flag for multiple constraints."
+        ),
+    )
+    parser.add_argument(
+        "--judge-every",
+        type=int,
+        default=3,
+        metavar="N",
+        help=(
+            "In the multi-agent loop, run independent review every N rounds; "
+            "nominated candidates and the final round are always reviewed (default: 3)."
+        ),
+    )
+    parser.add_argument(
+        "--memory-layout",
+        choices=["files", "directories"],
+        default="files",
+        help=(
+            "Store roadmap/progress as roadmap.md + progress.md (files), or as "
+            "roadmap/index.md + progress/round-NNNN.md (directories)."
+        ),
+    )
     parser.add_argument(
         "--stub-agent",
         action="store_true",
@@ -849,6 +893,8 @@ def _validate_agent(args: argparse.Namespace) -> None:
         )
     if args.max_retries_per_round < 1:
         _configuration_error("Error: --max-retries-per-round must be >= 1.")
+    if args.judge_every < 1:
+        _configuration_error("Error: --judge-every must be >= 1.")
     if args.trusted_input_baseline is not None and args.resume is None:
         _configuration_error(
             "Error: --trusted-input-baseline requires --resume.",
@@ -863,7 +909,7 @@ def _run_agent(args: argparse.Namespace) -> None:
     config, skills, backend = load_config_and_skills(args, domain=bundle.domain)
     from vibesys.loops.agent.loop import run_agent_loop
 
-    objective = _load_objective(bundle)
+    objective = _with_operator_constraints(_load_objective(bundle), args.constraint)
 
     existing = False
     exp_name = args.exp_name
@@ -915,6 +961,8 @@ def _run_agent(args: argparse.Namespace) -> None:
         objective=objective,
         max_rounds=args.max_rounds,
         max_retries_per_round=args.max_retries_per_round,
+        judge_every=args.judge_every,
+        memory_layout=args.memory_layout,
         start_round=start_round,
         existing=existing,
         trusted_input_baseline=args.trusted_input_baseline,

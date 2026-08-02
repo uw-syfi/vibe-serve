@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import math
 import shlex
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -37,6 +37,7 @@ from vibesys.sandbox.run_environment import (
     make_run_environment_spec,
 )
 from vibesys.schemas import (
+    HypothesisOutcome,
     ImplementerResponse,
     JudgeResponse,
     OrchestratorPlan,
@@ -82,6 +83,15 @@ class _RoundRecord:
     # these so a chain of skipped-profile rounds doesn't masquerade as a
     # real plateau.
     profile_skipped: bool = False
+    # False means the implementer was still investigating and sparse-review
+    # policy intentionally deferred both the independent judge and official
+    # framework gates. Such a round is provisional, not a failed attempt.
+    reviewed: bool = True
+    hypothesis_id: str | None = None
+    hypothesis_outcome: str | None = None
+    hypothesis_parent_round: int | None = None
+    metrics: dict[str, float] = field(default_factory=dict)
+    evaluation_artifact: str | None = None
 
     def to_json(self) -> dict[str, Any]:
         return {
@@ -91,6 +101,12 @@ class _RoundRecord:
             "perf_unit": self.perf_unit,
             "passed": self.passed,
             "profile_skipped": self.profile_skipped,
+            "reviewed": self.reviewed,
+            "hypothesis_id": self.hypothesis_id,
+            "hypothesis_outcome": self.hypothesis_outcome,
+            "hypothesis_parent_round": self.hypothesis_parent_round,
+            "metrics": self.metrics,
+            "evaluation_artifact": self.evaluation_artifact,
         }
 
     @classmethod
@@ -102,6 +118,59 @@ class _RoundRecord:
             perf_unit=data.get("perf_unit"),
             passed=bool(data.get("passed", False)),
             profile_skipped=bool(data.get("profile_skipped", False)),
+            reviewed=bool(data.get("reviewed", True)),
+            hypothesis_id=data.get("hypothesis_id"),
+            hypothesis_outcome=data.get("hypothesis_outcome"),
+            hypothesis_parent_round=data.get("hypothesis_parent_round"),
+            metrics=data.get("metrics", {}),
+            evaluation_artifact=data.get("evaluation_artifact"),
+        )
+
+
+@dataclass
+class _ActiveHypothesis:
+    """Framework-owned continuation state for one implementer goal."""
+
+    plan: OrchestratorPlan
+    started_round: int
+    parent_round: int | None = None
+    feedback: str | None = None
+    next_step: str | None = None
+    # A plan-level rollback establishes the hypothesis parent exactly once.
+    # Persist the fact separately from round state so a continuation or
+    # process resume cannot reapply it and erase in-hypothesis work.
+    revert_applied: bool = False
+    # Framework-owned provenance for the tree materialized by the rollback.
+    # Agent sandboxes may intentionally receive stripped ``.git`` metadata,
+    # so this commit must travel through loop state rather than be rediscovered
+    # by the implementer or judge.
+    revert_commit: str | None = None
+
+    def to_json(self) -> dict[str, Any]:
+        return {
+            "plan": self.plan.model_dump(mode="json"),
+            "started_round": self.started_round,
+            "parent_round": self.parent_round,
+            "feedback": self.feedback,
+            "next_step": self.next_step,
+            "revert_applied": self.revert_applied,
+            "revert_commit": self.revert_commit,
+        }
+
+    @classmethod
+    def from_json(cls, data: dict[str, Any]) -> _ActiveHypothesis:
+        return cls(
+            plan=OrchestratorPlan.model_validate(data["plan"]),
+            started_round=int(data["started_round"]),
+            parent_round=data.get(
+                "parent_round",
+                data["plan"].get("revert_to_round")
+                or (int(data["started_round"]) - 1 if int(data["started_round"]) > 1 else None),
+            ),
+            feedback=data.get("feedback"),
+            next_step=data.get("next_step"),
+            revert_applied=bool(data.get("revert_applied", False)),
+            revert_commit=data.get("revert_commit"),
         )
 
 
@@ -115,6 +184,50 @@ def _load_rounds_state(path: Path) -> list[_RoundRecord]:
 def _save_rounds_state(path: Path, records: list[_RoundRecord]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps([r.to_json() for r in records], indent=2))
+
+
+def _load_active_hypothesis(path: Path) -> _ActiveHypothesis | None:
+    if not path.exists():
+        return None
+    return _ActiveHypothesis.from_json(json.loads(path.read_text()))
+
+
+def _save_active_hypothesis(path: Path, state: _ActiveHypothesis | None) -> None:
+    if state is None:
+        if path.exists():
+            path.unlink()
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(state.to_json(), indent=2))
+
+
+def _backfill_revert_commit(
+    state: _ActiveHypothesis | None,
+    records: list[_RoundRecord],
+) -> bool:
+    """Recover rollback provenance for state written before it was persisted.
+
+    ``revert_applied`` was historically set only after the framework attempted
+    the configured round checkout.  Older active state therefore identifies
+    the parent round but not its commit.  Resolve that immutable commit from
+    ``rounds.json`` once on resume so agent sandboxes do not need repository
+    metadata to re-prove framework-owned setup.
+    """
+    if (
+        state is None
+        or not state.revert_applied
+        or state.revert_commit is not None
+        or state.parent_round is None
+    ):
+        return False
+    parent = next(
+        (record for record in records if record.round_number == state.parent_round),
+        None,
+    )
+    if parent is None or parent.commit is None:
+        return False
+    state.revert_commit = parent.commit
+    return True
 
 
 def _best_round(records: list[_RoundRecord]) -> _RoundRecord | None:
@@ -198,9 +311,138 @@ class _CarryOver:
     exhaustion_info: str | None = None
 
 
+def _review_due(
+    *,
+    round_number: int,
+    max_rounds: int,
+    judge_every: int,
+    outcome: HypothesisOutcome,
+) -> bool:
+    """Return whether an independent review must run for this candidate."""
+    return (
+        round_number == max_rounds
+        or round_number % judge_every == 0
+        or outcome in {HypothesisOutcome.SUPPORTED, HypothesisOutcome.NOMINATED}
+    )
+
+
+def _terminal_workspace_notice(records: list[_RoundRecord]) -> str | None:
+    """Describe a terminal hypothesis whose edits remain in the workspace."""
+    if not records:
+        return None
+    latest = records[-1]
+    terminal_outcomes = {
+        HypothesisOutcome.DISPROVEN.value,
+        HypothesisOutcome.IMPLEMENTATION_FAILED.value,
+        HypothesisOutcome.INCONCLUSIVE.value,
+        HypothesisOutcome.BLOCKED.value,
+    }
+    if latest.hypothesis_outcome not in terminal_outcomes:
+        return None
+
+    started_round = latest.round_number
+    for record in reversed(records[:-1]):
+        if record.hypothesis_id != latest.hypothesis_id:
+            break
+        started_round = record.round_number
+    parent_round = next(
+        (
+            record.hypothesis_parent_round
+            for record in reversed(records)
+            if record.hypothesis_id == latest.hypothesis_id
+            and record.hypothesis_parent_round is not None
+        ),
+        started_round - 1 if started_round > 1 else None,
+    )
+    parent_guidance = (
+        f"The recorded pre-hypothesis parent is round {parent_round}; use "
+        f"`revert_to_round={parent_round}` if that parent should be restored."
+        if parent_round is not None
+        else "No earlier recorded round exists, so identify the clean parent state explicitly."
+    )
+    latest_checkpoint = next(
+        (
+            record
+            for record in reversed(records[:-1])
+            if record.commit is not None
+            and record.hypothesis_outcome
+            in {HypothesisOutcome.CONTINUE.value, "proven"}
+        ),
+        None,
+    )
+    checkpoint_guidance = ""
+    if latest_checkpoint is not None and latest_checkpoint.round_number != parent_round:
+        review_label = "reviewed" if latest_checkpoint.reviewed else "provisional"
+        checkpoint_guidance = (
+            " The most recent earlier nonterminal checkpoint is round "
+            f"{latest_checkpoint.round_number} "
+            f"(`{latest_checkpoint.hypothesis_outcome}`, {review_label}). If the "
+            "terminal evidence rejects only the newest child experiment, preserve "
+            "that checkpoint instead of discarding prior gains; restore the original "
+            "pre-hypothesis parent only when the evidence invalidates the full chain. "
+            f"If metrics from round {latest_checkpoint.round_number} are the "
+            "restoration gate, restore that checkpoint or preserve all production "
+            "changes through it. An older implementation cannot be required to "
+            "reproduce a later checkpoint's metric while those later gains are omitted."
+        )
+    return (
+        f"Hypothesis `{latest.hypothesis_id or 'unspecified'}` ended as "
+        f"`{latest.hypothesis_outcome}` in round {latest.round_number}, but its "
+        "workspace edits are still present. Before building a new hypothesis, "
+        "decide explicitly whether to roll those edits back or retain a reusable "
+        "correctness/measurement prerequisite. Do not silently build on a "
+        f"falsified performance mechanism. {parent_guidance}{checkpoint_guidance} "
+        "If retaining any "
+        "part, justify it and re-establish the end-to-end parent behavior."
+    )
+
+
 # ---------------------------------------------------------------------------
 # Round phases
 # ---------------------------------------------------------------------------
+
+
+def _invoke_read_only_role(
+    ctx: LoopContext,
+    *,
+    role: str,
+    checkpoint_label: str,
+    **invoke_kwargs: Any,
+) -> Any:
+    """Invoke an evidence-reading role and undo any workspace mutations.
+
+    Prompt-level role boundaries are useful guidance, but they are not an
+    enforcement mechanism. Commit the framework's current state before the
+    turn, then restore that exact tree if the agent writes tracked or untracked
+    files. The structured response remains usable after restoration.
+    """
+    ctx.snapshot_workspace(checkpoint_label)
+    checkpoint = ctx.git.current_sha()
+    if checkpoint is None:
+        raise RuntimeError(f"Cannot isolate {role}: workspace checkpoint is unavailable")
+
+    try:
+        return ctx.invoke(**invoke_kwargs)
+    finally:
+        changes = ctx.git.pending_changes()
+        if changes:
+            if not ctx.git.checkout_tree(checkpoint, clean=True):
+                raise RuntimeError(
+                    f"Cannot isolate {role}: failed to restore workspace checkpoint "
+                    f"{checkpoint[:12]}"
+                )
+            remaining = ctx.git.pending_changes()
+            if remaining:
+                raise RuntimeError(
+                    f"Cannot isolate {role}: workspace is still modified after restore: "
+                    f"{', '.join(remaining[:8])}"
+                )
+            shown = ", ".join(changes[:8])
+            suffix = "" if len(changes) <= 8 else f", ... (+{len(changes) - 8} more)"
+            ctx.lprint(
+                f"[role-isolation] reverted {len(changes)} workspace change(s) "
+                f"attempted by {role}: {shown}{suffix}"
+            )
 
 
 def _is_fresh_cold_start(round_number: int, records: list[_RoundRecord]) -> bool:
@@ -215,6 +457,7 @@ def _run_pre_round_decision(
     objective: str,
     carry: _CarryOver,
     progress_path: Path,
+    progress_location: str,
 ) -> PreRoundDecision:
     system_prompt = render_template(
         "orchestrator_pre_round_prompt.j2",
@@ -222,8 +465,13 @@ def _run_pre_round_decision(
         objective=objective,
         regression_info=carry.regression_info,
         exhaustion_info=carry.exhaustion_info,
+        progress_location=progress_location,
+        recent_progress_text=issue_board.read_progress(progress_path),
     )
-    decision = ctx.invoke(
+    decision = _invoke_read_only_role(
+        ctx,
+        role="orchestrator",
+        checkpoint_label=f"round-{round_number}-pre-input",
         kind="orchestrator",
         system_prompt=system_prompt,
         user_prompt=(
@@ -237,6 +485,7 @@ def _run_pre_round_decision(
             reasoning="fallback: default to skip",
         ),
         round_label=f"round-{round_number}-pre",
+        reuse_session=False,
     )
     issue_board.append_pre_round_decision(progress_path, round_number, decision)
     return decision
@@ -308,6 +557,27 @@ def _run_profiler(
         profiler_support_name=profiler_definition(ctx.profiler_kind).support_name,
         profiler_mcp_name=profiler_definition(ctx.profiler_kind).mcp_name,
     )
+    recent_progress = issue_board.read_progress(progress_path)
+    if recent_progress:
+        progress_location = issue_board.display_path(progress_path, ctx.workspace)
+        system_prompt += f"""
+
+## Recent campaign context
+
+The durable progress artifact is `{progress_location}`. The bounded recent
+window below identifies the current candidate, hypothesis, and retained
+evaluation artifacts:
+
+```
+{recent_progress}
+```
+
+For the requested profile focus, resolve artifacts explicitly referenced by
+the most recent applicable round before considering older similarly named
+artifacts. Do not launch a duplicate expensive evaluation when retained
+current-candidate evidence already answers the focus; collect the smallest
+additional profile that closes a specific evidence gap instead.
+"""
     summary = invoke_profiler(
         ctx,
         system_prompt=system_prompt,
@@ -351,11 +621,14 @@ def _run_orchestrator_plan(
     profiler_summary: ProfilerSummary | None,
     carry: _CarryOver,
     progress_path: Path,
+    progress_location: str,
+    roadmap_location: str,
     roadmap_text: str,
     plateau_warning: str | None,
     modality: str | None,
     interface: str,
     domain_definition: DomainDefinition,
+    framework_benchmark_enabled: bool = False,
 ) -> OrchestratorPlan:
     domain_orchestrator = render_domain_section(
         domain_definition,
@@ -370,12 +643,19 @@ def _run_orchestrator_plan(
         regression_info=carry.regression_info,
         exhaustion_info=carry.exhaustion_info,
         roadmap_text=roadmap_text,
+        recent_progress_text=issue_board.read_progress(progress_path),
+        progress_location=progress_location,
+        roadmap_location=roadmap_location,
         plateau_warning=plateau_warning,
         domain_orchestrator=domain_orchestrator,
         runtime_notes=ctx.run_environment_view.prompt_notes,
         env_kind=ctx.run_environment_view.env_kind,
+        framework_benchmark_enabled=framework_benchmark_enabled,
     )
-    plan = ctx.invoke(
+    plan = _invoke_read_only_role(
+        ctx,
+        role="orchestrator",
+        checkpoint_label=f"round-{round_number}-plan-input",
         kind="orchestrator",
         system_prompt=system_prompt,
         user_prompt="Produce this round's plan. Return only the JSON object.",
@@ -386,7 +666,10 @@ def _run_orchestrator_plan(
             reasoning="fallback: orchestrator produced no structured response",
         ),
         round_label=f"round-{round_number}-plan",
+        reuse_session=False,
     )
+    if not plan.hypothesis_id.strip():
+        plan.hypothesis_id = f"hypothesis-{round_number:04d}"
     issue_board.append_orchestrator_plan(progress_path, round_number, plan)
     return plan
 
@@ -397,11 +680,18 @@ def _run_implementer(
     round_number: int,
     retry: int,
     plan: OrchestratorPlan,
+    objective: str,
     modality: str | None,
     interface: str,
     domain_definition: DomainDefinition,
     feedback: str | None,
+    continuation_step: str | None,
+    framework_revert_applied: bool,
+    framework_revert_round: int | None,
+    framework_revert_commit: str | None,
     progress_path: Path,
+    progress_location: str,
+    framework_benchmark_enabled: bool = False,
 ) -> ImplementerResponse:
     domain_implementer = render_domain_section(
         domain_definition,
@@ -417,16 +707,31 @@ def _run_implementer(
         domain_implementer=domain_implementer,
         task=plan.task,
         pass_criteria=plan.pass_criteria,
+        objective=objective,
+        hypothesis_id=plan.hypothesis_id,
+        hypothesis=plan.hypothesis,
+        activation_evidence=plan.activation_evidence,
+        falsification_criteria=plan.falsification_criteria,
+        invariants=plan.invariants,
+        progress_location=progress_location,
         retry=retry,
         feedback=feedback,
+        continuation_step=continuation_step,
+        framework_revert_applied=framework_revert_applied,
+        framework_revert_round=framework_revert_round,
+        framework_revert_commit=framework_revert_commit,
         runtime_notes=ctx.run_environment_view.prompt_notes,
         env_kind=ctx.run_environment_view.env_kind,
+        framework_benchmark_enabled=framework_benchmark_enabled,
     )
     response = ctx.invoke(
         kind="implementer",
         system_prompt=system_prompt,
         user_prompt=(
-            "Carry out the orchestrator's task above. Append your summary to progress.md when done."
+            "Execute the required continuation step for the active hypothesis; "
+            "do not merely restate prior work. Return only the JSON object."
+            if continuation_step
+            else "Work persistently on the active hypothesis and return only the JSON object."
         ),
         response_cls=ImplementerResponse,
         fallback_factory=lambda: ImplementerResponse(
@@ -434,6 +739,8 @@ def _run_implementer(
             expected_behavior="unknown",
         ),
         round_label=f"round-{round_number}-retry-{retry}-implementer",
+        reuse_session=True,
+        session_key=f"hypothesis:{plan.hypothesis_id}",
     )
     issue_board.append_implementer(progress_path, round_number, retry, response)
     ctx.snapshot_workspace(f"round-{round_number}-retry-{retry}-implementer")
@@ -446,16 +753,28 @@ def _run_judge(
     round_number: int,
     retry: int,
     plan: OrchestratorPlan,
+    implementation: ImplementerResponse,
     modality: str | None,
     interface: str,
     domain_definition: DomainDefinition,
     progress_path: Path,
+    progress_location: str,
     objective: str,
+    framework_revert_applied: bool,
+    framework_revert_round: int | None,
+    framework_revert_commit: str | None,
+    framework_benchmark_enabled: bool = False,
 ) -> JudgeResponse:
+    judge_domain_context = _domain_render_context(ctx, modality, interface)
+    # Canonical accuracy and benchmark commands are framework-owned. Hiding
+    # them from the judge prevents duplicate official runs while preserving
+    # domain-specific static review and targeted diagnostic guidance.
+    judge_domain_context["accuracy_command"] = None
+    judge_domain_context["benchmark_command"] = None
     domain_judge = render_domain_section(
         domain_definition,
         DomainRole.JUDGE,
-        **_domain_render_context(ctx, modality, interface),
+        **judge_domain_context,
     )
     system_prompt = render_template(
         "judge_prompt.j2",
@@ -470,8 +789,27 @@ def _run_judge(
         runtime_notes=ctx.run_environment_view.prompt_notes,
         env_kind=ctx.run_environment_view.env_kind,
         objective=objective,
+        hypothesis_id=plan.hypothesis_id,
+        hypothesis=plan.hypothesis,
+        activation_evidence=plan.activation_evidence,
+        falsification_criteria=plan.falsification_criteria,
+        invariants=plan.invariants,
+        implementer_outcome=implementation.hypothesis_outcome.value,
+        implementer_evidence=implementation.evidence,
+        implementer_perf_metric=implementation.perf_metric,
+        implementer_perf_unit=implementation.perf_unit,
+        implementer_metrics=implementation.metrics,
+        implementer_evaluation_artifact=implementation.evaluation_artifact,
+        progress_location=progress_location,
+        framework_revert_applied=framework_revert_applied,
+        framework_revert_round=framework_revert_round,
+        framework_revert_commit=framework_revert_commit,
+        framework_benchmark_enabled=framework_benchmark_enabled,
     )
-    response = ctx.invoke(
+    response = _invoke_read_only_role(
+        ctx,
+        role="judge",
+        checkpoint_label=f"round-{round_number}-retry-{retry}-judge-input",
         kind="judge",
         system_prompt=system_prompt,
         user_prompt=(
@@ -484,6 +822,7 @@ def _run_judge(
             verdict=Verdict.FAIL,
         ),
         round_label=f"round-{round_number}-retry-{retry}-judge",
+        reuse_session=False,
     )
     if ctx.supervisor is not None:
         ctx.supervisor.record(
@@ -515,6 +854,7 @@ def _run_single_agent_round(
     domain_definition: DomainDefinition,
     feedback: str | None,
     progress_path: Path,
+    progress_location: str,
     objective: str,
     profile_focus: str,
 ) -> SingleAgentRoundResponse:
@@ -553,6 +893,12 @@ def _run_single_agent_round(
         domain_profiler=domain_profiler,
         task=plan.task,
         pass_criteria=plan.pass_criteria,
+        hypothesis_id=plan.hypothesis_id,
+        hypothesis=plan.hypothesis,
+        activation_evidence=plan.activation_evidence,
+        falsification_criteria=plan.falsification_criteria,
+        invariants=plan.invariants,
+        progress_location=progress_location,
         retry=retry,
         feedback=feedback,
         objective=objective,
@@ -585,6 +931,8 @@ def _run_single_agent_round(
             profile_analysis="",
         ),
         round_label=f"round-{round_number}-retry-{retry}-single-agent",
+        reuse_session=True,
+        session_key=f"hypothesis:{plan.hypothesis_id}",
     )
     issue_board.append_single_agent_round(progress_path, round_number, retry, response)
     ctx.snapshot_workspace(f"round-{round_number}-retry-{retry}-single-agent")
@@ -602,6 +950,17 @@ def _profiler_summary_from_single_agent(
         perf_metric=response.perf_metric,
         perf_unit=response.perf_unit,
     )
+
+
+def _framework_command_timeout(ctx: LoopContext, timeout_seconds: int | None) -> int | None:
+    """Add environment-owned setup time without weakening the command's own budget."""
+    if timeout_seconds is None:
+        return None
+    view = getattr(ctx, "run_environment_view", None)
+    setup_timeout = getattr(view, "framework_setup_timeout_seconds", 0)
+    if not isinstance(setup_timeout, int):
+        setup_timeout = 0
+    return timeout_seconds + setup_timeout
 
 
 def _run_framework_accuracy_gate(
@@ -633,10 +992,11 @@ def _run_framework_accuracy_gate(
 
     ctx.lprint(f"[framework-accuracy] running: {command}")
     try:
-        if timeout_seconds is None:
+        effective_timeout = _framework_command_timeout(ctx, timeout_seconds)
+        if effective_timeout is None:
             result = ctx.judge_backend.execute(command)
         else:
-            result = ctx.judge_backend.execute(command, timeout=timeout_seconds)
+            result = ctx.judge_backend.execute(command, timeout=effective_timeout)
         output = result.output.strip()
         passed = result.exit_code == 0
         _publish_subprocess_output(
@@ -725,10 +1085,11 @@ def _run_framework_benchmark(
         passed = False
     else:
         try:
-            if timeout_seconds is None:
+            effective_timeout = _framework_command_timeout(ctx, timeout_seconds)
+            if effective_timeout is None:
                 result = ctx.judge_backend.execute(command)
             else:
-                result = ctx.judge_backend.execute(command, timeout=timeout_seconds)
+                result = ctx.judge_backend.execute(command, timeout=effective_timeout)
             output = result.output.strip()
             passed = result.exit_code == 0
             _publish_subprocess_output(
@@ -864,6 +1225,8 @@ def run_agent_loop(
     benchmark_timeout_seconds: int | None = None,
     max_rounds: int = 24,
     max_retries_per_round: int = 3,
+    judge_every: int = 3,
+    memory_layout: str = "files",
     start_round: int = 1,
     existing: bool = False,
     trusted_input_baseline: str | None = None,
@@ -914,6 +1277,13 @@ def run_agent_loop(
         # Guard against a zero-iteration retry loop: with no attempts the
         # round bookkeeping below would reference an unbound loop variable.
         raise ValueError(f"max_retries_per_round must be >= 1, got {max_retries_per_round}")
+    if judge_every < 1:
+        raise ValueError(f"judge_every must be >= 1, got {judge_every}")
+    if memory_layout not in issue_board.MEMORY_LAYOUTS:
+        raise ValueError(
+            f"Unknown memory_layout {memory_layout!r}; "
+            f"choose from {', '.join(issue_board.MEMORY_LAYOUTS)}"
+        )
     if interface not in _INTERFACES:
         raise ValueError(f"Unknown interface {interface!r}; choose from {', '.join(_INTERFACES)}")
     if domain is None:
@@ -952,16 +1322,20 @@ def run_agent_loop(
     ctx.lprint(f"[log] experiment root: {ctx.exp_dir}")
     ctx.lprint(f"[log] objective: {objective.splitlines()[0] if objective else '(empty)'}")
 
-    progress_path = ctx.workspace / "progress.md"
+    roadmap_path, progress_path = issue_board.resolve_paths(ctx.workspace, memory_layout)
     issue_board.ensure_progress_file(progress_path)
-
-    roadmap_path = ctx.workspace / "roadmap.md"
     issue_board.ensure_roadmap_file(roadmap_path)
+    progress_location = issue_board.display_path(progress_path, ctx.workspace)
+    roadmap_location = issue_board.display_path(roadmap_path, ctx.workspace)
 
     rounds_state_path = ctx.log_dir / "rounds.json"
     records = _load_rounds_state(rounds_state_path)
+    active_hypothesis_path = ctx.log_dir / "active_hypothesis.json"
+    active_hypothesis = _load_active_hypothesis(active_hypothesis_path)
+    if _backfill_revert_commit(active_hypothesis, records):
+        _save_active_hypothesis(active_hypothesis_path, active_hypothesis)
 
-    carry = _CarryOver()
+    carry = _CarryOver(regression_info=_terminal_workspace_notice(records))
     round_number = start_round
 
     # When inner_loop == "single-agent", we don't run a separate
@@ -979,54 +1353,82 @@ def run_agent_loop(
             ctx.lprint(f"\n{'=' * 60}\n  {round_progress.label()}\n{'=' * 60}\n")
 
             with ctx.progress(round_progress):
-                # --- Pre-round decision (skip on fresh cold start) ---
+                # The designer runs only when selecting a new causal claim.
+                # A continuing hypothesis remains owned by its persistent
+                # implementer session without another designer intervention.
                 profiler_summary: ProfilerSummary | None = None
                 pre_decision: PreRoundDecision | None = None
-                if inner_loop == "multi-agent":
-                    if not _is_fresh_cold_start(round_number, records):
-                        pre_decision = _run_pre_round_decision(
-                            ctx,
-                            round_number=round_number,
-                            objective=objective,
-                            carry=carry,
-                            progress_path=progress_path,
-                        )
-                        if pre_decision.need_profile and ctx.profiler_kind is not ProfilerKind.NONE:
-                            profiler_summary = _run_profiler(
+                if active_hypothesis is None:
+                    if inner_loop == "multi-agent":
+                        if not _is_fresh_cold_start(round_number, records):
+                            pre_decision = _run_pre_round_decision(
                                 ctx,
                                 round_number=round_number,
-                                profile_focus=pre_decision.profile_focus
-                                or "general steady-state benchmark hotspots",
-                                modality=modality,
-                                interface=interface,
-                                domain_definition=domain_definition,
-                                progress_path=progress_path,
                                 objective=objective,
+                                carry=carry,
+                                progress_path=progress_path,
+                                progress_location=progress_location,
                             )
-                else:
-                    # single-agent: feed the previous round's profile into the
-                    # orchestrator as ProfilerSummary so it has a bottleneck signal.
-                    if last_single_agent_response is not None:
+                            if (
+                                pre_decision.need_profile
+                                and ctx.profiler_kind is not ProfilerKind.NONE
+                            ):
+                                profiler_summary = _run_profiler(
+                                    ctx,
+                                    round_number=round_number,
+                                    profile_focus=pre_decision.profile_focus
+                                    or "general steady-state benchmark hotspots",
+                                    modality=modality,
+                                    interface=interface,
+                                    domain_definition=domain_definition,
+                                    progress_path=progress_path,
+                                    objective=objective,
+                                )
+                    elif last_single_agent_response is not None:
                         profiler_summary = _profiler_summary_from_single_agent(
                             last_single_agent_response
                         )
 
-                # --- Orchestrator plan ---
-                roadmap_text = issue_board.read_roadmap(roadmap_path)
-                plateau_warning = _detect_plateau(records)
-                plan = _run_orchestrator_plan(
-                    ctx,
-                    round_number=round_number,
-                    objective=objective,
-                    profiler_summary=profiler_summary,
-                    carry=carry,
-                    progress_path=progress_path,
-                    roadmap_text=roadmap_text,
-                    plateau_warning=plateau_warning,
-                    modality=modality,
-                    interface=interface,
-                    domain_definition=domain_definition,
-                )
+                    roadmap_text = issue_board.read_roadmap(roadmap_path)
+                    plateau_warning = _detect_plateau(records)
+                    plan = _run_orchestrator_plan(
+                        ctx,
+                        round_number=round_number,
+                        objective=objective,
+                        profiler_summary=profiler_summary,
+                        carry=carry,
+                        progress_path=progress_path,
+                        progress_location=progress_location,
+                        roadmap_location=roadmap_location,
+                        roadmap_text=roadmap_text,
+                        plateau_warning=plateau_warning,
+                        modality=modality,
+                        interface=interface,
+                        domain_definition=domain_definition,
+                        framework_benchmark_enabled=benchmark_result is not None,
+                    )
+                    active_hypothesis = _ActiveHypothesis(
+                        plan=plan,
+                        started_round=round_number,
+                        parent_round=(
+                            plan.revert_to_round
+                            if plan.revert_to_round is not None
+                            else round_number - 1 if round_number > 1 else None
+                        ),
+                    )
+                    _save_active_hypothesis(active_hypothesis_path, active_hypothesis)
+                else:
+                    plan = active_hypothesis.plan
+                    issue_board.append_hypothesis_continuation(
+                        progress_path,
+                        round_number,
+                        plan=plan,
+                        started_round=active_hypothesis.started_round,
+                    )
+                    ctx.lprint(
+                        f"[hypothesis] continuing {plan.hypothesis_id}; "
+                        "designer invocation skipped"
+                    )
 
                 # No early stop: the loop always consumes the full max_rounds
                 # budget. Previously OrchestratorPlan had a ``done`` field that
@@ -1035,7 +1437,10 @@ def run_agent_loop(
                 # early-stopping masks further optimization opportunities.
 
                 # --- Optional rollback ---
-                if plan.revert_to_round is not None:
+                if (
+                    plan.revert_to_round is not None
+                    and not active_hypothesis.revert_applied
+                ):
                     target = next(
                         (r for r in records if r.round_number == plan.revert_to_round),
                         None,
@@ -1044,52 +1449,131 @@ def run_agent_loop(
                         # Non-branch checkout so subsequent commits continue
                         # to land on the current branch as new commits after
                         # the reverted state.
-                        ctx.git.checkout_tree(target.commit)
-                        ctx.lprint(
-                            f"Reverted workspace to round {plan.revert_to_round} ({target.commit[:8]})."
-                        )
+                        if ctx.git.checkout_tree(target.commit):
+                            ctx.lprint(
+                                "Reverted workspace to round "
+                                f"{plan.revert_to_round} ({target.commit[:8]})."
+                            )
+                            active_hypothesis.revert_applied = True
+                            active_hypothesis.revert_commit = target.commit
+                            _save_active_hypothesis(
+                                active_hypothesis_path, active_hypothesis
+                            )
+                        else:
+                            ctx.lprint(
+                                "[warn] rollback was not applied; will retry round "
+                                f"{plan.revert_to_round} on the next continuation"
+                            )
                     else:
                         ctx.lprint(
                             f"[warn] cannot revert: no commit recorded for round {plan.revert_to_round}"
                         )
 
                 # --- Implementer / Judge retry loop ---
-                feedback: str | None = None
+                # A failed review can carry targeted feedback into the same
+                # persistent hypothesis on the next framework round.
+                feedback: str | None = active_hypothesis.feedback
                 passed = False
+                review_started = False
+                final_attempt_reviewed = False
+                framework_revalidation_required = False
+                implementation: ImplementerResponse | None = None
                 single_agent_response: SingleAgentRoundResponse | None = None
                 framework_perf_metric: float | None = None
+                accepted_metrics: dict[str, float] = {}
+                accepted_evaluation_artifact: str | None = None
                 # ``max_retries_per_round >= 1`` is validated at entry, so the
                 # loop always runs; the initializer keeps ``retry`` provably
                 # bound for the post-loop round bookkeeping.
                 retry = 0
                 for retry in range(1, max_retries_per_round + 1):
                     ctx.lprint(f"\n--- attempt {retry}/{max_retries_per_round} ---\n")
+                    final_attempt_reviewed = False
                     if inner_loop == "multi-agent":
                         ctx.reselect_gpu()
-                        _run_implementer(
+                        implementation = _run_implementer(
                             ctx,
                             round_number=round_number,
                             retry=retry,
                             plan=plan,
+                            objective=objective,
                             modality=modality,
                             interface=interface,
                             domain_definition=domain_definition,
                             feedback=feedback,
+                            continuation_step=active_hypothesis.next_step,
+                            framework_revert_applied=active_hypothesis.revert_applied,
+                            framework_revert_round=active_hypothesis.parent_round,
+                            framework_revert_commit=active_hypothesis.revert_commit,
                             progress_path=progress_path,
+                            progress_location=progress_location,
+                            framework_benchmark_enabled=benchmark_result is not None,
                         )
+                        review_due = _review_due(
+                            round_number=round_number,
+                            max_rounds=max_rounds,
+                            judge_every=judge_every,
+                            outcome=implementation.hypothesis_outcome,
+                        )
+                        if (
+                            review_started
+                            and round_number != max_rounds
+                            and implementation.hypothesis_outcome
+                            not in {
+                                HypothesisOutcome.SUPPORTED,
+                                HypothesisOutcome.NOMINATED,
+                            }
+                            and not framework_revalidation_required
+                        ):
+                            # A cadence-triggered review has already supplied
+                            # feedback for this round.  Let a provisional retry
+                            # continue in the next framework round instead of
+                            # paying for the same independent audit twice.
+                            review_due = False
+                        if not review_due:
+                            issue_board.append_judge_skipped(
+                                progress_path,
+                                round_number,
+                                outcome=implementation.hypothesis_outcome.value,
+                                judge_every=judge_every,
+                            )
+                            ctx.lprint(
+                                "[judge] deferred by sparse-review policy; "
+                                "official gates were not run"
+                            )
+                            break
+                        review_started = True
+                        final_attempt_reviewed = True
+                        framework_revalidation_required = False
                         ctx.reselect_gpu()
                         verdict = _run_judge(
                             ctx,
                             round_number=round_number,
                             retry=retry,
                             plan=plan,
+                            implementation=implementation,
                             modality=modality,
                             interface=interface,
                             domain_definition=domain_definition,
                             progress_path=progress_path,
+                            progress_location=progress_location,
                             objective=objective,
+                            framework_revert_applied=active_hypothesis.revert_applied,
+                            framework_revert_round=active_hypothesis.parent_round,
+                            framework_revert_commit=active_hypothesis.revert_commit,
+                            framework_benchmark_enabled=benchmark_result is not None,
                         )
                         if verdict.verdict == Verdict.PASS:
+                            if (
+                                implementation.hypothesis_outcome
+                                is not HypothesisOutcome.NOMINATED
+                            ):
+                                # Cadence review may validate provisional work,
+                                # a fair disproof, or an honest blocker.  Only a
+                                # nominated candidate should consume immutable
+                                # accuracy/benchmark gates.
+                                passed = True
+                                break
                             gate_feedback, framework_perf_metric = _run_framework_gates(
                                 ctx,
                                 benchmark_result=benchmark_result,
@@ -1103,8 +1587,15 @@ def run_agent_loop(
                                 passed = True
                                 break
                             feedback = gate_feedback
+                            framework_revalidation_required = True
+                            active_hypothesis.feedback = feedback
+                            _save_active_hypothesis(
+                                active_hypothesis_path, active_hypothesis
+                            )
                             continue
                         feedback = verdict.feedback
+                        active_hypothesis.feedback = feedback
+                        _save_active_hypothesis(active_hypothesis_path, active_hypothesis)
                     else:
                         ctx.reselect_gpu()
                         single_agent_response = _run_single_agent_round(
@@ -1117,6 +1608,7 @@ def run_agent_loop(
                             domain_definition=domain_definition,
                             feedback=feedback,
                             progress_path=progress_path,
+                            progress_location=progress_location,
                             objective=objective,
                             profile_focus=last_profile_focus,
                         )
@@ -1134,8 +1626,14 @@ def run_agent_loop(
                                 passed = True
                                 break
                             feedback = gate_feedback
+                            active_hypothesis.feedback = feedback
+                            _save_active_hypothesis(
+                                active_hypothesis_path, active_hypothesis
+                            )
                             continue
                         feedback = single_agent_response.feedback
+                        active_hypothesis.feedback = feedback
+                        _save_active_hypothesis(active_hypothesis_path, active_hypothesis)
 
                 # --- Record round result & update carry-over ---
                 commit = ctx.git.current_sha() if ctx.git_tracking else None
@@ -1171,10 +1669,30 @@ def run_agent_loop(
                     if single_agent_response is not None:
                         last_single_agent_response = single_agent_response
                 else:
-                    profile_skipped = profiler_summary is None and framework_perf_metric is None
+                    implementation_metric = (
+                        implementation.perf_metric
+                        if implementation is not None and passed
+                        else None
+                    )
+                    profile_skipped = (
+                        profiler_summary is None
+                        and framework_perf_metric is None
+                        and implementation_metric is None
+                    )
                     if framework_perf_metric is not None and passed:
                         perf_metric = framework_perf_metric
                         perf_unit = benchmark_result.metric if benchmark_result else None
+                    elif implementation_metric is not None:
+                        perf_metric = implementation_metric
+                        perf_unit = implementation.perf_unit if implementation is not None else None
+                        accepted_metrics = (
+                            dict(implementation.metrics) if implementation is not None else {}
+                        )
+                        accepted_evaluation_artifact = (
+                            implementation.evaluation_artifact
+                            if implementation is not None
+                            else None
+                        )
                     else:
                         perf_metric = (
                             profiler_summary.perf_metric if (profiler_summary and passed) else None
@@ -1182,6 +1700,29 @@ def run_agent_loop(
                         perf_unit = (
                             profiler_summary.perf_unit if (profiler_summary and passed) else None
                         )
+                        if profiler_summary is not None and passed:
+                            accepted_metrics = dict(profiler_summary.metrics)
+                # A prior retry may have been reviewed before the implementer
+                # returned a different terminal result.  Record and transition
+                # from the final attempt, not from any earlier audit in the
+                # round; otherwise an unreviewed ``disproven`` retry is
+                # mislabeled rejected and the dead hypothesis stays active.
+                reviewed = final_attempt_reviewed if inner_loop == "multi-agent" else True
+                if passed and inner_loop == "multi-agent" and implementation is not None:
+                    hypothesis_outcome = (
+                        "proven"
+                        if implementation.hypothesis_outcome
+                        in {HypothesisOutcome.SUPPORTED, HypothesisOutcome.NOMINATED}
+                        else implementation.hypothesis_outcome.value
+                    )
+                elif passed:
+                    hypothesis_outcome = "proven"
+                elif reviewed:
+                    hypothesis_outcome = "rejected"
+                elif implementation is not None:
+                    hypothesis_outcome = implementation.hypothesis_outcome.value
+                else:
+                    hypothesis_outcome = None
                 records.append(
                     _RoundRecord(
                         round_number=round_number,
@@ -1190,23 +1731,39 @@ def run_agent_loop(
                         perf_unit=perf_unit,
                         passed=passed,
                         profile_skipped=profile_skipped,
+                        reviewed=reviewed,
+                        hypothesis_id=plan.hypothesis_id,
+                        hypothesis_outcome=hypothesis_outcome,
+                        hypothesis_parent_round=active_hypothesis.parent_round,
+                        metrics=accepted_metrics,
+                        evaluation_artifact=accepted_evaluation_artifact,
                     )
                 )
                 _save_rounds_state(rounds_state_path, records)
                 if ctx.supervisor is not None:
                     ctx.supervisor.record(
                         EventType.ROUND_FINISHED,
-                        status=EventStatus.COMPLETED if passed else EventStatus.FAILED,
+                        status=(
+                            EventStatus.COMPLETED
+                            if passed or not records[-1].reviewed
+                            else EventStatus.FAILED
+                        ),
                         round_label=f"round-{round_number}",
                         data=RoundFinishedData(
                             attempts=retry,
-                            judge_verdict="pass" if passed else "fail",
+                            judge_verdict=(
+                                "pass"
+                                if passed
+                                else "fail"
+                                if records[-1].reviewed
+                                else "skipped"
+                            ),
                             perf_metric=perf_metric,
                             perf_unit=perf_unit,
                         ),
                     )
 
-                if not passed:
+                if not passed and records[-1].reviewed:
                     issue_board.append_exhaustion_note(
                         progress_path,
                         round_number,
@@ -1219,9 +1776,20 @@ def run_agent_loop(
                         f"{feedback or '(empty)'}"
                     )
                     carry.regression_info = None
-                else:
+                elif passed:
                     carry.exhaustion_info = None
-                    if perf_metric is not None:
+                    if (
+                        inner_loop == "multi-agent"
+                        and implementation is not None
+                        and implementation.hypothesis_outcome
+                        not in {HypothesisOutcome.CONTINUE, HypothesisOutcome.NOMINATED}
+                    ):
+                        # A reviewed terminal classification is accepted, but
+                        # its implementation edits are still in the workspace.
+                        # Give the next designer the same explicit parent-state
+                        # decision as an unreviewed terminal result.
+                        carry.regression_info = _terminal_workspace_notice(records)
+                    elif perf_metric is not None:
                         best = _best_round(records[:-1])
                         # _best_round only returns rounds with a metric.
                         if (
@@ -1238,6 +1806,47 @@ def run_agent_loop(
                                 f"{(' ' + (best.perf_unit or '')) if best.perf_unit else ''} "
                                 f"at round {best.round_number}."
                             )
+                    else:
+                        carry.regression_info = None
+                else:
+                    # A provisional round is normal hypothesis work, not a
+                    # judge-loop exhaustion or a performance regression.
+                    carry.exhaustion_info = None
+                    carry.regression_info = _terminal_workspace_notice(records)
+
+                # The framework, rather than the designer, owns this lifecycle.
+                # A continuing implementation keeps its plan and session. An
+                # unreviewed terminal result hands control back to the designer;
+                # a rejected review keeps the same claim plus reviewer feedback
+                # so the implementer can address it on the next round.
+                if (
+                    passed
+                    and inner_loop == "multi-agent"
+                    and implementation is not None
+                    and implementation.hypothesis_outcome is HypothesisOutcome.CONTINUE
+                ):
+                    active_hypothesis.feedback = None
+                    active_hypothesis.next_step = implementation.next_step
+                elif passed:
+                    active_hypothesis = None
+                elif reviewed:
+                    active_hypothesis.feedback = feedback
+                    active_hypothesis.next_step = (
+                        implementation.next_step
+                        if implementation is not None
+                        else active_hypothesis.next_step
+                    )
+                elif (
+                    implementation is not None
+                    and implementation.hypothesis_outcome is not HypothesisOutcome.CONTINUE
+                ):
+                    active_hypothesis = None
+                else:
+                    active_hypothesis.feedback = None
+                    active_hypothesis.next_step = (
+                        implementation.next_step if implementation is not None else None
+                    )
+                _save_active_hypothesis(active_hypothesis_path, active_hypothesis)
 
                 round_number += 1
 

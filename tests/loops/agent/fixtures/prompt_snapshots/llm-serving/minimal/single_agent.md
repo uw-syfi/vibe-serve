@@ -35,7 +35,10 @@ Model weights are at `/model` (do NOT redownload).
 
 ## Required: read the relevant skill BEFORE writing code
 
-The `serving-systems` skill is installed in your working directory with a `references/` library covering every kernel, library, algorithm, and technique relevant to this work. Open every reference that covers a topic named in the task before you write code that touches it. The cost of opening one wrong file is tiny; coding from priors is the single most common reason this loop wastes rounds. In your `summary`, name each reference you opened and the recommendation that shaped your implementation.
+The `serving-systems` skill provides technical references. Use it only after
+measured evidence and the active hypothesis identify a concrete mechanism.
+Open the smallest relevant set before editing that mechanism, and name in your
+summary what contract or pitfall each reference clarified.
 
 ## Reward-hack discipline (you are also the judge — do not let yourself cheat)
 
@@ -55,6 +58,14 @@ and lifecycle requirements.
 
 Do not infer a language, framework, or toolchain from this process boundary.
 Follow the selected domain guidance and the input-owned candidate contract.
+## Active experimental hypothesis
+
+- **ID**: `cuda-graph-decode`
+- **Causal claim**: Removing decode launch overhead will improve median_tok_per_sec.
+- **Activation evidence**: cuda_graph_replays increases on steady requests.
+- **Falsification criteria**: Graphs replay but headline throughput does not improve.
+- **Invariants**: Accuracy and prompt-dependent generation remain unchanged.
+
 ## Profiling step
 
 After (and only after) the implementation passes your self-judge gates, capture a profile so the orchestrator has a bottleneck signal for the next round.
@@ -82,19 +93,37 @@ python torch_profiler/analyze_torch_profile.py capture \
   --prompt "The capital of France is"
 ```
 
-Use this mode for kernel-level optimization (fused norm/rope/attention, CUDA graphs, dtypes). It does not cover HTTP, batching, or queueing overhead.
+Use this mode for device-kernel-level evidence. It does not cover HTTP,
+admission, scheduling, or queueing overhead, so do not extrapolate it to the
+full service without an end-to-end measurement.
 
 For Modal torch profiling, the implementer's `main.py` is required to expose `@app.local_entrypoint() modal_profile(output, num_iters, max_tokens, prompt)`. Invoke it from the editor container:
 
 ```
-modal run main.py::modal_profile -- \
+uv run modal run main.py::modal_profile \
   --output /workspace/prof.json \
   --num-iters 20 \
   --max-tokens 32 \
   --prompt "The capital of France is"
 ```
 
-This dispatches to a `@app.function profile_remote(...)` running on the Modal GPU, which wraps the same workload the benchmark exercises in `torch.profiler` and returns the analyzer-compatible JSON.
+Modal local-entrypoint arguments are Click options: pass them directly, use
+kebab-case, and do not insert a `--` separator. Run Modal through the workspace
+environment (`uv run modal`), because importing `main.py` occurs locally before
+dispatch.
+
+This dispatches to a `@app.function profile_remote(...)` running on the Modal
+GPU and returns analyzer-compatible JSON. The conventional implementation is an
+in-process device microprofile; it does **not** exercise HTTP, scheduler,
+admission, or multi-request batching unless the candidate explicitly implements
+a live-service profiling endpoint. If the requested focus is one of those
+service-level mechanisms and that endpoint is absent, report the contract gap
+instead of presenting a batch-1 profile as production-path evidence.
+
+Run Modal jobs for the same app serially. Do not launch a benchmark, wrapper
+capture, and direct-function fallback concurrently: they can steal the same app
+label, consume multiple GPUs, and make artifact writeback ambiguous. Monitor the
+first dispatch to completion or a definite failure before choosing a fallback.
 
 Use the selected profiler support package at `nsys_profiler/` (or the
 `vibesys-nsys-profiler` MCP tools when attached). Inspect its tools before capture,
@@ -116,7 +145,7 @@ If you could not run the benchmark this round, set `perf_metric: null` rather th
 
 ## Progress tracking
 
-The framework will record your structured response into `progress.md` for you. Read `progress.md` and `roadmap.md` first to understand prior rounds; do NOT duplicate the framework's audit block manually.
+The framework records your structured response in `progress/`. Read that artifact and the roadmap first to understand prior rounds; do NOT duplicate the framework's audit block manually.
 
 Maintain a live todo list with your todo/plan tool while you work: record your plan as todo items before making changes, and update each item's status as you complete it.
 

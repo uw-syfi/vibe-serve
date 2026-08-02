@@ -24,6 +24,7 @@ from vibesys.main import (
     _render_configuration_error,
     _resolve_run_dir,
     _validate_target_inputs,
+    _with_operator_constraints,
     load_config_and_skills,
     main,
     parse_cli_invocation,
@@ -622,6 +623,36 @@ def test_trusted_input_baseline_requires_resume(tmp_path):
     assert "--trusted-input-baseline requires --resume" in exc.value.diagnostic.message
 
 
+def test_validate_agent_rejects_nonpositive_judge_cadence(tmp_path):
+    from vibesys.main import _build_agent_parser, _validate_agent
+
+    bundle = _write_input_bundle(tmp_path)
+    args = _build_agent_parser().parse_args(
+        ["--input", str(bundle), "--judge-every", "0"]
+    )
+
+    with pytest.raises(ConfigurationError) as exc:
+        _validate_agent(args)
+
+    assert "--judge-every must be >= 1" in exc.value.diagnostic.message
+
+
+def test_agent_operator_constraints_are_repeatable_and_do_not_mutate_objective():
+    from vibesys.main import _build_agent_parser
+
+    args = _build_agent_parser().parse_args(
+        ["--constraint", "No quantization.", "--constraint", "  One H100 only.  "]
+    )
+    objective = "Maximize throughput.\n"
+
+    effective = _with_operator_constraints(objective, args.constraint)
+
+    assert objective == "Maximize throughput.\n"
+    assert effective.endswith(
+        "## Operator constraints\n\n- No quantization.\n- One H100 only.\n"
+    )
+
+
 def test_stub_agent_smoke_defaults_supply_input_and_unique_exp_name():
     argv = _prepare_stub_agent_smoke_defaults(["--stub-agent", "--max-rounds", "1"])
 
@@ -1044,12 +1075,15 @@ def test_resume_round_counts_round_entries_and_prunes_later_rounds(tmp_path):
     rounds_json = tmp_path / "run" / "logs" / "rounds.json"
     rounds_json.parent.mkdir(parents=True)
     rounds_json.write_text('[{"round": 1}, {"round": 2}, {"round": 3}]')
+    active_hypothesis = rounds_json.parent / "active_hypothesis.json"
+    active_hypothesis.write_text('{"started_round": 3}')
 
     assert _detect_resume_round(tmp_path / "run") == 4
 
     _prune_rounds_state(tmp_path / "run", keep_up_to=3)
 
     assert rounds_json.read_text() == '[\n  {\n    "round": 1\n  },\n  {\n    "round": 2\n  }\n]'
+    assert not active_hypothesis.exists()
 
 
 @pytest.mark.parametrize(

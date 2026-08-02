@@ -932,6 +932,51 @@ class TestTurnPathWithFakeExecutor:
         assert len(built) == 3, "chat must start a fresh session each turn"
         runner.close()
 
+    def test_explicit_session_keys_reuse_and_fresh_sessions_close(self, tmp_path):
+        from omnigent import TurnComplete
+
+        built: list[_FakeExecutor] = []
+        closed: list[_FakeExecutor] = []
+
+        class _Closable(_FakeExecutor):
+            async def close(self):
+                closed.append(self)
+
+        def _build(_ws):
+            executor = _Closable([TurnComplete(response="ok")])
+            built.append(executor)
+            return executor, []
+
+        runner = OmnigentAgentRunner(provider="claude", model_name="m")
+        runner._build_executor = _build  # type: ignore[method-assign]
+
+        for _ in range(2):
+            runner.invoke_text(
+                kind="implementer",
+                workspace=tmp_path,
+                system_prompt="s",
+                user_prompt="u",
+                round_label="persistent",
+                reuse_session=True,
+                session_key="hypothesis:a",
+            )
+        assert len(built) == 1
+        assert closed == []
+
+        runner.invoke_text(
+            kind="judge",
+            workspace=tmp_path,
+            system_prompt="s",
+            user_prompt="u",
+            round_label="fresh",
+            reuse_session=False,
+        )
+        assert len(built) == 2
+        assert closed == [built[1]]
+
+        runner.close()
+        assert closed == [built[1], built[0]]
+
     def test_close_awaits_executor_close(self, tmp_path):
         from omnigent import TurnComplete
 

@@ -186,6 +186,30 @@ class GitTracker:
         except Exception:
             return None
 
+    def pending_changes(self) -> list[str]:
+        """Return tracked and untracked workspace paths changed since ``HEAD``.
+
+        Role-isolated agents such as the orchestrator and judge are allowed to
+        inspect the candidate but not mutate it.  Callers checkpoint framework
+        state first, then use this method to detect any writes the agent made
+        during its turn before restoring the checkpoint.
+        """
+        result = self.run(
+            [
+                "git",
+                "status",
+                "--porcelain=v1",
+                "--untracked-files=all",
+                "--",
+                ".",
+            ]
+        )
+        return sorted(
+            line[3:]
+            for line in result.stdout.decode(errors="replace").splitlines()
+            if len(line) > 3
+        )
+
     def checkout_tree(self, sha: str, *, clean: bool = False) -> bool:
         """Materialize *sha*'s tree into the working directory.
 

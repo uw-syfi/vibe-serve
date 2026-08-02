@@ -9,11 +9,9 @@ Two implementations live alongside this module:
   external coding-agent CLIs
   (Claude Code, Gemini, Codex, Opencode).
 
-The simple loop calls a single ``invoke()`` method per (iteration × phase).
-There is intentionally no separate ``Session`` type — today's loops always
-build a fresh agent for each call (clean context window) and ``vibesys._agent_cli``
-is one-shot at the Python layer, so a reusable session would either be a thin
-struct or would lie about reuse semantics on one of the backends.
+Loops call a single ``invoke()`` method per (iteration × phase). Callers can
+request a durable session by key without depending on a backend-specific
+session object; the default remains each runner's historical behavior.
 """
 
 from __future__ import annotations
@@ -54,6 +52,8 @@ class AgentRunner(Protocol):
         progress: AgentProgress | None = None,
         mcp_servers: list[MCPServerSpec] | None = None,
         tools: list[BaseTool] | None = None,
+        reuse_session: bool | None = None,
+        session_key: str | None = None,
     ) -> T:
         """Run an agent and return a structured response.
 
@@ -89,6 +89,11 @@ class AgentRunner(Protocol):
                 ``mcp_servers`` for tool injection). Both kwargs are
                 transport-level injection points and contain no domain
                 knowledge — loops or wrappers populate them.
+            reuse_session: Override the runner's historical session reuse
+                policy. ``True`` continues the conversation identified by
+                ``session_key``; ``False`` starts a clean session.
+            session_key: Loop-owned stable identity for a reusable session.
+                Defaults to ``kind`` when reuse is enabled.
 
         Returns:
             An instance of ``response_cls``, either parsed from the agent's
@@ -109,6 +114,8 @@ class AgentRunner(Protocol):
         progress: AgentProgress | None = None,
         mcp_servers: list[MCPServerSpec] | None = None,
         tools: list[BaseTool] | None = None,
+        reuse_session: bool | None = None,
+        session_key: str | None = None,
     ) -> str:
         """Run an agent and return its final message without a response schema."""
         ...

@@ -185,8 +185,39 @@ def test_modal_environment_uses_local_docker_for_editing(tmp_path):
 
     # The sandbox is local Docker, not a Modal Sandbox.
     assert backend.calls[0][0] is SandboxKind.DOCKER
+    assert backend.calls[0][1]["attach_accelerator"] is False
     assert session.view.cli_sandboxed is True
     backend.sandbox.start.assert_called_once()
+
+
+def test_modal_environment_wraps_service_evaluators_with_remote_dispatch(tmp_path):
+    backend = FakeBackend()
+    env = build_run_environment(RunEnvironmentSpec("modal"))
+
+    session = env.open(
+        _request(
+            tmp_path,
+            backend,
+            agent_backend="cli",
+            cli_provider="codex",
+            accuracy_command="uv run python accuracy_checker/checker.py",
+            benchmark_command="uv run python benchmark/benchmark.py --concurrency 16",
+        )
+    )
+
+    helper = "/opt/vibesys-modal-evaluator.py"
+    prefix = f"python {helper} --readiness-timeout-seconds 600 --"
+    assert session.view.paths.accuracy_command == (
+        f"{prefix} uv run python accuracy_checker/checker.py"
+    )
+    assert session.view.paths.benchmark_command == (
+        f"{prefix} uv run python benchmark/benchmark.py --concurrency 16"
+    )
+    assert session.view.framework_setup_timeout_seconds == 600
+    assert any(
+        container_path == helper and read_only
+        for _, container_path, read_only in backend.calls[0][1]["bind_mounts"]
+    )
 
 
 def test_modal_environment_installs_modal_sdk_in_docker(tmp_path):
@@ -229,6 +260,29 @@ def test_modal_environment_prompt_notes_describe_modal_dispatch(tmp_path):
     )
     for token in forbidden:
         assert token not in notes, f"prompt_notes leaks task-specific token {token!r}"
+    prior_solution_terms = (
+        "EAGLE3",
+        "speculative decoding",
+        "CUDA graphs",
+        "FlashAttention",
+        "continuous batching",
+        "paged attention",
+    )
+    for term in prior_solution_terms:
+        assert term.casefold() not in notes.casefold()
+
+
+def test_modal_environment_prompt_notes_require_remote_runtime_fingerprint(tmp_path):
+    backend = FakeBackend()
+    env = build_run_environment(RunEnvironmentSpec("modal"))
+
+    session = env.open(_request(tmp_path, backend, agent_backend="cli", cli_provider="codex"))
+    notes = session.view.prompt_notes
+
+    assert "authoritative runtime" in notes
+    assert "runtime fingerprint" in notes
+    assert "must not be used to infer remote compatibility" in notes
+    assert "same Modal image and hardware" in notes
 
 
 def test_modal_environment_per_run_namespace_prefix_unique(tmp_path):

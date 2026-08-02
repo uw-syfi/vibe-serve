@@ -7,6 +7,7 @@ plain Markdown snapshots so reviewers can inspect exactly what each role sees.
 from __future__ import annotations
 
 import difflib
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -171,6 +172,9 @@ def _snapshot_path(case: _Case, role: str) -> Path:
 
 def _assert_matches_snapshot(case: _Case, role: str, rendered: str) -> None:
     snapshot = _snapshot_path(case, role)
+    if os.environ.get("UPDATE_PROMPT_SNAPSHOTS") == "1":
+        snapshot.write_text(rendered)
+        return
     expected = snapshot.read_text()
     if rendered == expected:
         return

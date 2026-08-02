@@ -46,6 +46,24 @@ describe('session event model', () => {
     expect(state.conversation[1]?.content).toBe('checking accuracy\n');
   });
 
+  it('renders a deferred round as provisional rather than failed', () => {
+    const state = applyEvent(
+      initialSessionState(),
+      event(1, 'round_finished', {
+        kind: 'round_finished',
+        attempts: 1,
+        judge_verdict: 'skipped',
+        perf_metric: null,
+        perf_unit: null,
+      }),
+    );
+
+    expect(state.conversation[0]).toMatchObject({
+      label: 'round-1 · SKIPPED',
+      tone: 'normal',
+    });
+  });
+
   it('ignores replayed events and recognizes terminal state', () => {
     let state = applyEvent(initialSessionState(), event(4, 'run_finished'));
     state = applyEvent(state, event(3, 'run_failed'));

@@ -10,9 +10,17 @@ from vibesys.agents import AgentRunner
 from vibesys.domains.base import DomainName
 from vibesys.errors import ConfigurationError
 from vibesys.loops.agent import issue_board
-from vibesys.loops.agent.loop import run_agent_loop
+from vibesys.loops.agent.loop import (
+    _ActiveHypothesis,
+    _backfill_revert_commit,
+    _invoke_read_only_role,
+    _RoundRecord,
+    _terminal_workspace_notice,
+    run_agent_loop,
+)
 from vibesys.profilers import ProfilerKind, ProfilerPreflightResult
 from vibesys.schemas import (
+    HypothesisOutcome,
     ImplementerResponse,
     JudgeResponse,
     OrchestratorPlan,
@@ -24,6 +32,33 @@ from vibesys.schemas import (
 # ---------------------------------------------------------------------------
 # Fixtures & helpers
 # ---------------------------------------------------------------------------
+
+
+def test_legacy_active_hypothesis_backfills_framework_revert_commit():
+    state = _ActiveHypothesis(
+        plan=OrchestratorPlan(
+            task="restore parent",
+            pass_criteria="review",
+            revert_to_round=28,
+            reasoning="resume an older run",
+        ),
+        started_round=34,
+        parent_round=28,
+        revert_applied=True,
+    )
+    records = [
+        _RoundRecord(
+            round_number=28,
+            commit="a" * 40,
+            perf_metric=None,
+            perf_unit=None,
+            passed=False,
+        )
+    ]
+
+    assert _backfill_revert_commit(state, records) is True
+    assert state.revert_commit == "a" * 40
+    assert _backfill_revert_commit(state, records) is False
 
 
 @pytest.fixture()
@@ -60,8 +95,10 @@ def _make_orchestrate_runner(
     *,
     pre_decisions: list[PreRoundDecision] | None = None,
     plans: list[OrchestratorPlan] | None = None,
+    implementer_outcomes: list[HypothesisOutcome] | None = None,
     judge_verdicts: list[str] | None = None,
     profiler_responses: list[ProfilerSummary] | None = None,
+    implementer_perf_metrics: list[float | None] | None = None,
 ):
     """Build a MagicMock AgentRunner whose invoke() returns scripted responses.
 
@@ -72,8 +109,10 @@ def _make_orchestrate_runner(
     """
     pre_q = list(pre_decisions or [])
     plan_q = list(plans or [])
+    outcome_q = list(implementer_outcomes or [])
     judge_q = list(judge_verdicts or [])
     prof_q = list(profiler_responses or [])
+    impl_perf_q = list(implementer_perf_metrics or [])
     counters = {"impl": 0, "judge": 0, "orch_pre": 0, "orch_plan": 0, "prof": 0}
 
     runner = MagicMock(spec=AgentRunner)
@@ -96,7 +135,23 @@ def _make_orchestrate_runner(
             )
         if kind == "implementer":
             counters["impl"] += 1
-            return ImplementerResponse(summary="Done.", expected_behavior="ok")
+            outcome = outcome_q.pop(0) if outcome_q else HypothesisOutcome.NOMINATED
+            perf_metric = impl_perf_q.pop(0) if impl_perf_q else None
+            return ImplementerResponse(
+                summary="Done.",
+                expected_behavior="ok",
+                hypothesis_outcome=outcome,
+                evidence="targeted evidence",
+                next_step="continue experiment" if outcome is HypothesisOutcome.CONTINUE else "",
+                perf_metric=perf_metric,
+                perf_unit="tok/s" if perf_metric is not None else None,
+                metrics={"aggregate_throughput": perf_metric, "p99_latency_ms": 87.0}
+                if perf_metric is not None
+                else {},
+                evaluation_artifact="benchmark/summary.json"
+                if perf_metric is not None
+                else None,
+            )
         if kind == "judge":
             idx = counters["judge"]
             counters["judge"] += 1
@@ -156,6 +211,56 @@ def _invoke_orchestrate(tmp_path, ref_file, runner, **kwargs):
 # ---------------------------------------------------------------------------
 
 
+def test_read_only_role_reverts_workspace_mutations_and_keeps_response():
+    ctx = MagicMock()
+    ctx.git.current_sha.return_value = "a" * 40
+    ctx.git.pending_changes.side_effect = [["roadmap/index.md", "scratch.txt"], []]
+    ctx.git.checkout_tree.return_value = True
+    expected = OrchestratorPlan(
+        task="next", pass_criteria="passes", reasoning="evidence supports next"
+    )
+    ctx.invoke.return_value = expected
+
+    result = _invoke_read_only_role(
+        ctx,
+        role="orchestrator",
+        checkpoint_label="round-2-plan-input",
+        kind="orchestrator",
+        system_prompt="plan",
+        user_prompt="return JSON",
+        response_cls=OrchestratorPlan,
+        fallback_factory=lambda: expected,
+    )
+
+    assert result is expected
+    ctx.snapshot_workspace.assert_called_once_with("round-2-plan-input")
+    ctx.git.checkout_tree.assert_called_once_with("a" * 40, clean=True)
+    ctx.lprint.assert_called_once()
+
+
+def test_read_only_role_does_not_restore_clean_turn():
+    ctx = MagicMock()
+    ctx.git.current_sha.return_value = "b" * 40
+    ctx.git.pending_changes.return_value = []
+    expected = JudgeResponse(analysis="clean", feedback="", verdict=Verdict.PASS)
+    ctx.invoke.return_value = expected
+
+    result = _invoke_read_only_role(
+        ctx,
+        role="judge",
+        checkpoint_label="round-2-judge-input",
+        kind="judge",
+        system_prompt="judge",
+        user_prompt="return JSON",
+        response_cls=JudgeResponse,
+        fallback_factory=lambda: expected,
+    )
+
+    assert result is expected
+    ctx.git.checkout_tree.assert_not_called()
+    ctx.lprint.assert_not_called()
+
+
 def test_pre_round_decision_accepts_booleans():
     d = PreRoundDecision(need_profile=True, profile_focus="decode kernels", reasoning="ok")
     assert d.need_profile is True
@@ -170,6 +275,87 @@ def test_orchestrator_plan_revert_round_optional():
         reasoning="step back",
     )
     assert p.revert_to_round == 3
+
+
+def test_terminal_workspace_notice_points_designer_to_hypothesis_parent():
+    records = [
+        _RoundRecord(28, "a" * 40, None, None, False),
+        _RoundRecord(
+            29,
+            "b" * 40,
+            None,
+            None,
+            False,
+            reviewed=True,
+            hypothesis_id="bad-scheduler",
+            hypothesis_outcome="rejected",
+        ),
+        _RoundRecord(
+            30,
+            "c" * 40,
+            None,
+            None,
+            False,
+            reviewed=False,
+            hypothesis_id="bad-scheduler",
+            hypothesis_outcome="disproven",
+            hypothesis_parent_round=28,
+        ),
+    ]
+
+    notice = _terminal_workspace_notice(records)
+
+    assert notice is not None
+    assert "workspace edits are still present" in notice
+    assert "recorded pre-hypothesis parent is round 28" in notice
+    assert "revert_to_round=28" in notice
+
+
+def test_terminal_workspace_notice_preserves_credible_continuation_checkpoint():
+    records = [
+        _RoundRecord(28, "a" * 40, None, None, False),
+        _RoundRecord(
+            34,
+            "b" * 40,
+            None,
+            None,
+            False,
+            reviewed=False,
+            hypothesis_id="host-autopsy",
+            hypothesis_outcome="continue",
+            hypothesis_parent_round=28,
+        ),
+        _RoundRecord(
+            35,
+            "c" * 40,
+            None,
+            None,
+            False,
+            reviewed=False,
+            hypothesis_id="host-autopsy",
+            hypothesis_outcome="continue",
+            hypothesis_parent_round=28,
+        ),
+        _RoundRecord(
+            36,
+            "d" * 40,
+            None,
+            None,
+            True,
+            reviewed=True,
+            hypothesis_id="host-autopsy",
+            hypothesis_outcome="disproven",
+            hypothesis_parent_round=28,
+        ),
+    ]
+
+    notice = _terminal_workspace_notice(records)
+
+    assert notice is not None
+    assert "recorded pre-hypothesis parent is round 28" in notice
+    assert "most recent earlier nonterminal checkpoint is round 35" in notice
+    assert "preserve that checkpoint instead of discarding prior gains" in notice
+    assert "An older implementation cannot be required to reproduce" in notice
 
 
 def test_profiler_summary_perf_metric_optional():
@@ -239,6 +425,29 @@ def test_progress_append_implementer_and_judge(tmp_path):
     assert "Round 3 — Implementer (attempt 1)" in text
     assert "Round 3 — Judge (attempt 1)" in text
     assert "verdict**: pass" in text
+
+
+def test_directory_memory_layout_splits_rounds_and_bounds_reads(tmp_path):
+    roadmap, progress = issue_board.resolve_paths(tmp_path, "directories")
+    issue_board.ensure_roadmap_file(roadmap)
+    for round_number in range(1, 16):
+        issue_board.append_pre_round_decision(
+            progress,
+            round_number,
+            PreRoundDecision(
+                need_profile=False,
+                profile_focus="",
+                reasoning=f"decision-{round_number}",
+            ),
+        )
+
+    assert (roadmap / "index.md").exists()
+    assert (progress / "round-0001.md").exists()
+    assert (progress / "round-0015.md").exists()
+    recent = issue_board.read_progress(progress)
+    assert "## Round 11 —" not in recent
+    assert "## Round 12 —" in recent
+    assert "## Round 15 —" in recent
 
 
 def test_framework_accuracy_gate_runs_manifest_command_and_records_pass(tmp_path):
@@ -491,6 +700,554 @@ def test_loop_judge_retry_then_pass(tmp_path, ref_file):
     assert runner.counters["judge"] == 2
 
 
+def test_loop_defers_judge_until_cadence_and_always_reviews_final_round(
+    tmp_path, ref_file
+):
+    runner = _make_orchestrate_runner(
+        plans=[
+            OrchestratorPlan(
+                hypothesis_id="graph-decode",
+                hypothesis="graph replay removes launch overhead",
+                task=f"continue graph work {round_number}",
+                pass_criteria="activation evidence is real",
+                reasoning="continue one causal experiment",
+            )
+            for round_number in range(1, 4)
+        ],
+        implementer_outcomes=[HypothesisOutcome.CONTINUE] * 3,
+    )
+
+    result = _invoke_orchestrate(
+        tmp_path,
+        ref_file,
+        runner,
+        max_rounds=3,
+        judge_every=2,
+    )
+
+    assert result is True
+    assert runner.counters["impl"] == 3
+    assert runner.counters["judge"] == 2  # cadence round 2 + mandatory final round 3
+    rounds_files = list((tmp_path / "exp_env").glob("*/logs/rounds.json"))
+    rounds = __import__("json").loads(rounds_files[0].read_text())
+    assert [round_data["reviewed"] for round_data in rounds] == [False, True, True]
+    progress_files = list((tmp_path / "exp_env").glob("*/workspace/progress.md"))
+    assert "Independent review deferred" in progress_files[0].read_text()
+
+
+def test_nominated_candidate_gets_early_review(tmp_path, ref_file):
+    runner = _make_orchestrate_runner(
+        implementer_outcomes=[HypothesisOutcome.NOMINATED],
+    )
+
+    _invoke_orchestrate(
+        tmp_path,
+        ref_file,
+        runner,
+        max_rounds=2,
+        judge_every=10,
+    )
+
+    assert runner.counters["judge"] >= 1
+
+
+def test_supported_hypothesis_is_reviewed_without_global_gates_and_closes(
+    tmp_path, ref_file
+):
+    runner = _make_orchestrate_runner(
+        plans=[
+            OrchestratorPlan(
+                hypothesis_id="diagnostic-one",
+                hypothesis="the diagnostic identifies the bottleneck",
+                task="collect the scoped evidence",
+                pass_criteria="retain the diagnostic artifact",
+                reasoning="finish one bounded diagnostic",
+            ),
+            OrchestratorPlan(
+                hypothesis_id="mechanism-two",
+                hypothesis="a new mechanism can use that evidence",
+                task="start the next experiment",
+                pass_criteria="retain causal evidence",
+                reasoning="the prior diagnostic is complete",
+            ),
+        ],
+        implementer_outcomes=[
+            HypothesisOutcome.SUPPORTED,
+            HypothesisOutcome.SUPPORTED,
+        ],
+    )
+
+    _invoke_orchestrate(
+        tmp_path,
+        ref_file,
+        runner,
+        max_rounds=2,
+        judge_every=10,
+        _accuracy_gate_results=[AssertionError("global gate should not run")],
+    )
+
+    assert runner.counters["orch_plan"] == 2
+    assert runner.counters["impl"] == 2
+    assert runner.counters["judge"] == 2
+    rounds_file = next((tmp_path / "exp_env").glob("*/logs/rounds.json"))
+    rounds = __import__("json").loads(rounds_file.read_text())
+    assert [round_data["hypothesis_outcome"] for round_data in rounds] == [
+        "proven",
+        "proven",
+    ]
+
+
+def test_cadence_pass_keeps_a_continuing_hypothesis_active(tmp_path, ref_file):
+    runner = _make_orchestrate_runner(
+        plans=[
+            OrchestratorPlan(
+                hypothesis_id="multi-round-experiment",
+                hypothesis="one causal claim needs multiple rounds",
+                task="run the experiment",
+                pass_criteria="retain auditable evidence",
+                reasoning="start one bounded experiment",
+            )
+        ],
+        implementer_outcomes=[
+            HypothesisOutcome.CONTINUE,
+            HypothesisOutcome.CONTINUE,
+            HypothesisOutcome.NOMINATED,
+        ],
+    )
+
+    _invoke_orchestrate(
+        tmp_path,
+        ref_file,
+        runner,
+        max_rounds=3,
+        judge_every=2,
+    )
+
+    # Round 2's cadence review validates the provisional implementation but
+    # must not hand design ownership back to the outer agent. The same inner
+    # agent finishes the hypothesis and nominates it in round 3.
+    assert runner.counters["orch_plan"] == 1
+    assert runner.counters["impl"] == 3
+    assert runner.counters["judge"] == 2
+    rounds_file = next((tmp_path / "exp_env").glob("*/logs/rounds.json"))
+    rounds = __import__("json").loads(rounds_file.read_text())
+    assert [round_data["hypothesis_outcome"] for round_data in rounds] == [
+        "continue",
+        "continue",
+        "proven",
+    ]
+
+
+def test_cadence_review_is_not_duplicated_for_provisional_retry(tmp_path, ref_file):
+    runner = _make_orchestrate_runner(
+        plans=[
+            OrchestratorPlan(
+                hypothesis_id="stable-hypothesis",
+                hypothesis="same causal claim",
+                task="continue the experiment",
+                pass_criteria="retain causal evidence",
+                reasoning="one hypothesis across rounds",
+            ),
+            OrchestratorPlan(
+                hypothesis_id="replacement-hypothesis",
+                hypothesis="next causal claim",
+                task="finish the replacement experiment",
+                pass_criteria="retain causal evidence",
+                reasoning="the prior claim passed review",
+            ),
+        ],
+        implementer_outcomes=[
+            HypothesisOutcome.CONTINUE,
+            HypothesisOutcome.CONTINUE,
+            HypothesisOutcome.NOMINATED,
+            HypothesisOutcome.CONTINUE,
+            HypothesisOutcome.NOMINATED,
+        ],
+        judge_verdicts=["fail", "pass"],
+    )
+
+    _invoke_orchestrate(
+        tmp_path,
+        ref_file,
+        runner,
+        max_rounds=4,
+        max_retries_per_round=2,
+        judge_every=3,
+    )
+
+    # Round 3 receives one cadence review.  Its provisional retry carries the
+    # feedback forward without paying for the same independent audit again.
+    # The final-round nomination is still reviewed immediately.
+    assert runner.counters["impl"] == 5
+    assert runner.counters["judge"] == 2
+
+
+def test_unreviewed_terminal_outcome_returns_control_to_designer(tmp_path, ref_file):
+    runner = _make_orchestrate_runner(
+        plans=[
+            OrchestratorPlan(
+                hypothesis_id="falsified-path",
+                hypothesis="first claim",
+                task="test first claim",
+                pass_criteria="collect evidence",
+                reasoning="first experiment",
+            ),
+            OrchestratorPlan(
+                hypothesis_id="replacement-path",
+                hypothesis="second claim",
+                task="test second claim",
+                pass_criteria="collect evidence",
+                reasoning="replacement experiment",
+            ),
+        ],
+        implementer_outcomes=[
+            HypothesisOutcome.DISPROVEN,
+            HypothesisOutcome.NOMINATED,
+        ],
+    )
+
+    _invoke_orchestrate(
+        tmp_path,
+        ref_file,
+        runner,
+        max_rounds=2,
+        judge_every=10,
+    )
+
+    assert runner.counters["orch_plan"] == 2
+    assert runner.counters["judge"] == 1  # only the replacement, on the final round
+    rounds_files = list((tmp_path / "exp_env").glob("*/logs/rounds.json"))
+    rounds = __import__("json").loads(rounds_files[0].read_text())
+    assert [round_data["hypothesis_id"] for round_data in rounds] == [
+        "falsified-path",
+        "replacement-path",
+    ]
+    assert [round_data["hypothesis_outcome"] for round_data in rounds] == [
+        "disproven",
+        "proven",
+    ]
+    plan_calls = [
+        call
+        for call in runner.invoke.call_args_list
+        if call.kwargs.get("response_cls") is OrchestratorPlan
+    ]
+    assert "do not require another expensive benchmark" in plan_calls[1].kwargs[
+        "system_prompt"
+    ].replace("\n", " ")
+
+
+def test_reviewed_disproof_skips_framework_gates(tmp_path, ref_file):
+    runner = _make_orchestrate_runner(
+        implementer_outcomes=[HypothesisOutcome.DISPROVEN],
+        judge_verdicts=["pass"],
+    )
+
+    _invoke_orchestrate(
+        tmp_path,
+        ref_file,
+        runner,
+        max_rounds=1,
+        judge_every=1,
+        _accuracy_gate_results=[AssertionError("accuracy gate should not run")],
+    )
+
+    rounds_file = next((tmp_path / "exp_env").glob("*/logs/rounds.json"))
+    rounds = __import__("json").loads(rounds_file.read_text())
+    assert rounds[0]["passed"] is True
+    assert rounds[0]["reviewed"] is True
+    assert rounds[0]["hypothesis_outcome"] == "disproven"
+
+
+def test_disproven_retry_after_failed_review_returns_control_to_designer(
+    tmp_path, ref_file
+):
+    runner = _make_orchestrate_runner(
+        plans=[
+            OrchestratorPlan(
+                hypothesis_id="falsified-after-review",
+                hypothesis="first claim",
+                task="test first claim",
+                pass_criteria="collect evidence",
+                reasoning="first experiment",
+            ),
+            OrchestratorPlan(
+                hypothesis_id="replacement-after-review",
+                hypothesis="second claim",
+                task="test second claim",
+                pass_criteria="collect evidence",
+                reasoning="replacement experiment",
+            ),
+        ],
+        implementer_outcomes=[
+            HypothesisOutcome.NOMINATED,
+            HypothesisOutcome.DISPROVEN,
+            HypothesisOutcome.NOMINATED,
+        ],
+        judge_verdicts=["fail", "pass"],
+    )
+
+    _invoke_orchestrate(
+        tmp_path,
+        ref_file,
+        runner,
+        max_rounds=2,
+        max_retries_per_round=2,
+        judge_every=10,
+    )
+
+    assert runner.counters["orch_plan"] == 2
+    assert runner.counters["impl"] == 3
+    assert runner.counters["judge"] == 2
+    rounds_file = next((tmp_path / "exp_env").glob("*/logs/rounds.json"))
+    rounds = __import__("json").loads(rounds_file.read_text())
+    assert [round_data["hypothesis_id"] for round_data in rounds] == [
+        "falsified-after-review",
+        "replacement-after-review",
+    ]
+    assert [round_data["reviewed"] for round_data in rounds] == [False, True]
+    assert [round_data["hypothesis_outcome"] for round_data in rounds] == [
+        "disproven",
+        "proven",
+    ]
+
+
+def test_role_session_policy_is_explicit_and_hypothesis_scoped(tmp_path, ref_file):
+    runner = _make_orchestrate_runner(
+        plans=[
+            OrchestratorPlan(
+                hypothesis_id="stable-hypothesis",
+                hypothesis="same claim",
+                task="continue",
+                pass_criteria="review",
+                reasoning="same experiment",
+            ),
+            OrchestratorPlan(
+                hypothesis_id="stable-hypothesis",
+                hypothesis="same claim",
+                task="finish",
+                pass_criteria="review",
+                reasoning="same experiment",
+            ),
+        ],
+        implementer_outcomes=[
+            HypothesisOutcome.CONTINUE,
+            HypothesisOutcome.NOMINATED,
+        ],
+    )
+
+    _invoke_orchestrate(
+        tmp_path,
+        ref_file,
+        runner,
+        max_rounds=2,
+        judge_every=10,
+    )
+
+    calls = runner.invoke.call_args_list
+    plan_calls = [
+        call for call in calls if call.kwargs.get("response_cls") is OrchestratorPlan
+    ]
+    implementer_calls = [
+        call for call in calls if call.kwargs.get("response_cls") is ImplementerResponse
+    ]
+    judge_calls = [call for call in calls if call.kwargs.get("response_cls") is JudgeResponse]
+    # The outer designer hands off one causal claim and is not re-invoked
+    # while the implementer reports that same hypothesis as continuing.
+    assert len(plan_calls) == 1
+    assert len(implementer_calls) == 2
+    assert all(call.kwargs["reuse_session"] is False for call in plan_calls)
+    assert all(call.kwargs["reuse_session"] is True for call in implementer_calls)
+    assert {
+        call.kwargs["session_key"] for call in implementer_calls
+    } == {"hypothesis:stable-hypothesis"}
+    assert "Required continuation from the previous round" not in implementer_calls[
+        0
+    ].kwargs["system_prompt"]
+    assert "continue experiment" in implementer_calls[1].kwargs["system_prompt"]
+    assert "do not merely restate prior work" in implementer_calls[1].kwargs["user_prompt"]
+    assert all(call.kwargs["reuse_session"] is False for call in judge_calls)
+
+    rounds_files = list((tmp_path / "exp_env").glob("*/logs/rounds.json"))
+    rounds = __import__("json").loads(rounds_files[0].read_text())
+    assert [round_data["hypothesis_id"] for round_data in rounds] == [
+        "stable-hypothesis",
+        "stable-hypothesis",
+    ]
+    assert [round_data["hypothesis_outcome"] for round_data in rounds] == [
+        "continue",
+        "proven",
+    ]
+
+
+def test_hypothesis_revert_is_applied_once_across_continuation_rounds(tmp_path, ref_file):
+    runner = _make_orchestrate_runner(
+        plans=[
+            OrchestratorPlan(
+                hypothesis_id="seed",
+                task="establish parent",
+                pass_criteria="review",
+                reasoning="seed checkpoint",
+            ),
+            OrchestratorPlan(
+                hypothesis_id="continued-repair",
+                task="start from parent and continue",
+                pass_criteria="review",
+                revert_to_round=1,
+                reasoning="discard a later branch once",
+            ),
+        ],
+        implementer_outcomes=[
+            HypothesisOutcome.NOMINATED,
+            HypothesisOutcome.CONTINUE,
+            HypothesisOutcome.NOMINATED,
+        ],
+    )
+
+    with patch(
+        "vibesys.run.git_tracker.GitTracker.checkout_tree", return_value=True
+    ) as checkout_tree:
+        _invoke_orchestrate(
+            tmp_path,
+            ref_file,
+            runner,
+            max_rounds=3,
+            judge_every=10,
+        )
+
+    assert checkout_tree.call_count == 1
+    repair_calls = [
+        call
+        for call in runner.invoke.call_args_list
+        if call.kwargs.get("response_cls") is ImplementerResponse
+        and "continued-repair" in call.kwargs["system_prompt"]
+    ]
+    assert len(repair_calls) == 2
+    assert all(
+        "already applied exactly once by the framework" in call.kwargs["system_prompt"]
+        for call in repair_calls
+    )
+    assert all(
+        "sandboxes may intentionally omit usable `.git` metadata"
+        in call.kwargs["system_prompt"].replace("\n", " ")
+        for call in repair_calls
+    )
+    assert all(
+        "do not alter candidate artifacts or rerun benchmarks"
+        in call.kwargs["system_prompt"].replace("\n", " ")
+        for call in repair_calls
+    )
+    assert all(
+        "reserve the next representative run for the post-change candidate"
+        in call.kwargs["system_prompt"].replace("\n", " ")
+        for call in repair_calls
+    )
+    judge_calls = [
+        call
+        for call in runner.invoke.call_args_list
+        if call.kwargs.get("response_cls") is JudgeResponse
+        and "continued-repair" in call.kwargs["system_prompt"]
+    ]
+    assert judge_calls
+    assert all(
+        "Framework-owned parent provenance" in call.kwargs["system_prompt"]
+        for call in judge_calls
+    )
+    assert all(
+        "do not fail solely because `git` cannot re-query it"
+        in call.kwargs["system_prompt"]
+        for call in judge_calls
+    )
+    assert all(
+        "candidate-authored duplication is neither required nor stronger evidence"
+        in call.kwargs["system_prompt"].replace("\n", " ")
+        for call in judge_calls
+    )
+    assert all(
+        "benchmarking the untouched parent again"
+        in call.kwargs["system_prompt"].replace("\n", " ")
+        for call in judge_calls
+    )
+
+
+def test_failed_hypothesis_revert_is_retried_and_not_claimed_as_applied(tmp_path, ref_file):
+    runner = _make_orchestrate_runner(
+        plans=[
+            OrchestratorPlan(
+                hypothesis_id="seed",
+                task="establish parent",
+                pass_criteria="review",
+                reasoning="seed checkpoint",
+            ),
+            OrchestratorPlan(
+                hypothesis_id="retry-rollback",
+                task="start from parent",
+                pass_criteria="review",
+                revert_to_round=1,
+                reasoning="restore parent",
+            ),
+        ],
+        implementer_outcomes=[
+            HypothesisOutcome.NOMINATED,
+            HypothesisOutcome.CONTINUE,
+            HypothesisOutcome.NOMINATED,
+        ],
+    )
+
+    with patch(
+        "vibesys.run.git_tracker.GitTracker.checkout_tree",
+        side_effect=[False, True],
+    ) as checkout_tree:
+        _invoke_orchestrate(
+            tmp_path,
+            ref_file,
+            runner,
+            max_rounds=3,
+            judge_every=10,
+        )
+
+    assert checkout_tree.call_count == 2
+    retry_calls = [
+        call
+        for call in runner.invoke.call_args_list
+        if call.kwargs.get("response_cls") is ImplementerResponse
+        and "retry-rollback" in call.kwargs["system_prompt"]
+    ]
+    assert len(retry_calls) == 2
+    assert "already applied exactly once" not in retry_calls[0].kwargs["system_prompt"]
+    assert "already applied exactly once" in retry_calls[1].kwargs["system_prompt"]
+
+
+def test_judge_audited_implementer_metrics_are_recorded(tmp_path, ref_file):
+    runner = _make_orchestrate_runner(implementer_perf_metrics=[321.5])
+
+    _invoke_orchestrate(
+        tmp_path,
+        ref_file,
+        runner,
+        max_rounds=1,
+        judge_every=10,
+    )
+
+    rounds_files = list((tmp_path / "exp_env").glob("*/logs/rounds.json"))
+    rounds = __import__("json").loads(rounds_files[0].read_text())
+    assert rounds[0]["perf_metric"] == 321.5
+    assert rounds[0]["perf_unit"] == "tok/s"
+    assert rounds[0]["metrics"] == {
+        "aggregate_throughput": 321.5,
+        "p99_latency_ms": 87.0,
+    }
+    assert rounds[0]["evaluation_artifact"] == "benchmark/summary.json"
+    assert rounds[0]["profile_skipped"] is False
+
+    judge_call = next(
+        call
+        for call in runner.invoke.call_args_list
+        if call.kwargs.get("response_cls") is JudgeResponse
+    )
+    assert "321.5 tok/s" in judge_call.kwargs["system_prompt"]
+    assert "benchmark/summary.json" in judge_call.kwargs["system_prompt"]
+
+
 def test_loop_retries_when_framework_accuracy_gate_fails(tmp_path, ref_file):
     runner = _make_orchestrate_runner(
         plans=[OrchestratorPlan(task="Build", pass_criteria="tests", reasoning="start")],
@@ -512,9 +1269,9 @@ def test_loop_retries_when_framework_accuracy_gate_fails(tmp_path, ref_file):
 
 
 def test_loop_exhaustion_carries_to_next_round(tmp_path, ref_file):
-    """Judge loop exhausts on round 1, orchestrator in round 2 sees exhaustion,
-    proposes easier task, that one passes, then done on round 3."""
+    """Review exhaustion returns to the same implementer, not the designer."""
     seen_plan_prompts: list[str] = []
+    seen_implementer_prompts: list[str] = []
     original_runner = _make_orchestrate_runner(
         plans=[
             OrchestratorPlan(
@@ -537,6 +1294,8 @@ def test_loop_exhaustion_carries_to_next_round(tmp_path, ref_file):
     def spy_invoke(*, kind, response_cls, **kwargs):
         if kind == "orchestrator" and response_cls is OrchestratorPlan:
             seen_plan_prompts.append(kwargs.get("system_prompt", ""))
+        if kind == "implementer" and response_cls is ImplementerResponse:
+            seen_implementer_prompts.append(kwargs.get("system_prompt", ""))
         return real_invoke(kind=kind, response_cls=response_cls, **kwargs)
 
     original_runner.invoke.side_effect = spy_invoke
@@ -551,14 +1310,16 @@ def test_loop_exhaustion_carries_to_next_round(tmp_path, ref_file):
     assert result is True
     # 2 attempts on round 1 (both fail) + 1 attempt on round 2 (pass).
     assert original_runner.counters["impl"] == 3
-    # Round 2's plan prompt must contain the exhaustion signal.
-    assert len(seen_plan_prompts) >= 2
-    assert "exhausted" in seen_plan_prompts[1].lower()
+    # The outer designer is hands-off. Round 2 reuses the active plan and the
+    # persistent implementer receives the independent judge's last feedback.
+    assert len(seen_plan_prompts) == 1
+    assert "needs work" in seen_implementer_prompts[2]
 
 
 def test_loop_orchestrator_requests_profile_before_plan(tmp_path, ref_file):
     """If PreRoundDecision.need_profile is True, profiler runs before the plan call."""
     call_order: list[str] = []
+    profiler_prompts: list[str] = []
     runner = _make_orchestrate_runner(
         pre_decisions=[
             PreRoundDecision(need_profile=True, profile_focus="kernels", reasoning="need data"),
@@ -595,6 +1356,7 @@ def test_loop_orchestrator_requests_profile_before_plan(tmp_path, ref_file):
             call_order.append("plan")
         elif kind == "profiler":
             call_order.append("profiler")
+            profiler_prompts.append(kwargs.get("system_prompt", ""))
         elif kind == "orchestrator" and response_cls is PreRoundDecision:
             call_order.append("pre")
         return real_invoke(kind=kind, response_cls=response_cls, **kwargs)
@@ -611,6 +1373,9 @@ def test_loop_orchestrator_requests_profile_before_plan(tmp_path, ref_file):
     prof_idx = call_order.index("profiler")
     # Profiler must come BEFORE the round-2 plan call.
     assert prof_idx < plan_idx[1]
+    assert "Recent campaign context" in profiler_prompts[0]
+    assert "Round 1" in profiler_prompts[0]
+    assert "Do not launch a duplicate expensive evaluation" in profiler_prompts[0]
 
 
 def test_loop_skips_profiler_when_pre_round_decision_says_no(tmp_path, ref_file):
@@ -920,6 +1685,26 @@ def test_loop_creates_roadmap_md_in_workspace(tmp_path, ref_file):
     assert "## Major" in text
 
 
+def test_loop_can_create_scannable_directory_memory(tmp_path, ref_file):
+    runner = _make_orchestrate_runner()
+
+    result = _invoke_orchestrate(
+        tmp_path,
+        ref_file,
+        runner,
+        max_rounds=1,
+        memory_layout="directories",
+    )
+
+    assert result is True
+    workspaces = list((tmp_path / "exp_env").glob("*/workspace"))
+    workspace = workspaces[0]
+    assert (workspace / "roadmap" / "index.md").exists()
+    round_log = workspace / "progress" / "round-0001.md"
+    assert round_log.exists()
+    assert "Framework" not in round_log.read_text()  # stub skips official commands
+
+
 def test_loop_threads_roadmap_into_orchestrator_prompt(tmp_path, ref_file):
     """The orchestrator's plan prompt must include the current roadmap.md
     contents so the orchestrator can update them."""
@@ -1014,6 +1799,8 @@ def test_loop_threads_plateau_warning_into_prompt(tmp_path, ref_file):
     # Round 5 plan call sees rounds 1-4 in records (3 valid perf measurements
     # from rounds 2,3,4 — flat at 41.9-42.1) → warning fires.
     assert "Plateau detected" in seen_prompts[4]
+    assert "refresh an analytical performance model" in seen_prompts[4]
+    assert "unexplained residual" in seen_prompts[4]
 
 
 def test_loop_resume_with_round_number_starts_there(tmp_path, ref_file):

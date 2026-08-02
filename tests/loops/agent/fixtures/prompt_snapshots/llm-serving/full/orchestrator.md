@@ -14,31 +14,51 @@ Runtime note: local Docker workspace with NVIDIA CUDA access.
 
 ## Progress so far
 
-Read `progress.md` in your working directory for the full history. The most recent entries matter most. You may also Read / Grep the workspace to inspect current code state.
+The durable progress artifact is `progress/`. The framework starts you in a fresh session and includes the bounded recent window below. Inspect older round files or workspace code only when relevant.
+
+```
+# Round 7
+
+Implementer is still testing graph activation.
+```
+
+Before proposing a hypothesis, search the durable progress files for prior
+experiments with the same code path, mechanism, or expected causal effect. A
+framework rollback restores an older workspace checkpoint and may therefore
+rewind `roadmap.md`; the roadmap is strategic state, not a complete experiment
+ledger. Do not repeat a previously disproven mechanism merely because its
+roadmap entry disappeared after rollback. Revisit it only when the new plan
+states a concrete distinguishing premise (for example, a different activation
+path, workload, or implementation mechanism) and explains why the prior
+falsification no longer applies.
+Search by affected code symbol when one is known and by multiple broad
+operation/mechanism terms; an exact search for the new hypothesis wording is
+not a duplicate audit. Read the surrounding prior plan and evidence for each
+plausible hit before deciding it is distinct.
 
 ## Roadmap (your strategic memory across rounds)
 
-You own a free-form markdown file at `roadmap.md` in your working directory. The framework reseeds it on a fresh run, then reads it back into this prompt every round and otherwise leaves it alone. Use the Read/Edit/Write tools to keep it current.
+You own the free-form markdown artifact at `roadmap/`. The framework seeds it on a fresh run, then reads it back into this prompt every round and otherwise leaves it alone. Use the Read/Edit/Write tools to keep it current.
 
 **The roadmap is what stops this loop from falling into local optima.** Without it, every round you'd re-derive "what should we do next?" from progress.md and react to the most recent setback. With it, you commit publicly to a multi-round arc; flipping a Major's status (especially to `abandoned`) requires explicit deliberate action with a written justification — the rules below force that decision to be deliberate rather than a quiet drift toward whatever the latest profiler line suggests.
 
 ### Major statuses — `parked` vs `abandoned`
 
-These are not the same thing. Treating them as one bucket is the loop's most common failure mode, because it conflates "this technique has a bug" with "this technique doesn't fit". Use them precisely:
+These are not the same thing. Treating them as one bucket conflates "this change has an implementation defect" with "this direction does not fit the workload". Use them precisely:
 
-- **`parked`** — implementation appears buggy or incomplete (e.g. wired but acceptance is zero, capture succeeds but never replays, fallback path always triggers), but the *direction* is still believable. Returnable to `in_progress`. This is the right call when the metric isn't moving for an *implementation* reason.
+- **`parked`** — implementation appears buggy or incomplete (for example, the intended path never activates or a fallback always triggers), but the *direction* is still believable. Returnable to `in_progress`. This is the right call when the metric is flat for an implementation reason.
 - **`abandoned`** — the *direction itself* is wrong for this workload. Strict requirement: the autopsy must name a **code-level or hardware-level mechanism** explaining why the technique cannot help *here*, not a behavioral perf observation. A perf delta ("0% improvement", "0 acceptance") is not a mechanism. If you can't write a mechanism, the right status is **`parked`**, not `abandoned`.
 
 If you're tempted to abandon because an implementation never activates, always falls back, or produces no improvement, first treat that as a debugging signal: inspect the code path, objective, and domain references, then either fix it or park it. Don't abandon without a mechanism-level reason.
 
 Required this round, in order:
 
-1. **Read `roadmap.md`.**
-2. **Update it** to reflect: progress on the active item, any newly discovered Major work, and statuses (`todo` / `in_progress` / `done` / `parked` / `abandoned`) that have changed (see the rules above for `parked` vs `abandoned`). If it's nearly empty (fresh run), populate it now with a 3-5 item Major list derived from the objective and the optimization-floor section below.
+1. **Read `roadmap/`.**
+2. **Update it** to reflect: progress on the active item, any newly discovered Major work, and statuses (`todo` / `in_progress` / `done` / `parked` / `abandoned`) that have changed (see the rules above for `parked` vs `abandoned`). If it is nearly empty, populate it with a 3-5 item Major list derived from the objective and observable workspace evidence.
 3. **Pick the active Major item** the round will serve. Your `task` must implement (a slice of) it. If you genuinely need a Minor first because it blocks the Major, say so in your reasoning and tag the Minor "blocks: <major-id>".
-4. After updating, write the same plan into `progress.md` via the normal append path (the framework will record your structured response there too).
+4. Return the structured plan; the framework records it in `progress/`.
 
-### Current `roadmap.md` contents
+### Current roadmap contents
 
 ```
 - major-1: todo - establish the serving optimization floor.
@@ -52,51 +72,67 @@ A library of curated technique-specific skills may be installed in your working 
 
 
 
-## Optimization priority (read before choosing the next task)
+## Evidence-led optimization method
 
-Serving systems have a well-established **optimization floor**: three techniques every production LLM server ships with, because each addresses a fundamental cost source the workload cannot avoid on NVIDIA hardware. Before proposing any workload-specific optimization (speculative decoding, prompt/prefix caching, grammar-constrained decoding fast paths, schema minimization, etc.), confirm all three are in place unless a specific one is **absolutely incompatible** with the objective:
+First establish the smallest faithful, runnable serving baseline required by
+the input contract. After that, choose work from measured end-to-end evidence
+rather than from a memorized list of popular techniques.
 
-1. **Continuous batching** (see `skills/serving-systems/algorithms/continuous-batching/`).
-2. **Attention kernel** — FlashInfer or FlashAttention (see `skills/serving-systems/backends/flashinfer/` and `skills/serving-systems/backends/flashattention/`).
-3. **CUDA graphs** (see `skills/serving-systems/backends/cuda-graph/`). 
+For every proposed hypothesis:
 
-**Only after these three are present and verified** (profiler-confirmed kernel count drops, FlashInfer calls visible, graph replay counters non-zero) should you spend rounds on workload-specific optimizations like speculative decoding, grammar-based fast paths, or prompt / prefix caching.
+1. Identify the measured workload phase or critical-path cost it removes.
+2. Bound the maximum possible end-to-end gain from that cost before investing.
+3. Prefer the smallest change that tests the causal mechanism cleanly.
+4. Require observable activation evidence from the production serving path.
+5. State what result would falsify the hypothesis and preserve all workload,
+   model-fidelity, and operator constraints.
 
-The three exceptions that let you skip a floor item:
+When the objective names a measured reference target, quantify the remaining
+multiplicative gap before choosing the next round. If the candidate is still
+more than 2x from that target, do not spend a canonical round on a mechanism
+whose own measured cost or defensible upper bound can only yield a single-digit
+percentage improvement, unless it is necessary correctness or measurement
+work. Choose a bottleneck class with enough headroom to remove a material part
+of the gap (as a default, at least 20%) and put the arithmetic in `reasoning`.
+Small tuning remains appropriate as a targeted probe, but repeated local
+frontier nudges are not a substitute for a structural path to the target.
 
-- **Continuous batching**: skip when the benchmark / objective is single-batch by contract.
-- **Attention kernel**: skip when running on non-NVIDIA hardware where neither FlashInfer nor FlashAttention ships (Apple → MLX; AMD → the upstreamed FA AMD port).
-- **CUDA graphs**: skip when the decode shapes are genuinely unbucketable (very rare — even speculative-decoding tree depths and chunked-prefill chunk sizes are ≤ 16 buckets).
+At the first valid baseline, after a material architecture change, and whenever
+the framework reports a plateau, open
+`skills/serving-systems/references/tooling/performance-modeling.md` and refresh
+the analytical performance model before proposing another optimization. In
+`reasoning`, reconcile client-observed time with non-overlapping measured cost
+centers, report the unexplained residual, distinguish the hardware/workload
+ceiling from the current-architecture ceiling, and calculate an Amdahl or
+roofline-based end-to-end bound for the proposed mechanism. Use ranges and name
+the assumptions. If uncertainty changes which hypothesis has the most
+headroom, request the smallest discriminating profile instead of guessing.
 
-If you skip a floor item, cite the specific incompatibility in your `reasoning`. Do NOT skip because "the current profile shows something else is the dominant cost" — the floor items *become* the dominant cost in turn once other work lands, and cycling between "revert this, try that" over exotic optimizations without the floor in place is a common failure mode of this loop.
-
-## LLM-serving task examples
-
-Good round-sized tasks for this domain include:
-- "Build a self-contained FastAPI server for the reference model."
-- "Add continuous batching to the decode loop."
-- "Replace manual attention with FlashInfer batched decode."
-- "Add CUDA graph capture/replay for the decode path."
-- "Fix the 8 ms launch overhead shown in `linear_layer_N` (top kernel in the last profile)."
+Do not choose a technique merely because other serving systems commonly use it.
+Consult a technical reference only after the evidence identifies the mechanism
+you need to understand.
 
 ## Scoping API work
 
-When your task touches HTTP endpoint or message-schema work, name the specific endpoint(s) and point the implementer at the authoritative skill file — typically `skills/serving-systems/tooling/openai-api/SKILL.md` (per-modality OpenAI-compatible contracts). You can start with a single endpoint (e.g. "`POST /v1/completions` only, streaming SSE") and grow the surface as the roadmap progresses.
+When a task touches an endpoint or message schema, name the exact surface being
+changed and point the implementer to the authoritative contract reference.
+Grow the API only as required by the objective and evaluator.
 
-## LLM-serving performance criteria
+## Performance criteria
 
-This matters whenever a round adds a path that *trades per-call work for fewer calls* (speculative decoding, xgrammar jump-forward, batched extend, prefix caching, prompt caching, larger CUDA-graph buckets). A wider or heavier kernel can win on the headline metric while losing on per-call latency — that's the entire point of the technique. Pass criteria like *"verify_replay_ms < decode_replay_ms"* or *"graph replay ≤ X ms"* can't see those wins and will silently kill correct implementations. Phrase the gate on the headline metric instead, and tell the implementer to wire any runtime fallback the same way: *"after N steady requests, if the new path's headline metric trails the existing baseline path's by more than M%, fall back"*. Avoid asking for a startup-only gate that uses a fixed per-call time threshold — it can't see acceptance/forced-token/host-side effects and will give the wrong answer.
+An implementation can make an individual operation slower while reducing how
+often it runs. Per-call timing alone therefore cannot establish an end-to-end
+win. Phrase performance gates on the objective's headline metric and use
+lower-level measurements only as causal evidence. Avoid startup-only fixed
+timing thresholds that do not capture the full request path.
 
-For static-inspection criteria, prefer wordings like:
-
-- "no `torch.profiler.profile(...)` invocations in `main.py` or any module the implementer added"
-- "no per-token `torch.cat` against the KV cache in `main.py`'s decode path"
-
-Avoid broad clauses like "no profiler/Nsight code"; those trip on framework-provided profiler directories.
+For static-inspection criteria, name the implementer-owned file and prohibited
+behavior precisely. Avoid repository-wide clauses that also match
+framework-provided evaluator or profiler directories.
 
 ## Task granularity
 
-Tasks should be one concrete implementation slice, small enough for the implementer to finish and the judge to verify in one round. Examples:
+Define one causal hypothesis at a time. A hypothesis may span multiple rounds while its stable `hypothesis_id` stays unchanged; each `task` should still be one concrete implementation or diagnostic slice. Start a new ID only when the causal claim changes. Examples:
 - "Build the first minimal correct implementation for the target contract."
 - "Replace the identified hot path with a lower-overhead implementation."
 - "Add a benchmark-visible fast path for the active workload shape."
@@ -108,7 +144,16 @@ The implementer and judge templates intentionally do NOT hardcode the full inter
 
 ## Pass criteria
 
-Criteria must be specific and testable. The framework ALWAYS runs the accuracy checker and a benchmark sanity check, so you only need to specify feature-level criteria. Do NOT list interface surfaces you do not want the judge to verify this round.
+Criteria must be specific and testable. The framework runs the immutable accuracy gate configured by the input bundle.
+This bundle does not declare a machine-readable trusted benchmark result. The implementation agent therefore owns performance experiments and must retain enough raw evidence to support its claims; the framework will not silently manufacture or parse an official score.
+Do not list interface surfaces you do not want the judge to verify this round.
+
+Every plan must also separate four things that are easy to conflate:
+
+- `hypothesis`: the causal claim, including why the mechanism should move the objective.
+- `activation_evidence`: how the implementer proves the intended path actually ran.
+- `falsification_criteria`: evidence that would show the causal claim is wrong for this workload.
+- `invariants`: correctness/workload properties that must not be traded away.
 
 **Runtime-environment notes are authoritative.** When the runtime-environment block above states a framework-level fact (decorator name, volume-name normalization rule, required entry-point names, namespace-prefix conventions, supported keyword arguments), that fact is **the truth for this round** even if a previous round's judge feedback or implementer summary in `progress.md` says something different. Prior feedback can be stale because the framework's own runtime contract evolved between rounds; do not propagate stale framework-level demands into this round's `pass_criteria`. If you spot a conflict between a prior judge demand and the runtime-environment block, drop the prior demand and write the criterion in terms of what the runtime-environment block says today.
 
@@ -116,14 +161,73 @@ Criteria must be specific and testable. The framework ALWAYS runs the accuracy c
 
 Avoid pass criteria that use an internal microbenchmark as a proxy for the objective unless the objective explicitly names that microbenchmark. A local timing can miss end-to-end effects that determine the real score. Phrase performance gates on the headline metric whenever possible, and use internal timings only as supporting diagnostic evidence.
 
+**Stage expensive evaluation behind a directional gate.** When a canonical
+benchmark is materially more expensive than a targeted probe, write the task
+and pass criteria as a sequence: first prove activation and run the smallest
+representative end-to-end comparison that can falsify the hypothesis, then run
+the canonical benchmark only if that comparison supports the claimed
+direction. State an explicit early-stop condition. Once activation is proven
+and the representative comparison directly contradicts the causal claim, the
+implementer should retain that evidence, report `disproven`, and skip the
+remaining sweep. Do not require a canonical run merely to give a failed
+hypothesis an official score.
+For a multi-point sweep, the directional gate should normally be one
+canonical-shape point at the representative load where the mechanism is
+expected to matter, not a shortened smoke workload and not the whole sweep.
+Use a short smoke only to validate plumbing. Expand to neighboring points,
+repeats, or the full sweep only after that representative point moves beyond
+the relevant noise band.
+When remote service startup, model load, compilation, or prewarm dominates,
+prefer a gated smoke and representative point in one live-server invocation:
+abort after the smoke on failure, otherwise reuse the initialized service. Do
+not require two identical cold starts merely to keep smoke artifacts separate.
+Require the smoke to traverse the newly changed failure-prone path; a smoke on
+an unrelated entry point is not useful preflight evidence and should not be run
+for ceremony.
+When a hypothesis depends on a new external profiler, compiler, daemon, or
+system utility, gate all instrumentation work behind a minimal capability
+probe in the actual target environment. The probe must establish executable
+availability, required device/permission access, and an artifact export path.
+Treat failure as an early disproof; do not require the implementer to build a
+harness around a tool that the target cannot run.
+
+Before proposing new instrumentation or another diagnostic run, search the
+retained progress and artifacts for an equivalent measurement from the same
+trusted checkpoint, workload, and execution path. If its existing buckets
+already decide the proposed threshold or causal question, plan a scoped
+evidence audit/closeout instead of recreating it. Require a fresh diagnostic
+only for an explicit missing field, stale runtime assumption, or concrete
+comparability gap.
+
+Do not require a duplicate benchmark merely to produce a cleaner artifact
+directory. Extra diagnostics written after measured rows completed do not
+retroactively contaminate those rows. When phase ordering proves measurement
+finished before optional diagnostics were armed, keep the valid rows, correct
+the future default, and proceed from the retained evidence.
+
+**Make performance gates variance-aware.** Use retained repeats or known
+benchmark noise when setting a before/after threshold. Do not make a terminal
+decision from a single result whose miss is smaller than observed run-to-run
+variation. If a directional point lands within that noise band, require only
+the smallest confirmation needed to classify it; report `inconclusive` until
+then. Avoid exact cutoffs with sub-percent margins unless the evidence shows
+the benchmark is stable at that precision.
+
+**Do not relabel load as an optimization.** A plan cannot claim a performance
+win merely by changing which workload points are admitted, rejected, timed out,
+classified as overloaded, included in a sweep, or selected for reporting. A
+scheduler or admission change must improve end-to-end metrics for successfully
+completed work at the same offered-load point (or another directly comparable
+workload point); simply making a pre-existing favorable point become
+``selected`` is not progress. Measurement-selection fixes may be proposed when
+the measurement itself is wrong, but they must be labeled as measurement
+correctness work and cannot be credited as engine performance.
+
 **Scope static-inspection clauses to implementer-authored files.** When you write a "no X in the code" criterion, name the file path you mean — typically `main.py` or modules the implementer authored. Phrasings like "no profiler code" or "no benchmark code" are over-broad: the workspace contains framework-provided input/helper files (`benchmark/`, `accuracy_checker/`, `nsys_profiler/`, `torch_profiler/`, `reference/`, `skills/`, and manifest command wrappers) that the implementer can't delete and that legitimately contain the very keywords you'd grep for. Prefer wordings like:
 
-- ✅ "no `<forbidden helper>` invocations in `main.py` or any module the implementer added"
-- ✅ "no benchmark-specific shortcut branch in the candidate implementation"
-- ❌ "no profiler code" (will trip on `nsys_profiler/server.py` and burn rounds in retry loops)
-- ❌ "no benchmark code" (will trip on the framework-provided benchmark harness)
-
-This was a real failure mode in earlier runs: an over-broad "no profiler code" clause caused the judge to demand deletion of the framework's read-only profiler mount, which the implementer cannot remove, exhausting the retry budget and forcing a packaging workaround the next round.
+- "no `<forbidden helper>` invocations in `main.py` or any module the implementer added" is precise.
+- "no benchmark-specific shortcut branch in the candidate implementation" is precise.
+- "no profiler code" and "no benchmark code" are over-broad because they match framework-owned files.
 
 ## No early termination
 
@@ -133,4 +237,14 @@ There is **no** early-stop signal — every round must propose a real task. If y
 
 Return exactly one JSON object. Do not wrap in markdown fences.
 
-{ "task": "<implementer task description>", "pass_criteria": "<feature-level criteria for the judge>", "revert_to_round": <integer or null>, "reasoning": "<short explanation of your reasoning>" }
+{
+  "hypothesis_id": "<stable short ID; reuse while continuing the same hypothesis>",
+  "hypothesis": "<causal and falsifiable claim>",
+  "activation_evidence": "<observable proof that the mechanism ran>",
+  "falsification_criteria": "<evidence that would disprove the claim>",
+  "invariants": "<properties that must remain true>",
+  "task": "<implementer task description>",
+  "pass_criteria": "<feature-level criteria for the judge>",
+  "revert_to_round": <integer or null>,
+  "reasoning": "<short explanation of your reasoning>"
+}

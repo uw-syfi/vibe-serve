@@ -8,6 +8,7 @@ what an agent will see after all template includes and domain interpolation.
 from __future__ import annotations
 
 import difflib
+import os
 from pathlib import Path
 
 import pytest
@@ -31,6 +32,16 @@ _BASE_CONTEXT = {
     "pass_criteria": "PASS: pytest passes and /v1/completions streams valid SSE.",
     "objective": "OBJECTIVE: maximize median_tok_per_sec.",
     "roadmap_text": "- major-1: todo - establish the serving optimization floor.",
+    "recent_progress_text": "# Round 7\n\nImplementer is still testing graph activation.",
+    "progress_location": "progress/",
+    "roadmap_location": "roadmap/",
+    "hypothesis_id": "cuda-graph-decode",
+    "hypothesis": "Removing decode launch overhead will improve median_tok_per_sec.",
+    "activation_evidence": "cuda_graph_replays increases on steady requests.",
+    "falsification_criteria": "Graphs replay but headline throughput does not improve.",
+    "invariants": "Accuracy and prompt-dependent generation remain unchanged.",
+    "implementer_outcome": "nominated",
+    "implementer_evidence": "Replay counter increased in a targeted probe.",
     "env_kind": "local",
 }
 
@@ -74,10 +85,21 @@ def _render_prompt(domain: DomainName, role: str, context: dict[str, object]) ->
             runtime_notes=context["runtime_notes"],
             task=context["task"],
             pass_criteria=context["pass_criteria"],
+            objective=context["objective"],
             feedback=None,
+            hypothesis_id=context["hypothesis_id"],
+            hypothesis=context["hypothesis"],
+            activation_evidence=context["activation_evidence"],
+            falsification_criteria=context["falsification_criteria"],
+            invariants=context["invariants"],
+            progress_location=context["progress_location"],
             domain_implementer=_domain_section(domain, "implementer", context),
         )
     if role == "judge":
+        judge_domain_context = context | {
+            "benchmark_command": None,
+            "accuracy_command": None,
+        }
         return render_template(
             "judge_prompt.j2",
             template_dir=_TEMPLATE_DIR,
@@ -87,7 +109,15 @@ def _render_prompt(domain: DomainName, role: str, context: dict[str, object]) ->
             runtime_notes=context["runtime_notes"],
             benchmark_command=context["benchmark_command"],
             accuracy_command=context["accuracy_command"],
-            domain_judge=_domain_section(domain, "judge", context),
+            domain_judge=_domain_section(domain, "judge", judge_domain_context),
+            hypothesis_id=context["hypothesis_id"],
+            hypothesis=context["hypothesis"],
+            activation_evidence=context["activation_evidence"],
+            falsification_criteria=context["falsification_criteria"],
+            invariants=context["invariants"],
+            implementer_outcome=context["implementer_outcome"],
+            implementer_evidence=context["implementer_evidence"],
+            progress_location=context["progress_location"],
         )
     if role == "single_agent":
         profiler = profiler_definition(ProfilerKind.NSYS)
@@ -111,6 +141,12 @@ def _render_prompt(domain: DomainName, role: str, context: dict[str, object]) ->
             profile_focus="",
             domain_single_agent=_domain_section(domain, "single_agent", context),
             domain_profiler=_domain_section(domain, "profiler", context),
+            hypothesis_id=context["hypothesis_id"],
+            hypothesis=context["hypothesis"],
+            activation_evidence=context["activation_evidence"],
+            falsification_criteria=context["falsification_criteria"],
+            invariants=context["invariants"],
+            progress_location=context["progress_location"],
         )
     if role == "orchestrator":
         return render_template(
@@ -121,6 +157,9 @@ def _render_prompt(domain: DomainName, role: str, context: dict[str, object]) ->
             regression_info=None,
             exhaustion_info=None,
             roadmap_text=context["roadmap_text"],
+            recent_progress_text=context["recent_progress_text"],
+            progress_location=context["progress_location"],
+            roadmap_location=context["roadmap_location"],
             plateau_warning=None,
             runtime_notes=context["runtime_notes"],
             env_kind=context["env_kind"],
@@ -135,6 +174,9 @@ def _snapshot_path(domain: str, case_name: str, role: str) -> Path:
 
 def _assert_matches_snapshot(domain: str, case_name: str, role: str, rendered: str) -> None:
     snapshot = _snapshot_path(domain, case_name, role)
+    if os.environ.get("UPDATE_PROMPT_SNAPSHOTS") == "1":
+        snapshot.write_text(rendered)
+        return
     expected = snapshot.read_text()
     if rendered == expected:
         return
@@ -162,15 +204,42 @@ def test_llm_serving_rendered_prompts_keep_required_domain_content():
     context = _CONTEXTS["full"]
     prompts = {role: _render_prompt(DomainName.LLM_SERVING, role, context) for role in _ROLES}
 
-    assert "Model weights are at `/model`" in prompts["implementer"]
+    assert "pre-staged model weights" in prompts["implementer"]
     assert "serving-systems" in prompts["implementer"]
-    assert "Benchmark sanity" in prompts["judge"]
-    assert "Accuracy checker — required to pass" in prompts["judge"]
+    assert "No machine-readable framework benchmark gate is declared" in prompts["judge"]
+    assert "Benchmark sanity" not in prompts["judge"]
+    assert "Accuracy checker — required to pass" not in prompts["judge"]
     assert "Reward-hack detection" in prompts["judge"]
-    assert "Static-inspection scope" in prompts["judge"]
+    assert "Scope discipline" in prompts["judge"]
+    assert "For `disproven`" in prompts["judge"]
+    assert "PASS for `supported` closes the scoped" in prompts["judge"]
+    assert "PASS for `nominated` sends a candidate" in prompts["judge"]
+    assert "Stage expensive evaluations" in prompts["implementer"]
+    assert "distinguish a short" in prompts["implementer"]
+    assert "exercise every new result" in prompts["implementer"]
+    assert "preflight must exercise the newly changed" in prompts["implementer"]
+    assert "smallest target-environment capability probe" in prompts["implementer"]
+    assert "run the smoke first inside the same invocation" in prompts["implementer"]
+    assert "Preserve already-valid measured rows" in prompts["implementer"]
+    assert "retained benchmark variance" in prompts["implementer"]
+    assert "Search retained diagnostic artifacts" in prompts["implementer"]
+    assert "Rollback can rewind" in prompts["implementer"]
+    assert "Stage expensive evaluation behind a directional gate" in prompts["orchestrator"]
+    assert "canonical-shape point" in prompts["orchestrator"]
+    assert "gated smoke and representative point" in prompts["orchestrator"]
+    assert "unrelated entry point is not useful" in prompts["orchestrator"]
+    assert "minimal capability" in prompts["orchestrator"]
+    assert "equivalent measurement from the same" in prompts["orchestrator"]
+    assert "Do not repeat a previously disproven mechanism" in prompts["orchestrator"]
+    assert "Do not require a duplicate benchmark" in prompts["orchestrator"]
+    assert "Make performance gates variance-aware" in prompts["orchestrator"]
+    assert "performance-modeling.md" in prompts["orchestrator"]
+    assert "current-architecture ceiling" in prompts["orchestrator"]
+    assert "multiplicative gap" in prompts["orchestrator"]
     assert "do not let yourself cheat" in prompts["single_agent"]
-    assert "Optimization priority" in prompts["orchestrator"]
-    assert "CUDA graphs" in prompts["orchestrator"]
+    assert "Evidence-led optimization method" in prompts["orchestrator"]
+    assert "Continuous batching" not in prompts["orchestrator"]
+    assert "CUDA graphs" not in prompts["orchestrator"]
 
 
 def test_minimal_llm_serving_prompt_omits_optional_checker_paths():
@@ -189,8 +258,8 @@ def test_generic_prompts_do_not_receive_llm_serving_domain_content():
     prompts = {role: _render_prompt(DomainName.GENERIC, role, context) for role in _ROLES}
 
     assert "Model weights are at `/model`" not in prompts["implementer"]
-    assert "Required: read the relevant skill BEFORE writing code" not in prompts["implementer"]
+    assert "Use references as implementation support" not in prompts["implementer"]
     assert "Benchmark sanity" not in prompts["judge"]
     assert "Reward-hack detection" not in prompts["judge"]
     assert "do not let yourself cheat" not in prompts["single_agent"]
-    assert "Optimization priority" not in prompts["orchestrator"]
+    assert "Evidence-led optimization method" not in prompts["orchestrator"]

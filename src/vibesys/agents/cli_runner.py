@@ -134,6 +134,8 @@ class CliAgentRunner:
         progress: AgentProgress | None = None,
         mcp_servers: list[MCPServerSpec] | None = None,
         tools: list[BaseTool] | None = None,  # noqa: ARG002 — deepagents-only injection point; cli uses mcp_servers
+        reuse_session: bool | None = None,
+        session_key: str | None = None,
     ) -> T:
         schema_hint = build_schema_hint(response_cls)
         combined_prompt = f"{system_prompt}\n\n{user_prompt}{schema_hint}"
@@ -146,6 +148,8 @@ class CliAgentRunner:
             invocation_id=invocation_id,
             progress=progress,
             mcp_servers=mcp_servers,
+            reuse_session=reuse_session,
+            session_key=session_key,
         )
         label = agent_label(kind)
         parsed = parse_typed_response_text(text, response_cls)
@@ -186,6 +190,8 @@ class CliAgentRunner:
         progress: AgentProgress | None = None,
         mcp_servers: list[MCPServerSpec] | None = None,
         tools: list[BaseTool] | None = None,  # noqa: ARG002 — deepagents-only
+        reuse_session: bool | None = None,
+        session_key: str | None = None,
     ) -> str:
         """Run a conversational CLI agent without requesting structured JSON."""
         text = self._generate(
@@ -197,6 +203,8 @@ class CliAgentRunner:
             invocation_id=invocation_id,
             progress=progress,
             mcp_servers=mcp_servers,
+            reuse_session=reuse_session,
+            session_key=session_key,
         )
         label = agent_label(kind)
         if text:
@@ -221,6 +229,8 @@ class CliAgentRunner:
         invocation_id: str | None,
         progress: AgentProgress | None,
         mcp_servers: list[MCPServerSpec] | None,
+        reuse_session: bool | None,
+        session_key: str | None,
     ) -> str:
         """Run one CLI generation with shared setup, logging, and cleanup."""
         label = agent_label(kind)
@@ -241,8 +251,11 @@ class CliAgentRunner:
         #    its multi-turn history in the prompt, and provider session IDs can
         #    become unavailable when a sandbox or process changes, so every
         #    chat turn deliberately starts a fresh CLI session.
-        reuse_agent = kind != "chat"
-        agent = self._agents.get(kind) if reuse_agent else None
+        reuse_agent = kind != "chat" and (
+            reuse_session if reuse_session is not None else True
+        )
+        cache_key = f"{kind}:{session_key}" if session_key else kind
+        agent = self._agents.get(cache_key) if reuse_agent else None
         if agent is not None:
             # Update the event handler for this invocation's logger.
             agent.event_handler = logger
@@ -265,7 +278,7 @@ class CliAgentRunner:
                 executor=executor,
             )
             if reuse_agent:
-                self._agents[kind] = agent
+                self._agents[cache_key] = agent
         else:
             agent = self._provider_cls(model=self._model, event_handler=logger)
             # Host execution path: confine the agent to its workspace at the OS
@@ -285,7 +298,7 @@ class CliAgentRunner:
                 log=lambda msg: log_and_print(msg, self._run_log_file),
             )
             if reuse_agent:
-                self._agents[kind] = agent
+                self._agents[cache_key] = agent
 
         # Layer GPU env vars on top of the captured interactive env so the
         # spawned subprocess inherits CUDA_VISIBLE_DEVICES. Containerised

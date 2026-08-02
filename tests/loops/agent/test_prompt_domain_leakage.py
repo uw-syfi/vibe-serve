@@ -15,6 +15,7 @@ import pytest
 from vibesys.domains.base import DomainName
 from vibesys.domains.registry import resolve_domain
 from vibesys.domains.rendering import render_domain_section
+from vibesys.loops.agent import issue_board
 from vibesys.profilers import ProfilerKind
 from vibesys.prompts import render_template
 
@@ -74,6 +75,15 @@ _NEUTRAL_CONTEXT: dict[str, object] = {
     "env_kind": "local",
 }
 
+_PRIOR_SOLUTION_TERMS = (
+    "EAGLE3",
+    "speculative decoding",
+    "CUDA graphs",
+    "FlashAttention",
+    "continuous batching",
+    "paged attention",
+)
+
 
 def _domain_context(context: dict[str, object]) -> dict[str, object]:
     return {
@@ -84,6 +94,15 @@ def _domain_context(context: dict[str, object]) -> dict[str, object]:
         "accuracy_command": context["accuracy_command"],
         "runtime_notes": context["runtime_notes"],
     }
+
+
+def test_fresh_roadmap_scaffold_does_not_seed_solution_ideas(tmp_path: Path) -> None:
+    roadmap = tmp_path / "roadmap"
+    issue_board.ensure_roadmap_file(roadmap)
+
+    text = (roadmap / "index.md").read_text()
+    for term in _PRIOR_SOLUTION_TERMS:
+        assert term.casefold() not in text.casefold()
 
 
 def _domain_section(domain: DomainName, role: str, context: dict[str, object]) -> str:

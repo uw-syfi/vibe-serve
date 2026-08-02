@@ -55,6 +55,18 @@ class DeepAgentsRunner:
         self._skills = skills
         self._model_name = model_name
         self._run_log_file = run_log_file
+        self._sessions: dict[str, tuple[MemorySaver, str]] = {}
+
+    def _session(
+        self, *, kind: str, reuse_session: bool | None, session_key: str | None
+    ) -> tuple[MemorySaver, str]:
+        """Return fresh state by default, or durable state for an explicit key."""
+        if not reuse_session or kind == "chat":
+            return MemorySaver(), uuid.uuid4().hex
+        key = f"{kind}:{session_key}" if session_key else kind
+        if key not in self._sessions:
+            self._sessions[key] = (MemorySaver(), uuid.uuid4().hex)
+        return self._sessions[key]
 
     def invoke(
         self,
@@ -71,14 +83,16 @@ class DeepAgentsRunner:
         progress: AgentProgress | None = None,
         mcp_servers: list[MCPServerSpec] | None = None,  # noqa: ARG002 — cli-only injection point; deepagents uses tools=
         tools: list[BaseTool] | None = None,
+        reuse_session: bool | None = None,
+        session_key: str | None = None,
     ) -> T:
         label = _agent_label(kind)
 
-        # Fresh checkpointer + thread id per invocation, so the agent starts
-        # with a clean context window each time. Mirrors what the simple loop
-        # did at loop.py:410-411 before the runner abstraction landed.
-        checkpointer = MemorySaver()
-        thread_id = uuid.uuid4().hex
+        checkpointer, thread_id = self._session(
+            kind=kind,
+            reuse_session=reuse_session,
+            session_key=session_key,
+        )
 
         backend = self._backends[kind]
         agent = create_deep_agent(
@@ -129,10 +143,15 @@ class DeepAgentsRunner:
         progress: AgentProgress | None = None,
         mcp_servers: list[MCPServerSpec] | None = None,  # noqa: ARG002 — cli-only
         tools: list[BaseTool] | None = None,
+        reuse_session: bool | None = None,
+        session_key: str | None = None,
     ) -> str:
         """Run a conversational agent without imposing a response schema."""
-        checkpointer = MemorySaver()
-        thread_id = uuid.uuid4().hex
+        checkpointer, thread_id = self._session(
+            kind=kind,
+            reuse_session=reuse_session,
+            session_key=session_key,
+        )
         label = _agent_label(kind)
         agent = create_deep_agent(
             model=self._model,

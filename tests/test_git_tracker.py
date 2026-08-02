@@ -100,6 +100,16 @@ def test_current_sha_matches_head_and_is_none_without_repo(ws):
     assert tracker.current_sha() == _git_stdout(ws, "rev-parse", "HEAD").strip()
 
 
+def test_pending_changes_reports_tracked_and_untracked_paths(ws):
+    tracker = _make_tracker(ws)
+    tracker.init(existing=False)
+
+    (ws / "main.py").write_text("VALUE = 2\n")
+    (ws / "new.txt").write_text("new\n")
+
+    assert tracker.pending_changes() == ["main.py", "new.txt"]
+
+
 def test_checkout_tree_restores_snapshot_without_moving_head(ws):
     tracker = _make_tracker(ws)
     tracker.init(existing=False)
