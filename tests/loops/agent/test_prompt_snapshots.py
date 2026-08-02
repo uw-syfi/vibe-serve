@@ -220,6 +220,7 @@ def test_llm_serving_rendered_prompts_keep_required_domain_content():
 
     assert "pre-staged model weights" in prompts["implementer"]
     assert "serving-systems" in prompts["implementer"]
+    assert "concurrent mixed-length correctness probe" in prompts["implementer"]
     assert "No machine-readable framework benchmark gate is declared" in prompts["judge"]
     assert "Benchmark sanity" not in prompts["judge"]
     assert "Accuracy checker — required to pass" not in prompts["judge"]
@@ -229,6 +230,7 @@ def test_llm_serving_rendered_prompts_keep_required_domain_content():
     assert "PASS for `supported` closes the scoped" in prompts["judge"]
     assert "configured framework gates" in prompts["judge"]
     assert "sparse official-evaluation policy" in prompts["judge"]
+    assert "cache/mask/position alignment" in prompts["judge"]
     assert "Stage expensive evaluations" in prompts["implementer"]
     assert "distinguish a short" in prompts["implementer"]
     assert "exercise every new result" in prompts["implementer"]
@@ -237,6 +239,7 @@ def test_llm_serving_rendered_prompts_keep_required_domain_content():
     assert "checkpoint each completed row" in prompts["implementer"]
     assert "raw response atomically" in prompts["implementer"]
     assert "raw response atomically" in prompts["single_agent"]
+    assert "cache/mask/position alignment" in prompts["single_agent"]
     assert "not every integer" in prompts["orchestrator"]
     assert "describes a removed mechanism" in prompts["judge"]
     assert "buffered generation, not token streaming" in prompts["judge"]

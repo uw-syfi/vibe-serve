@@ -33,6 +33,13 @@ The framework's always-on gates (pytest, benchmark sanity, accuracy checker) app
 
 Model weights are at `/model` (do NOT redownload).
 
+When changing batching, request-slot reuse, KV-cache layout, attention masks,
+or scheduling, inspect cache/mask/position alignment and run a targeted
+deterministic comparison for concurrent prompts with different token lengths,
+including a request that finishes while others remain active. A single-request
+accuracy pass cannot establish this invariant. Retain the probe inputs,
+outputs, and comparison result before accepting performance evidence.
+
 ## Required: read the relevant skill BEFORE writing code
 
 The `serving-systems` skill provides technical references. Use it only after

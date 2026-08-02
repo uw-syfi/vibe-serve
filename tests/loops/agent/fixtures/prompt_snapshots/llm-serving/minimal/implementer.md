@@ -203,6 +203,15 @@ scripts via `uv run`.
 The independent judge and framework-owned gates apply in addition to this
 round's pass criteria. Your implementation must preserve those contracts.
 
+When changing batching, request-slot reuse, KV-cache layout, attention masks,
+or scheduling, run a targeted concurrent mixed-length correctness probe before
+using performance evidence. Compare deterministic outputs against the trusted
+unbatched or reference path for prompts of different token lengths, including
+at least one request that finishes while others remain active. A single-request
+accuracy pass is not evidence that cache rows, positions, or masks stay aligned
+across a dynamic batch. Retain the probe inputs, outputs, and comparison result
+so the judge can audit the invariant without repeating an expensive run.
+
 ## Use references as implementation support, not as a search policy
 
 The `serving-systems` skill provides technical references. After the active
