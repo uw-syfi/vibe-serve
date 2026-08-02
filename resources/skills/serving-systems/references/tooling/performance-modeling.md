@@ -144,6 +144,29 @@ Use multiple concurrency points when saturation behavior matters. A model that
 fits only the selected best row cannot distinguish useful batching from overload
 or queueing.
 
+## Turn prior interventions into empirical bounds
+
+Treat an activated experiment as a measurement of its cost-center class, even
+when the hypothesis is disproven. Before assigning headroom to a later mechanism:
+
+1. List prior experiments that changed the same work or a superset of it.
+2. Confirm activation, workload comparability, and which work the experiment
+   actually removed, accelerated, or merely rearranged.
+3. Use the observed end-to-end delta to constrain the new Amdahl range.
+4. Explain any claimed headroom beyond that empirical bound with additional
+   measured work that the new mechanism removes.
+
+For example, if a clean prefill intervention activates at the representative
+load but improves throughput by only 4%, a cache that skips only part of that
+same prefill work does not have a credible 20% end-to-end bound by default. A
+larger claim needs evidence that the earlier intervention left most prefill work
+intact, or that the cache also removes another measured critical-path cost.
+
+Do not infer a strict cost fraction from a weak intervention: batching may only
+rearrange work, and a slow replacement kernel may hide the value of the work it
+targets. Record these limitations. The requirement is to reconcile the new
+estimate with prior causal evidence, not to overfit one noisy delta.
+
 ## Plateau workflow for the outer loop
 
 Refresh the model after the first valid baseline, after a material architecture
@@ -152,11 +175,13 @@ change, and whenever the campaign plateaus.
 1. Restore or identify the best trusted checkpoint.
 2. Quantify the remaining target gap at comparable operating points.
 3. Reconcile client-observed time with non-overlapping measured phases.
-4. Recompute device, architecture, and per-hypothesis ceilings as ranges.
-5. Name the assumptions and unexplained residual that dominate uncertainty.
-6. Compare candidate mechanisms by plausible end-to-end headroom and experiment
+4. Convert comparable activated experiments into empirical bounds on their cost
+   centers and reconcile new hypotheses with those bounds.
+5. Recompute device, architecture, and per-hypothesis ceilings as ranges.
+6. Name the assumptions and unexplained residual that dominate uncertainty.
+7. Compare candidate mechanisms by plausible end-to-end headroom and experiment
    cost.
-7. Propose either a structural hypothesis with sufficient headroom or the
+8. Propose either a structural hypothesis with sufficient headroom or the
    smallest measurement that could materially change the model.
 
 Do not respond to a plateau with another local change in the same cost-center
@@ -182,6 +207,7 @@ Ceilings:
 - hardware/workload range and assumptions
 - current-architecture range and assumptions
 - each candidate hypothesis's Amdahl bound
+- empirical bounds from comparable activated experiments and their limitations
 
 Model check:
 - predicted versus measured result at representative operating points
@@ -220,6 +246,8 @@ measured saturation point as though it were the hardware roofline.
 - Mixing per-kernel, per-step, and client-observed metrics.
 - Summing profiler categories that overlap or contain parent/child scopes.
 - Treating CUDA-graph attribution gaps as zero work.
+- Archiving a disproven experiment without using its activated end-to-end delta
+  to constrain later hypotheses in the same cost-center class.
 - Using peak hardware specifications without an efficiency range.
 - Ignoring host, scheduler, transport, or queueing time.
 - Modeling successful tokens while silently discarding failed requests.
