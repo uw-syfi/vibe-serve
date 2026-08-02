@@ -15,6 +15,7 @@ from vibesys.loops.agent.loop import (
     _ActiveHypothesis,
     _backfill_revert_commit,
     _invoke_read_only_role,
+    _missing_implementer_response,
     _official_evaluation_reason,
     _provisional_candidates_since_official,
     _resolve_rollback_commit,
@@ -37,6 +38,15 @@ from vibesys.schemas import (
 # ---------------------------------------------------------------------------
 # Fixtures & helpers
 # ---------------------------------------------------------------------------
+
+
+def test_missing_implementer_response_fails_closed():
+    response = _missing_implementer_response()
+
+    assert response.hypothesis_outcome is HypothesisOutcome.INCONCLUSIVE
+    assert response.perf_metric is None
+    assert response.evaluation_artifact is None
+    assert "schema-valid" in response.next_step
 
 
 def test_legacy_active_hypothesis_backfills_framework_revert_commit():

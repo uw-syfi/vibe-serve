@@ -50,6 +50,44 @@ class DockerCommandExecutor:
     ) -> None:
         return None
 
+    def repair_workspace_ownership(self, *, uid: int, gid: int) -> None:
+        """Return bind-mounted workspace files to the host user.
+
+        CLI agents run as root in the editor container. Some editors replace
+        files atomically, which leaves the replacement owned by root and can
+        make the host-side checkpoint code unable to read it. Repair ownership
+        before control returns to the framework rather than waiting until a
+        later resume.
+        """
+        result = subprocess.run(
+            [
+                "docker",
+                "exec",
+                self.container_id,
+                "find",
+                "/workspace",
+                "-xdev",
+                "-user",
+                "0",
+                "-writable",
+                "-exec",
+                "chown",
+                f"{uid}:{gid}",
+                "{}",
+                "+",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=120,
+            check=False,
+        )
+        if result.returncode != 0:
+            detail = result.stderr.strip() or result.stdout.strip()
+            raise RuntimeError(
+                "failed to restore writable Docker workspace ownership"
+                + (f": {detail}" if detail else "")
+            )
+
     def run(
         self,
         request: CommandRequest,

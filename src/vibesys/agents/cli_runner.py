@@ -20,6 +20,7 @@ Docker command routing and per-invocation MCP install/uninstall. Each
 from __future__ import annotations
 
 import json
+import os
 from collections.abc import Callable, Iterable
 from datetime import UTC, datetime
 from pathlib import Path
@@ -390,17 +391,36 @@ class CliAgentRunner:
                 log_and_print(f"{type(exc).__name__}: {exc}", self._run_log_file)
             raise
         finally:
+            cleanup_error: Exception | None = None
             if mcp_servers:
                 try:
                     agent.uninstall_mcp_servers(workspace, mcp_servers)
                 except Exception as cleanup_exc:
-                    if agent_error is None:
-                        raise
-                    log_and_print(
-                        f"[{label}] MCP config cleanup failed while preserving the "
-                        f"original agent error: {cleanup_exc}",
-                        self._run_log_file,
-                    )
+                    cleanup_error = cleanup_exc
+                    if agent_error is not None:
+                        log_and_print(
+                            f"[{label}] MCP config cleanup failed while preserving the "
+                            f"original agent error: {cleanup_exc}",
+                            self._run_log_file,
+                        )
+            if self._docker_sandboxes is not None:
+                try:
+                    executor = agent.executor
+                    executor.repair_workspace_ownership(uid=os.getuid(), gid=os.getgid())
+                except Exception as cleanup_exc:
+                    if cleanup_error is None:
+                        cleanup_error = cleanup_exc
+                    else:
+                        log_and_print(
+                            f"[{label}] workspace ownership repair also failed: {cleanup_exc}",
+                            self._run_log_file,
+                        )
+                    if agent_error is not None:
+                        log_and_print(
+                            f"[{label}] workspace ownership repair failed while preserving "
+                            f"the original agent error: {cleanup_exc}",
+                            self._run_log_file,
+                        )
             self._write_usage_record(
                 kind=kind,
                 round_label=round_label,
@@ -408,6 +428,8 @@ class CliAgentRunner:
                 model_name=selected_model or self._model_name,
                 reasoning_effort=selected_reasoning_effort,
             )
+            if agent_error is None and cleanup_error is not None:
+                raise cleanup_error
         return text
 
     def _configure_reasoning_effort(self, agent: CodingAgent, reasoning_effort: str | None) -> None:

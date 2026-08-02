@@ -853,6 +853,20 @@ def _run_orchestrator_plan(
     return plan
 
 
+def _missing_implementer_response() -> ImplementerResponse:
+    """Fail closed when an implementer turn does not match its response schema."""
+    return ImplementerResponse(
+        summary="Implementer produced no structured response.",
+        expected_behavior="unknown",
+        hypothesis_outcome=HypothesisOutcome.INCONCLUSIVE,
+        evidence="The implementer output could not be parsed as ImplementerResponse.",
+        next_step=(
+            "Recover the retained workspace evidence and return a schema-valid "
+            "ImplementerResponse before requesting review or official evaluation."
+        ),
+    )
+
+
 def _run_implementer(
     ctx: LoopContext,
     *,
@@ -925,10 +939,7 @@ def _run_implementer(
             else "Work persistently on the active hypothesis and return only the JSON object."
         ),
         response_cls=ImplementerResponse,
-        fallback_factory=lambda: ImplementerResponse(
-            summary="Implementer produced no structured response.",
-            expected_behavior="unknown",
-        ),
+        fallback_factory=_missing_implementer_response,
         round_label=f"round-{round_number}-retry-{retry}-implementer",
         reuse_session=True,
         session_key=f"hypothesis:{plan.hypothesis_id}",

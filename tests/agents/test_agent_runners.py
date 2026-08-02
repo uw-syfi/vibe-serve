@@ -1121,6 +1121,13 @@ class TestCliAgentRunner:
         from vibesys.agents.docker_executor import DockerCommandExecutor
 
         captured: list = []
+        ownership_repairs: list[tuple[str, int, int]] = []
+
+        monkeypatch.setattr(
+            DockerCommandExecutor,
+            "repair_workspace_ownership",
+            lambda self, *, uid, gid: ownership_repairs.append((self.container_id, uid, gid)),
+        )
 
         class FakeAgent:
             def __init__(self, model=None, event_handler=None, executor=None):
@@ -1195,6 +1202,10 @@ class TestCliAgentRunner:
 
         assert len(captured) == 1
         assert captured[0].executor.container_id == "container-two"
+        assert [container_id for container_id, _, _ in ownership_repairs] == [
+            "container-one",
+            "container-two",
+        ]
 
     def test_cli_runner_invokes_install_then_generate_then_uninstall(self, monkeypatch, tmp_path):
         """The mcp_servers kwarg triggers a strict install → generate → uninstall sandwich."""

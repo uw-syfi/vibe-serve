@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import subprocess
 
 from agentshim.executor import CallbackCommandStreamSink, CommandRequest
 
@@ -92,3 +93,42 @@ def test_docker_executor_runs_command_request_and_streams_to_sink(monkeypatch):
     assert result.returncode == 0
     assert result.stdout == "out\n"
     assert result.stderr == "err\n"
+
+
+def test_docker_executor_repairs_workspace_ownership(monkeypatch):
+    calls = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append((cmd, kwargs))
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr("vibesys.agents.docker_executor.subprocess.run", fake_run)
+
+    DockerCommandExecutor("container-123").repair_workspace_ownership(uid=123, gid=456)
+
+    assert calls == [
+        (
+            [
+                "docker",
+                "exec",
+                "container-123",
+                "find",
+                "/workspace",
+                "-xdev",
+                "-user",
+                "0",
+                "-writable",
+                "-exec",
+                "chown",
+                "123:456",
+                "{}",
+                "+",
+            ],
+            {
+                "capture_output": True,
+                "text": True,
+                "timeout": 120,
+                "check": False,
+            },
+        )
+    ]
