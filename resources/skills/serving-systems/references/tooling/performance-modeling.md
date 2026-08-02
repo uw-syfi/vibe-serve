@@ -58,6 +58,23 @@ A large residual is a profiling result: locate it before optimizing a fully
 accounted minor phase. Correlate client, HTTP, scheduler, model-runner, and GPU
 timestamps when the service boundary matters.
 
+For an asynchronous GPU runtime, a CUDA event pair around a host-side scope
+measures device work queued between the events, not exclusive time owned by the
+Python scope. Do not add that duration to the scope's CPU time or interpret it
+as independent work without a timeline or synchronization boundary that proves
+the attribution.
+
+Before proposing generic CPU/GPU overlap, inventory every host synchronization
+on the token-step path and multiply it by execution frequency. Search for
+`.item()`, `.tolist()`, CPU transfers, tensor truth tests, explicit
+synchronization, and device-derived Python shape values. Distinguish one
+unavoidable sample handoff per token step from an accidental synchronization
+inside every decoder layer or request. Removing 32 per-layer barriers is a
+different hypothesis and ceiling from hiding one scheduler handoff. Also draw
+the data-dependency edge: work that produces the next token cannot overlap the
+next forward unless that token remains on device or a cohort executes
+independently.
+
 ## Bound a hypothesis with Amdahl's law
 
 If a fraction `f` of end-to-end time is accelerated by `s`:
@@ -245,6 +262,10 @@ measured saturation point as though it were the hardware roofline.
 
 - Mixing per-kernel, per-step, and client-observed metrics.
 - Summing profiler categories that overlap or contain parent/child scopes.
+- Treating CUDA-event time around an asynchronous host scope as exclusive GPU
+  self-time, or adding it to the same scope's CPU time.
+- Proposing overlap before counting hot-loop synchronization sites and proving
+  that the supposedly overlapped work is not a dependency of the next step.
 - Treating CUDA-graph attribution gaps as zero work.
 - Archiving a disproven experiment without using its activated end-to-end delta
   to constrain later hypotheses in the same cost-center class.
