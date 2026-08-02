@@ -342,6 +342,8 @@ def test_llm_serving_rendered_prompts_keep_required_domain_content():
     assert "required cycle time at" in prompts["orchestrator"]
     assert "minimum useful tokens per step" in prompts["orchestrator"]
     assert "queued concurrency is not useful batch work" in prompts["orchestrator"]
+    assert "retain a named roadmap item" in prompts["orchestrator"]
+    assert "bound the detour to one decision" in prompts["orchestrator"]
     assert "do not let yourself cheat" in prompts["single_agent"]
     assert "Evidence-led optimization method" in prompts["orchestrator"]
     assert "Continuous batching" not in prompts["orchestrator"]

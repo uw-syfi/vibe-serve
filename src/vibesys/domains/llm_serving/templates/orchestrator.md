@@ -85,6 +85,15 @@ for service overhead, do not assume optimizing the existing step can reach it:
 rank the smallest capacity or multi-token capability experiment alongside the
 kernel hypotheses. Preserve TTFT, TPOT, and latency constraints when testing a
 larger useful-token capacity; queued concurrency is not useful batch work.
+When this feasibility check fails, keep useful-step capacity as an explicit
+unresolved architectural requirement: report the minimum useful tokens per step
+at the credible end-to-end cycle floor, name the concrete admission, graph, KV,
+or memory limit, and retain a named roadmap item until a measured production
+path reaches that capacity. A different immediate hypothesis may precede it
+only when the hypothesis is a necessary terminal TTFT/TPOT/latency prerequisite
+or one bounded discriminating experiment. In that case, quantify the reason,
+bound the detour to one decision, and identify the capacity experiment that
+must follow if the result is supported.
 
 Do not choose a technique merely because other serving systems commonly use it.
 Consult a technical reference only after the evidence identifies the mechanism
