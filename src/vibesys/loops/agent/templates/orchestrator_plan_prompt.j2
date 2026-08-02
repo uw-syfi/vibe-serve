@@ -233,17 +233,22 @@ and the representative comparison directly contradicts the causal claim, the
 implementer should retain that evidence, report `disproven`, and skip the
 remaining sweep. Do not require a canonical run merely to give a failed
 hypothesis an official score.
-Require the controller itself to fail closed at every staged gate. Its preflight
-must inject or synthesize a capability/correctness/smoke failure and prove the
+Reuse established evaluation plumbing. For an ordinary candidate optimization,
+require the implementer to call the existing benchmark runner/controller and
+retain its normal artifacts; do not ask for a hypothesis-specific controller or
+another synthetic preflight merely to rename phases, counters, or output files.
+Require new controller code and its preflights only when the plan actually
+changes staged control flow, comparison/enrichment logic, serialization, or an
+execution boundary. In that case, require the controller itself to fail closed:
+inject or synthesize a failed capability/correctness/smoke gate and prove the
 downstream expensive callable is not invoked while the failure artifact is
-retained. A controller that records `issues` but unconditionally continues does
-not satisfy the staged plan.
-Require a synthetic successful-row preflight through comparison, enrichment,
-and serialization as well as the failed-gate test. Name the execution boundary:
-remote code may read only explicitly bundled or mounted files, so retained
+retained. Also require a synthetic successful row through the newly changed
+comparison, enrichment, and serialization path. A controller that records
+`issues` but unconditionally continues does not satisfy the staged plan.
+Remote code may read only explicitly bundled or mounted files, so retained
 local baselines must be passed as primitive arguments or applied after the raw
-remote response is durably written. The implementer must inspect remote
-callables for local-workspace artifact reads before spending on measurement.
+remote response is durably written. The implementer must inspect any changed
+remote callable for local-workspace artifact reads before measurement.
 For a multi-point sweep, the directional gate should normally be one
 canonical-shape point at the representative load where the mechanism is
 expected to matter, not a shortened smoke workload and not the whole sweep.

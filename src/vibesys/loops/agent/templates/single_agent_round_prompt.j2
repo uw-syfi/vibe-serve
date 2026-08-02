@@ -106,14 +106,19 @@ If self-review finds several target-hardware repairs on the unchanged
 candidate, validate compatible correctness, profiler-contract, and smoke hooks
 as adjacent phases of that same controller. Do not cold-start one accelerator
 per output artifact.
-Make the controller fail closed in code. Before remote execution, inject or
-synthesize a failed capability/correctness/smoke result and assert that the
-downstream representative or canonical callable is not invoked while the
-failure artifact is retained. Recording `issues` and continuing is not a gate.
-Preflight the success path with a fake representative row through comparison,
-enrichment, and final serialization. Remote code may read only files explicitly
-bundled or mounted there; pass local baselines as primitive inputs or compare
-only after the raw remote response is durably written. Inspect remote callables
+Reuse the established benchmark runner and controller for ordinary candidate
+changes. Do not build a round-specific controller or fresh synthetic artifacts
+solely to wrap the same evaluation flow, rename phases, or expose activation
+counters. When you create or change staged control flow,
+comparison/enrichment, serialization, or an execution boundary, make that
+changed path fail closed in code. Inject or synthesize a failed
+capability/correctness/smoke result and assert that the downstream representative
+or canonical callable is not invoked while the failure artifact is retained;
+recording `issues` and continuing is not a gate. Preflight the newly changed
+success path with a fake representative row through comparison, enrichment,
+and final serialization. Remote code may read only files explicitly bundled or
+mounted there; pass local baselines as primitive inputs or compare only after
+the raw remote response is durably written. Inspect changed remote callables
 for local-workspace artifact reads before launching paid hardware.
 Match activation telemetry to its sampling time. After work drains, use
 monotonic totals, retained peaks/high-water marks, or event evidence—not a

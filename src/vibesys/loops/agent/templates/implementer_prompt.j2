@@ -85,19 +85,24 @@ with empty performance tracking fields. Do not finish a canonical sweep merely
 to assign an official score to a hypothesis that has already been fairly
 falsified. Proceed to canonical confirmation only when the directional gate
 supports the claim or when the targeted evidence genuinely cannot decide it.
-Make staged controllers fail closed in code, not only in prose: every failed
-capability, correctness, or smoke gate must return before the downstream
-expensive callable is invoked. Before remote execution, inject or synthesize one
-failed-gate result and assert that the representative/canonical invocation count
-stays zero while the failure artifact is still written. Merely appending an
-`issues` field and then continuing is not staged evaluation.
-Exercise the successful post-measurement path too. Inject a representative fake
-row through comparison, enrichment, and final artifact serialization before the
-remote run. Remote code may read only files explicitly bundled or mounted in
-that environment; pass retained baselines and other local-only evidence as
-primitive controller arguments or perform comparison after the raw remote
-response is durably written. Statically inspect remote callables for workspace
-artifact reads so a completed measurement cannot be lost at enrichment time.
+Reuse the established benchmark runner and staged controller by default. Do not
+add a hypothesis-specific controller or new synthetic artifacts solely to wrap
+an ordinary candidate change, rename phases, or expose additional activation
+counters. Cite retained validation of unchanged evaluation plumbing and spend
+the round on the candidate plus the smallest discriminating measurement.
+If this round creates or changes staged control flow, comparison/enrichment
+logic, serialization, or an execution boundary, make that changed path fail
+closed in code: every failed capability, correctness, or smoke gate must return
+before the downstream expensive callable is invoked. Before remote execution,
+inject or synthesize one failed-gate result and assert that the downstream
+invocation count stays zero while the failure artifact is still written. Also
+exercise a representative fake row through the newly changed comparison,
+enrichment, and serialization path. Merely appending an `issues` field and then
+continuing is not staged evaluation. Remote code may read only files explicitly
+bundled or mounted in that environment; pass retained baselines and other
+local-only evidence as primitive controller arguments or compare after the raw
+remote response is durably written. Inspect changed remote callables for
+workspace artifact reads so a completed measurement cannot be lost.
 When the official evaluation is a multi-point sweep, distinguish a short
 plumbing smoke from a directional performance probe. After the smoke, first run
 one canonical-shape point at the representative load where the mechanism should

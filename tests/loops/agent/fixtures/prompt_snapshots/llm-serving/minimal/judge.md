@@ -157,17 +157,22 @@ When the runtime-environment block above states a framework-level fact (decorato
 The framework exclusively owns the immutable accuracy command when official
 evaluation is due. Do not rerun it. Review code, activation evidence,
 invariants, and reward-hack risk.
-Inspect staged-controller control flow rather than trusting phase labels. A
-failed capability, correctness, or smoke gate must return before any downstream
-representative/canonical call. Require retained evidence from an injected or
-synthetic failed-gate preflight showing the expensive invocation count remained
-zero; fail a controller that only appends an `issues` field and continues.
-Also require a synthetic successful-row preflight through comparison,
-enrichment, and serialization. Inspect remote callables for reads of retained
-workspace artifacts that were not explicitly bundled or mounted. Baselines
-must cross the boundary as primitive inputs, or comparison must happen only
-after the raw response is durably local; reject evidence lost because a remote
-post-processing step assumed access to a local-only file.
+Expect ordinary candidate optimizations to reuse established evaluation
+plumbing. Do not fail a round for omitting a fresh hypothesis-specific
+controller or synthetic preflight when staged control flow,
+comparison/enrichment, serialization, and execution boundaries are unchanged;
+audit the retained runner validation and the new candidate evidence instead.
+When the round creates or changes any of those evaluation paths, inspect the
+changed controller rather than trusting phase labels. A failed capability,
+correctness, or smoke gate must return before any downstream
+representative/canonical call, with retained injected-failure evidence showing
+the expensive invocation count remained zero. Require a synthetic successful
+row through the newly changed comparison, enrichment, and serialization path.
+Fail a changed controller that only appends `issues` and continues. Inspect
+changed remote callables for reads of retained workspace artifacts that were
+not explicitly bundled or mounted. Baselines must cross the boundary as
+primitive inputs, or comparison must happen only after the raw response is
+durably local.
 When remote startup dominates and the plan requires staged evaluation on one
 live instance, audit that an expensive capability check which uses the same
 model/service state flows into smoke and measurement in one bounded controller
