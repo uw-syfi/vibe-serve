@@ -1317,6 +1317,46 @@ def test_loop_retries_when_framework_accuracy_gate_fails(tmp_path, ref_file):
     assert runner.counters["judge"] == 2
 
 
+def test_framework_gate_retry_preserves_judge_approved_metrics(tmp_path, ref_file):
+    runner = _make_orchestrate_runner(
+        plans=[OrchestratorPlan(task="Build", pass_criteria="tests", reasoning="start")],
+        judge_verdicts=["pass", "pass"],
+        implementer_perf_metrics=[321.5, None],
+    )
+
+    result = _invoke_orchestrate(
+        tmp_path,
+        ref_file,
+        runner,
+        max_rounds=1,
+        max_retries_per_round=2,
+        _accuracy_gate_results=["wrapper failed", None],
+    )
+
+    assert result is True
+    rounds_files = list((tmp_path / "exp_env").glob("*/logs/rounds.json"))
+    rounds = __import__("json").loads(rounds_files[0].read_text())
+    assert rounds[0]["perf_metric"] == 321.5
+    assert rounds[0]["perf_unit"] == "tok/s"
+    assert rounds[0]["metrics"] == {
+        "aggregate_throughput": 321.5,
+        "p99_latency_ms": 87.0,
+    }
+    assert rounds[0]["evaluation_artifact"] == "benchmark/summary.json"
+    assert rounds[0]["profile_skipped"] is False
+
+    implementer_calls = [
+        call
+        for call in runner.invoke.call_args_list
+        if call.kwargs.get("response_cls") is ImplementerResponse
+    ]
+    assert len(implementer_calls) == 2
+    retry_prompt = implementer_calls[1].kwargs["system_prompt"]
+    assert "Framework gate revalidation" in retry_prompt
+    assert "321.5 tok/s" in retry_prompt
+    assert "Do not modify candidate behavior or rerun" in retry_prompt
+
+
 def test_loop_exhaustion_carries_to_next_round(tmp_path, ref_file):
     """Review exhaustion returns to the same implementer, not the designer."""
     seen_plan_prompts: list[str] = []

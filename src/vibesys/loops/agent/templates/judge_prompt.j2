@@ -25,6 +25,20 @@ You are a senior code reviewer evaluating the candidate implementation.
 - **Reported objective metrics**: {{ implementer_metrics or '(missing)' }}
 - **Reported evaluation artifact**: `{{ implementer_evaluation_artifact or '(missing)' }}`
 {% endif %}
+{% if gate_revalidation_pending|default(false) %}
+
+## Framework-approved evidence pending gate revalidation
+
+A prior attempt for this active hypothesis passed independent review before a
+framework-owned gate failed. Its canonical tracking values were
+`{{ gate_approved_perf_metric }}`{% if gate_approved_perf_unit %} {{ gate_approved_perf_unit }}{% endif %},
+metrics `{{ gate_approved_metrics or {} }}`, artifact
+`{{ gate_approved_evaluation_artifact or '(missing)' }}`. The implementer may
+correctly report null fresh tracking fields for an unchanged resubmission. Audit
+that the candidate and retained evidence still match; fail if candidate behavior
+changed without a fresh canonical evaluation. Do not require a duplicate run
+solely because the framework gate is being retried.
+{% endif %}
 
 {% if runtime_notes %}
 ## Runtime environment

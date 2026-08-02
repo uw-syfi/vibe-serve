@@ -145,6 +145,16 @@ class _ActiveHypothesis:
     # so this commit must travel through loop state rather than be rediscovered
     # by the implementer or judge.
     revert_commit: str | None = None
+    # A nominated candidate may pass independent review and then fail only a
+    # framework-owned gate. Preserve the judge-approved canonical evidence so
+    # a wrapper repair or transient gate retry does not force a duplicate
+    # benchmark or erase the metric when the implementer correctly reports the
+    # resubmission as reused evidence.
+    gate_revalidation_pending: bool = False
+    gate_approved_perf_metric: float | None = None
+    gate_approved_perf_unit: str | None = None
+    gate_approved_metrics: dict[str, float] = field(default_factory=dict)
+    gate_approved_evaluation_artifact: str | None = None
 
     def to_json(self) -> dict[str, Any]:
         return {
@@ -155,6 +165,11 @@ class _ActiveHypothesis:
             "next_step": self.next_step,
             "revert_applied": self.revert_applied,
             "revert_commit": self.revert_commit,
+            "gate_revalidation_pending": self.gate_revalidation_pending,
+            "gate_approved_perf_metric": self.gate_approved_perf_metric,
+            "gate_approved_perf_unit": self.gate_approved_perf_unit,
+            "gate_approved_metrics": self.gate_approved_metrics,
+            "gate_approved_evaluation_artifact": self.gate_approved_evaluation_artifact,
         }
 
     @classmethod
@@ -171,6 +186,13 @@ class _ActiveHypothesis:
             next_step=data.get("next_step"),
             revert_applied=bool(data.get("revert_applied", False)),
             revert_commit=data.get("revert_commit"),
+            gate_revalidation_pending=bool(data.get("gate_revalidation_pending", False)),
+            gate_approved_perf_metric=data.get("gate_approved_perf_metric"),
+            gate_approved_perf_unit=data.get("gate_approved_perf_unit"),
+            gate_approved_metrics=data.get("gate_approved_metrics", {}),
+            gate_approved_evaluation_artifact=data.get(
+                "gate_approved_evaluation_artifact"
+            ),
         )
 
 
@@ -720,6 +742,10 @@ def _run_implementer(
     framework_revert_commit: str | None,
     progress_path: Path,
     progress_location: str,
+    gate_revalidation_pending: bool = False,
+    gate_approved_perf_metric: float | None = None,
+    gate_approved_perf_unit: str | None = None,
+    gate_approved_evaluation_artifact: str | None = None,
     framework_benchmark_enabled: bool = False,
 ) -> ImplementerResponse:
     domain_implementer = render_domain_section(
@@ -749,6 +775,10 @@ def _run_implementer(
         framework_revert_applied=framework_revert_applied,
         framework_revert_round=framework_revert_round,
         framework_revert_commit=framework_revert_commit,
+        gate_revalidation_pending=gate_revalidation_pending,
+        gate_approved_perf_metric=gate_approved_perf_metric,
+        gate_approved_perf_unit=gate_approved_perf_unit,
+        gate_approved_evaluation_artifact=gate_approved_evaluation_artifact,
         runtime_notes=ctx.run_environment_view.prompt_notes,
         env_kind=ctx.run_environment_view.env_kind,
         framework_benchmark_enabled=framework_benchmark_enabled,
@@ -792,6 +822,11 @@ def _run_judge(
     framework_revert_applied: bool,
     framework_revert_round: int | None,
     framework_revert_commit: str | None,
+    gate_revalidation_pending: bool = False,
+    gate_approved_perf_metric: float | None = None,
+    gate_approved_perf_unit: str | None = None,
+    gate_approved_metrics: dict[str, float] | None = None,
+    gate_approved_evaluation_artifact: str | None = None,
     framework_benchmark_enabled: bool = False,
 ) -> JudgeResponse:
     judge_domain_context = _domain_render_context(ctx, modality, interface)
@@ -829,6 +864,11 @@ def _run_judge(
         implementer_perf_unit=implementation.perf_unit,
         implementer_metrics=implementation.metrics,
         implementer_evaluation_artifact=implementation.evaluation_artifact,
+        gate_revalidation_pending=gate_revalidation_pending,
+        gate_approved_perf_metric=gate_approved_perf_metric,
+        gate_approved_perf_unit=gate_approved_perf_unit,
+        gate_approved_metrics=gate_approved_metrics or {},
+        gate_approved_evaluation_artifact=gate_approved_evaluation_artifact,
         progress_location=progress_location,
         framework_revert_applied=framework_revert_applied,
         framework_revert_round=framework_revert_round,
@@ -1505,7 +1545,9 @@ def run_agent_loop(
                 passed = False
                 review_started = False
                 final_attempt_reviewed = False
-                framework_revalidation_required = False
+                framework_revalidation_required = (
+                    active_hypothesis.gate_revalidation_pending
+                )
                 implementation: ImplementerResponse | None = None
                 single_agent_response: SingleAgentRoundResponse | None = None
                 framework_perf_metric: float | None = None
@@ -1534,6 +1576,18 @@ def run_agent_loop(
                             framework_revert_applied=active_hypothesis.revert_applied,
                             framework_revert_round=active_hypothesis.parent_round,
                             framework_revert_commit=active_hypothesis.revert_commit,
+                            gate_revalidation_pending=(
+                                active_hypothesis.gate_revalidation_pending
+                            ),
+                            gate_approved_perf_metric=(
+                                active_hypothesis.gate_approved_perf_metric
+                            ),
+                            gate_approved_perf_unit=(
+                                active_hypothesis.gate_approved_perf_unit
+                            ),
+                            gate_approved_evaluation_artifact=(
+                                active_hypothesis.gate_approved_evaluation_artifact
+                            ),
                             progress_path=progress_path,
                             progress_location=progress_location,
                             framework_benchmark_enabled=benchmark_result is not None,
@@ -1590,6 +1644,19 @@ def run_agent_loop(
                             framework_revert_applied=active_hypothesis.revert_applied,
                             framework_revert_round=active_hypothesis.parent_round,
                             framework_revert_commit=active_hypothesis.revert_commit,
+                            gate_revalidation_pending=(
+                                active_hypothesis.gate_revalidation_pending
+                            ),
+                            gate_approved_perf_metric=(
+                                active_hypothesis.gate_approved_perf_metric
+                            ),
+                            gate_approved_perf_unit=(
+                                active_hypothesis.gate_approved_perf_unit
+                            ),
+                            gate_approved_metrics=active_hypothesis.gate_approved_metrics,
+                            gate_approved_evaluation_artifact=(
+                                active_hypothesis.gate_approved_evaluation_artifact
+                            ),
                             framework_benchmark_enabled=benchmark_result is not None,
                         )
                         if verdict.verdict == Verdict.PASS:
@@ -1603,6 +1670,22 @@ def run_agent_loop(
                                 # accuracy/benchmark gates.
                                 passed = True
                                 break
+                            if implementation.perf_metric is not None:
+                                active_hypothesis.gate_approved_perf_metric = (
+                                    implementation.perf_metric
+                                )
+                                active_hypothesis.gate_approved_perf_unit = (
+                                    implementation.perf_unit
+                                )
+                                active_hypothesis.gate_approved_metrics = dict(
+                                    implementation.metrics
+                                )
+                                active_hypothesis.gate_approved_evaluation_artifact = (
+                                    implementation.evaluation_artifact
+                                )
+                                _save_active_hypothesis(
+                                    active_hypothesis_path, active_hypothesis
+                                )
                             gate_feedback, framework_perf_metric = _run_framework_gates(
                                 ctx,
                                 benchmark_result=benchmark_result,
@@ -1617,6 +1700,7 @@ def run_agent_loop(
                                 break
                             feedback = gate_feedback
                             framework_revalidation_required = True
+                            active_hypothesis.gate_revalidation_pending = True
                             active_hypothesis.feedback = feedback
                             _save_active_hypothesis(
                                 active_hypothesis_path, active_hypothesis
@@ -1703,6 +1787,16 @@ def run_agent_loop(
                         if implementation is not None and passed
                         else None
                     )
+                    if (
+                        implementation_metric is None
+                        and passed
+                        and implementation is not None
+                        and implementation.hypothesis_outcome is HypothesisOutcome.NOMINATED
+                        and active_hypothesis.gate_revalidation_pending
+                    ):
+                        implementation_metric = (
+                            active_hypothesis.gate_approved_perf_metric
+                        )
                     profile_skipped = (
                         profiler_summary is None
                         and framework_perf_metric is None
@@ -1713,15 +1807,18 @@ def run_agent_loop(
                         perf_unit = benchmark_result.metric if benchmark_result else None
                     elif implementation_metric is not None:
                         perf_metric = implementation_metric
-                        perf_unit = implementation.perf_unit if implementation is not None else None
-                        accepted_metrics = (
-                            dict(implementation.metrics) if implementation is not None else {}
-                        )
-                        accepted_evaluation_artifact = (
-                            implementation.evaluation_artifact
-                            if implementation is not None
-                            else None
-                        )
+                        if implementation is not None and implementation.perf_metric is not None:
+                            perf_unit = implementation.perf_unit
+                            accepted_metrics = dict(implementation.metrics)
+                            accepted_evaluation_artifact = implementation.evaluation_artifact
+                        else:
+                            perf_unit = active_hypothesis.gate_approved_perf_unit
+                            accepted_metrics = dict(
+                                active_hypothesis.gate_approved_metrics
+                            )
+                            accepted_evaluation_artifact = (
+                                active_hypothesis.gate_approved_evaluation_artifact
+                            )
                     else:
                         perf_metric = (
                             profiler_summary.perf_metric if (profiler_summary and passed) else None

@@ -52,6 +52,13 @@ candidate.
 - **Invariants**: {{ invariants|default('(unspecified)') or '(unspecified)' }}
 
 Treat this hypothesis as a persistent goal, not a one-shot task. Retain control over targeted experiments, workload ranges, parameter sweeps, logs, and small probes needed to implement or falsify it. The framework owns the immutable accuracy gate after independent review.
+{% if gate_revalidation_pending|default(false) %}
+
+## Framework gate revalidation
+
+The independent judge already approved this hypothesis's candidate and its
+canonical evidence{% if gate_approved_perf_metric is not none %} (`{{ gate_approved_perf_metric }}{{ (' ' ~ gate_approved_perf_unit) if gate_approved_perf_unit else '' }}`, artifact `{{ gate_approved_evaluation_artifact or '(missing)' }}`){% endif %}; a framework-owned gate then failed. Do not modify candidate behavior or rerun the canonical evaluation merely to resubmit it. Verify that the candidate remains unchanged, reuse the retained evidence, and return null performance tracking fields unless you actually produced a fresh canonical evaluation. The framework retains the previously approved tracking values while it revalidates its gate.
+{% endif %}
 {% if framework_benchmark_enabled|default(false) %}
 It also owns the declared trusted benchmark run, so avoid duplicating that full run merely to produce an official score.
 {% else %}
