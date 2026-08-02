@@ -87,8 +87,10 @@ The framework exclusively owns the immutable accuracy command when official
 evaluation is due. Do not rerun it. Review code, activation evidence,
 invariants, and reward-hack risk.
 When remote startup dominates and the plan requires staged evaluation on one
-live instance, audit that the evidence comes from one bounded controller
-invocation rather than repeated cold deployments. Also verify cost safety:
+live instance, audit that an expensive capability check which uses the same
+model/service state flows into smoke and measurement in one bounded controller
+invocation when safe, rather than causing repeated cold deployments. Also
+verify cost safety:
 zero minimum-warm replicas, a finite idle/scaledown backstop, bounded accelerator
 count, and best-effort teardown on success, failure, and interruption. Flag a
 permanently warm or unbounded deployment even when its benchmark result is

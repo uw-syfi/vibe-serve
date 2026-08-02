@@ -101,13 +101,14 @@ run the full canonical benchmark or immutable accuracy checker, and report
 `perf_metric: null` unless a fresh canonical result was genuinely required and
 completed.
 
-When remote service startup or model load dominates, combine smoke,
-representative measurement, and any conditionally justified canonical sweep in
-one bounded controller invocation. Abort inside that invocation as soon as a
-gate fails. Use zero minimum-warm replicas, one accelerator unless the workload
-requires more, a short finite idle/scaledown timeout, an outer command timeout,
-and `finally` teardown. Do not keep a paid accelerator warm across agent
-reasoning turns.
+When remote service startup or model load dominates, combine any capability
+check that needs the same initialized state, smoke, representative measurement,
+and any conditionally justified canonical sweep in one bounded controller
+invocation when safe. Persist each phase before continuing and abort inside that
+invocation as soon as a gate fails. Use zero minimum-warm replicas, one
+accelerator unless the workload requires more, a short finite idle/scaledown
+timeout, an outer command timeout, and `finally` teardown. Do not keep a paid
+accelerator warm across agent reasoning turns.
 Match activation telemetry to its sampling time. After work drains, use
 monotonic totals, retained peaks/high-water marks, or event evidence—not a
 current-occupancy gauge for resources that correct cleanup releases. Sample an

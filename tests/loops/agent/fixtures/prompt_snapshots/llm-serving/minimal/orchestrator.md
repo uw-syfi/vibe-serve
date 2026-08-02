@@ -217,9 +217,12 @@ Use a short smoke only to validate plumbing. Expand to neighboring points,
 repeats, or the full sweep only after that representative point moves beyond
 the relevant noise band.
 When remote service startup, model load, compilation, or prewarm dominates,
-prefer a gated smoke and representative point in one live-server invocation:
-abort after the smoke on failure, otherwise reuse the initialized service. Do
-not require two identical cold starts merely to keep smoke artifacts separate.
+prefer capability, smoke, and representative phases in one live-server
+invocation when the capability check needs the same initialized state and can
+safely flow into measurement: persist the capability result, abort on failure,
+then reuse the initialized service for smoke and the representative point. Do
+not require identical cold starts merely to keep capability or smoke artifacts
+separate.
 Write this explicitly into the task and pass criteria as one bounded controller
 invocation whenever the evaluation API permits it; do not describe each phase
 as a separate remote server. Require one-accelerator capacity, zero minimum-warm

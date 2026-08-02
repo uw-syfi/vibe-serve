@@ -119,13 +119,15 @@ path. If that probe fails, retain it as falsification evidence and stop before
 instrumentation or workload runs; local CLI availability alone is not proof
 that the remote execution environment supports the tool.
 
-Account for setup cost when staging that smoke. If service startup, model load,
-compilation, or prewarm dominates and the harness can gate multiple phases on
-one live instance, run the smoke first inside the same invocation and continue
-to the representative point only when it passes. Do not launch a second
-identical service merely to separate artifact directories. Use a separate
-remote smoke only when it materially lowers expected cost or isolates state
-that would make the following measurement untrustworthy.
+Account for setup cost when staging capability checks and smoke. If a capability
+probe itself requires the same expensive model, service, compiler state, or
+prewarm as later phases, put it first in the same bounded controller invocation,
+persist its result, and continue on that initialized resource only when it
+passes. Then run smoke and the representative point on that instance under the
+same staged gates. Do not launch a second identical service merely to separate
+capability, smoke, or benchmark artifacts. Use a separate remote probe only
+when it is materially cheaper in isolation or its side effects could make the
+following measurement untrustworthy.
 For remote accelerators, make that reuse bounded and crash-safe: keep the warm
 resource only for the adjacent machine-driven phases, cap the deployment at one
 accelerator unless the workload requires otherwise, keep the minimum warm count
