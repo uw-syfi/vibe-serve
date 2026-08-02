@@ -108,6 +108,12 @@ gate fails. Use zero minimum-warm replicas, one accelerator unless the workload
 requires more, a short finite idle/scaledown timeout, an outer command timeout,
 and `finally` teardown. Do not keep a paid accelerator warm across agent
 reasoning turns.
+Match activation telemetry to its sampling time. After work drains, use
+monotonic totals, retained peaks/high-water marks, or event evidence—not a
+current-occupancy gauge for resources that correct cleanup releases. Sample an
+instantaneous gauge while work is live only when live occupancy is itself the
+invariant. Validate this before the bounded remote run so a false smoke failure
+does not force another cold start.
 When a remote controller returns measured rows to a local wrapper, persist that
 raw response atomically before reading a baseline artifact, selecting an
 operating point, enriching a summary, or running optional analysis. Write the

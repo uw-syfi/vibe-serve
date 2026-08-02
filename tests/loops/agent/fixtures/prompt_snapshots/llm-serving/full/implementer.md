@@ -93,6 +93,13 @@ If the new mechanism activates only with multiple requests, dynamic batching,
 shape changes, or a particular concurrency, the preflight must reach that
 minimum activation condition; a successful single-request path is not a
 preflight for batched execution.
+Match activation telemetry to when it is sampled. A post-workload or post-drain
+check should use monotonic totals, a retained peak/high-water mark, or an event
+record—not a current-occupancy gauge for resources that successful cleanup is
+expected to release. If instantaneous occupancy is the required invariant,
+sample it while work is live. Audit this temporal contract before the remote
+run so correct cleanup cannot turn genuine activation into a false smoke
+failure and another cold start.
 Before building a harness around an external profiler, compiler, daemon, or
 system utility, run the smallest target-environment capability probe: verify
 the executable/version plus required device access, permissions, and export

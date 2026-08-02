@@ -239,6 +239,13 @@ an unrelated entry point is not useful preflight evidence and should not be run
 for ceremony. If activation requires batching or concurrency, require the
 smallest multi-request smoke that reaches that path before the representative
 measurement.
+Specify when each activation field is sampled. For a post-workload or
+post-drain decision, require a monotonic counter, retained peak/high-water mark,
+or event record instead of a current-occupancy gauge that should return to zero
+after correct cleanup. Require a live sample only when instantaneous occupancy
+itself is the invariant. This distinction must be settled before the bounded
+remote invocation so cleanup cannot cause a false gate failure and duplicate
+cold start.
 When a hypothesis depends on a new external profiler, compiler, daemon, or
 system utility, gate all instrumentation work behind a minimal capability
 probe in the actual target environment. The probe must establish executable

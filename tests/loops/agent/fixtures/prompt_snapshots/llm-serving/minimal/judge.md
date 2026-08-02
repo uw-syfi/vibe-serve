@@ -139,6 +139,13 @@ zero minimum-warm replicas, a finite idle/scaledown backstop, bounded accelerato
 count, and best-effort teardown on success, failure, and interruption. Flag a
 permanently warm or unbounded deployment even when its benchmark result is
 otherwise valid.
+Audit the temporal meaning of activation telemetry. A zero current-occupancy
+gauge sampled after requests drain is expected when resources were correctly
+released and cannot negate monotonic totals, retained peaks, or event evidence
+that the path ran. Conversely, a nonzero post-drain occupancy value is not
+automatically stronger evidence; it may be a leak. Reject gates that conflate
+live occupancy with historical activation when that confusion changes whether
+an expensive phase runs.
 Official evaluation is deferred for this working head. Do not fail solely
 because a full canonical sweep or immutable accuracy run is absent. Audit the
 scoped hypothesis using its activation evidence, invariants, and targeted
