@@ -104,6 +104,14 @@ to the representative point only when it passes. Do not launch a second
 identical service merely to separate artifact directories. Use a separate
 remote smoke only when it materially lowers expected cost or isolates state
 that would make the following measurement untrustworthy.
+For remote accelerators, make that reuse bounded and crash-safe: keep the warm
+resource only for the adjacent machine-driven phases, cap the deployment at one
+accelerator unless the workload requires otherwise, keep the minimum warm count
+at zero, use a short finite idle/scaledown timeout, and stop the deployment in a
+`finally` path after the last phase. Prefer one remote controller invocation
+that performs smoke -> directional -> conditional canonical work without agent
+think-time between phases. Never leave a permanently warm accelerator merely
+to accelerate a later agent turn.
 
 Preserve already-valid measured rows. A diagnostic or optional artifact created
 after measured rows completed cannot retroactively perturb them. Do not rerun a

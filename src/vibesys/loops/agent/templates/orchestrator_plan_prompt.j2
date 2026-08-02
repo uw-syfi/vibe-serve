@@ -227,6 +227,13 @@ When remote service startup, model load, compilation, or prewarm dominates,
 prefer a gated smoke and representative point in one live-server invocation:
 abort after the smoke on failure, otherwise reuse the initialized service. Do
 not require two identical cold starts merely to keep smoke artifacts separate.
+Write this explicitly into the task and pass criteria as one bounded controller
+invocation whenever the evaluation API permits it; do not describe each phase
+as a separate remote server. Require one-accelerator capacity, zero minimum-warm
+replicas, a short finite idle/scaledown timeout, explicit `finally` teardown,
+and an outer command timeout. The crash backstop must scale the accelerator to
+zero without relying on the agent returning normally. Do not keep an
+accelerator warm across agent reasoning turns.
 Require the smoke to traverse the newly changed failure-prone path; a smoke on
 an unrelated entry point is not useful preflight evidence and should not be run
 for ceremony. If activation requires batching or concurrency, require the

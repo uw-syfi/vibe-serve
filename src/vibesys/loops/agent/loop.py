@@ -1111,11 +1111,21 @@ def _framework_command_timeout(ctx: LoopContext, timeout_seconds: int | None) ->
     return timeout_seconds + setup_timeout
 
 
-def _with_candidate_revision(command: str, candidate_revision: str | None) -> str:
-    """Annotate an official command so its environment may reuse a deployment."""
-    if not candidate_revision:
+def _with_candidate_revision(
+    command: str,
+    candidate_revision: str | None,
+    *,
+    release_deployment: bool = False,
+) -> str:
+    """Annotate an official command with its bounded deployment-lease lifecycle."""
+    environment: list[str] = []
+    if candidate_revision:
+        environment.append(f"VIBESYS_CANDIDATE_REVISION={shlex.quote(candidate_revision)}")
+    if release_deployment:
+        environment.append("VIBESYS_RELEASE_MODAL_DEPLOYMENT=1")
+    if not environment:
         return command
-    return f"env VIBESYS_CANDIDATE_REVISION={shlex.quote(candidate_revision)} {command}"
+    return f"env {' '.join(environment)} {command}"
 
 
 def _run_framework_accuracy_gate(
@@ -1126,6 +1136,7 @@ def _run_framework_accuracy_gate(
     progress_path: Path,
     timeout_seconds: int | None = None,
     candidate_revision: str | None = None,
+    release_deployment_after: bool = False,
 ) -> str | None:
     """Run the immutable manifest accuracy command after an agent reports PASS."""
     changed = ctx.trusted_input_changes()
@@ -1147,7 +1158,11 @@ def _run_framework_accuracy_gate(
         return None
 
     ctx.lprint(f"[framework-accuracy] running: {command}")
-    execution_command = _with_candidate_revision(command, candidate_revision)
+    execution_command = _with_candidate_revision(
+        command,
+        candidate_revision,
+        release_deployment=release_deployment_after,
+    )
     try:
         effective_timeout = _framework_command_timeout(ctx, timeout_seconds)
         if effective_timeout is None:
@@ -1229,7 +1244,11 @@ def _run_framework_benchmark(
         return "Benchmark result contract is configured without a benchmark command.", None
 
     output_path = f"/tmp/vibesys-framework-benchmark-{round_number}-{retry}.json"
-    execution_base = _with_candidate_revision(base_command, candidate_revision)
+    execution_base = _with_candidate_revision(
+        base_command,
+        candidate_revision,
+        release_deployment=True,
+    )
     command = (
         f"{execution_base} {shlex.quote(result_spec.json_argument)} {shlex.quote(output_path)}"
         f" && printf '\\n{_FRAMEWORK_BENCHMARK_MARKER}\\n'"
@@ -1368,6 +1387,7 @@ def _run_framework_gates(
             progress_path=progress_path,
             timeout_seconds=accuracy_timeout_seconds,
             candidate_revision=candidate_revision,
+            release_deployment_after=(benchmark_result is None or not ctx.judge_benchmark_command),
         )
     if feedback is not None:
         return feedback, None, False

@@ -300,7 +300,9 @@ resources/                        # framework-owned assets exposed to agent runs
   `--official-eval-every` accepted candidates (default 3), when the
   orchestrator requests them, and on the final round. Other accepted candidates
   remain provisional working checkpoints. Official Modal gates reuse a healthy
-  deployment only for the exact candidate commit. Use `--memory-layout directories` for
+  deployment only for the exact candidate commit, then explicitly stop it after
+  the final gate; candidate services must also scale to zero after a short idle
+  timeout as the crash backstop. Use `--memory-layout directories` for
   `roadmap/index.md` plus one `progress/round-NNNN.md` file per round.
 - **plain**: drain `IssueBoard` (one impl + one judge per issue, BLOCK
   after `--max-attempts-per-issue`) → `perf_eval` (may file new issues).

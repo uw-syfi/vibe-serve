@@ -86,6 +86,14 @@ run the full canonical benchmark or immutable accuracy checker, and report
 `perf_metric: null` unless a fresh canonical result was genuinely required and
 completed.
 
+When remote service startup or model load dominates, combine smoke,
+representative measurement, and any conditionally justified canonical sweep in
+one bounded controller invocation. Abort inside that invocation as soon as a
+gate fails. Use zero minimum-warm replicas, one accelerator unless the workload
+requires more, a short finite idle/scaledown timeout, an outer command timeout,
+and `finally` teardown. Do not keep a paid accelerator warm across agent
+reasoning turns.
+
 ## Profiling step
 
 After (and only after) the implementation passes your self-judge gates, capture a profile so the orchestrator has a bottleneck signal for the next round.

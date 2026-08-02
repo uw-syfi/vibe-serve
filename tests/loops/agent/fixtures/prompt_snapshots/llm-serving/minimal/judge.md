@@ -107,6 +107,13 @@ When the runtime-environment block above states a framework-level fact (decorato
 The framework exclusively owns the immutable accuracy command when official
 evaluation is due. Do not rerun it. Review code, activation evidence,
 invariants, and reward-hack risk.
+When remote startup dominates and the plan requires staged evaluation on one
+live instance, audit that the evidence comes from one bounded controller
+invocation rather than repeated cold deployments. Also verify cost safety:
+zero minimum-warm replicas, a finite idle/scaledown backstop, bounded accelerator
+count, and best-effort teardown on success, failure, and interruption. Flag a
+permanently warm or unbounded deployment even when its benchmark result is
+otherwise valid.
 Official evaluation is deferred for this working head. Do not fail solely
 because a full canonical sweep or immutable accuracy run is absent. Audit the
 scoped hypothesis using its activation evidence, invariants, and targeted

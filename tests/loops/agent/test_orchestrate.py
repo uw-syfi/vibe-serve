@@ -637,6 +637,29 @@ def test_framework_accuracy_gate_passes_candidate_revision_to_environment(tmp_pa
     )
 
 
+def test_framework_accuracy_gate_can_release_final_deployment(tmp_path):
+    from vibesys.loops.agent.loop import _run_framework_accuracy_gate
+
+    ctx = MagicMock()
+    ctx.trusted_input_changes.return_value = []
+    ctx.judge_accuracy_command = "trusted-check"
+    ctx.judge_backend.execute.return_value = SimpleNamespace(exit_code=0, output="PASS")
+
+    feedback = _run_framework_accuracy_gate(
+        ctx,
+        round_number=1,
+        retry=1,
+        progress_path=tmp_path / "progress.md",
+        candidate_revision="abc123",
+        release_deployment_after=True,
+    )
+
+    assert feedback is None
+    ctx.judge_backend.execute.assert_called_once_with(
+        "env VIBESYS_CANDIDATE_REVISION=abc123 VIBESYS_RELEASE_MODAL_DEPLOYMENT=1 trusted-check"
+    )
+
+
 def test_framework_accuracy_gate_rejects_evaluator_changes_without_execution(tmp_path):
     from vibesys.loops.agent.loop import _run_framework_accuracy_gate
 
