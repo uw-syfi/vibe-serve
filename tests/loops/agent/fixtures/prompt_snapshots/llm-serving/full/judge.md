@@ -175,6 +175,11 @@ ordinary row data and do not by themselves justify controller edits. Prefer a
 generic artifact containing the full health/row payload over a new typed
 serializer or remote function for each mechanism; flag avoidable
 hypothesis-specific evaluation plumbing as iteration overhead.
+Audit negative-path counters at their source before accepting a reported zero.
+For every `fallback=0`, `legacy=0`, error, or bypass field used to prove
+activation, verify that the corresponding alternate branch actually increments
+that field. A counter initialized to zero but never mutated is not evidence that
+the alternate path stayed inactive.
 When the round creates or changes any of those evaluation paths, inspect the
 changed controller rather than trusting phase labels. A failed capability,
 correctness, or smoke gate must return before any downstream
@@ -231,6 +236,12 @@ Require resettable point-local counters or start/end deltas for the exact row
 whose metric is selected. Reject mechanism or overload claims when an earlier
 row is paired with process-lifetime totals or peaks polluted by later rows,
 even if the headline client metric itself is valid.
+Also flag an expensive sweep that refines a stable overload knee down to every
+integer concurrency when the objective does not require that precision. Once
+an intermediate point plus required repeats determine the selected operating
+point within measured noise, additional probes that cannot change the decision
+are iteration and accelerator cost, not stronger evidence. Preserve already
+completed valid rows rather than demanding a rerun solely for this inefficiency.
 Official evaluation is deferred for this working head. Do not fail solely
 because a full canonical sweep or immutable accuracy run is absent. Audit the
 scoped hypothesis using its activation evidence, invariants, and targeted

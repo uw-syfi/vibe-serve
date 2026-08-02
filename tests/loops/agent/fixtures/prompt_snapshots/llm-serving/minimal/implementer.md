@@ -215,6 +215,12 @@ For an expensive multi-point evaluation, checkpoint each completed row and the
 current phase atomically. A late timeout, optional repeat, or post-processing
 failure must leave earlier raw rows recoverable. Do not keep the only copy of a
 long sweep in process memory until the final point.
+Refine an overload boundary only far enough to establish a stable knee and
+select the operating point within the benchmark's measured noise/resolution.
+Do not binary-search every integer concurrency unless the objective explicitly
+requires that precision. Each additional boundary or neighbor point must still
+be capable of changing the selected row or the overload conclusion; otherwise
+stop and retain the completed rows.
 When a remote controller returns measured rows to a local wrapper, persist that
 raw response atomically before reading a baseline artifact, selecting an
 operating point, enriching a summary, or running optional analysis. Write the
@@ -227,6 +233,13 @@ view. A single sub-percent miss is not a mechanism-level falsification when
 nearby or repeated parent rows vary by more than that amount. Run the smallest
 repeat that resolves the classification, or report `inconclusive`; do not turn
 measurement noise into a confident `proven` or `disproven` outcome.
+
+Treat zero-valued negative-path telemetry as a claim that needs implementation
+proof. Before using a `fallback=0`, `legacy=0`, error, or bypass counter as
+activation evidence, inspect every corresponding branch and increment the
+counter at the boundary it claims to observe. A field initialized to zero but
+never updated on the alternate path is not evidence that the path stayed
+inactive.
 
 Search retained diagnostic artifacts before adding instrumentation or running
 a new diagnostic. When an artifact from the same trusted checkpoint, workload,
