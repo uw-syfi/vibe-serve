@@ -569,6 +569,74 @@ def test_progress_writes_orchestrator_plan(tmp_path):
     assert "Retain at >=1.15x with no latency regression" in text
 
 
+def test_progress_replaces_interrupted_stage_instead_of_duplicating_it(tmp_path):
+    progress = tmp_path / "progress"
+    issue_board.append_pre_round_decision(
+        progress,
+        7,
+        PreRoundDecision(
+            need_profile=True,
+            profile_focus="stale focus",
+            reasoning="stale decision",
+        ),
+    )
+    issue_board.append_orchestrator_plan(
+        progress,
+        7,
+        OrchestratorPlan(
+            task="Keep this plan",
+            pass_criteria="plan remains",
+            reasoning="retained plan",
+        ),
+    )
+
+    issue_board.append_pre_round_decision(
+        progress,
+        7,
+        PreRoundDecision(
+            need_profile=False,
+            profile_focus="",
+            reasoning="resumed decision",
+        ),
+    )
+
+    text = (progress / "round-0007.md").read_text()
+    assert text.count("## Round 7 — Orchestrator (pre-round)") == 1
+    assert "resumed decision" in text
+    assert "stale decision" not in text
+    assert text.count("## Round 7 — Orchestrator (plan)") == 1
+    assert "Keep this plan" in text
+
+
+def test_progress_preserves_distinct_attempts_but_replaces_same_attempt(tmp_path):
+    progress = tmp_path / "progress.md"
+    issue_board.append_implementer(
+        progress,
+        3,
+        1,
+        ImplementerResponse(summary="interrupted", expected_behavior="old"),
+    )
+    issue_board.append_implementer(
+        progress,
+        3,
+        1,
+        ImplementerResponse(summary="resumed", expected_behavior="new"),
+    )
+    issue_board.append_implementer(
+        progress,
+        3,
+        2,
+        ImplementerResponse(summary="retry", expected_behavior="newer"),
+    )
+
+    text = progress.read_text()
+    assert text.count("## Round 3 — Implementer (attempt 1)") == 1
+    assert text.count("## Round 3 — Implementer (attempt 2)") == 1
+    assert "interrupted" not in text
+    assert "resumed" in text
+    assert "retry" in text
+
+
 def test_progress_writes_profiler_summary_with_perf(tmp_path):
     progress = tmp_path / "progress.md"
     summary = ProfilerSummary(

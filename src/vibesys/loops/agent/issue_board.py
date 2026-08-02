@@ -206,6 +206,14 @@ def read_progress(progress_path: Path, *, recent_rounds: int = _RECENT_PROGRESS_
 
 
 def _append(progress_path: Path, block: str, round_number: int) -> None:
+    """Write one framework-owned progress section idempotently.
+
+    A run can be resumed after a process exits between recording a phase result
+    and finishing the round.  The resumed phase has the same stable Markdown
+    heading (round, role, and attempt), so replace that section instead of
+    appending a duplicate.  Distinct attempts retain distinct headings and
+    therefore remain separate audit entries.
+    """
     ensure_progress_file(progress_path)
     document = (
         progress_path
@@ -214,10 +222,37 @@ def _append(progress_path: Path, block: str, round_number: int) -> None:
     )
     if not document.exists() and document != progress_path:
         document.write_text(f"# Round {round_number}\n\n")
-    with document.open("a", encoding="utf-8") as fh:
-        if not block.endswith("\n"):
-            block += "\n"
-        fh.write(block + "\n")
+
+    heading = block.splitlines()[0]
+    normalized_block = block.rstrip("\n") + "\n\n"
+    lines = document.read_text(encoding="utf-8").splitlines(keepends=True)
+    output: list[str] = []
+    replaced = False
+    index = 0
+    while index < len(lines):
+        if lines[index].rstrip("\r\n") != heading:
+            output.append(lines[index])
+            index += 1
+            continue
+
+        if not replaced:
+            output.append(normalized_block)
+            replaced = True
+        index += 1
+        while index < len(lines) and not lines[index].startswith("## Round "):
+            index += 1
+
+    if not replaced:
+        with document.open("a", encoding="utf-8") as fh:
+            fh.write(normalized_block)
+        return
+
+    # Replacement rewrites an existing audit section.  Keep the prior file
+    # intact if the process exits during the write, then atomically publish the
+    # completed document.
+    replacement = document.with_name(f".{document.name}.tmp")
+    replacement.write_text("".join(output), encoding="utf-8")
+    replacement.replace(document)
 
 
 def append_pre_round_decision(
