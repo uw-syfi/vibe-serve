@@ -125,6 +125,11 @@ On a retry, also flag separate cold accelerator starts for each repaired
 correctness, profiler-contract, or smoke hook when those checks could safely run
 as adjacent phases on one initialized candidate. Distinct output artifacts do
 not by themselves justify distinct paid startups.
+Flag one-cold-start-per-variant capability bisection when a small set of
+sub-block, shape, or runtime-option variants could safely run as checkpointed,
+point-local phases on one initialized resource. Verify that reused variants
+reset mutable state and do not inherit activation, failure, cache, or memory
+evidence from the previous case.
 Also flag a separately launched runtime fingerprint or "cheap" probe when it
 allocates the same accelerator or calls the same engine, model, compiler, or graph
 initializer as the following capability or measurement phase. Review timeout

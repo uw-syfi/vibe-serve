@@ -293,6 +293,11 @@ This also applies to repair rounds after judge feedback. When the same unchanged
 candidate needs multiple target-hardware validations, require compatible
 correctness, profiler-contract, and smoke checks to run as phases of one
 initialized controller instead of assigning one cold deployment per artifact.
+If the next decision is a small capability bisection or variant matrix over
+compatible sub-blocks, shapes, or runtime options, require those variants to run
+as point-local checkpointed phases on the same initialized resource with an
+explicit reset contract. Do not spend one cold-start round per variant merely
+because each variant could be described as a separate repair.
 Write this explicitly into the task and pass criteria as one bounded controller
 invocation whenever the evaluation API permits it; do not describe each phase
 as a separate remote server. Require one-accelerator capacity, zero minimum-warm

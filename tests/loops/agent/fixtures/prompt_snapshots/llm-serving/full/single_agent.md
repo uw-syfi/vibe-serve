@@ -120,6 +120,10 @@ If self-review finds several target-hardware repairs on the unchanged
 candidate, validate compatible correctness, profiler-contract, and smoke hooks
 as adjacent phases of that same controller. Do not cold-start one accelerator
 per output artifact.
+For a small, reset-safe capability bisection over sub-blocks, shapes, or runtime
+options, run the variants as checkpointed point-local phases of that controller
+instead of paying one cold accelerator start per variant. Split them only when
+state contamination cannot be removed without invalidating the comparison.
 A runtime fingerprint is another controller phase—not a cheap separate probe—
 when it allocates the same accelerator or calls the same engine, model, compiler,
 or graph initializer. Separate it only when it avoids those expensive costs or

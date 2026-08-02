@@ -165,6 +165,14 @@ schema, and service smoke—run them as adjacent phases on one initialized
 resource when their state is compatible. Do not pay a separate model/service
 cold start for every repaired hook merely because each writes a distinct
 artifact.
+When a target-runtime failure can be localized with a small discrete bisection
+or variant matrix—such as enabling independent sub-blocks, testing a few static
+shapes, or toggling compiler options—run those compatible variants as
+checkpointed phases of one initialized controller. Reset variant-local state
+and record activation/failure evidence for each case before continuing. Do not
+serialize one cold accelerator launch per variant or per round when the model
+and immutable runtime state can safely be reused; split launches only when a
+variant contaminates state or cannot be reset without changing the test.
 For remote accelerators, make that reuse bounded and crash-safe: keep the warm
 resource only for the adjacent machine-driven phases, cap the deployment at one
 accelerator unless the workload requires otherwise, keep the minimum warm count
