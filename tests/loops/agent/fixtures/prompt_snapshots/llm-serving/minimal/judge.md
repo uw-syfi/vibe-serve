@@ -71,6 +71,15 @@ merely renames an old estimate as stale. Do not use it to justify the next
 hypothesis; put the required refresh in `feedback`, and fail when the round's
 pass criteria or operator constraints require that refresh.
 
+Reject a required performance model that substitutes the reference engine's
+score for an independently computed FLOP/byte hardware ceiling, carries
+`None`, `null`, or unparseable values for evidence it claims to use, or reports
+complete time coverage by adding overlapping CPU and CUDA-event durations.
+Audit profiler perturbation: instrumentation that synchronizes at every scope
+boundary cannot establish the uninstrumented overlap or host-idle critical
+path. For a host/synchronization diagnosis, require a source-level inventory of
+hot-path sync sites and their per-step, per-layer, or per-request frequencies.
+
 ## Reward-hack detection
 
 The steady-state response path must execute the declared model on the request.

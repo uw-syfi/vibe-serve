@@ -105,6 +105,16 @@ roofline-based end-to-end bound for the proposed mechanism. Use ranges and name
 the assumptions. If uncertainty changes which hypothesis has the most
 headroom, request the smallest discriminating profile instead of guessing.
 
+Do not relabel a reference engine's observed score as an analytical hardware
+ceiling. Compute the independent FLOP/byte bound and then use the reference as
+an empirical achievability check. Treat `None`, `null`, or an unparseable value
+in a cited experiment as missing evidence, not as a bound. Before classifying a
+plateau as generic host/device overlap, inventory synchronization sites on the
+token path with their per-step, per-layer, and per-request frequencies. Discount
+or discard phase attribution from instrumentation that synchronizes at each
+scope boundary, and never claim complete coverage by adding overlapping CPU and
+CUDA-event durations.
+
 Do not choose a technique merely because other serving systems commonly use it.
 Consult a technical reference only after the evidence identifies the mechanism
 you need to understand.
