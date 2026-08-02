@@ -39,6 +39,12 @@ A library of curated technique-specific skills is installed in your working dire
 - The next obvious step is clear from code inspection alone.
 - A recent profile is still valid — no workspace changes would invalidate it.
 - The previous judge loop exhausted; profiling a failing implementation wastes time — instead, skip the profile and propose an easier task.
+- The current workspace still contains a terminal hypothesis (`disproven`,
+  `blocked`, `inconclusive`, or `implementation_failed`) and the useful profile
+  target is its parent or another checkpoint. This profiling phase runs before
+  the plan can apply `revert_to_round`; it can profile only the current
+  workspace. Return `need_profile=false`, let the plan restore the trusted
+  checkpoint, and request the profile on the following round.
 
 ## Output
 

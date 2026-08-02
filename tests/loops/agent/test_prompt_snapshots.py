@@ -264,6 +264,21 @@ def test_llm_serving_rendered_prompts_keep_required_domain_content():
     assert "CUDA graphs" not in prompts["orchestrator"]
 
 
+def test_pre_round_prompt_does_not_profile_a_future_rollback_target():
+    rendered = render_template(
+        "orchestrator_pre_round_prompt.j2",
+        template_dir=_TEMPLATE_DIR,
+        objective="maximize throughput",
+        regression_info="A disproven hypothesis remains in the workspace.",
+        exhaustion_info=None,
+        progress_location="progress/",
+        recent_progress_text="# Round 4\n\nOutcome: disproven",
+    )
+
+    assert "profiling phase runs before" in rendered
+    assert "let the plan restore the trusted" in rendered
+
+
 def test_official_evaluation_due_changes_agent_measurement_contract():
     context = {
         **_CONTEXTS["full"],
