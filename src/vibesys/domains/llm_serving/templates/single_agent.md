@@ -25,6 +25,14 @@ including a request that finishes while others remain active. A single-request
 accuracy pass cannot establish this invariant. Retain the probe inputs,
 outputs, and comparison result before accepting performance evidence.
 
+For a structural layout, fusion, or kernel change, compare the before/after
+operator path and name the hot operation, frequency, bytes, or launches actually
+removed. Do not treat a new class, flag, or counter as activation when the same
+expensive operation remains below it. In particular, a cache path that gathers
+or indexes pages into a dense logical KV sequence before dense attention is not
+a paged-attention compute path; the attention kernel must consume the page table
+directly.
+
 ## Required: read the relevant skill BEFORE writing code
 
 The `serving-systems` skill provides technical references. Use it only after

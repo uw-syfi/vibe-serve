@@ -119,6 +119,17 @@ Do not choose a technique merely because other serving systems commonly use it.
 Consult a technical reference only after the evidence identifies the mechanism
 you need to understand.
 
+For a structural layout, fusion, or kernel hypothesis, require an operator-level
+before/after claim rather than accepting the name of a new class, flag, or data
+structure as activation. Name the hot-path operation that disappears or becomes
+cheaper, its frequency, and the bytes or launches affected. For example, a paged
+KV attention claim requires the production attention kernel to consume the page
+table directly; a path that first materializes the logical KV sequence with
+indexing or a gather is still dense attention compute and should be classified
+as an allocator/layout experiment. Require source inspection and runtime
+telemetry for the actual request path before spending on a representative
+benchmark.
+
 ## Scoping API work
 
 When a task touches an endpoint or message schema, name the exact surface being

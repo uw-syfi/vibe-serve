@@ -48,6 +48,14 @@ accuracy pass cannot establish this invariant. Fail a performance-success
 classification when this evidence is missing or mismatched; do not rerun a
 large benchmark to compensate for the missing targeted correctness probe.
 
+For a structural layout, fusion, or kernel claim, compare the before/after
+operator path rather than trusting class names, backend flags, or activation
+counters. Verify which hot operation was eliminated, its execution frequency,
+and that the production request path reaches the replacement. A paged KV
+attention claim is not activated when code first reconstructs dense logical KV
+with indexing or a gather and then calls dense attention; classify that honestly
+as an allocator/layout experiment and reject claims based on the paged label.
+
 Do not duplicate commands that the framework declares as trusted gates or
 invent an official score. For benchmark protocols without a machine-readable
 framework gate, audit the implementer's retained performance evidence and run

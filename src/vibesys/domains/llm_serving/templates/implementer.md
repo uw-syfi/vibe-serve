@@ -20,6 +20,18 @@ accuracy pass is not evidence that cache rows, positions, or masks stay aligned
 across a dynamic batch. Retain the probe inputs, outputs, and comparison result
 so the judge can audit the invariant without repeating an expensive run.
 
+For a structural layout, fusion, or kernel hypothesis, trace the production
+request path to the actual attention/operator call before launching a target
+accelerator benchmark. Record the old and new hot-path operations and the
+frequency, bytes, or launches the change is meant to remove. A new class,
+backend flag, cache layout, or activation counter is not sufficient when the
+same expensive operation remains underneath it. In particular, do not call a
+KV path paged attention when it materializes the logical sequence with indexing
+or a gather before dense attention; the attention kernel itself must consume
+the page table. If static inspection shows that the claimed operation was not
+removed, fix the production path or report the hypothesis as not fairly tested
+without spending on the representative benchmark.
+
 ## Use references as implementation support, not as a search policy
 
 The `serving-systems` skill provides technical references. After the active
