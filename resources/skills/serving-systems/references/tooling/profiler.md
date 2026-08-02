@@ -35,6 +35,12 @@ Is the problem known to be inside a specific kernel?
 3. **Annotate with NVTX** so the timeline is self-describing: one range per iteration / forward / backward / dataloader / eval.
 4. **Diagnose before editing code.** Produce: bottleneck class + evidence + bounded change set + acceptance metric.
 5. **Verify every recommendation** by re-running the same benchmark and comparing the same metrics.
+6. **Measure observer overhead.** Compare the profiled run with an uninstrumented
+   control at the same shape. Never call `torch.cuda.synchronize()` at every
+   annotated scope boundary when diagnosing synchronization or overlap: that
+   creates the serialization being measured. CUDA events around asynchronous
+   host scopes are ordering markers, not exclusive attribution, unless a
+   timeline proves which queued device work lies between them.
 
 ## Tool 1: PyTorch Profiler (`torch.profiler`)
 
@@ -317,6 +323,8 @@ Prefer machine-readable exports (`nsys stats`, SQLite) over screenshots:
 - Comparing different input shapes across runs.
 - Comparing a compiled run to an eager run without separating cold-start from steady-state.
 - Overly broad traces that are impossible to interpret.
+- Per-scope synchronization in a manual timer, then diagnosing the resulting
+  profiler-induced gaps as application host overhead.
 - Using ncu on every kernel before a systems-level diagnosis.
 - "Increase batch size" without bottleneck evidence.
 - Optimizing from screenshots instead of exported metrics.
