@@ -222,8 +222,10 @@ class GitTracker:
                 ".",
             ]
         )
+        prefix_result = self.run(["git", "rev-parse", "--show-prefix"])
+        prefix = prefix_result.stdout.decode(errors="replace").strip()
         return sorted(
-            line[3:]
+            line[3:].removeprefix(prefix) if prefix else line[3:]
             for line in result.stdout.decode(errors="replace").splitlines()
             if len(line) > 3
         )

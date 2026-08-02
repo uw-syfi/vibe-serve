@@ -139,6 +139,21 @@ def test_pending_changes_reports_tracked_and_untracked_paths(ws):
     assert tracker.pending_changes() == ["main.py", "new.txt"]
 
 
+def test_pending_changes_are_relative_to_nested_workspace(tmp_path):
+    experiment = tmp_path / "experiment"
+    workspace = experiment / "workspace"
+    workspace.mkdir(parents=True)
+    subprocess.run(["git", "init", "-q", "-b", "main"], cwd=experiment, check=True)
+    (workspace / "main.py").write_text("VALUE = 1\n")
+    tracker = _make_tracker(workspace)
+    tracker.init(existing=False)
+
+    (workspace / "main.py").write_text("VALUE = 2\n")
+    (workspace / "new.txt").write_text("new\n")
+
+    assert tracker.pending_changes() == ["main.py", "new.txt"]
+
+
 def test_checkout_tree_restores_snapshot_without_moving_head(ws):
     tracker = _make_tracker(ws)
     tracker.init(existing=False)

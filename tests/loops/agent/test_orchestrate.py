@@ -1,5 +1,6 @@
 """Tests for vibesys.loops.agent — orchestrator-driven build loop."""
 
+import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -263,10 +264,12 @@ def test_read_only_role_does_not_restore_clean_turn():
 
 
 def test_read_only_role_preserves_allowed_roadmap_and_reverts_other_writes(tmp_path):
-    workspace = tmp_path / "workspace"
+    experiment = tmp_path / "experiment"
+    workspace = experiment / "workspace"
     roadmap = workspace / "roadmap" / "index.md"
     roadmap.parent.mkdir(parents=True)
     roadmap.write_text("initial roadmap\n")
+    subprocess.run(["git", "init", "-q", "-b", "main"], cwd=experiment, check=True)
     tracker = GitTracker(workspace, log=lambda _message: None)
     tracker.init(existing=False)
 
