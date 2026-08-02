@@ -33,6 +33,13 @@ or indexes pages into a dense logical KV sequence before dense attention is not
 a paged-attention compute path; the attention kernel must consume the page table
 directly.
 
+Treat telemetry as production hot-path code. Inventory the frequency of every
+`.item()`, `.tolist()`, CPU copy, or explicit synchronization added inside
+token, layer, and request loops. Maintain totals and peaks incrementally rather
+than rescanning device tensors or all live requests each decode step; otherwise
+measure and remove the observer overhead before accepting either a performance
+win or a mechanism-level disproof.
+
 ## Required: read the relevant skill BEFORE writing code
 
 The `serving-systems` skill provides technical references. Use it only after

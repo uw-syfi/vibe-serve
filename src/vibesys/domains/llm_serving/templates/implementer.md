@@ -32,6 +32,15 @@ the page table. If static inspection shows that the claimed operation was not
 removed, fix the production path or report the hypothesis as not fairly tested
 without spending on the representative benchmark.
 
+Treat activation telemetry as part of the hot path. Before benchmarking, audit
+every counter/gauge update added inside token, layer, or request loops and count
+device-to-host synchronization sites such as `.item()`, `.tolist()`, CPU copies,
+or explicit synchronizes. Maintain totals and high-water marks incrementally in
+host state when possible; do not rescan device tensors or live requests on every
+decode step merely to publish `/health`. If a gauge requires a synchronized
+sample, collect it outside the measured path or at a bounded low frequency and
+measure the observer overhead first.
+
 ## Use references as implementation support, not as a search policy
 
 The `serving-systems` skill provides technical references. After the active

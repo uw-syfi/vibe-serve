@@ -59,6 +59,14 @@ attention claim is not activated when code first reconstructs dense logical KV
 with indexing or a gather and then calls dense attention; classify that honestly
 as an allocator/layout experiment and reject claims based on the paged label.
 
+Audit observer overhead in activation telemetry. Inventory any `.item()`,
+`.tolist()`, CPU copy, or explicit synchronization added to per-token,
+per-layer, or per-request loops and multiply by its runtime frequency. Reject a
+performance success or mechanism-level disproof when the new measurement path
+rescans device tensors or live requests every decode step and could dominate
+the claimed change. Require incremental host counters, bounded asynchronous
+sampling, or a measured observer-overhead bound.
+
 Do not duplicate commands that the framework declares as trusted gates or
 invent an official score. For benchmark protocols without a machine-readable
 framework gate, audit the implementer's retained performance evidence and run

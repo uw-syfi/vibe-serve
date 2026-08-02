@@ -133,6 +133,14 @@ as an allocator/layout experiment. Require source inspection and runtime
 telemetry for the actual request path before spending on a representative
 benchmark.
 
+Put an observer-overhead invariant in plans that add activation telemetry.
+Require a source-level inventory of `.item()`, `.tolist()`, CPU-copy, and
+synchronization sites introduced inside token, layer, and request loops. Totals
+and peaks should be maintained incrementally instead of rescanning device state
+or every live request each decode step. A mechanism cannot be fairly falsified
+by a benchmark whose new telemetry adds synchronization at the same frequency
+as the operation being optimized.
+
 ## Scoping API work
 
 When a task touches an endpoint or message schema, name the exact surface being
