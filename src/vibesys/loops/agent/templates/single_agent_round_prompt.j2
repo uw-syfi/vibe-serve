@@ -102,6 +102,10 @@ invocation as soon as a gate fails. Use zero minimum-warm replicas, one
 accelerator unless the workload requires more, a short finite idle/scaledown
 timeout, an outer command timeout, and `finally` teardown. Do not keep a paid
 accelerator warm across agent reasoning turns.
+Make the controller fail closed in code. Before remote execution, inject or
+synthesize a failed capability/correctness/smoke result and assert that the
+downstream representative or canonical callable is not invoked while the
+failure artifact is retained. Recording `issues` and continuing is not a gate.
 Match activation telemetry to its sampling time. After work drains, use
 monotonic totals, retained peaks/high-water marks, or event evidence—not a
 current-occupancy gauge for resources that correct cleanup releases. Sample an

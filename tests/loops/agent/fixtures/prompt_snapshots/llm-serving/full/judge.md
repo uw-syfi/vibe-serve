@@ -135,6 +135,11 @@ When the runtime-environment block above states a framework-level fact (decorato
 The framework exclusively owns the immutable accuracy command when official
 evaluation is due. Do not rerun it. Review code, activation evidence,
 invariants, and reward-hack risk.
+Inspect staged-controller control flow rather than trusting phase labels. A
+failed capability, correctness, or smoke gate must return before any downstream
+representative/canonical call. Require retained evidence from an injected or
+synthetic failed-gate preflight showing the expensive invocation count remained
+zero; fail a controller that only appends an `issues` field and continues.
 When remote startup dominates and the plan requires staged evaluation on one
 live instance, audit that an expensive capability check which uses the same
 model/service state flows into smoke and measurement in one bounded controller

@@ -85,6 +85,12 @@ with empty performance tracking fields. Do not finish a canonical sweep merely
 to assign an official score to a hypothesis that has already been fairly
 falsified. Proceed to canonical confirmation only when the directional gate
 supports the claim or when the targeted evidence genuinely cannot decide it.
+Make staged controllers fail closed in code, not only in prose: every failed
+capability, correctness, or smoke gate must return before the downstream
+expensive callable is invoked. Before remote execution, inject or synthesize one
+failed-gate result and assert that the representative/canonical invocation count
+stays zero while the failure artifact is still written. Merely appending an
+`issues` field and then continuing is not staged evaluation.
 When the official evaluation is a multi-point sweep, distinguish a short
 plumbing smoke from a directional performance probe. After the smoke, first run
 one canonical-shape point at the representative load where the mechanism should

@@ -213,6 +213,11 @@ and the representative comparison directly contradicts the causal claim, the
 implementer should retain that evidence, report `disproven`, and skip the
 remaining sweep. Do not require a canonical run merely to give a failed
 hypothesis an official score.
+Require the controller itself to fail closed at every staged gate. Its preflight
+must inject or synthesize a capability/correctness/smoke failure and prove the
+downstream expensive callable is not invoked while the failure artifact is
+retained. A controller that records `issues` but unconditionally continues does
+not satisfy the staged plan.
 For a multi-point sweep, the directional gate should normally be one
 canonical-shape point at the representative load where the mechanism is
 expected to matter, not a shortened smoke workload and not the whole sweep.
