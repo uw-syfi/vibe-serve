@@ -237,9 +237,17 @@ Reuse established evaluation plumbing. For an ordinary candidate optimization,
 require the implementer to call the existing benchmark runner/controller and
 retain its normal artifacts; do not ask for a hypothesis-specific controller or
 another synthetic preflight merely to rename phases, counters, or output files.
+New candidate activation counters, threshold values, local comparisons, and
+summary labels are ordinary row data, not evaluation-plumbing changes. Require
+the generic runner to retain the full health/row payload and let local analysis
+read those fields dynamically; do not require new remote functions, typed
+counter-by-counter serializers, or synthetic controller suites for them.
 Require new controller code and its preflights only when the plan actually
 changes staged control flow, comparison/enrichment logic, serialization, or an
-execution boundary. In that case, require the controller itself to fail closed:
+execution boundary in a way the established runner cannot express. If that is
+truly blocking, scope the work to one hypothesis-agnostic runner extension that
+future rounds can reuse, not a controller named for the current mechanism. In
+that case, require the controller itself to fail closed:
 inject or synthesize a failed capability/correctness/smoke gate and prove the
 downstream expensive callable is not invoked while the failure artifact is
 retained. Also require a synthetic successful row through the newly changed

@@ -165,6 +165,11 @@ plumbing. Do not fail a round for omitting a fresh hypothesis-specific
 controller or synthetic preflight when staged control flow,
 comparison/enrichment, serialization, and execution boundaries are unchanged;
 audit the retained runner validation and the new candidate evidence instead.
+Candidate activation counters, comparison thresholds, and summary labels are
+ordinary row data and do not by themselves justify controller edits. Prefer a
+generic artifact containing the full health/row payload over a new typed
+serializer or remote function for each mechanism; flag avoidable
+hypothesis-specific evaluation plumbing as iteration overhead.
 When the round creates or changes any of those evaluation paths, inspect the
 changed controller rather than trusting phase labels. A failed capability,
 correctness, or smoke gate must return before any downstream

@@ -113,7 +113,13 @@ changes. Do not build a round-specific controller or fresh synthetic artifacts
 solely to wrap the same evaluation flow, rename phases, or expose activation
 counters. When you create or change staged control flow,
 comparison/enrichment, serialization, or an execution boundary, make that
-changed path fail closed in code. Inject or synthesize a failed
+changed path fail closed in code. Activation counters, threshold values, local
+comparisons, and summary labels are ordinary row data: retain the full
+health/row payload and inspect it locally instead of adding remote functions or
+counter-by-counter serializers. If the established runner genuinely cannot
+express the needed workload, make one hypothesis-agnostic extension that later
+rounds can reuse rather than a controller named for the current mechanism.
+Inject or synthesize a failed
 capability/correctness/smoke result and assert that the downstream representative
 or canonical callable is not invoked while the failure artifact is retained;
 recording `issues` and continuing is not a gate. Preflight the newly changed

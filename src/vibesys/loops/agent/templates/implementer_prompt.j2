@@ -90,10 +90,17 @@ add a hypothesis-specific controller or new synthetic artifacts solely to wrap
 an ordinary candidate change, rename phases, or expose additional activation
 counters. Cite retained validation of unchanged evaluation plumbing and spend
 the round on the candidate plus the smallest discriminating measurement.
+Treat new activation counters, threshold values, local comparisons, and summary
+labels as ordinary data. Return full health/row payloads from the generic runner
+and inspect them locally; do not add remote functions, counter-by-counter
+serialization code, or a synthetic controller suite for those changes.
 If this round creates or changes staged control flow, comparison/enrichment
-logic, serialization, or an execution boundary, make that changed path fail
-closed in code: every failed capability, correctness, or smoke gate must return
-before the downstream expensive callable is invoked. Before remote execution,
+logic, serialization, or an execution boundary that the established runner
+cannot express, first make the smallest hypothesis-agnostic runner extension
+that can be reused by later rounds. Do not name it after the active mechanism.
+Make that changed path fail closed in code: every failed capability,
+correctness, or smoke gate must return before the downstream expensive callable
+is invoked. Before remote execution,
 inject or synthesize one failed-gate result and assert that the downstream
 invocation count stays zero while the failure artifact is still written. Also
 exercise a representative fake row through the newly changed comparison,
