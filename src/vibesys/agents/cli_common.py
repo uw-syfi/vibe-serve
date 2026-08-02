@@ -55,18 +55,20 @@ def discover_skill_dirs(root: Path) -> list[Path]:
 def materialize_skills(
     workspace: Path, skill_dirs: list[Path], log_file: TextIO | None = None
 ) -> None:
-    """Copy each skill directory into the per-CLI skill-discovery paths.
+    """Copy each skill directory into the workspace and CLI discovery paths.
 
     Walks each ``skill_dirs`` entry for ``SKILL.md`` files and flattens each
-    parent directory into every path under :data:`CLI_SKILL_DIRS` (one per CLI
-    convention: ``.claude/skills``, ``.agents/skills``, ``.gemini/skills``,
-    ``.cursor/skills``, ``.opencode/skills``). This makes the skills visible
-    to whichever CLI provider ends up running in the workspace without the
-    caller having to know which one was picked.
+    parent directory into the workspace root and every path under
+    :data:`CLI_SKILL_DIRS` (one per CLI convention: ``.claude/skills``,
+    ``.agents/skills``, ``.gemini/skills``, ``.cursor/skills``,
+    ``.opencode/skills``). The root copy preserves the documented
+    ``<skill-name>/references/...`` paths used by prompts and agents, while the
+    hidden copies support native CLI discovery.
 
-    Existing destinations are replaced so skill edits are picked up across
-    iterations. Errors are logged but never raised — the loop should still
-    make progress even if a skill fails to materialize.
+    Existing destinations are replaced on every invocation so skill edits are
+    picked up across iterations and after candidate checkpoint rollback. Errors
+    are logged but never raised — the loop should still make progress even if a
+    skill fails to materialize.
     """
     if not skill_dirs:
         return
@@ -85,12 +87,14 @@ def materialize_skills(
     skip_names = {".git", "repos", "__pycache__"}
     skip_ignore = shutil.ignore_patterns(*skip_names)
 
-    for target_rel in CLI_SKILL_DIRS:
+    for target_rel in (".", *CLI_SKILL_DIRS):
         target_root = workspace / target_rel
         target_root.mkdir(parents=True, exist_ok=True)
         for name, src_skill in discovered.items():
             dest = target_root / name
             try:
+                if src_skill.resolve() == dest.resolve():
+                    continue
                 if dest.exists() or dest.is_symlink():
                     if dest.is_dir() and not dest.is_symlink():
                         shutil.rmtree(dest)

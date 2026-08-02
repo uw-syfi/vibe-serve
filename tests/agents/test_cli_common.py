@@ -71,6 +71,7 @@ class TestMaterializeSkills:
 
         materialize_skills(ws, [src])
 
+        assert (ws / "alpha" / "SKILL.md").is_file()
         for rel in CLI_SKILL_DIRS:
             assert (ws / rel / "alpha" / "SKILL.md").is_file()
 
@@ -103,7 +104,16 @@ class TestMaterializeSkills:
         (src / "alpha" / "SKILL.md").write_text("# v2\n")
         materialize_skills(ws, [src])
 
+        assert (ws / "alpha/SKILL.md").read_text() == "# v2\n"
         assert (ws / ".claude/skills/alpha/SKILL.md").read_text() == "# v2\n"
+
+    def test_source_already_at_workspace_root_is_not_replaced(self, tmp_path):
+        ws = tmp_path / "ws"
+        skill = _skill(ws, "alpha", "# local\n")
+
+        materialize_skills(ws, [skill])
+
+        assert (skill / "SKILL.md").read_text() == "# local\n"
 
     def test_later_source_wins_on_a_name_collision(self, tmp_path):
         first = tmp_path / "a"
