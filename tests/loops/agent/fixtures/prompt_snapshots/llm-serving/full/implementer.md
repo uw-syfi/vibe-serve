@@ -168,6 +168,14 @@ at zero, use a short finite idle/scaledown timeout, and stop the deployment in a
 that performs smoke -> directional -> conditional canonical work without agent
 think-time between phases. Never leave a permanently warm accelerator merely
 to accelerate a later agent turn.
+When a bounded remote controller can outlive one synchronous shell-tool call,
+start it as one background process with a retained PID and log, then poll that
+same process until it exits and artifact writeback completes. Quiet output is
+not evidence of failure. Do not kill and relaunch an unchanged paid run merely
+because one poll interval produced no output; inspect process state and the
+controller's atomic phase checkpoints first. Keep the outer wall-clock timeout
+longer than the controller's declared worst-case phase budget, while retaining
+the remote idle/scaledown backstop for crashes.
 
 Preserve already-valid measured rows. A diagnostic or optional artifact created
 after measured rows completed cannot retroactively perturb them. Do not rerun a
