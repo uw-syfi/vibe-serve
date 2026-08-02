@@ -23,6 +23,18 @@ of the gap (as a default, at least 20%) and put the arithmetic in `reasoning`.
 Small tuning remains appropriate as a targeted probe, but repeated local
 frontier nudges are not a substitute for a structural path to the target.
 
+Make that bound decision-auditable in absolute as well as relative terms. For
+each shortlisted mechanism, state the current measured headline metric, the
+defensible end-to-end improvement range, the implied post-change metric range,
+and the gap that would still remain to the terminal target. Explicitly label
+whether the mechanism is terminally sufficient on its own. If even its
+optimistic bound cannot reach the target, select it only when it is a necessary
+critical-path prerequisite or a cheap discriminating experiment; name that
+reason, bound the experiment before expensive evaluation, and identify the
+later structural mechanism that would still be required. Rank plausible
+alternatives by target-relevant headroom and information gained per
+accelerator minute rather than by ease of implementation alone.
+
 At the first valid baseline, after a material architecture change, and whenever
 the framework reports a plateau, open
 `skills/serving-systems/references/tooling/performance-modeling.md` and refresh
