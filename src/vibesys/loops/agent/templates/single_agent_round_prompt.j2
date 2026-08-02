@@ -56,7 +56,13 @@ No separate reference implementation is provided. Treat `OBJECTIVE.md` and the i
 - **Causal claim**: {{ hypothesis|default('(unspecified)') or '(unspecified)' }}
 - **Activation evidence**: {{ activation_evidence|default('(unspecified)') or '(unspecified)' }}
 - **Falsification criteria**: {{ falsification_criteria|default('(unspecified)') or '(unspecified)' }}
+- **Expected effect (forecast, not a gate)**: {{ expected_effect|default('(unspecified)') or '(unspecified)' }}
+- **Minimum acceptance criteria**: {{ minimum_acceptance_criteria|default('(unspecified)') or '(unspecified)' }}
 - **Invariants**: {{ invariants|default('(unspecified)') or '(unspecified)' }}
+
+Evaluate observed performance against the minimum acceptance criteria, not the
+forecast. Retain a material improvement that clears the minimum even when the
+model overpredicted it, and record the forecast miss as calibration evidence.
 
 {% if accuracy_command or benchmark_command %}
 ## Evaluator commands

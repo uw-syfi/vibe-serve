@@ -91,7 +91,13 @@ Follow the selected domain guidance and the input-owned candidate contract.
 - **Causal claim**: Removing decode launch overhead will improve median_tok_per_sec.
 - **Activation evidence**: cuda_graph_replays increases on steady requests.
 - **Falsification criteria**: Graphs replay but headline throughput does not improve.
+- **Expected effect (forecast, not a gate)**: Forecast 1.3x to 1.6x end-to-end throughput.
+- **Minimum acceptance criteria**: Retain at >=1.15x throughput with no latency regression.
 - **Invariants**: Accuracy and prompt-dependent generation remain unchanged.
+
+Evaluate observed performance against the minimum acceptance criteria, not the
+forecast. Retain a material improvement that clears the minimum even when the
+model overpredicted it, and record the forecast miss as calibration evidence.
 
 ## Evaluator commands
 

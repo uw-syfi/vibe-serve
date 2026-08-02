@@ -49,6 +49,8 @@ candidate.
 - **Causal claim**: {{ hypothesis|default('(unspecified)') or '(unspecified)' }}
 - **Activation evidence**: {{ activation_evidence|default('(unspecified)') or '(unspecified)' }}
 - **Falsification criteria**: {{ falsification_criteria|default('(unspecified)') or '(unspecified)' }}
+- **Expected effect (forecast, not a gate)**: {{ expected_effect|default('(unspecified)') or '(unspecified)' }}
+- **Minimum acceptance criteria**: {{ minimum_acceptance_criteria|default('(unspecified)') or '(unspecified)' }}
 - **Invariants**: {{ invariants|default('(unspecified)') or '(unspecified)' }}
 
 Treat this hypothesis as a persistent goal, not a one-shot task. Retain control over targeted experiments, workload ranges, parameter sweeps, logs, and small probes needed to implement or falsify it. The framework owns the immutable accuracy gate after independent review.
@@ -248,6 +250,12 @@ view. A single sub-percent miss is not a mechanism-level falsification when
 nearby or repeated parent rows vary by more than that amount. Run the smallest
 repeat that resolves the classification, or report `inconclusive`; do not turn
 measurement noise into a confident `proven` or `disproven` outcome.
+Compare the observed result with the separately stated minimum acceptance
+criteria, not with the expected-effect forecast. An activated implementation
+that misses the forecast but clears the minimum remains useful work: retain it,
+report the appropriate successful outcome, and update the performance model's
+calibration error. Do not call forecast error an implementation failure or
+silently roll back a material Pareto improvement.
 
 Treat zero-valued negative-path telemetry as a claim that needs implementation
 proof. Before using a `fallback=0`, `legacy=0`, error, or bypass counter as

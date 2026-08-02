@@ -14,6 +14,8 @@ PASS: pytest passes and /v1/completions streams valid SSE.
 - **Causal claim**: Removing decode launch overhead will improve median_tok_per_sec.
 - **Activation evidence required**: cuda_graph_replays increases on steady requests.
 - **Falsification criteria**: Graphs replay but headline throughput does not improve.
+- **Expected effect (forecast, not a gate)**: Forecast 1.3x to 1.6x end-to-end throughput.
+- **Minimum acceptance criteria**: Retain at >=1.15x throughput with no latency regression.
 - **Invariants**: Accuracy and prompt-dependent generation remain unchanged.
 - **Implementer outcome**: nominated
 - **Implementer evidence**: Replay counter increased in a targeted probe.
@@ -259,6 +261,15 @@ selecting different offered-load points, fail it unless the task is explicitly
 a measurement-correctness repair with no engine-performance claim. Scheduler
 and admission claims need before/after evidence for successfully completed work
 at the same offered load; changing which row becomes selected is insufficient.
+
+Judge observed performance against the minimum acceptance criteria, not the
+expected-effect forecast. A trustworthy material improvement that clears the
+minimum should pass even when the analytical model predicted a larger gain;
+require the model to record and learn from that calibration error. Do not reject
+good work merely because an estimate was optimistic. If the plan omitted a
+separate minimum and appears to use its forecast as the cutoff, treat that as a
+planning defect: preserve credible positive evidence and request a justified
+retention decision rather than manufacturing a mechanism-level disproof.
 
 A PASS has outcome-specific meaning. A PASS for `supported` closes the scoped
 hypothesis and returns control to the designer. A PASS for `nominated` says the

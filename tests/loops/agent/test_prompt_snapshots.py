@@ -39,6 +39,8 @@ _BASE_CONTEXT = {
     "hypothesis": "Removing decode launch overhead will improve median_tok_per_sec.",
     "activation_evidence": "cuda_graph_replays increases on steady requests.",
     "falsification_criteria": "Graphs replay but headline throughput does not improve.",
+    "expected_effect": "Forecast 1.3x to 1.6x end-to-end throughput.",
+    "minimum_acceptance_criteria": "Retain at >=1.15x throughput with no latency regression.",
     "invariants": "Accuracy and prompt-dependent generation remain unchanged.",
     "implementer_outcome": "nominated",
     "implementer_evidence": "Replay counter increased in a targeted probe.",
@@ -91,6 +93,8 @@ def _render_prompt(domain: DomainName, role: str, context: dict[str, object]) ->
             hypothesis=context["hypothesis"],
             activation_evidence=context["activation_evidence"],
             falsification_criteria=context["falsification_criteria"],
+            expected_effect=context["expected_effect"],
+            minimum_acceptance_criteria=context["minimum_acceptance_criteria"],
             invariants=context["invariants"],
             progress_location=context["progress_location"],
             domain_implementer=_domain_section(domain, "implementer", context),
@@ -117,6 +121,8 @@ def _render_prompt(domain: DomainName, role: str, context: dict[str, object]) ->
             hypothesis=context["hypothesis"],
             activation_evidence=context["activation_evidence"],
             falsification_criteria=context["falsification_criteria"],
+            expected_effect=context["expected_effect"],
+            minimum_acceptance_criteria=context["minimum_acceptance_criteria"],
             invariants=context["invariants"],
             implementer_outcome=context["implementer_outcome"],
             implementer_evidence=context["implementer_evidence"],
@@ -153,6 +159,8 @@ def _render_prompt(domain: DomainName, role: str, context: dict[str, object]) ->
             hypothesis=context["hypothesis"],
             activation_evidence=context["activation_evidence"],
             falsification_criteria=context["falsification_criteria"],
+            expected_effect=context["expected_effect"],
+            minimum_acceptance_criteria=context["minimum_acceptance_criteria"],
             invariants=context["invariants"],
             progress_location=context["progress_location"],
             framework_benchmark_enabled=context.get("framework_benchmark_enabled", False),
@@ -277,6 +285,10 @@ def test_llm_serving_rendered_prompts_keep_required_domain_content():
     assert "refines a stable overload knee" in prompts["judge"]
     assert "initialized to zero but never mutated" in prompts["judge"]
     assert "field initialized to zero" in prompts["implementer"]
+    assert "forecast, not a gate" in prompts["implementer"]
+    assert "against the minimum acceptance criteria" in prompts["judge"]
+    assert "not to grade implementations" in prompts["orchestrator"]
+    assert "Retain a material improvement" in prompts["single_agent"]
     assert "describes a removed mechanism" in prompts["judge"]
     assert "independently computed FLOP/byte hardware ceiling" in prompts["judge"]
     assert "whole model step" in prompts["judge"]

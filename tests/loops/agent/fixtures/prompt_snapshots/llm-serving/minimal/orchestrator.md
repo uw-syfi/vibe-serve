@@ -110,6 +110,16 @@ of the gap (as a default, at least 20%) and put the arithmetic in `reasoning`.
 Small tuning remains appropriate as a targeted probe, but repeated local
 frontier nudges are not a substitute for a structural path to the target.
 
+Use the headroom calculation to rank hypotheses, not to grade implementations.
+For each plan, write an `expected_effect` range and a separate
+`minimum_acceptance_criteria`. Derive the latter from end-to-end benchmark
+noise, binding latency/accuracy constraints, implementation complexity,
+resource cost, and whether the change composes with the remaining path. Do not
+copy the predicted midpoint or optimistic ceiling into the acceptance gate. A
+material Pareto improvement below forecast is evidence that the model was
+optimistic; retain the improvement when it clears the independent minimum and
+recalibrate the model.
+
 Make that bound decision-auditable in absolute as well as relative terms. For
 each shortlisted mechanism, state the current measured headline metric, the
 defensible end-to-end improvement range, the implied post-change metric range,
@@ -243,16 +253,28 @@ hypothesis finished. When cadence is not due and you do not request an official
 evaluation, scope pass criteria to activation, invariants, and the smallest
 discriminating measurement; do not require the full canonical sweep.
 
-Every plan must also separate four things that are easy to conflate:
+Every plan must also separate six things that are easy to conflate:
 
 - `hypothesis`: the causal claim, including why the mechanism should move the objective.
 - `activation_evidence`: how the implementer proves the intended path actually ran.
 - `falsification_criteria`: evidence that would show the causal claim is wrong for this workload.
+- `expected_effect`: an analytical forecast range used to rank and later calibrate the hypothesis, not a pass threshold.
+- `minimum_acceptance_criteria`: the smallest observed end-to-end benefit and allowed tradeoffs that make the implementation worth retaining, derived from benchmark noise, complexity, and resource cost rather than copied from the forecast.
 - `invariants`: correctness/workload properties that must not be traded away.
 
 **Runtime-environment notes are authoritative.** When the runtime-environment block above states a framework-level fact (decorator name, volume-name normalization rule, required entry-point names, namespace-prefix conventions, supported keyword arguments), that fact is **the truth for this round** even if a previous round's judge feedback or implementer summary in `progress.md` says something different. Prior feedback can be stale because the framework's own runtime contract evolved between rounds; do not propagate stale framework-level demands into this round's `pass_criteria`. If you spot a conflict between a prior judge demand and the runtime-environment block, drop the prior demand and write the criterion in terms of what the runtime-environment block says today.
 
 **Performance criteria use the objective's headline metric, end-to-end.** Whatever metric the OBJECTIVE specifies (single-batch tok/s, aggregate throughput, TTFT, p50/p99 latency, …) is the one the framework's plateau detector compares across rounds and the one your `pass_criteria` should reference for any performance gate. Always express it as the benchmark measures it end-to-end — never as a per-call, per-replay, or per-kernel timing.
+
+**A forecast miss is not an implementation failure.** Keep the expected effect
+range separate from the minimum acceptance criteria. If a mechanism was
+predicted to deliver 1.5x but a trustworthy implementation delivers 1.3x and
+still clears the separately justified retention gate, preserve the change and
+calibrate the performance model from the miss. Do not set the retention gate to
+the predicted midpoint or optimistic bound. Reject or roll back a positive
+change only when it is within noise, violates a binding constraint, is dominated
+after accounting for complexity/resource cost, blocks a more valuable path, or
+misses an independently justified minimum benefit.
 
 Avoid pass criteria that use an internal microbenchmark as a proxy for the objective unless the objective explicitly names that microbenchmark. A local timing can miss end-to-end effects that determine the real score. Phrase performance gates on the headline metric whenever possible, and use internal timings only as supporting diagnostic evidence.
 
@@ -432,6 +454,8 @@ Return exactly one JSON object. Do not wrap in markdown fences.
   "hypothesis": "<causal and falsifiable claim>",
   "activation_evidence": "<observable proof that the mechanism ran>",
   "falsification_criteria": "<evidence that would disprove the claim>",
+  "expected_effect": "<forecast range for prioritization and model calibration; not a pass threshold>",
+  "minimum_acceptance_criteria": "<separately justified minimum observed benefit and allowed tradeoffs for retaining the change>",
   "invariants": "<properties that must remain true>",
   "task": "<implementer task description>",
   "pass_criteria": "<feature-level criteria for the judge>",

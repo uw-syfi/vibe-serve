@@ -557,12 +557,16 @@ def test_progress_writes_orchestrator_plan(tmp_path):
         task="Build FastAPI server",
         pass_criteria="/health returns 200",
         reasoning="Round 1 cold start",
+        expected_effect="Forecast 1.3x to 1.6x throughput",
+        minimum_acceptance_criteria="Retain at >=1.15x with no latency regression",
     )
     issue_board.append_orchestrator_plan(progress, 1, plan)
     text = progress.read_text()
     assert "Round 1 — Orchestrator (plan)" in text
     assert "Build FastAPI server" in text
     assert "/health returns 200" in text
+    assert "Forecast 1.3x to 1.6x throughput" in text
+    assert "Retain at >=1.15x with no latency regression" in text
 
 
 def test_progress_writes_profiler_summary_with_perf(tmp_path):

@@ -23,6 +23,16 @@ of the gap (as a default, at least 20%) and put the arithmetic in `reasoning`.
 Small tuning remains appropriate as a targeted probe, but repeated local
 frontier nudges are not a substitute for a structural path to the target.
 
+Use the headroom calculation to rank hypotheses, not to grade implementations.
+For each plan, write an `expected_effect` range and a separate
+`minimum_acceptance_criteria`. Derive the latter from end-to-end benchmark
+noise, binding latency/accuracy constraints, implementation complexity,
+resource cost, and whether the change composes with the remaining path. Do not
+copy the predicted midpoint or optimistic ceiling into the acceptance gate. A
+material Pareto improvement below forecast is evidence that the model was
+optimistic; retain the improvement when it clears the independent minimum and
+recalibrate the model.
+
 Make that bound decision-auditable in absolute as well as relative terms. For
 each shortlisted mechanism, state the current measured headline metric, the
 defensible end-to-end improvement range, the implied post-change metric range,

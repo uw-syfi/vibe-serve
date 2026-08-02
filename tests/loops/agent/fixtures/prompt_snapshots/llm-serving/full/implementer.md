@@ -48,6 +48,8 @@ TASK: add a streaming /v1/completions endpoint.
 - **Causal claim**: Removing decode launch overhead will improve median_tok_per_sec.
 - **Activation evidence**: cuda_graph_replays increases on steady requests.
 - **Falsification criteria**: Graphs replay but headline throughput does not improve.
+- **Expected effect (forecast, not a gate)**: Forecast 1.3x to 1.6x end-to-end throughput.
+- **Minimum acceptance criteria**: Retain at >=1.15x throughput with no latency regression.
 - **Invariants**: Accuracy and prompt-dependent generation remain unchanged.
 
 Treat this hypothesis as a persistent goal, not a one-shot task. Retain control over targeted experiments, workload ranges, parameter sweeps, logs, and small probes needed to implement or falsify it. The framework owns the immutable accuracy gate after independent review.
@@ -236,6 +238,12 @@ view. A single sub-percent miss is not a mechanism-level falsification when
 nearby or repeated parent rows vary by more than that amount. Run the smallest
 repeat that resolves the classification, or report `inconclusive`; do not turn
 measurement noise into a confident `proven` or `disproven` outcome.
+Compare the observed result with the separately stated minimum acceptance
+criteria, not with the expected-effect forecast. An activated implementation
+that misses the forecast but clears the minimum remains useful work: retain it,
+report the appropriate successful outcome, and update the performance model's
+calibration error. Do not call forecast error an implementation failure or
+silently roll back a material Pareto improvement.
 
 Treat zero-valued negative-path telemetry as a claim that needs implementation
 proof. Before using a `fallback=0`, `legacy=0`, error, or bypass counter as

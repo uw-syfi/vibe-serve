@@ -369,6 +369,21 @@ class OrchestratorPlan(BaseModel):
         default="",
         description="Evidence that would disprove the causal hypothesis for this workload.",
     )
+    expected_effect: str = Field(
+        default="",
+        description=(
+            "Analytical forecast range used to prioritize and later calibrate the "
+            "hypothesis; this is not an acceptance threshold."
+        ),
+    )
+    minimum_acceptance_criteria: str = Field(
+        default="",
+        description=(
+            "Minimum observed end-to-end benefit and allowed tradeoffs that justify "
+            "retaining the change, derived separately from forecast uncertainty, "
+            "benchmark noise, and implementation cost."
+        ),
+    )
     invariants: str = Field(
         default="",
         description="Correctness and workload properties that must remain true during the experiment.",

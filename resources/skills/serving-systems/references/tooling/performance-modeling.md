@@ -228,6 +228,31 @@ Use multiple concurrency points when saturation behavior matters. A model that
 fits only the selected best row cannot distinguish useful batching from overload
 or queueing.
 
+## Separate forecasts from acceptance decisions
+
+Use a predicted effect range to prioritize experiments and calibrate the model.
+Do not use its midpoint or optimistic bound as the implementation pass gate.
+Before the experiment, state a separate minimum acceptance criterion derived
+from:
+
+- benchmark noise and the confidence required to distinguish a real effect;
+- binding correctness, latency, throughput, failure, and resource constraints;
+- implementation complexity and ongoing maintenance/runtime cost;
+- whether the change composes with or blocks the remaining route to the target.
+
+If the forecast is 1.5x and the observed end-to-end result is 1.3x, retain the
+change when it clears that independent minimum and remains Pareto-useful. Record
+the prediction error and recalibrate the cost-center estimate. Treat forecast
+error as model evidence, not as implementation failure. Reject or roll back a
+positive result only when it is indistinguishable from noise, violates a binding
+constraint, is dominated after its costs are included, blocks a more valuable
+path, or misses the independently justified minimum.
+
+Keep the minimum acceptance criterion separate from terminal sufficiency. A
+change can be worth retaining without closing the entire target gap, and a
+highly optimistic forecast does not create a stronger reason to discard useful
+measured work.
+
 ## Turn prior interventions into empirical bounds
 
 Treat an activated experiment as a measurement of its cost-center class, even

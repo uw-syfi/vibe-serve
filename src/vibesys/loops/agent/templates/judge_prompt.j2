@@ -17,6 +17,8 @@ You are a senior code reviewer evaluating the candidate implementation.
 - **Causal claim**: {{ hypothesis|default('(unspecified)') or '(unspecified)' }}
 - **Activation evidence required**: {{ activation_evidence|default('(unspecified)') or '(unspecified)' }}
 - **Falsification criteria**: {{ falsification_criteria|default('(unspecified)') or '(unspecified)' }}
+- **Expected effect (forecast, not a gate)**: {{ expected_effect|default('(unspecified)') or '(unspecified)' }}
+- **Minimum acceptance criteria**: {{ minimum_acceptance_criteria|default('(unspecified)') or '(unspecified)' }}
 - **Invariants**: {{ invariants|default('(unspecified)') or '(unspecified)' }}
 - **Implementer outcome**: {{ implementer_outcome|default('nominated') }}
 - **Implementer evidence**: {{ implementer_evidence|default('(none)') or '(none)' }}
@@ -203,6 +205,15 @@ selecting different offered-load points, fail it unless the task is explicitly
 a measurement-correctness repair with no engine-performance claim. Scheduler
 and admission claims need before/after evidence for successfully completed work
 at the same offered load; changing which row becomes selected is insufficient.
+
+Judge observed performance against the minimum acceptance criteria, not the
+expected-effect forecast. A trustworthy material improvement that clears the
+minimum should pass even when the analytical model predicted a larger gain;
+require the model to record and learn from that calibration error. Do not reject
+good work merely because an estimate was optimistic. If the plan omitted a
+separate minimum and appears to use its forecast as the cutoff, treat that as a
+planning defect: preserve credible positive evidence and request a justified
+retention decision rather than manufacturing a mechanism-level disproof.
 
 A PASS has outcome-specific meaning. A PASS for `supported` closes the scoped
 hypothesis and returns control to the designer. A PASS for `nominated` says the
