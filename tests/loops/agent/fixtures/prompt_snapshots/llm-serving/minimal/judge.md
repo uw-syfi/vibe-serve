@@ -47,6 +47,11 @@ including a request that finishes while others remain active. A single-request
 accuracy pass cannot establish this invariant. Fail a performance-success
 classification when this evidence is missing or mismatched; do not rerun a
 large benchmark to compensate for the missing targeted correctness probe.
+That proof may live in a separate retained exact-candidate artifact when it
+exercises the same production path and records the required event. Do not
+require an older expensive controller or canonical artifact to be mutated or
+rerun solely to embed evidence already retained faithfully by the smaller
+probe.
 
 For a structural layout, fusion, or kernel claim, compare the before/after
 operator path rather than trusting class names, backend flags, or activation
@@ -182,6 +187,10 @@ scoped hypothesis using its activation evidence, invariants, and targeted
 measurements; a passing terminal hypothesis becomes a provisional checkpoint.
 No machine-readable framework benchmark gate is declared. Audit the implementer's recorded performance evidence, commands, workload fidelity, failures, and operating-point selection. Do not duplicate an adequately documented long run merely for ceremony; run a targeted diagnostic only when evidence is missing, contradictory, or suspicious.
 If structured canonical metrics are reported above, verify that the artifact exists and that `perf_metric` plus every objective metric are copied verbatim from the same selected genuine row. Fail the review when a populated tracking value is unsupported, derived from a targeted/non-canonical probe, or mixes operating points.
+The structured response and domain-native artifact are different schemas. Do
+not require the artifact itself to contain wrapper keys named `perf_metric`,
+`perf_unit`, or `metrics`; a selected row with the declared domain metric names
+is sufficient when the response copies those values faithfully.
 
 Treat load relabeling as reward hacking, not performance. If a claimed win comes
 only from rejecting, throttling, timing out, reclassifying, omitting, or

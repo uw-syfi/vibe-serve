@@ -261,6 +261,8 @@ def test_llm_serving_rendered_prompts_keep_required_domain_content():
     assert "point-local" in prompts["implementer"]
     assert "point-local" in prompts["orchestrator"]
     assert "scope of every row's telemetry" in prompts["judge"]
+    assert "structured response and domain-native artifact" in prompts["judge"]
+    assert "separate retained exact-candidate artifact" in prompts["judge"]
     assert "local to each row" in prompts["single_agent"]
     assert "checkpoint each completed row" in prompts["implementer"]
     assert "raw response atomically" in prompts["implementer"]

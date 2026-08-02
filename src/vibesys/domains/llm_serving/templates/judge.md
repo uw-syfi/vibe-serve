@@ -18,6 +18,11 @@ including a request that finishes while others remain active. A single-request
 accuracy pass cannot establish this invariant. Fail a performance-success
 classification when this evidence is missing or mismatched; do not rerun a
 large benchmark to compensate for the missing targeted correctness probe.
+That proof may live in a separate retained exact-candidate artifact when it
+exercises the same production path and records the required event. Do not
+require an older expensive controller or canonical artifact to be mutated or
+rerun solely to embed evidence already retained faithfully by the smaller
+probe.
 
 For a structural layout, fusion, or kernel claim, compare the before/after
 operator path rather than trusting class names, backend flags, or activation

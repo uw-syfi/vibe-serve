@@ -138,6 +138,10 @@ The framework also owns and records the declared trusted benchmark result, so do
 {% else %}
 No machine-readable framework benchmark gate is declared. Audit the implementer's recorded performance evidence, commands, workload fidelity, failures, and operating-point selection. Do not duplicate an adequately documented long run merely for ceremony; run a targeted diagnostic only when evidence is missing, contradictory, or suspicious.
 If structured canonical metrics are reported above, verify that the artifact exists and that `perf_metric` plus every objective metric are copied verbatim from the same selected genuine row. Fail the review when a populated tracking value is unsupported, derived from a targeted/non-canonical probe, or mixes operating points.
+The structured response and domain-native artifact are different schemas. Do
+not require the artifact itself to contain wrapper keys named `perf_metric`,
+`perf_unit`, or `metrics`; a selected row with the declared domain metric names
+is sufficient when the response copies those values faithfully.
 {% if official_evaluation_due|default(false) and implementer_outcome in ["supported", "nominated"] and implementer_perf_metric is none and not gate_revalidation_pending|default(false) %}
 Because this candidate checkpoint is due for official evaluation and the input
 does not provide a framework-parsable benchmark result, the implementer must
