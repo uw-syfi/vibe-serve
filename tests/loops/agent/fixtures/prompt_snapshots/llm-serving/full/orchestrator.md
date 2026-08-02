@@ -183,7 +183,9 @@ abort after the smoke on failure, otherwise reuse the initialized service. Do
 not require two identical cold starts merely to keep smoke artifacts separate.
 Require the smoke to traverse the newly changed failure-prone path; a smoke on
 an unrelated entry point is not useful preflight evidence and should not be run
-for ceremony.
+for ceremony. If activation requires batching or concurrency, require the
+smallest multi-request smoke that reaches that path before the representative
+measurement.
 When a hypothesis depends on a new external profiler, compiler, daemon, or
 system utility, gate all instrumentation work behind a minimal capability
 probe in the actual target environment. The probe must establish executable
@@ -204,6 +206,11 @@ directory. Extra diagnostics written after measured rows completed do not
 retroactively contaminate those rows. When phase ordering proves measurement
 finished before optional diagnostics were armed, keep the valid rows, correct
 the future default, and proceed from the retained evidence.
+Require expensive sweeps to checkpoint completed rows incrementally. Boundary
+confirmation should resolve the operating regime, not every integer: stop when
+at least one intermediate point and the required repeats establish a stable
+knee within the benchmark's noise/resolution, unless the objective explicitly
+requires exact integer refinement.
 
 **Make performance gates variance-aware.** Use retained repeats or known
 benchmark noise when setting a before/after threshold. Do not make a terminal

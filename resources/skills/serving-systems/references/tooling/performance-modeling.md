@@ -165,6 +165,11 @@ class unless new evidence changes its bound.
 ## Recommended outer-loop record
 
 ```text
+Model provenance:
+- candidate commit / architecture fingerprint
+- source benchmark and profiler artifacts
+- measurement timestamp and workload identity
+
 Current objective metrics:
 Comparable reference metrics:
 Required multiplicative improvement:
@@ -187,6 +192,28 @@ Decision:
 - expected end-to-end range
 - observation that would invalidate the model
 ```
+
+## Freshness and calibration gate
+
+A copied model is not a refreshed model. After a scheduler, cache layout,
+kernel backend, precision, graphing strategy, or transport path changes, verify
+that every architecture-dependent statement still describes the production
+path. Record a candidate commit or equivalent architecture fingerprint and the
+exact artifacts used for calibration.
+
+Before using the model to rank another optimization, require all of:
+
+1. Numerical FLOPs and byte assumptions for the relevant prefill/decode regime.
+2. Usable device compute and bandwidth ranges with their source or discount.
+3. A hardware/workload ceiling distinct from the current implementation knee.
+4. A prediction for at least one retained operating point, its observed value,
+   calibration error, and the residual the model does not explain.
+5. TTFT, TPOT, end-to-end latency, failures, and accuracy treated as constraints
+   rather than inferred from throughput.
+
+Reject the model as stale when it names a removed bottleneck, contradicts
+activation telemetry, cannot reproduce any retained measurement, or reports a
+measured saturation point as though it were the hardware roofline.
 
 ## Pitfalls
 

@@ -30,6 +30,16 @@ _LOCK_PATH = "/tmp/vibesys-modal-evaluator.lock"
 _MAX_DIAGNOSTIC_CHARS = 20_000
 
 
+def _compact_rich_output(output: str) -> str:
+    """Remove terminal formatting that Rich can insert inside wrapped URLs."""
+    plain = _ANSI_ESCAPE.sub("", output)
+    # Modal renders deployment summaries in a Rich tree. Long URLs can wrap
+    # onto the next line after the tree's vertical guide, for example
+    # ``.moda\n│   l.run``. Whitespace removal alone leaves the guide inside the
+    # URL, so discard Unicode box-drawing characters as well.
+    return re.sub(r"[\s\u2500-\u257f]+", "", plain)
+
+
 @contextmanager
 def _exclusive_evaluation() -> Generator[None]:
     """Serialize deploy-and-evaluate callers sharing the editor container."""
@@ -43,10 +53,10 @@ def _exclusive_evaluation() -> Generator[None]:
 
 def extract_modal_web_url(output: str) -> str:
     """Return the last Modal web endpoint printed by ``modal deploy``."""
-    plain = _ANSI_ESCAPE.sub("", output)
     # Rich may wrap a long endpoint between ``moda`` and ``l.run``. Removing
-    # whitespace is safe before matching because Modal hostnames contain none.
-    compact = re.sub(r"\s+", "", plain)
+    # terminal layout is safe before matching because Modal hostnames contain
+    # neither whitespace nor box-drawing characters.
+    compact = _compact_rich_output(output)
     matches = _MODAL_WEB_URL.findall(compact)
     if not matches:
         raise ValueError("modal deploy did not print a *.modal.run web endpoint")
@@ -55,8 +65,7 @@ def extract_modal_web_url(output: str) -> str:
 
 def extract_modal_app_identifier(output: str) -> str:
     """Return the deployed Modal app name printed by ``modal deploy``."""
-    plain = _ANSI_ESCAPE.sub("", output)
-    compact = re.sub(r"\s+", "", plain)
+    compact = _compact_rich_output(output)
     matches = _MODAL_DEPLOYMENT.findall(compact)
     if not matches:
         raise ValueError("modal deploy did not print a deployment URL")

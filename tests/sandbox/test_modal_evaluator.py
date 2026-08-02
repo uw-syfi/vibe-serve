@@ -11,14 +11,28 @@ from vibesys.sandbox import modal_evaluator
 def test_extract_modal_web_url_handles_rich_line_wrapping() -> None:
     output = """
     Created Web Function URL for Server.web_app =>
-      https://workspace--vibesys-long-endpoint.moda
-      l.run (label truncated)
+    │ https://workspace--vibesys-long-endpoint.moda
+    │ l.run (label truncated)
     View Deployment: https://modal.com/apps/workspace/main/deployed/example
     """
 
     assert (
         modal_evaluator.extract_modal_web_url(output)
         == "https://workspace--vibesys-long-endpoint.modal.run"
+    )
+
+
+def test_extract_modal_web_url_handles_deploy_tree_wrapping() -> None:
+    output = """
+    ├── 🔨 Created web function fastapi_app =>
+    │   https://vibeserve--vibesys-long-candidate-f51b76.moda
+    │   l.run (label truncated)
+    └── 🔨 Created function profile_remote.
+    """
+
+    assert (
+        modal_evaluator.extract_modal_web_url(output)
+        == "https://vibeserve--vibesys-long-candidate-f51b76.modal.run"
     )
 
 
@@ -30,8 +44,8 @@ def test_extract_modal_web_url_requires_endpoint() -> None:
 def test_extract_modal_app_identifier_handles_rich_line_wrapping() -> None:
     output = """
     View Deployment:
-      https://modal.com/apps/workspace/main/deployed/vibesys-long-
-      candidate
+    │ https://modal.com/apps/workspace/main/deployed/vibesys-long-
+    │ candidate
     """
 
     assert modal_evaluator.extract_modal_app_identifier(output) == "vibesys-long-candidate"

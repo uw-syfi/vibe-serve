@@ -89,6 +89,10 @@ The preflight must exercise the newly changed failure-prone path. A live smoke
 through a different entry point that never reaches the new profiler, analyzer,
 summary, or writeback code does not validate that code and should be skipped in
 favor of a focused local/synthetic invocation or a gated phase in the real run.
+If the new mechanism activates only with multiple requests, dynamic batching,
+shape changes, or a particular concurrency, the preflight must reach that
+minimum activation condition; a successful single-request path is not a
+preflight for batched execution.
 Before building a harness around an external profiler, compiler, daemon, or
 system utility, run the smallest target-environment capability probe: verify
 the executable/version plus required device access, permissions, and export
@@ -110,6 +114,10 @@ benchmark solely to obtain a cleaner artifact directory or remove an extra
 post-measurement sidecar; retain the phase-order evidence, correct the default
 for future runs, and reuse the valid rows unless there is concrete evidence the
 diagnostic was armed during measurement or changed the live server state first.
+For an expensive multi-point evaluation, checkpoint each completed row and the
+current phase atomically. A late timeout, optional repeat, or post-processing
+failure must leave earlier raw rows recoverable. Do not keep the only copy of a
+long sweep in process memory until the final point.
 
 Apply stated performance thresholds with the retained benchmark variance in
 view. A single sub-percent miss is not a mechanism-level falsification when

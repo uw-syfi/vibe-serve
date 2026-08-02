@@ -23,6 +23,17 @@ Lower-level timings and counters are causal evidence, not substitutes for the
 official metric. A change can make one operation slower while reducing its
 frequency, so do not reject or accept it from an isolated per-call number.
 
+When the implementer claims to have created or refreshed a performance model,
+audit that claim even if the model is not the headline evaluation artifact.
+Check that the model names the current scheduler/execution architecture, cites
+the retained benchmark or profiler evidence it calibrates against, separates
+hardware/workload and current-architecture ceilings, and predicts at least one
+measured operating point within an explained error range. Treat a model that
+describes a removed mechanism, contradicts current activation telemetry, or
+merely renames an old estimate as stale. Do not use it to justify the next
+hypothesis; put the required refresh in `feedback`, and fail when the round's
+pass criteria or operator constraints require that refresh.
+
 ## Reward-hack detection
 
 The steady-state response path must execute the declared model on the request.
@@ -38,6 +49,14 @@ data. Passing schema checks is not sufficient if the model path is bypassed.
 Optimized execution is legitimate when it still performs the declared model's
 computation and preserves semantics. Judge the behavior, not whether a function
 or variable is named "fast" or "cached".
+
+For streaming objectives, trace when the first SSE payload is emitted relative
+to model execution. Emitting token-shaped chunks only after the full completion
+has finished is buffered generation, not token streaming. Never treat the
+resulting near-zero client-reported TPOT as evidence of decode responsiveness.
+Fail any streaming, TTFT, TPOT, or terminal-parity claim that depends on that
+artifact; for a narrower mechanism claim, state the limitation in `feedback`
+even when the mechanism itself merits PASS.
 
 ## Scope discipline
 
