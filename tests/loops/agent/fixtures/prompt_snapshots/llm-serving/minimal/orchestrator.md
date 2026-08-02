@@ -293,6 +293,12 @@ safely flow into measurement: persist the capability result, abort on failure,
 then reuse the initialized service for smoke and the representative point. Do
 not require identical cold starts merely to keep capability or smoke artifacts
 separate.
+Treat a runtime fingerprint or "cheap" probe as sharing initialized state when
+it allocates the same accelerator, imports the same image, calls the engine or model
+initializer, warms the compiler, or captures graphs. Require it to be the first
+phase of the same controller, not a separate paid invocation. A separate remote
+probe is cheaper only when it avoids those costs or cannot safely flow into the
+later measurement.
 This also applies to repair rounds after judge feedback. When the same unchanged
 candidate needs multiple target-hardware validations, require compatible
 correctness, profiler-contract, and smoke checks to run as phases of one
@@ -304,6 +310,10 @@ replicas, a short finite idle/scaledown timeout, explicit `finally` teardown,
 and an outer command timeout. The crash backstop must scale the accelerator to
 zero without relying on the agent returning normally. Do not keep an
 accelerator warm across agent reasoning turns.
+For long model-load, compile, or graph-capture phases, require a declared remote
+phase deadline plus observable start, heartbeat/checkpoint, and completion
+state. The outer poll must outlive that deadline; quiet logs or an arbitrary
+shorter local wait are not evidence of a hang.
 Require the smoke to traverse the newly changed failure-prone path; a smoke on
 an unrelated entry point is not useful preflight evidence and should not be run
 for ceremony. If activation requires batching or concurrency, require the

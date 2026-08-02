@@ -151,6 +151,14 @@ same staged gates. Do not launch a second identical service merely to separate
 capability, smoke, or benchmark artifacts. Use a separate remote probe only
 when it is materially cheaper in isolation or its side effects could make the
 following measurement untrustworthy.
+A probe is not materially cheaper merely because it sends no workload. If it
+allocates the same accelerator, imports the same remote image, calls the same
+engine or model initializer, warms the same compiler, or captures the same graphs,
+fold runtime fingerprinting and capability evidence into the later controller
+as early phases and return separate phase payloads from that one invocation. A
+separate remote probe is justified only when it avoids that expensive
+initialization or accelerator allocation, or when continuing after it would
+invalidate the later measurement.
 Apply the same rule on judge retries. If one unchanged candidate needs several
 target-hardware repairs validated—such as a correctness event, profiler-hook
 schema, and service smoke—run them as adjacent phases on one initialized
@@ -173,6 +181,12 @@ because one poll interval produced no output; inspect process state and the
 controller's atomic phase checkpoints first. Keep the outer wall-clock timeout
 longer than the controller's declared worst-case phase budget, while retaining
 the remote idle/scaledown backstop for crashes.
+Declare each expensive phase's timeout before launching it and expose retained
+phase-start, heartbeat/checkpoint, and phase-complete evidence. Model loading,
+AOT compilation, and graph capture may legitimately remain quiet for minutes;
+do not invent an ad hoc shorter cutoff from elapsed time, missing local
+writeback, or wrapper CPU usage. Stop before the declared deadline only for a
+concrete terminal error or verified loss of progress, and retain that reason.
 
 Preserve already-valid measured rows. A diagnostic or optional artifact created
 after measured rows completed cannot retroactively perturb them. Do not rerun a

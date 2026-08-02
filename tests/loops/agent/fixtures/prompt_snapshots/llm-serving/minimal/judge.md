@@ -196,6 +196,14 @@ On a retry, also flag separate cold accelerator starts for each repaired
 correctness, profiler-contract, or smoke hook when those checks could safely run
 as adjacent phases on one initialized candidate. Distinct output artifacts do
 not by themselves justify distinct paid startups.
+Also flag a separately launched runtime fingerprint or "cheap" probe when it
+allocates the same accelerator or calls the same engine, model, compiler, or graph
+initializer as the following capability or measurement phase. Review timeout
+evidence for long initialization: an implementation-failed or blocked claim is
+not supported merely by quiet logs, missing local writeback, elapsed-time
+guesswork, or wrapper CPU usage before a declared remote phase deadline. Require
+observable phase progress and a concrete terminal error, expired declared
+deadline, or verified loss of progress.
 Audit the temporal meaning of activation telemetry. A zero current-occupancy
 gauge sampled after requests drain is expected when resources were correctly
 released and cannot negate monotonic totals, retained peaks, or event evidence

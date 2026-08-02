@@ -108,6 +108,14 @@ If self-review finds several target-hardware repairs on the unchanged
 candidate, validate compatible correctness, profiler-contract, and smoke hooks
 as adjacent phases of that same controller. Do not cold-start one accelerator
 per output artifact.
+A runtime fingerprint is another controller phase—not a cheap separate probe—
+when it allocates the same accelerator or calls the same engine, model, compiler,
+or graph initializer. Separate it only when it avoids those expensive costs or
+would contaminate later measurement. Declare remote deadlines for long model
+load, compilation, and graph capture, emit phase progress checkpoints, and keep
+the outer poll alive past those deadlines. Quiet output, missing local
+writeback, elapsed-time guesswork, or wrapper CPU usage alone do not prove a
+hang.
 Reuse the established benchmark runner and controller for ordinary candidate
 changes. Do not build a round-specific controller or fresh synthetic artifacts
 solely to wrap the same evaluation flow, rename phases, or expose activation
