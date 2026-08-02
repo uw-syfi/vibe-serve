@@ -76,6 +76,13 @@ expensive callable is invoked. Before remote execution, inject or synthesize one
 failed-gate result and assert that the representative/canonical invocation count
 stays zero while the failure artifact is still written. Merely appending an
 `issues` field and then continuing is not staged evaluation.
+Exercise the successful post-measurement path too. Inject a representative fake
+row through comparison, enrichment, and final artifact serialization before the
+remote run. Remote code may read only files explicitly bundled or mounted in
+that environment; pass retained baselines and other local-only evidence as
+primitive controller arguments or perform comparison after the raw remote
+response is durably written. Statically inspect remote callables for workspace
+artifact reads so a completed measurement cannot be lost at enrichment time.
 When the official evaluation is a multi-point sweep, distinguish a short
 plumbing smoke from a directional performance probe. After the smoke, first run
 one canonical-shape point at the representative load where the mechanism should

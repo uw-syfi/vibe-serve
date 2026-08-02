@@ -145,6 +145,12 @@ failed capability, correctness, or smoke gate must return before any downstream
 representative/canonical call. Require retained evidence from an injected or
 synthetic failed-gate preflight showing the expensive invocation count remained
 zero; fail a controller that only appends an `issues` field and continues.
+Also require a synthetic successful-row preflight through comparison,
+enrichment, and serialization. Inspect remote callables for reads of retained
+workspace artifacts that were not explicitly bundled or mounted. Baselines
+must cross the boundary as primitive inputs, or comparison must happen only
+after the raw response is durably local; reject evidence lost because a remote
+post-processing step assumed access to a local-only file.
 When remote startup dominates and the plan requires staged evaluation on one
 live instance, audit that an expensive capability check which uses the same
 model/service state flows into smoke and measurement in one bounded controller
