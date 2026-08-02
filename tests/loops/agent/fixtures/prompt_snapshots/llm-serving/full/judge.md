@@ -170,6 +170,11 @@ that the path ran. Conversely, a nonzero post-drain occupancy value is not
 automatically stronger evidence; it may be a leak. Reject gates that conflate
 live occupancy with historical activation when that confusion changes whether
 an expensive phase runs.
+For a multi-point benchmark, also audit the scope of every row's telemetry.
+Require resettable point-local counters or start/end deltas for the exact row
+whose metric is selected. Reject mechanism or overload claims when an earlier
+row is paired with process-lifetime totals or peaks polluted by later rows,
+even if the headline client metric itself is valid.
 Official evaluation is deferred for this working head. Do not fail solely
 because a full canonical sweep or immutable accuracy run is absent. Audit the
 scoped hypothesis using its activation evidence, invariants, and targeted

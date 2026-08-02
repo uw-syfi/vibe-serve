@@ -235,6 +235,11 @@ expected to matter, not a shortened smoke workload and not the whole sweep.
 Use a short smoke only to validate plumbing. Expand to neighboring points,
 repeats, or the full sweep only after that representative point moves beyond
 the relevant noise band.
+Require every retained sweep row to pair its metric with point-local mechanism
+and resource evidence. The implementation must either reset observation
+counters per row or compute deltas from start/end snapshots; process-lifetime
+cumulative counters and later-row peaks must not be attributed to the selected
+row. Put a cheap reset/delta preflight in the plan before paid measurement.
 When remote service startup, model load, compilation, or prewarm dominates,
 prefer capability, smoke, and representative phases in one live-server
 invocation when the capability check needs the same initialized state and can

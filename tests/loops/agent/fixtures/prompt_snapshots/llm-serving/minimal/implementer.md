@@ -88,6 +88,12 @@ plumbing smoke from a directional performance probe. After the smoke, first run
 one canonical-shape point at the representative load where the mechanism should
 matter. Only expand to neighboring points, repeats, or a full sweep when that
 point supports the claimed direction beyond the applicable noise band.
+Keep each sweep row's activation and resource evidence point-local. Reset
+observation counters immediately before the row's warmup/measurement, or retain
+start/end snapshots and serialize their deltas. Do not attach process-lifetime
+cumulative counters or later-row high-water marks to an earlier selected row;
+that can falsely prove activation, fallback, capacity, or overload. Exercise
+the reset/delta path locally before the expensive sweep.
 
 Before an expensive remote or hardware benchmark, exercise every new result,
 telemetry, debug, summary, and artifact-write path that the run will call. Use a

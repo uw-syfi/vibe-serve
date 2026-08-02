@@ -119,6 +119,10 @@ current-occupancy gauge for resources that correct cleanup releases. Sample an
 instantaneous gauge while work is live only when live occupancy is itself the
 invariant. Validate this before the bounded remote run so a false smoke failure
 does not force another cold start.
+For multi-point sweeps, keep those totals and peaks local to each row: reset the
+observation window before each point or serialize start/end deltas. Never pair a
+selected row with process-lifetime counters or later-row high-water marks.
+Preflight the reset/delta path before launching the expensive sweep.
 When a remote controller returns measured rows to a local wrapper, persist that
 raw response atomically before reading a baseline artifact, selecting an
 operating point, enriching a summary, or running optional analysis. Write the
