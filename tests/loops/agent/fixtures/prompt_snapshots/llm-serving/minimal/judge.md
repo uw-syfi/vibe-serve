@@ -100,6 +100,18 @@ Audit profiler perturbation: instrumentation that synchronizes at every scope
 boundary cannot establish the uninstrumented overlap or host-idle critical
 path. For a host/synchronization diagnosis, require a source-level inventory of
 hot-path sync sites and their per-step, per-layer, or per-request frequencies.
+If a model marks phase attribution as usable, inspect the collector source:
+any device synchronization inside a repeated annotated scope makes that capture
+unusable for uninstrumented phase fractions and Amdahl bounds, regardless of
+how closely its end-to-end throughput matches the control.
+
+Audit a serving roofline for the whole model step, not only the newly optimized
+kernel. At minimum, reconcile parameter dimensions and precision into bytes for
+all weights touched by decode, dense projection/MLP/output FLOPs, KV-cache
+reads and writes, and useful batch tokens. An attention-only FLOP/byte bound is
+a kernel roofline; reject it when it is labeled as the model-serving hardware
+ceiling or used to rank end-to-end hypotheses. Require an attainable
+compute/bandwidth range or an explicit optimistic-peak label.
 
 ## Reward-hack detection
 

@@ -118,6 +118,15 @@ or discard phase attribution from instrumentation that synchronizes at each
 scope boundary, and never claim complete coverage by adding overlapping CPU and
 CUDA-event durations.
 
+Build the hardware/workload roofline for the whole model decode step. Reconcile
+the architecture's parameter dimensions and precision into bytes for every
+weight touched by decode, then include dense projection/MLP/output FLOPs, KV
+reads and writes, and useful tokens per batch. A roofline that counts only the
+attention kernel is a kernel ceiling, not a serving ceiling. Use an attainable
+compute/bandwidth range; if only hardware peak is available, label the result an
+optimistic upper bound and do not treat the gap to it as removable application
+overhead.
+
 Do not choose a technique merely because other serving systems commonly use it.
 Consult a technical reference only after the evidence identifies the mechanism
 you need to understand.

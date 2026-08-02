@@ -112,6 +112,17 @@ peaks. Include weight reads, activation traffic, KV-cache reads/writes,
 attention metadata, padding, and communication that the execution actually
 requires. Recompute for each relevant batch and context-length regime.
 
+For a transformer decode roofline, start with a layer-by-layer parameter and
+operation inventory. Reconcile the configured hidden, intermediate, head,
+KV-head, vocabulary, and layer dimensions with the actual tied or untied
+weights. Convert every weight touched by a decode step to bytes at the declared
+precision, and include the dense Q/K/V/O, gate/up/down, and output-projection
+FLOPs as well as attention FLOPs. Unless a measured cache analysis proves
+otherwise, count model weights at least once per batched decode step; batch
+reuse amortizes those bytes over useful tokens but does not remove the read.
+An attention-only calculation is a kernel roofline and must not be presented as
+the full model-serving hardware ceiling.
+
 Dense autoregressive decode often raises weight reuse with batch size while KV
 traffic grows with live context. Prefill and decode therefore need separate
 models. Mixed prefill/decode scheduling needs a weighted or trace-derived model,
