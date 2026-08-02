@@ -92,6 +92,11 @@ class _RoundRecord:
     hypothesis_parent_round: int | None = None
     metrics: dict[str, float] = field(default_factory=dict)
     evaluation_artifact: str | None = None
+    # Only framework-owned gates can set this. A judge-approved hypothesis may
+    # be a useful provisional working checkpoint without becoming the latest
+    # officially verified checkpoint.
+    official_evaluation: bool = False
+    official_evaluation_reason: str | None = None
 
     def to_json(self) -> dict[str, Any]:
         return {
@@ -107,6 +112,8 @@ class _RoundRecord:
             "hypothesis_parent_round": self.hypothesis_parent_round,
             "metrics": self.metrics,
             "evaluation_artifact": self.evaluation_artifact,
+            "official_evaluation": self.official_evaluation,
+            "official_evaluation_reason": self.official_evaluation_reason,
         }
 
     @classmethod
@@ -124,6 +131,16 @@ class _RoundRecord:
             hypothesis_parent_round=data.get("hypothesis_parent_round"),
             metrics=data.get("metrics", {}),
             evaluation_artifact=data.get("evaluation_artifact"),
+            # Runs written before sparse official evaluation executed global
+            # gates for every proven candidate. Preserve that history when
+            # resuming rather than relabeling old checkpoints provisional.
+            official_evaluation=bool(
+                data.get(
+                    "official_evaluation",
+                    data.get("passed", False) and data.get("hypothesis_outcome") == "proven",
+                )
+            ),
+            official_evaluation_reason=data.get("official_evaluation_reason"),
         )
 
 
@@ -155,6 +172,8 @@ class _ActiveHypothesis:
     gate_approved_perf_unit: str | None = None
     gate_approved_metrics: dict[str, float] = field(default_factory=dict)
     gate_approved_evaluation_artifact: str | None = None
+    gate_candidate_commit: str | None = None
+    gate_accuracy_passed: bool = False
 
     def to_json(self) -> dict[str, Any]:
         return {
@@ -170,6 +189,8 @@ class _ActiveHypothesis:
             "gate_approved_perf_unit": self.gate_approved_perf_unit,
             "gate_approved_metrics": self.gate_approved_metrics,
             "gate_approved_evaluation_artifact": self.gate_approved_evaluation_artifact,
+            "gate_candidate_commit": self.gate_candidate_commit,
+            "gate_accuracy_passed": self.gate_accuracy_passed,
         }
 
     @classmethod
@@ -190,9 +211,9 @@ class _ActiveHypothesis:
             gate_approved_perf_metric=data.get("gate_approved_perf_metric"),
             gate_approved_perf_unit=data.get("gate_approved_perf_unit"),
             gate_approved_metrics=data.get("gate_approved_metrics", {}),
-            gate_approved_evaluation_artifact=data.get(
-                "gate_approved_evaluation_artifact"
-            ),
+            gate_approved_evaluation_artifact=data.get("gate_approved_evaluation_artifact"),
+            gate_candidate_commit=data.get("gate_candidate_commit"),
+            gate_accuracy_passed=bool(data.get("gate_accuracy_passed", False)),
         )
 
 
@@ -256,6 +277,8 @@ def _best_round(records: list[_RoundRecord]) -> _RoundRecord | None:
     best: _RoundRecord | None = None
     best_metric = float("-inf")
     for r in records:
+        if not r.official_evaluation:
+            continue
         metric = r.perf_metric
         if metric is None or not r.passed:
             continue
@@ -295,7 +318,11 @@ def _detect_plateau(
     The orchestrator gets this verbatim in its prompt; phrasing is
     user-facing.
     """
-    fresh = [r for r in records if r.perf_metric is not None and not r.profile_skipped]
+    fresh = [
+        r
+        for r in records
+        if r.official_evaluation and r.perf_metric is not None and not r.profile_skipped
+    ]
     if len(fresh) < min_streak:
         return None
     latest_unit = fresh[-1].perf_unit
@@ -348,6 +375,45 @@ def _review_due(
     )
 
 
+def _provisional_candidates_since_official(records: list[_RoundRecord]) -> int:
+    """Count accepted candidate checkpoints after the latest official one."""
+    count = 0
+    for record in reversed(records):
+        if record.official_evaluation:
+            break
+        if record.passed and record.reviewed and record.hypothesis_outcome == "proven":
+            count += 1
+    return count
+
+
+def _official_evaluation_reason(
+    *,
+    records: list[_RoundRecord],
+    round_number: int,
+    max_rounds: int,
+    official_eval_every: int,
+    requested: bool,
+    candidate_ready: bool,
+) -> str | None:
+    """Return why framework-owned gates should run for the working head.
+
+    Cadence counts accepted candidate checkpoints rather than raw framework
+    rounds. Retries, continuing hypotheses, profiling passes, and rejected
+    changes therefore cannot accidentally consume the expensive-evaluation
+    budget.
+    """
+    if round_number == max_rounds:
+        return "final_round"
+    if not candidate_ready:
+        return None
+    if requested:
+        return "orchestrator_request"
+    provisional = _provisional_candidates_since_official(records)
+    if provisional + 1 >= official_eval_every:
+        return "cadence"
+    return None
+
+
 def _terminal_workspace_notice(records: list[_RoundRecord]) -> str | None:
     """Describe a terminal hypothesis whose edits remain in the workspace."""
     if not records:
@@ -387,8 +453,7 @@ def _terminal_workspace_notice(records: list[_RoundRecord]) -> str | None:
             record
             for record in reversed(records[:-1])
             if record.commit is not None
-            and record.hypothesis_outcome
-            in {HypothesisOutcome.CONTINUE.value, "proven"}
+            and record.hypothesis_outcome in {HypothesisOutcome.CONTINUE.value, "proven"}
         ),
         None,
     )
@@ -470,9 +535,7 @@ def _invoke_read_only_role(
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_bytes(content)
             remaining = [
-                path
-                for path in ctx.git.pending_changes()
-                if path not in allowed_workspace_paths
+                path for path in ctx.git.pending_changes() if path not in allowed_workspace_paths
             ]
             if remaining:
                 raise RuntimeError(
@@ -480,11 +543,7 @@ def _invoke_read_only_role(
                     f"{', '.join(remaining[:8])}"
                 )
             shown = ", ".join(unauthorized[:8])
-            suffix = (
-                ""
-                if len(unauthorized) <= 8
-                else f", ... (+{len(unauthorized) - 8} more)"
-            )
+            suffix = "" if len(unauthorized) <= 8 else f", ... (+{len(unauthorized) - 8} more)"
             ctx.lprint(
                 f"[role-isolation] reverted {len(unauthorized)} workspace change(s) "
                 f"attempted by {role}: {shown}{suffix}"
@@ -675,6 +734,9 @@ def _run_orchestrator_plan(
     interface: str,
     domain_definition: DomainDefinition,
     framework_benchmark_enabled: bool = False,
+    official_eval_every: int = 3,
+    provisional_candidates: int = 0,
+    official_eval_cadence_due: bool = False,
 ) -> OrchestratorPlan:
     domain_orchestrator = render_domain_section(
         domain_definition,
@@ -697,6 +759,9 @@ def _run_orchestrator_plan(
         runtime_notes=ctx.run_environment_view.prompt_notes,
         env_kind=ctx.run_environment_view.env_kind,
         framework_benchmark_enabled=framework_benchmark_enabled,
+        official_eval_every=official_eval_every,
+        provisional_candidates=provisional_candidates,
+        official_eval_cadence_due=official_eval_cadence_due,
     )
     plan = _invoke_read_only_role(
         ctx,
@@ -747,6 +812,8 @@ def _run_implementer(
     gate_approved_perf_unit: str | None = None,
     gate_approved_evaluation_artifact: str | None = None,
     framework_benchmark_enabled: bool = False,
+    official_evaluation_due: bool = False,
+    official_evaluation_reason: str | None = None,
 ) -> ImplementerResponse:
     domain_implementer = render_domain_section(
         domain_definition,
@@ -782,6 +849,8 @@ def _run_implementer(
         runtime_notes=ctx.run_environment_view.prompt_notes,
         env_kind=ctx.run_environment_view.env_kind,
         framework_benchmark_enabled=framework_benchmark_enabled,
+        official_evaluation_due=official_evaluation_due,
+        official_evaluation_reason=official_evaluation_reason,
     )
     response = ctx.invoke(
         kind="implementer",
@@ -828,6 +897,8 @@ def _run_judge(
     gate_approved_metrics: dict[str, float] | None = None,
     gate_approved_evaluation_artifact: str | None = None,
     framework_benchmark_enabled: bool = False,
+    official_evaluation_due: bool = False,
+    official_evaluation_reason: str | None = None,
 ) -> JudgeResponse:
     judge_domain_context = _domain_render_context(ctx, modality, interface)
     # Canonical accuracy and benchmark commands are framework-owned. Hiding
@@ -874,6 +945,8 @@ def _run_judge(
         framework_revert_round=framework_revert_round,
         framework_revert_commit=framework_revert_commit,
         framework_benchmark_enabled=framework_benchmark_enabled,
+        official_evaluation_due=official_evaluation_due,
+        official_evaluation_reason=official_evaluation_reason,
     )
     response = _invoke_read_only_role(
         ctx,
@@ -926,6 +999,9 @@ def _run_single_agent_round(
     progress_location: str,
     objective: str,
     profile_focus: str,
+    official_evaluation_due: bool = False,
+    official_evaluation_reason: str | None = None,
+    framework_benchmark_enabled: bool = False,
 ) -> SingleAgentRoundResponse:
     """Invoke one agent that plays implementer + judge + profiler.
 
@@ -980,6 +1056,9 @@ def _run_single_agent_round(
         accuracy_command=ctx.judge_accuracy_command,
         runtime_notes=ctx.run_environment_view.prompt_notes,
         env_kind=ctx.run_environment_view.env_kind,
+        official_evaluation_due=official_evaluation_due,
+        official_evaluation_reason=official_evaluation_reason,
+        framework_benchmark_enabled=framework_benchmark_enabled,
     )
     response = ctx.invoke(
         kind="implementer",
@@ -1032,6 +1111,13 @@ def _framework_command_timeout(ctx: LoopContext, timeout_seconds: int | None) ->
     return timeout_seconds + setup_timeout
 
 
+def _with_candidate_revision(command: str, candidate_revision: str | None) -> str:
+    """Annotate an official command so its environment may reuse a deployment."""
+    if not candidate_revision:
+        return command
+    return f"env VIBESYS_CANDIDATE_REVISION={shlex.quote(candidate_revision)} {command}"
+
+
 def _run_framework_accuracy_gate(
     ctx: LoopContext,
     *,
@@ -1039,6 +1125,7 @@ def _run_framework_accuracy_gate(
     retry: int,
     progress_path: Path,
     timeout_seconds: int | None = None,
+    candidate_revision: str | None = None,
 ) -> str | None:
     """Run the immutable manifest accuracy command after an agent reports PASS."""
     changed = ctx.trusted_input_changes()
@@ -1060,12 +1147,13 @@ def _run_framework_accuracy_gate(
         return None
 
     ctx.lprint(f"[framework-accuracy] running: {command}")
+    execution_command = _with_candidate_revision(command, candidate_revision)
     try:
         effective_timeout = _framework_command_timeout(ctx, timeout_seconds)
         if effective_timeout is None:
-            result = ctx.judge_backend.execute(command)
+            result = ctx.judge_backend.execute(execution_command)
         else:
-            result = ctx.judge_backend.execute(command, timeout=effective_timeout)
+            result = ctx.judge_backend.execute(execution_command, timeout=effective_timeout)
         output = result.output.strip()
         passed = result.exit_code == 0
         _publish_subprocess_output(
@@ -1130,6 +1218,7 @@ def _run_framework_benchmark(
     retry: int,
     progress_path: Path,
     timeout_seconds: int | None = None,
+    candidate_revision: str | None = None,
 ) -> tuple[str | None, float | None]:
     """Run and parse an opt-in trusted benchmark result contract."""
     if result_spec is None:
@@ -1140,8 +1229,9 @@ def _run_framework_benchmark(
         return "Benchmark result contract is configured without a benchmark command.", None
 
     output_path = f"/tmp/vibesys-framework-benchmark-{round_number}-{retry}.json"
+    execution_base = _with_candidate_revision(base_command, candidate_revision)
     command = (
-        f"{base_command} {shlex.quote(result_spec.json_argument)} {shlex.quote(output_path)}"
+        f"{execution_base} {shlex.quote(result_spec.json_argument)} {shlex.quote(output_path)}"
         f" && printf '\\n{_FRAMEWORK_BENCHMARK_MARKER}\\n'"
         f" && cat {shlex.quote(output_path)}"
         f" && printf '\\n{_FRAMEWORK_BENCHMARK_END_MARKER}\\n'"
@@ -1251,26 +1341,46 @@ def _run_framework_gates(
     progress_path: Path,
     accuracy_timeout_seconds: int | None = None,
     benchmark_timeout_seconds: int | None = None,
-) -> tuple[str | None, float | None]:
+    reuse_accuracy_pass: bool = False,
+    candidate_revision: str | None = None,
+) -> tuple[str | None, float | None, bool]:
     if ctx.agent_runner.backend_name == "stub":
-        return None, None
-    feedback = _run_framework_accuracy_gate(
-        ctx,
-        round_number=round_number,
-        retry=retry,
-        progress_path=progress_path,
-        timeout_seconds=accuracy_timeout_seconds,
-    )
+        return None, None, False
+    if reuse_accuracy_pass:
+        feedback = None
+        issue_board.append_framework_accuracy_gate(
+            progress_path,
+            round_number,
+            retry,
+            command=ctx.judge_accuracy_command or "(not configured)",
+            passed=True,
+            output=(
+                "Reused the prior framework-owned PASS for this exact candidate "
+                "commit; a later gate, not accuracy, caused the retry."
+            ),
+        )
+        ctx.lprint("[framework-accuracy] reused prior PASS for unchanged candidate")
+    else:
+        feedback = _run_framework_accuracy_gate(
+            ctx,
+            round_number=round_number,
+            retry=retry,
+            progress_path=progress_path,
+            timeout_seconds=accuracy_timeout_seconds,
+            candidate_revision=candidate_revision,
+        )
     if feedback is not None:
-        return feedback, None
-    return _run_framework_benchmark(
+        return feedback, None, False
+    benchmark_feedback, metric = _run_framework_benchmark(
         ctx,
         result_spec=benchmark_result,
         round_number=round_number,
         retry=retry,
         progress_path=progress_path,
         timeout_seconds=benchmark_timeout_seconds,
+        candidate_revision=candidate_revision,
     )
+    return benchmark_feedback, metric, True
 
 
 # ---------------------------------------------------------------------------
@@ -1295,6 +1405,7 @@ def run_agent_loop(
     max_rounds: int = 24,
     max_retries_per_round: int = 3,
     judge_every: int = 3,
+    official_eval_every: int = 3,
     memory_layout: str = "files",
     start_round: int = 1,
     existing: bool = False,
@@ -1348,6 +1459,8 @@ def run_agent_loop(
         raise ValueError(f"max_retries_per_round must be >= 1, got {max_retries_per_round}")
     if judge_every < 1:
         raise ValueError(f"judge_every must be >= 1, got {judge_every}")
+    if official_eval_every < 1:
+        raise ValueError(f"official_eval_every must be >= 1, got {official_eval_every}")
     if memory_layout not in issue_board.MEMORY_LAYOUTS:
         raise ValueError(
             f"Unknown memory_layout {memory_layout!r}; "
@@ -1460,6 +1573,7 @@ def run_agent_loop(
 
                     roadmap_text = issue_board.read_roadmap(roadmap_path)
                     plateau_warning = _detect_plateau(records)
+                    provisional_candidates = _provisional_candidates_since_official(records)
                     plan = _run_orchestrator_plan(
                         ctx,
                         round_number=round_number,
@@ -1475,6 +1589,11 @@ def run_agent_loop(
                         interface=interface,
                         domain_definition=domain_definition,
                         framework_benchmark_enabled=benchmark_result is not None,
+                        official_eval_every=official_eval_every,
+                        provisional_candidates=provisional_candidates,
+                        official_eval_cadence_due=(
+                            provisional_candidates + 1 >= official_eval_every
+                        ),
                     )
                     active_hypothesis = _ActiveHypothesis(
                         plan=plan,
@@ -1482,7 +1601,9 @@ def run_agent_loop(
                         parent_round=(
                             plan.revert_to_round
                             if plan.revert_to_round is not None
-                            else round_number - 1 if round_number > 1 else None
+                            else round_number - 1
+                            if round_number > 1
+                            else None
                         ),
                     )
                     _save_active_hypothesis(active_hypothesis_path, active_hypothesis)
@@ -1495,9 +1616,17 @@ def run_agent_loop(
                         started_round=active_hypothesis.started_round,
                     )
                     ctx.lprint(
-                        f"[hypothesis] continuing {plan.hypothesis_id}; "
-                        "designer invocation skipped"
+                        f"[hypothesis] continuing {plan.hypothesis_id}; designer invocation skipped"
                     )
+
+                planned_official_reason = _official_evaluation_reason(
+                    records=records,
+                    round_number=round_number,
+                    max_rounds=max_rounds,
+                    official_eval_every=official_eval_every,
+                    requested=plan.request_official_evaluation,
+                    candidate_ready=True,
+                )
 
                 # No early stop: the loop always consumes the full max_rounds
                 # budget. Previously OrchestratorPlan had a ``done`` field that
@@ -1506,10 +1635,7 @@ def run_agent_loop(
                 # early-stopping masks further optimization opportunities.
 
                 # --- Optional rollback ---
-                if (
-                    plan.revert_to_round is not None
-                    and not active_hypothesis.revert_applied
-                ):
+                if plan.revert_to_round is not None and not active_hypothesis.revert_applied:
                     target = next(
                         (r for r in records if r.round_number == plan.revert_to_round),
                         None,
@@ -1525,9 +1651,7 @@ def run_agent_loop(
                             )
                             active_hypothesis.revert_applied = True
                             active_hypothesis.revert_commit = target.commit
-                            _save_active_hypothesis(
-                                active_hypothesis_path, active_hypothesis
-                            )
+                            _save_active_hypothesis(active_hypothesis_path, active_hypothesis)
                         else:
                             ctx.lprint(
                                 "[warn] rollback was not applied; will retry round "
@@ -1545,14 +1669,13 @@ def run_agent_loop(
                 passed = False
                 review_started = False
                 final_attempt_reviewed = False
-                framework_revalidation_required = (
-                    active_hypothesis.gate_revalidation_pending
-                )
+                framework_revalidation_required = active_hypothesis.gate_revalidation_pending
                 implementation: ImplementerResponse | None = None
                 single_agent_response: SingleAgentRoundResponse | None = None
                 framework_perf_metric: float | None = None
                 accepted_metrics: dict[str, float] = {}
                 accepted_evaluation_artifact: str | None = None
+                completed_official_evaluation_reason: str | None = None
                 # ``max_retries_per_round >= 1`` is validated at entry, so the
                 # loop always runs; the initializer keeps ``retry`` provably
                 # bound for the post-loop round bookkeeping.
@@ -1576,21 +1699,17 @@ def run_agent_loop(
                             framework_revert_applied=active_hypothesis.revert_applied,
                             framework_revert_round=active_hypothesis.parent_round,
                             framework_revert_commit=active_hypothesis.revert_commit,
-                            gate_revalidation_pending=(
-                                active_hypothesis.gate_revalidation_pending
-                            ),
-                            gate_approved_perf_metric=(
-                                active_hypothesis.gate_approved_perf_metric
-                            ),
-                            gate_approved_perf_unit=(
-                                active_hypothesis.gate_approved_perf_unit
-                            ),
+                            gate_revalidation_pending=(active_hypothesis.gate_revalidation_pending),
+                            gate_approved_perf_metric=(active_hypothesis.gate_approved_perf_metric),
+                            gate_approved_perf_unit=(active_hypothesis.gate_approved_perf_unit),
                             gate_approved_evaluation_artifact=(
                                 active_hypothesis.gate_approved_evaluation_artifact
                             ),
                             progress_path=progress_path,
                             progress_location=progress_location,
                             framework_benchmark_enabled=benchmark_result is not None,
+                            official_evaluation_due=(planned_official_reason is not None),
+                            official_evaluation_reason=planned_official_reason,
                         )
                         review_due = _review_due(
                             round_number=round_number,
@@ -1644,49 +1763,84 @@ def run_agent_loop(
                             framework_revert_applied=active_hypothesis.revert_applied,
                             framework_revert_round=active_hypothesis.parent_round,
                             framework_revert_commit=active_hypothesis.revert_commit,
-                            gate_revalidation_pending=(
-                                active_hypothesis.gate_revalidation_pending
-                            ),
-                            gate_approved_perf_metric=(
-                                active_hypothesis.gate_approved_perf_metric
-                            ),
-                            gate_approved_perf_unit=(
-                                active_hypothesis.gate_approved_perf_unit
-                            ),
+                            gate_revalidation_pending=(active_hypothesis.gate_revalidation_pending),
+                            gate_approved_perf_metric=(active_hypothesis.gate_approved_perf_metric),
+                            gate_approved_perf_unit=(active_hypothesis.gate_approved_perf_unit),
                             gate_approved_metrics=active_hypothesis.gate_approved_metrics,
                             gate_approved_evaluation_artifact=(
                                 active_hypothesis.gate_approved_evaluation_artifact
                             ),
                             framework_benchmark_enabled=benchmark_result is not None,
+                            official_evaluation_due=(planned_official_reason is not None),
+                            official_evaluation_reason=planned_official_reason,
                         )
                         if verdict.verdict == Verdict.PASS:
-                            if (
-                                implementation.hypothesis_outcome
-                                is not HypothesisOutcome.NOMINATED
-                            ):
-                                # Cadence review may validate provisional work,
-                                # a fair disproof, or an honest blocker.  Only a
-                                # nominated candidate should consume immutable
-                                # accuracy/benchmark gates.
+                            candidate_ready = implementation.hypothesis_outcome in {
+                                HypothesisOutcome.SUPPORTED,
+                                HypothesisOutcome.NOMINATED,
+                            }
+                            official_reason = _official_evaluation_reason(
+                                records=records,
+                                round_number=round_number,
+                                max_rounds=max_rounds,
+                                official_eval_every=official_eval_every,
+                                requested=plan.request_official_evaluation,
+                                candidate_ready=candidate_ready,
+                            )
+                            if official_reason is None:
+                                if candidate_ready:
+                                    issue_board.append_official_evaluation_decision(
+                                        progress_path,
+                                        round_number,
+                                        retry,
+                                        run=False,
+                                        reason="cadence_not_due",
+                                        official_eval_every=official_eval_every,
+                                        provisional_candidates=(
+                                            _provisional_candidates_since_official(records)
+                                        ),
+                                    )
+                                    ctx.lprint(
+                                        "[official-evaluation] deferred; candidate "
+                                        "retained as a provisional working checkpoint"
+                                    )
                                 passed = True
                                 break
                             if implementation.perf_metric is not None:
                                 active_hypothesis.gate_approved_perf_metric = (
                                     implementation.perf_metric
                                 )
-                                active_hypothesis.gate_approved_perf_unit = (
-                                    implementation.perf_unit
-                                )
+                                active_hypothesis.gate_approved_perf_unit = implementation.perf_unit
                                 active_hypothesis.gate_approved_metrics = dict(
                                     implementation.metrics
                                 )
                                 active_hypothesis.gate_approved_evaluation_artifact = (
                                     implementation.evaluation_artifact
                                 )
-                                _save_active_hypothesis(
-                                    active_hypothesis_path, active_hypothesis
-                                )
-                            gate_feedback, framework_perf_metric = _run_framework_gates(
+                                _save_active_hypothesis(active_hypothesis_path, active_hypothesis)
+                            issue_board.append_official_evaluation_decision(
+                                progress_path,
+                                round_number,
+                                retry,
+                                run=True,
+                                reason=official_reason,
+                                official_eval_every=official_eval_every,
+                                provisional_candidates=(
+                                    _provisional_candidates_since_official(records)
+                                ),
+                            )
+                            candidate_commit = ctx.git.current_sha() if ctx.git_tracking else None
+                            reuse_accuracy_pass = bool(
+                                active_hypothesis.gate_revalidation_pending
+                                and candidate_commit is not None
+                                and active_hypothesis.gate_candidate_commit == candidate_commit
+                                and active_hypothesis.gate_accuracy_passed
+                            )
+                            (
+                                gate_feedback,
+                                framework_perf_metric,
+                                accuracy_passed,
+                            ) = _run_framework_gates(
                                 ctx,
                                 benchmark_result=benchmark_result,
                                 round_number=round_number,
@@ -1694,17 +1848,20 @@ def run_agent_loop(
                                 progress_path=progress_path,
                                 accuracy_timeout_seconds=accuracy_timeout_seconds,
                                 benchmark_timeout_seconds=benchmark_timeout_seconds,
+                                reuse_accuracy_pass=reuse_accuracy_pass,
+                                candidate_revision=candidate_commit,
                             )
                             if gate_feedback is None:
                                 passed = True
+                                completed_official_evaluation_reason = official_reason
                                 break
                             feedback = gate_feedback
                             framework_revalidation_required = True
                             active_hypothesis.gate_revalidation_pending = True
+                            active_hypothesis.gate_candidate_commit = candidate_commit
+                            active_hypothesis.gate_accuracy_passed = accuracy_passed
                             active_hypothesis.feedback = feedback
-                            _save_active_hypothesis(
-                                active_hypothesis_path, active_hypothesis
-                            )
+                            _save_active_hypothesis(active_hypothesis_path, active_hypothesis)
                             continue
                         feedback = verdict.feedback
                         active_hypothesis.feedback = feedback
@@ -1724,9 +1881,60 @@ def run_agent_loop(
                             progress_location=progress_location,
                             objective=objective,
                             profile_focus=last_profile_focus,
+                            official_evaluation_due=(planned_official_reason is not None),
+                            official_evaluation_reason=planned_official_reason,
+                            framework_benchmark_enabled=benchmark_result is not None,
                         )
                         if single_agent_response.verdict == Verdict.PASS:
-                            gate_feedback, framework_perf_metric = _run_framework_gates(
+                            official_reason = _official_evaluation_reason(
+                                records=records,
+                                round_number=round_number,
+                                max_rounds=max_rounds,
+                                official_eval_every=official_eval_every,
+                                requested=plan.request_official_evaluation,
+                                candidate_ready=True,
+                            )
+                            if official_reason is None:
+                                issue_board.append_official_evaluation_decision(
+                                    progress_path,
+                                    round_number,
+                                    retry,
+                                    run=False,
+                                    reason="cadence_not_due",
+                                    official_eval_every=official_eval_every,
+                                    provisional_candidates=(
+                                        _provisional_candidates_since_official(records)
+                                    ),
+                                )
+                                ctx.lprint(
+                                    "[official-evaluation] deferred; candidate "
+                                    "retained as a provisional working checkpoint"
+                                )
+                                passed = True
+                                break
+                            issue_board.append_official_evaluation_decision(
+                                progress_path,
+                                round_number,
+                                retry,
+                                run=True,
+                                reason=official_reason,
+                                official_eval_every=official_eval_every,
+                                provisional_candidates=(
+                                    _provisional_candidates_since_official(records)
+                                ),
+                            )
+                            candidate_commit = ctx.git.current_sha() if ctx.git_tracking else None
+                            reuse_accuracy_pass = bool(
+                                active_hypothesis.gate_revalidation_pending
+                                and candidate_commit is not None
+                                and active_hypothesis.gate_candidate_commit == candidate_commit
+                                and active_hypothesis.gate_accuracy_passed
+                            )
+                            (
+                                gate_feedback,
+                                framework_perf_metric,
+                                accuracy_passed,
+                            ) = _run_framework_gates(
                                 ctx,
                                 benchmark_result=benchmark_result,
                                 round_number=round_number,
@@ -1734,15 +1942,19 @@ def run_agent_loop(
                                 progress_path=progress_path,
                                 accuracy_timeout_seconds=accuracy_timeout_seconds,
                                 benchmark_timeout_seconds=benchmark_timeout_seconds,
+                                reuse_accuracy_pass=reuse_accuracy_pass,
+                                candidate_revision=candidate_commit,
                             )
                             if gate_feedback is None:
                                 passed = True
+                                completed_official_evaluation_reason = official_reason
                                 break
                             feedback = gate_feedback
+                            active_hypothesis.gate_revalidation_pending = True
+                            active_hypothesis.gate_candidate_commit = candidate_commit
+                            active_hypothesis.gate_accuracy_passed = accuracy_passed
                             active_hypothesis.feedback = feedback
-                            _save_active_hypothesis(
-                                active_hypothesis_path, active_hypothesis
-                            )
+                            _save_active_hypothesis(active_hypothesis_path, active_hypothesis)
                             continue
                         feedback = single_agent_response.feedback
                         active_hypothesis.feedback = feedback
@@ -1759,7 +1971,11 @@ def run_agent_loop(
                 # PREVIOUS round's profile (fed forward to the orchestrator),
                 # so this round's perf comes from `single_agent_response` instead.
                 if inner_loop == "single-agent":
-                    if single_agent_response is not None and framework_perf_metric is not None:
+                    if (
+                        single_agent_response is not None
+                        and framework_perf_metric is not None
+                        and completed_official_evaluation_reason is not None
+                    ):
                         single_agent_response.perf_metric = framework_perf_metric
                         single_agent_response.perf_unit = (
                             benchmark_result.metric if benchmark_result else None
@@ -1769,12 +1985,20 @@ def run_agent_loop(
                     )
                     perf_metric = (
                         single_agent_response.perf_metric
-                        if (single_agent_response and passed)
+                        if (
+                            single_agent_response
+                            and passed
+                            and completed_official_evaluation_reason is not None
+                        )
                         else None
                     )
                     perf_unit = (
                         single_agent_response.perf_unit
-                        if (single_agent_response and passed)
+                        if (
+                            single_agent_response
+                            and passed
+                            and completed_official_evaluation_reason is not None
+                        )
                         else None
                     )
                     # Remember the latest profile for the orchestrator's next plan
@@ -1784,25 +2008,31 @@ def run_agent_loop(
                 else:
                     implementation_metric = (
                         implementation.perf_metric
-                        if implementation is not None and passed
+                        if (
+                            implementation is not None
+                            and passed
+                            and completed_official_evaluation_reason is not None
+                        )
                         else None
                     )
                     if (
                         implementation_metric is None
                         and passed
                         and implementation is not None
-                        and implementation.hypothesis_outcome is HypothesisOutcome.NOMINATED
+                        and implementation.hypothesis_outcome
+                        in {HypothesisOutcome.SUPPORTED, HypothesisOutcome.NOMINATED}
                         and active_hypothesis.gate_revalidation_pending
+                        and completed_official_evaluation_reason is not None
                     ):
-                        implementation_metric = (
-                            active_hypothesis.gate_approved_perf_metric
-                        )
+                        implementation_metric = active_hypothesis.gate_approved_perf_metric
                     profile_skipped = (
-                        profiler_summary is None
-                        and framework_perf_metric is None
-                        and implementation_metric is None
+                        framework_perf_metric is None and implementation_metric is None
                     )
-                    if framework_perf_metric is not None and passed:
+                    if (
+                        framework_perf_metric is not None
+                        and passed
+                        and completed_official_evaluation_reason is not None
+                    ):
                         perf_metric = framework_perf_metric
                         perf_unit = benchmark_result.metric if benchmark_result else None
                     elif implementation_metric is not None:
@@ -1813,21 +2043,16 @@ def run_agent_loop(
                             accepted_evaluation_artifact = implementation.evaluation_artifact
                         else:
                             perf_unit = active_hypothesis.gate_approved_perf_unit
-                            accepted_metrics = dict(
-                                active_hypothesis.gate_approved_metrics
-                            )
+                            accepted_metrics = dict(active_hypothesis.gate_approved_metrics)
                             accepted_evaluation_artifact = (
                                 active_hypothesis.gate_approved_evaluation_artifact
                             )
                     else:
-                        perf_metric = (
-                            profiler_summary.perf_metric if (profiler_summary and passed) else None
-                        )
-                        perf_unit = (
-                            profiler_summary.perf_unit if (profiler_summary and passed) else None
-                        )
-                        if profiler_summary is not None and passed:
-                            accepted_metrics = dict(profiler_summary.metrics)
+                        # Profiles and directional probes inform the designer,
+                        # but only an official checkpoint may update the
+                        # verified headline trajectory in rounds.json.
+                        perf_metric = None
+                        perf_unit = None
                 # A prior retry may have been reviewed before the implementer
                 # returned a different terminal result.  Record and transition
                 # from the final attempt, not from any earlier audit in the
@@ -1863,6 +2088,20 @@ def run_agent_loop(
                         hypothesis_parent_round=active_hypothesis.parent_round,
                         metrics=accepted_metrics,
                         evaluation_artifact=accepted_evaluation_artifact,
+                        official_evaluation=(
+                            passed
+                            and completed_official_evaluation_reason is not None
+                            and ctx.agent_runner.backend_name != "stub"
+                            and bool(ctx.judge_accuracy_command or benchmark_result)
+                        ),
+                        official_evaluation_reason=(
+                            completed_official_evaluation_reason
+                            if (
+                                ctx.agent_runner.backend_name != "stub"
+                                and bool(ctx.judge_accuracy_command or benchmark_result)
+                            )
+                            else None
+                        ),
                     )
                 )
                 _save_rounds_state(rounds_state_path, records)
@@ -1878,11 +2117,7 @@ def run_agent_loop(
                         data=RoundFinishedData(
                             attempts=retry,
                             judge_verdict=(
-                                "pass"
-                                if passed
-                                else "fail"
-                                if records[-1].reviewed
-                                else "skipped"
+                                "pass" if passed else "fail" if records[-1].reviewed else "skipped"
                             ),
                             perf_metric=perf_metric,
                             perf_unit=perf_unit,

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 from unittest.mock import MagicMock, call
 
@@ -94,6 +95,85 @@ def test_run_evaluator_deploys_waits_and_injects_url(monkeypatch) -> None:
         "https://workspace--candidate.modal.run",
         timeout_seconds=90,
     )
+
+
+def test_run_evaluator_reuses_healthy_deployment_for_exact_revision(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    lease_path = tmp_path / "deployment.json"
+    lease_path.write_text(
+        json.dumps(
+            {
+                "candidate_revision": "abc123",
+                "base_url": "https://workspace--candidate.modal.run",
+            }
+        )
+    )
+    evaluator = SimpleNamespace(returncode=0)
+    run = MagicMock(return_value=evaluator)
+    healthy = MagicMock(return_value=True)
+    monkeypatch.setenv("VIBESYS_CANDIDATE_REVISION", "abc123")
+    monkeypatch.setattr(modal_evaluator, "_DEPLOYMENT_LEASE_PATH", lease_path)
+    monkeypatch.setattr(modal_evaluator, "_healthy_now", healthy)
+    monkeypatch.setattr(modal_evaluator.subprocess, "run", run)
+
+    result = modal_evaluator.run_evaluator(
+        ["uv", "run", "python", "checker.py"],
+        workspace="/workspace",
+    )
+
+    assert result == 0
+    healthy.assert_called_once_with("https://workspace--candidate.modal.run")
+    run.assert_called_once_with(
+        [
+            "uv",
+            "run",
+            "python",
+            "checker.py",
+            "--url",
+            "https://workspace--candidate.modal.run",
+        ],
+        cwd="/workspace",
+        check=False,
+    )
+
+
+def test_run_evaluator_redeploys_and_replaces_mismatched_revision(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    lease_path = tmp_path / "deployment.json"
+    lease_path.write_text(
+        json.dumps(
+            {
+                "candidate_revision": "old",
+                "base_url": "https://workspace--old.modal.run",
+            }
+        )
+    )
+    deploy = SimpleNamespace(
+        returncode=0,
+        stdout="Web Function URL: https://workspace--new.modal.run\n",
+        stderr="",
+    )
+    evaluator = SimpleNamespace(returncode=0)
+    run = MagicMock(side_effect=[deploy, evaluator])
+    monkeypatch.setenv("VIBESYS_CANDIDATE_REVISION", "new")
+    monkeypatch.setattr(modal_evaluator, "_DEPLOYMENT_LEASE_PATH", lease_path)
+    monkeypatch.setattr(modal_evaluator.subprocess, "run", run)
+    monkeypatch.setattr(modal_evaluator, "wait_for_health", MagicMock())
+
+    result = modal_evaluator.run_evaluator(
+        ["uv", "run", "python", "checker.py"],
+        workspace="/workspace",
+    )
+
+    assert result == 0
+    assert json.loads(lease_path.read_text()) == {
+        "candidate_revision": "new",
+        "base_url": "https://workspace--new.modal.run",
+    }
 
 
 def test_run_evaluator_prints_modal_logs_when_readiness_fails(

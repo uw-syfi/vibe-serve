@@ -15,6 +15,8 @@ from vibesys.loops.agent.loop import (
     _ActiveHypothesis,
     _backfill_revert_commit,
     _invoke_read_only_role,
+    _official_evaluation_reason,
+    _provisional_candidates_since_official,
     _RoundRecord,
     _terminal_workspace_notice,
     run_agent_loop,
@@ -150,9 +152,7 @@ def _make_orchestrate_runner(
                 metrics={"aggregate_throughput": perf_metric, "p99_latency_ms": 87.0}
                 if perf_metric is not None
                 else {},
-                evaluation_artifact="benchmark/summary.json"
-                if perf_metric is not None
-                else None,
+                evaluation_artifact="benchmark/summary.json" if perf_metric is not None else None,
             )
         if kind == "judge":
             idx = counters["judge"]
@@ -324,6 +324,58 @@ def test_orchestrator_plan_revert_round_optional():
         reasoning="step back",
     )
     assert p.revert_to_round == 3
+
+
+def test_official_evaluation_cadence_counts_candidate_checkpoints_not_rounds():
+    records = [
+        _RoundRecord(1, "a", None, None, False, reviewed=False, hypothesis_outcome="continue"),
+        _RoundRecord(2, "b", None, None, True, reviewed=True, hypothesis_outcome="proven"),
+        _RoundRecord(3, "c", None, None, False, reviewed=True, hypothesis_outcome="rejected"),
+        _RoundRecord(4, "d", None, None, True, reviewed=True, hypothesis_outcome="proven"),
+    ]
+
+    assert _provisional_candidates_since_official(records) == 2
+    assert (
+        _official_evaluation_reason(
+            records=records,
+            round_number=5,
+            max_rounds=20,
+            official_eval_every=3,
+            requested=False,
+            candidate_ready=True,
+        )
+        == "cadence"
+    )
+
+
+def test_official_evaluation_cadence_resets_at_verified_checkpoint():
+    records = [
+        _RoundRecord(
+            1,
+            "a",
+            10.0,
+            "tok/s",
+            True,
+            reviewed=True,
+            hypothesis_outcome="proven",
+            official_evaluation=True,
+            official_evaluation_reason="orchestrator_request",
+        ),
+        _RoundRecord(2, "b", None, None, True, reviewed=True, hypothesis_outcome="proven"),
+    ]
+
+    assert _provisional_candidates_since_official(records) == 1
+    assert (
+        _official_evaluation_reason(
+            records=records,
+            round_number=3,
+            max_rounds=20,
+            official_eval_every=3,
+            requested=False,
+            candidate_ready=True,
+        )
+        is None
+    )
 
 
 def test_terminal_workspace_notice_points_designer_to_hypothesis_parent():
@@ -563,6 +615,28 @@ def test_framework_accuracy_gate_uses_manifest_timeout(tmp_path):
     ctx.judge_backend.execute.assert_called_once_with("trusted-check", timeout=300)
 
 
+def test_framework_accuracy_gate_passes_candidate_revision_to_environment(tmp_path):
+    from vibesys.loops.agent.loop import _run_framework_accuracy_gate
+
+    ctx = MagicMock()
+    ctx.trusted_input_changes.return_value = []
+    ctx.judge_accuracy_command = "trusted-check"
+    ctx.judge_backend.execute.return_value = SimpleNamespace(exit_code=0, output="PASS")
+
+    feedback = _run_framework_accuracy_gate(
+        ctx,
+        round_number=1,
+        retry=1,
+        progress_path=tmp_path / "progress.md",
+        candidate_revision="abc123",
+    )
+
+    assert feedback is None
+    ctx.judge_backend.execute.assert_called_once_with(
+        "env VIBESYS_CANDIDATE_REVISION=abc123 trusted-check"
+    )
+
+
 def test_framework_accuracy_gate_rejects_evaluator_changes_without_execution(tmp_path):
     from vibesys.loops.agent.loop import _run_framework_accuracy_gate
 
@@ -597,6 +671,46 @@ def test_framework_accuracy_gate_rejects_changes_during_execution(tmp_path):
     )
 
     assert "changed during accuracy execution" in feedback
+
+
+def test_framework_gates_reuse_accuracy_pass_after_later_gate_failure(tmp_path):
+    from vibesys.loops.agent.loop import _run_framework_gates
+
+    ctx = MagicMock()
+    ctx.agent_runner.backend_name = "deepagents"
+    ctx.judge_accuracy_command = "trusted-check"
+    progress = tmp_path / "progress.md"
+
+    with (
+        patch(
+            "vibesys.loops.agent.loop._run_framework_accuracy_gate",
+            return_value=None,
+        ) as accuracy_gate,
+        patch(
+            "vibesys.loops.agent.loop._run_framework_benchmark",
+            side_effect=[("benchmark failed", None), (None, 42.0)],
+        ),
+    ):
+        first = _run_framework_gates(
+            ctx,
+            benchmark_result=MagicMock(),
+            round_number=3,
+            retry=1,
+            progress_path=progress,
+        )
+        second = _run_framework_gates(
+            ctx,
+            benchmark_result=MagicMock(),
+            round_number=3,
+            retry=2,
+            progress_path=progress,
+            reuse_accuracy_pass=True,
+        )
+
+    assert first == ("benchmark failed", None, True)
+    assert second == (None, 42.0, True)
+    accuracy_gate.assert_called_once()
+    assert "Reused the prior framework-owned PASS" in progress.read_text()
 
 
 def test_framework_benchmark_extracts_declared_metric(tmp_path):
@@ -749,9 +863,7 @@ def test_loop_judge_retry_then_pass(tmp_path, ref_file):
     assert runner.counters["judge"] == 2
 
 
-def test_loop_defers_judge_until_cadence_and_always_reviews_final_round(
-    tmp_path, ref_file
-):
+def test_loop_defers_judge_until_cadence_and_always_reviews_final_round(tmp_path, ref_file):
     runner = _make_orchestrate_runner(
         plans=[
             OrchestratorPlan(
@@ -800,9 +912,77 @@ def test_nominated_candidate_gets_early_review(tmp_path, ref_file):
     assert runner.counters["judge"] >= 1
 
 
-def test_supported_hypothesis_is_reviewed_without_global_gates_and_closes(
-    tmp_path, ref_file
-):
+def test_official_gates_run_on_candidate_cadence_and_final_round(tmp_path, ref_file):
+    runner = _make_orchestrate_runner(
+        implementer_outcomes=[HypothesisOutcome.NOMINATED] * 4,
+        implementer_perf_metrics=[10.0, 20.0, 30.0, 40.0],
+    )
+
+    _invoke_orchestrate(
+        tmp_path,
+        ref_file,
+        runner,
+        max_rounds=4,
+        judge_every=10,
+        official_eval_every=3,
+        _accuracy_gate_results=[None, None],
+    )
+
+    rounds_file = next((tmp_path / "exp_env").glob("*/logs/rounds.json"))
+    rounds = __import__("json").loads(rounds_file.read_text())
+    assert [record["official_evaluation"] for record in rounds] == [
+        False,
+        False,
+        True,
+        True,
+    ]
+    assert [record["official_evaluation_reason"] for record in rounds] == [
+        None,
+        None,
+        "cadence",
+        "final_round",
+    ]
+    assert [record["perf_metric"] for record in rounds] == [None, None, 30.0, 40.0]
+
+
+def test_orchestrator_can_request_official_evaluation_before_cadence(tmp_path, ref_file):
+    runner = _make_orchestrate_runner(
+        plans=[
+            OrchestratorPlan(
+                hypothesis_id="checkpoint-now",
+                task="finish a likely new best",
+                pass_criteria="targeted comparison passes",
+                request_official_evaluation=True,
+                reasoning="the next branch needs a verified parent",
+            ),
+            OrchestratorPlan(
+                hypothesis_id="continue-after-checkpoint",
+                task="make another improvement",
+                pass_criteria="targeted comparison passes",
+                reasoning="continue from verified evidence",
+            ),
+        ],
+        implementer_outcomes=[HypothesisOutcome.NOMINATED] * 2,
+    )
+
+    _invoke_orchestrate(
+        tmp_path,
+        ref_file,
+        runner,
+        max_rounds=2,
+        official_eval_every=10,
+        _accuracy_gate_results=[None, None],
+    )
+
+    rounds_file = next((tmp_path / "exp_env").glob("*/logs/rounds.json"))
+    rounds = __import__("json").loads(rounds_file.read_text())
+    assert [record["official_evaluation_reason"] for record in rounds] == [
+        "orchestrator_request",
+        "final_round",
+    ]
+
+
+def test_supported_hypothesis_is_reviewed_without_global_gates_and_closes(tmp_path, ref_file):
     runner = _make_orchestrate_runner(
         plans=[
             OrchestratorPlan(
@@ -832,7 +1012,7 @@ def test_supported_hypothesis_is_reviewed_without_global_gates_and_closes(
         runner,
         max_rounds=2,
         judge_every=10,
-        _accuracy_gate_results=[AssertionError("global gate should not run")],
+        _accuracy_gate_results=[None],
     )
 
     assert runner.counters["orch_plan"] == 2
@@ -844,6 +1024,8 @@ def test_supported_hypothesis_is_reviewed_without_global_gates_and_closes(
         "proven",
         "proven",
     ]
+    assert [round_data["official_evaluation"] for round_data in rounds] == [False, True]
+    assert rounds[-1]["official_evaluation_reason"] == "final_round"
 
 
 def test_cadence_pass_keeps_a_continuing_hypothesis_active(tmp_path, ref_file):
@@ -997,7 +1179,7 @@ def test_reviewed_disproof_skips_framework_gates(tmp_path, ref_file):
         runner,
         max_rounds=1,
         judge_every=1,
-        _accuracy_gate_results=[AssertionError("accuracy gate should not run")],
+        _accuracy_gate_results=[None],
     )
 
     rounds_file = next((tmp_path / "exp_env").glob("*/logs/rounds.json"))
@@ -1005,11 +1187,11 @@ def test_reviewed_disproof_skips_framework_gates(tmp_path, ref_file):
     assert rounds[0]["passed"] is True
     assert rounds[0]["reviewed"] is True
     assert rounds[0]["hypothesis_outcome"] == "disproven"
+    assert rounds[0]["official_evaluation"] is True
+    assert rounds[0]["official_evaluation_reason"] == "final_round"
 
 
-def test_disproven_retry_after_failed_review_returns_control_to_designer(
-    tmp_path, ref_file
-):
+def test_disproven_retry_after_failed_review_returns_control_to_designer(tmp_path, ref_file):
     runner = _make_orchestrate_runner(
         plans=[
             OrchestratorPlan(
@@ -1093,9 +1275,7 @@ def test_role_session_policy_is_explicit_and_hypothesis_scoped(tmp_path, ref_fil
     )
 
     calls = runner.invoke.call_args_list
-    plan_calls = [
-        call for call in calls if call.kwargs.get("response_cls") is OrchestratorPlan
-    ]
+    plan_calls = [call for call in calls if call.kwargs.get("response_cls") is OrchestratorPlan]
     implementer_calls = [
         call for call in calls if call.kwargs.get("response_cls") is ImplementerResponse
     ]
@@ -1106,12 +1286,13 @@ def test_role_session_policy_is_explicit_and_hypothesis_scoped(tmp_path, ref_fil
     assert len(implementer_calls) == 2
     assert all(call.kwargs["reuse_session"] is False for call in plan_calls)
     assert all(call.kwargs["reuse_session"] is True for call in implementer_calls)
-    assert {
-        call.kwargs["session_key"] for call in implementer_calls
-    } == {"hypothesis:stable-hypothesis"}
-    assert "Required continuation from the previous round" not in implementer_calls[
-        0
-    ].kwargs["system_prompt"]
+    assert {call.kwargs["session_key"] for call in implementer_calls} == {
+        "hypothesis:stable-hypothesis"
+    }
+    assert (
+        "Required continuation from the previous round"
+        not in implementer_calls[0].kwargs["system_prompt"]
+    )
     assert "continue experiment" in implementer_calls[1].kwargs["system_prompt"]
     assert "do not merely restate prior work" in implementer_calls[1].kwargs["user_prompt"]
     assert all(call.kwargs["reuse_session"] is False for call in judge_calls)
@@ -1198,12 +1379,10 @@ def test_hypothesis_revert_is_applied_once_across_continuation_rounds(tmp_path, 
     ]
     assert judge_calls
     assert all(
-        "Framework-owned parent provenance" in call.kwargs["system_prompt"]
-        for call in judge_calls
+        "Framework-owned parent provenance" in call.kwargs["system_prompt"] for call in judge_calls
     )
     assert all(
-        "do not fail solely because `git` cannot re-query it"
-        in call.kwargs["system_prompt"]
+        "do not fail solely because `git` cannot re-query it" in call.kwargs["system_prompt"]
         for call in judge_calls
     )
     assert all(
@@ -1212,8 +1391,7 @@ def test_hypothesis_revert_is_applied_once_across_continuation_rounds(tmp_path, 
         for call in judge_calls
     )
     assert all(
-        "benchmarking the untouched parent again"
-        in call.kwargs["system_prompt"].replace("\n", " ")
+        "benchmarking the untouched parent again" in call.kwargs["system_prompt"].replace("\n", " ")
         for call in judge_calls
     )
 
@@ -1693,6 +1871,8 @@ def _record(round_number: int, perf: float | None, unit: str = "tok/s"):
         perf_metric=perf,
         perf_unit=unit if perf is not None else None,
         passed=perf is not None,
+        official_evaluation=perf is not None,
+        official_evaluation_reason="cadence" if perf is not None else None,
     )
 
 
@@ -1867,6 +2047,7 @@ def test_loop_threads_plateau_warning_into_prompt(tmp_path, ref_file):
                 perf_unit="tok/s",
             ),
         ],
+        implementer_perf_metrics=[None, 42.0, 42.1, 41.9, 42.05],
     )
     real = runner.invoke.side_effect
 
@@ -1877,7 +2058,13 @@ def test_loop_threads_plateau_warning_into_prompt(tmp_path, ref_file):
 
     runner.invoke.side_effect = spy
 
-    _invoke_orchestrate(tmp_path, ref_file, runner, max_rounds=5)
+    _invoke_orchestrate(
+        tmp_path,
+        ref_file,
+        runner,
+        max_rounds=5,
+        official_eval_every=1,
+    )
     assert len(seen_prompts) == 5
     # Rounds 1-4 have <3 valid perf records before each plan call → no
     # warning yet (round 1: 0 perf; round 2: 0 perf; round 3: 1 perf; round 4: 2 perf).

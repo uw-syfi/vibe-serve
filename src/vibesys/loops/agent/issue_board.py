@@ -35,7 +35,9 @@ _RECENT_PROGRESS_ROUNDS = 4
 def resolve_paths(workspace: Path, layout: str) -> tuple[Path, Path]:
     """Resolve both memory locations, preserving the layout of resumed runs."""
     if layout not in MEMORY_LAYOUTS:
-        raise ValueError(f"Unknown memory layout {layout!r}; choose from {', '.join(MEMORY_LAYOUTS)}")
+        raise ValueError(
+            f"Unknown memory layout {layout!r}; choose from {', '.join(MEMORY_LAYOUTS)}"
+        )
 
     def resolve(name: str) -> Path:
         legacy = workspace / f"{name}.md"
@@ -61,6 +63,7 @@ def display_path(path: Path, workspace: Path) -> str:
 
 def _roadmap_document(roadmap_path: Path) -> Path:
     return roadmap_path if roadmap_path.suffix == ".md" else roadmap_path / "index.md"
+
 
 # ---------------------------------------------------------------------------
 # roadmap.md — orchestrator's strategic memory
@@ -191,9 +194,7 @@ def ensure_progress_file(progress_path: Path) -> None:
             readme.write_text(_PROGRESS_README)
 
 
-def read_progress(
-    progress_path: Path, *, recent_rounds: int = _RECENT_PROGRESS_ROUNDS
-) -> str:
+def read_progress(progress_path: Path, *, recent_rounds: int = _RECENT_PROGRESS_ROUNDS) -> str:
     """Return progress, bounded to recent per-round files in directory mode."""
     if not progress_path.exists():
         return ""
@@ -335,6 +336,27 @@ def append_judge_skipped(
         f"- **implementer_outcome**: {outcome}\n"
         f"- **policy**: review every {judge_every} rounds, on nomination, and on the final round\n"
         "- **official_gates**: not run; all evidence this round is provisional\n"
+    )
+    _append(progress_path, block, round_number)
+
+
+def append_official_evaluation_decision(
+    progress_path: Path,
+    round_number: int,
+    retry: int,
+    *,
+    run: bool,
+    reason: str,
+    official_eval_every: int,
+    provisional_candidates: int,
+) -> None:
+    decision = "run" if run else "deferred"
+    block = (
+        f"## Round {round_number} — Official evaluation policy (attempt {retry})\n"
+        f"- **decision**: {decision}\n"
+        f"- **reason**: {reason}\n"
+        f"- **cadence**: every {official_eval_every} accepted candidate checkpoints\n"
+        f"- **provisional_candidates_before_this_round**: {provisional_candidates}\n"
     )
     _append(progress_path, block, round_number)
 

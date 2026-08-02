@@ -371,6 +371,14 @@ class OrchestratorPlan(BaseModel):
     pass_criteria: str = Field(
         description="Feature-level pass criteria for the judge. Input-declared trusted gates run separately when configured."
     )
+    request_official_evaluation: bool = Field(
+        default=False,
+        description=(
+            "Run the framework-owned canonical evaluation after this hypothesis "
+            "passes independent review, even when the normal sparse-evaluation "
+            "cadence is not yet due."
+        ),
+    )
     revert_to_round: int | None = Field(
         default=None,
         description="Optional round number to roll back the workspace to (via git checkout of that round's commit) before the implementer runs.",

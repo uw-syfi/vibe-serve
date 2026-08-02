@@ -66,6 +66,14 @@ Follow the selected domain guidance and the input-owned candidate contract.
 - **Falsification criteria**: Graphs replay but headline throughput does not improve.
 - **Invariants**: Accuracy and prompt-dependent generation remain unchanged.
 
+## Official evaluation for this round
+
+Official evaluation is deferred. Run only the targeted benchmark, profiler, or
+parameter comparison that best discriminates this round's hypothesis. Do not
+run the full canonical benchmark or immutable accuracy checker, and report
+`perf_metric: null` unless a fresh canonical result was genuinely required and
+completed.
+
 ## Profiling step
 
 After (and only after) the implementation passes your self-judge gates, capture a profile so the orchestrator has a bottleneck signal for the next round.
@@ -138,8 +146,8 @@ Profiler focus this round: general bottleneck analysis on the steady-state bench
 The plateau detector compares this raw float across rounds, so the **unit must not change** between rounds.
 
 1. The OBJECTIVE block above names the headline field — look for `Headline metric: <field_name>`.
-2. If a benchmark is available, discover its invocation and exact JSON-output flag with `--help`, then write its result to `/tmp/bench.json`.
-3. Read **that exact field**. Set `perf_metric` to its numeric value and `perf_unit` to that field's name (e.g. `"median_tok_per_sec"`). Do not substitute a different field, do not invert it, do not convert units.
+2. Do not run a duplicate canonical benchmark in this round. Use targeted
+evidence for the hypothesis and leave `perf_metric` null.
 
 If you could not run the benchmark this round, set `perf_metric: null` rather than fabricating a value.
 

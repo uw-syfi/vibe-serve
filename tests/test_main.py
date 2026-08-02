@@ -627,14 +627,24 @@ def test_validate_agent_rejects_nonpositive_judge_cadence(tmp_path):
     from vibesys.main import _build_agent_parser, _validate_agent
 
     bundle = _write_input_bundle(tmp_path)
-    args = _build_agent_parser().parse_args(
-        ["--input", str(bundle), "--judge-every", "0"]
-    )
+    args = _build_agent_parser().parse_args(["--input", str(bundle), "--judge-every", "0"])
 
     with pytest.raises(ConfigurationError) as exc:
         _validate_agent(args)
 
     assert "--judge-every must be >= 1" in exc.value.diagnostic.message
+
+
+def test_validate_agent_rejects_nonpositive_official_evaluation_cadence(tmp_path):
+    from vibesys.main import _build_agent_parser, _validate_agent
+
+    bundle = _write_input_bundle(tmp_path)
+    args = _build_agent_parser().parse_args(["--input", str(bundle), "--official-eval-every", "0"])
+
+    with pytest.raises(ConfigurationError) as exc:
+        _validate_agent(args)
+
+    assert "--official-eval-every must be >= 1" in exc.value.diagnostic.message
 
 
 def test_agent_operator_constraints_are_repeatable_and_do_not_mutate_objective():
@@ -648,9 +658,7 @@ def test_agent_operator_constraints_are_repeatable_and_do_not_mutate_objective()
     effective = _with_operator_constraints(objective, args.constraint)
 
     assert objective == "Maximize throughput.\n"
-    assert effective.endswith(
-        "## Operator constraints\n\n- No quantization.\n- One H100 only.\n"
-    )
+    assert effective.endswith("## Operator constraints\n\n- No quantization.\n- One H100 only.\n")
 
 
 def test_stub_agent_smoke_defaults_supply_input_and_unique_exp_name():

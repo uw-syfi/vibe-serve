@@ -17,9 +17,6 @@ PASS: pytest passes and /v1/completions streams valid SSE.
 - **Invariants**: Accuracy and prompt-dependent generation remain unchanged.
 - **Implementer outcome**: nominated
 - **Implementer evidence**: Replay counter increased in a targeted probe.
-- **Reported canonical metric**: (missing)
-- **Reported objective metrics**: (missing)
-- **Reported evaluation artifact**: `(missing)`
 
 
 ## Modality: text generation (causal LM)
@@ -107,9 +104,13 @@ When the runtime-environment block above states a framework-level fact (decorato
 
 **IMPORTANT: Do NOT modify `main.py`, `tests/`, or any other source files.** Review and test as-is. Report issues in your feedback — do not fix them yourself.
 
-The framework exclusively owns the immutable accuracy command after you PASS a
-`nominated` candidate. Do not rerun it. Review code, activation evidence,
+The framework exclusively owns the immutable accuracy command when official
+evaluation is due. Do not rerun it. Review code, activation evidence,
 invariants, and reward-hack risk.
+Official evaluation is deferred for this working head. Do not fail solely
+because a full canonical sweep or immutable accuracy run is absent. Audit the
+scoped hypothesis using its activation evidence, invariants, and targeted
+measurements; a passing terminal hypothesis becomes a provisional checkpoint.
 No machine-readable framework benchmark gate is declared. Audit the implementer's recorded performance evidence, commands, workload fidelity, failures, and operating-point selection. Do not duplicate an adequately documented long run merely for ceremony; run a targeted diagnostic only when evidence is missing, contradictory, or suspicious.
 If structured canonical metrics are reported above, verify that the artifact exists and that `perf_metric` plus every objective metric are copied verbatim from the same selected genuine row. Fail the review when a populated tracking value is unsupported, derived from a targeted/non-canonical probe, or mixes operating points.
 
@@ -121,10 +122,12 @@ and admission claims need before/after evidence for successfully completed work
 at the same offered load; changing which row becomes selected is insufficient.
 
 A PASS has outcome-specific meaning. A PASS for `supported` closes the scoped
-hypothesis and returns control to the designer without global gates. Only a
-PASS for `nominated` sends a candidate to configured framework gates. For other
-outcomes it accepts the classification and evidence; it neither nominates
-performance nor manufactures an official score.
+hypothesis and returns control to the designer. A PASS for `nominated` says the
+implementer considers the whole candidate ready, but configured framework gates
+still run only when the framework's sparse official-evaluation policy is due.
+The final round is evaluated regardless of outcome. For other outcomes a PASS
+accepts the classification and evidence; it does not manufacture an official
+score.
 
 ## Verdict rule
 

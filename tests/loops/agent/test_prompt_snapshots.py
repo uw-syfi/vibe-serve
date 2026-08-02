@@ -94,6 +94,9 @@ def _render_prompt(domain: DomainName, role: str, context: dict[str, object]) ->
             invariants=context["invariants"],
             progress_location=context["progress_location"],
             domain_implementer=_domain_section(domain, "implementer", context),
+            framework_benchmark_enabled=context.get("framework_benchmark_enabled", False),
+            official_evaluation_due=context.get("official_evaluation_due", False),
+            official_evaluation_reason=context.get("official_evaluation_reason"),
         )
     if role == "judge":
         judge_domain_context = context | {
@@ -117,7 +120,12 @@ def _render_prompt(domain: DomainName, role: str, context: dict[str, object]) ->
             invariants=context["invariants"],
             implementer_outcome=context["implementer_outcome"],
             implementer_evidence=context["implementer_evidence"],
+            implementer_perf_metric=context.get("implementer_perf_metric"),
+            gate_revalidation_pending=context.get("gate_revalidation_pending", False),
             progress_location=context["progress_location"],
+            framework_benchmark_enabled=context.get("framework_benchmark_enabled", False),
+            official_evaluation_due=context.get("official_evaluation_due", False),
+            official_evaluation_reason=context.get("official_evaluation_reason"),
         )
     if role == "single_agent":
         profiler = profiler_definition(ProfilerKind.NSYS)
@@ -147,6 +155,9 @@ def _render_prompt(domain: DomainName, role: str, context: dict[str, object]) ->
             falsification_criteria=context["falsification_criteria"],
             invariants=context["invariants"],
             progress_location=context["progress_location"],
+            framework_benchmark_enabled=context.get("framework_benchmark_enabled", False),
+            official_evaluation_due=context.get("official_evaluation_due", False),
+            official_evaluation_reason=context.get("official_evaluation_reason"),
         )
     if role == "orchestrator":
         return render_template(
@@ -164,6 +175,9 @@ def _render_prompt(domain: DomainName, role: str, context: dict[str, object]) ->
             runtime_notes=context["runtime_notes"],
             env_kind=context["env_kind"],
             domain_orchestrator=_domain_section(domain, "orchestrator", context),
+            official_eval_every=context.get("official_eval_every", 3),
+            provisional_candidates=context.get("provisional_candidates", 0),
+            official_eval_cadence_due=context.get("official_eval_cadence_due", False),
         )
     raise AssertionError(f"unknown prompt role: {role}")
 
@@ -213,7 +227,8 @@ def test_llm_serving_rendered_prompts_keep_required_domain_content():
     assert "Scope discipline" in prompts["judge"]
     assert "For `disproven`" in prompts["judge"]
     assert "PASS for `supported` closes the scoped" in prompts["judge"]
-    assert "PASS for `nominated` sends a candidate" in prompts["judge"]
+    assert "configured framework gates" in prompts["judge"]
+    assert "sparse official-evaluation policy" in prompts["judge"]
     assert "Stage expensive evaluations" in prompts["implementer"]
     assert "distinguish a short" in prompts["implementer"]
     assert "exercise every new result" in prompts["implementer"]
@@ -245,6 +260,25 @@ def test_llm_serving_rendered_prompts_keep_required_domain_content():
     assert "Evidence-led optimization method" in prompts["orchestrator"]
     assert "Continuous batching" not in prompts["orchestrator"]
     assert "CUDA graphs" not in prompts["orchestrator"]
+
+
+def test_official_evaluation_due_changes_agent_measurement_contract():
+    context = {
+        **_CONTEXTS["full"],
+        "official_evaluation_due": True,
+        "official_evaluation_reason": "cadence",
+        "framework_benchmark_enabled": False,
+        "implementer_outcome": "nominated",
+        "implementer_perf_metric": None,
+        "gate_revalidation_pending": False,
+    }
+
+    implementer = _render_prompt(DomainName.LLM_SERVING, "implementer", context)
+    judge = _render_prompt(DomainName.LLM_SERVING, "judge", context)
+
+    assert "An official evaluation is due" in implementer
+    assert "run one canonical benchmark" in implementer
+    assert "provide one fresh canonical metric" in judge
 
 
 def test_minimal_llm_serving_prompt_omits_optional_checker_paths():

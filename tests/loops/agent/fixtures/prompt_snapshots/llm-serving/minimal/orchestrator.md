@@ -145,6 +145,27 @@ Criteria must be specific and testable. The framework runs the immutable accurac
 This bundle does not declare a machine-readable trusted benchmark result. The implementation agent therefore owns performance experiments and must retain enough raw evidence to support its claims; the framework will not silently manufacture or parse an official score.
 Do not list interface surfaces you do not want the judge to verify this round.
 
+## Sparse official-evaluation policy
+
+The framework keeps a provisional working head separate from the last
+officially verified checkpoint. It runs expensive official gates every
+3 accepted candidate checkpoints, when you
+explicitly request them, and on the final round.
+
+- Accepted provisional candidates since the last official checkpoint:
+  0.
+- Is the cadence already due for the candidate produced by this plan?
+  no.
+
+Set `request_official_evaluation` to `true` only when delaying the canonical
+measurement would materially impair the next design decision: for example, a
+directional result indicates a likely new best, the candidate is near the
+terminal target, a correctness-sensitive change needs the immutable gate, or a
+checkpoint is needed before branching. Do not request it merely because one
+hypothesis finished. When cadence is not due and you do not request an official
+evaluation, scope pass criteria to activation, invariants, and the smallest
+discriminating measurement; do not require the full canonical sweep.
+
 Every plan must also separate four things that are easy to conflate:
 
 - `hypothesis`: the causal claim, including why the mechanism should move the objective.
@@ -249,6 +270,7 @@ Return exactly one JSON object. Do not wrap in markdown fences.
   "invariants": "<properties that must remain true>",
   "task": "<implementer task description>",
   "pass_criteria": "<feature-level criteria for the judge>",
+  "request_official_evaluation": <true or false>,
   "revert_to_round": <integer or null>,
   "reasoning": "<short explanation of your reasoning>"
 }

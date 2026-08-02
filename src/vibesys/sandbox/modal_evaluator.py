@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import argparse
 import fcntl
+import json
+import os
 import re
 import subprocess
 import sys
@@ -19,6 +21,7 @@ import urllib.error
 import urllib.request
 from collections.abc import Generator, Sequence
 from contextlib import contextmanager
+from pathlib import Path
 
 _ANSI_ESCAPE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 _MODAL_WEB_URL = re.compile(r"https://[a-zA-Z0-9.-]+\.modal\.run")
@@ -27,6 +30,8 @@ _MODAL_DEPLOYMENT = re.compile(
     r"([a-zA-Z0-9_.-]+)"
 )
 _LOCK_PATH = "/tmp/vibesys-modal-evaluator.lock"
+_DEPLOYMENT_LEASE_PATH = Path("/tmp/vibesys-modal-evaluator-deployment.json")
+_CANDIDATE_REVISION_ENV = "VIBESYS_CANDIDATE_REVISION"
 _MAX_DIAGNOSTIC_CHARS = 20_000
 
 
@@ -123,6 +128,40 @@ def wait_for_health(base_url: str, *, timeout_seconds: float) -> None:
     raise TimeoutError(f"{health_url} did not become ready: {last_error}")
 
 
+def _healthy_now(base_url: str) -> bool:
+    """Return whether an existing deployment is immediately reusable."""
+    try:
+        with urllib.request.urlopen(f"{base_url.rstrip('/')}/health", timeout=5) as response:
+            return response.status == 200
+    except (OSError, urllib.error.URLError):
+        return False
+
+
+def _read_deployment_lease() -> tuple[str, str] | None:
+    try:
+        payload = json.loads(_DEPLOYMENT_LEASE_PATH.read_text())
+        revision = payload["candidate_revision"]
+        base_url = payload["base_url"]
+    except (OSError, KeyError, TypeError, json.JSONDecodeError):
+        return None
+    if not isinstance(revision, str) or not isinstance(base_url, str):
+        return None
+    return revision, base_url
+
+
+def _write_deployment_lease(candidate_revision: str, base_url: str) -> None:
+    temporary = _DEPLOYMENT_LEASE_PATH.with_suffix(".tmp")
+    temporary.write_text(
+        json.dumps(
+            {
+                "candidate_revision": candidate_revision,
+                "base_url": base_url,
+            }
+        )
+    )
+    temporary.replace(_DEPLOYMENT_LEASE_PATH)
+
+
 def run_evaluator(
     command: Sequence[str],
     *,
@@ -147,6 +186,24 @@ def _run_evaluator_unlocked(
     workspace: str,
     readiness_timeout_seconds: float,
 ) -> int:
+    candidate_revision = os.environ.get(_CANDIDATE_REVISION_ENV)
+    if candidate_revision:
+        lease = _read_deployment_lease()
+        if lease is not None:
+            leased_revision, leased_url = lease
+            if leased_revision == candidate_revision and _healthy_now(leased_url):
+                print(
+                    "Reusing healthy Modal deployment for candidate revision "
+                    f"{candidate_revision}.",
+                    file=sys.stderr,
+                )
+                result = subprocess.run(
+                    [*command, "--url", leased_url],
+                    cwd=workspace,
+                    check=False,
+                )
+                return result.returncode
+
     deploy = subprocess.run(
         ["uv", "run", "modal", "deploy", f"{workspace}/main.py"],
         cwd=workspace,
@@ -175,6 +232,9 @@ def _run_evaluator_unlocked(
                 file=sys.stderr,
             )
         return 1
+
+    if candidate_revision:
+        _write_deployment_lease(candidate_revision, base_url)
 
     result = subprocess.run(
         [*command, "--url", base_url],

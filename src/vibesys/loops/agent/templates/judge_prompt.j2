@@ -83,14 +83,32 @@ When the runtime-environment block above states a framework-level fact (decorato
 
 **IMPORTANT: Do NOT modify `main.py`, `tests/`, or any other source files.** Review and test as-is. Report issues in your feedback — do not fix them yourself.
 
-The framework exclusively owns the immutable accuracy command after you PASS a
-`nominated` candidate. Do not rerun it. Review code, activation evidence,
+The framework exclusively owns the immutable accuracy command when official
+evaluation is due. Do not rerun it. Review code, activation evidence,
 invariants, and reward-hack risk.
+{% if official_evaluation_due|default(false) %}
+This working head is scheduled for official evaluation after Judge PASS because
+`{{ official_evaluation_reason|default('framework policy') }}`. Audit the
+evidence needed for that checkpoint, but do not duplicate framework-owned
+commands.
+{% else %}
+Official evaluation is deferred for this working head. Do not fail solely
+because a full canonical sweep or immutable accuracy run is absent. Audit the
+scoped hypothesis using its activation evidence, invariants, and targeted
+measurements; a passing terminal hypothesis becomes a provisional checkpoint.
+{% endif %}
 {% if framework_benchmark_enabled|default(false) %}
 The framework also owns and records the declared trusted benchmark result, so do not duplicate that canonical command. Run only small targeted diagnostics needed to resolve uncertainty.
 {% else %}
 No machine-readable framework benchmark gate is declared. Audit the implementer's recorded performance evidence, commands, workload fidelity, failures, and operating-point selection. Do not duplicate an adequately documented long run merely for ceremony; run a targeted diagnostic only when evidence is missing, contradictory, or suspicious.
 If structured canonical metrics are reported above, verify that the artifact exists and that `perf_metric` plus every objective metric are copied verbatim from the same selected genuine row. Fail the review when a populated tracking value is unsupported, derived from a targeted/non-canonical probe, or mixes operating points.
+{% if official_evaluation_due|default(false) and implementer_outcome in ["supported", "nominated"] and implementer_perf_metric is none and not gate_revalidation_pending|default(false) %}
+Because this terminal candidate is due for an official checkpoint and the input
+does not provide a framework-parsable benchmark result, the implementer must
+provide one fresh canonical metric plus its retained artifact. Fail this review
+if they are absent; targeted evidence alone remains useful but cannot establish
+the official performance checkpoint.
+{% endif %}
 {% endif %}
 
 Treat load relabeling as reward hacking, not performance. If a claimed win comes
@@ -101,10 +119,12 @@ and admission claims need before/after evidence for successfully completed work
 at the same offered load; changing which row becomes selected is insufficient.
 
 A PASS has outcome-specific meaning. A PASS for `supported` closes the scoped
-hypothesis and returns control to the designer without global gates. Only a
-PASS for `nominated` sends a candidate to configured framework gates. For other
-outcomes it accepts the classification and evidence; it neither nominates
-performance nor manufactures an official score.
+hypothesis and returns control to the designer. A PASS for `nominated` says the
+implementer considers the whole candidate ready, but configured framework gates
+still run only when the framework's sparse official-evaluation policy is due.
+The final round is evaluated regardless of outcome. For other outcomes a PASS
+accepts the classification and evidence; it does not manufacture an official
+score.
 
 ## Verdict rule
 

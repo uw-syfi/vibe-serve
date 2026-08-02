@@ -819,6 +819,17 @@ def _build_agent_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--official-eval-every",
+        type=int,
+        default=3,
+        metavar="N",
+        help=(
+            "Run configured framework-owned accuracy/benchmark gates every N "
+            "accepted candidate checkpoints; orchestrator requests and the final "
+            "round run them immediately (default: 3)."
+        ),
+    )
+    parser.add_argument(
         "--memory-layout",
         choices=["files", "directories"],
         default="files",
@@ -895,6 +906,8 @@ def _validate_agent(args: argparse.Namespace) -> None:
         _configuration_error("Error: --max-retries-per-round must be >= 1.")
     if args.judge_every < 1:
         _configuration_error("Error: --judge-every must be >= 1.")
+    if args.official_eval_every < 1:
+        _configuration_error("Error: --official-eval-every must be >= 1.")
     if args.trusted_input_baseline is not None and args.resume is None:
         _configuration_error(
             "Error: --trusted-input-baseline requires --resume.",
@@ -962,6 +975,7 @@ def _run_agent(args: argparse.Namespace) -> None:
         max_rounds=args.max_rounds,
         max_retries_per_round=args.max_retries_per_round,
         judge_every=args.judge_every,
+        official_eval_every=args.official_eval_every,
         memory_layout=args.memory_layout,
         start_round=start_round,
         existing=existing,

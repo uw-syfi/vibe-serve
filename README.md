@@ -296,8 +296,11 @@ resources/                        # framework-owned assets exposed to agent runs
 - **agent**: a fresh orchestrator defines a causal hypothesis; an implementer
   keeps a hypothesis-scoped session across rounds; an independent fresh judge
   reviews nominated candidates, every `--judge-every` rounds (default 3), and
-  the final round. Only then does the framework run and record canonical
-  accuracy/benchmark gates. Use `--memory-layout directories` for
+  the final round. Framework-owned accuracy/benchmark gates run every
+  `--official-eval-every` accepted candidates (default 3), when the
+  orchestrator requests them, and on the final round. Other accepted candidates
+  remain provisional working checkpoints. Official Modal gates reuse a healthy
+  deployment only for the exact candidate commit. Use `--memory-layout directories` for
   `roadmap/index.md` plus one `progress/round-NNNN.md` file per round.
 - **plain**: drain `IssueBoard` (one impl + one judge per issue, BLOCK
   after `--max-attempts-per-issue`) → `perf_eval` (may file new issues).

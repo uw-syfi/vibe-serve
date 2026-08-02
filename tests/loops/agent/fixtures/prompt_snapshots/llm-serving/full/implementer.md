@@ -142,6 +142,16 @@ Report `hypothesis_outcome` precisely:
 - `disproven`: mechanism-level evidence falsifies the hypothesis for this workload.
 - `implementation_failed`, `inconclusive`, or `blocked`: the claim was not fairly tested; explain why and what would unblock it.
 
+## Official evaluation for this working head
+
+Official evaluation is deferred for this candidate. Preserve your freedom to
+choose targeted load points, parameter ranges, microbenchmarks, and profiles,
+but do not run the full canonical benchmark or immutable full accuracy checker.
+When the scoped hypothesis is complete, report `supported`; the framework will
+record the result as a provisional working checkpoint and the designer will
+choose the next hypothesis. Canonical metric fields should normally be null on
+such a round.
+
 Performance fields are framework tracking inputs, not optimization claims. Populate `perf_metric`, `perf_unit`, `metrics`, and `evaluation_artifact` only when this round completed a fresh canonical evaluation and retained its raw artifacts. Copy all numeric values from the same selected genuine row. Use `null`, `{}`, and `null` respectively when this round only ran targeted probes, reused prior evidence, or did not complete the canonical evaluation. The independent Judge will audit any populated values before the framework records them.
 
 Do not nominate a candidate merely because it changes which load points are
