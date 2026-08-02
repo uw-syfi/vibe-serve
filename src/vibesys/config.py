@@ -155,6 +155,22 @@ class BackendCfg(_Strict):
     )
 
 
+class AgentRoleCfg(_Strict):
+    """Optional model controls for one conceptual agent-loop role."""
+
+    model: str | None = Field(
+        default=None,
+        description="CLI model override for this role. None uses [model].name.",
+    )
+    reasoning_effort: str | None = Field(
+        default=None,
+        description=(
+            "CLI reasoning-effort override for this role (for Codex, for example "
+            "'low'/'medium'/'high'/'xhigh'). None uses [thinking].level."
+        ),
+    )
+
+
 class AgentCfg(_Strict):
     backend: str | None = Field(
         default=None,
@@ -176,6 +192,14 @@ class AgentCfg(_Strict):
         description=(
             "Per-invocation timeout for the CLI agent, in seconds. None → the runner default."
         ),
+    )
+    outer: AgentRoleCfg = Field(
+        default_factory=AgentRoleCfg,
+        description="[agent.outer] — model controls for orchestrator invocations.",
+    )
+    inner: AgentRoleCfg = Field(
+        default_factory=AgentRoleCfg,
+        description="[agent.inner] — model controls for implementer invocations.",
     )
 
 

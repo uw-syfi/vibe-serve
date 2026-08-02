@@ -92,6 +92,9 @@ class CliAgentRunner:
         docker_sandboxes: dict[str, Any] | None = None,
         host_resources: Iterable[HostResource] = (),
         log_dir: Path | None = None,
+        default_reasoning_effort: str | None = None,
+        role_models: dict[str, str] | None = None,
+        role_reasoning_efforts: dict[str, str] | None = None,
     ):
         if provider not in _PROVIDER_CLASSES:
             raise SystemExit(
@@ -100,6 +103,9 @@ class CliAgentRunner:
         self._provider = provider
         self._provider_cls = _PROVIDER_CLASSES[provider]
         self._model = model
+        self._default_reasoning_effort = default_reasoning_effort
+        self._role_models = dict(role_models or {})
+        self._role_reasoning_efforts = dict(role_reasoning_efforts or {})
         self._skills: list[Path] = list(skills or [])
         self._model_name = model_name
         self._timeout = timeout
@@ -234,11 +240,18 @@ class CliAgentRunner:
     ) -> str:
         """Run one CLI generation with shared setup, logging, and cleanup."""
         label = agent_label(kind)
+        selected_model = self._role_models.get(kind, self._model)
+        configured_reasoning_effort = self._role_reasoning_efforts.get(
+            kind, self._default_reasoning_effort
+        )
+        selected_reasoning_effort = (
+            configured_reasoning_effort if self._provider == "codex" else None
+        )
         materialize_skills(workspace, self._skills, log_file=self._run_log_file)
 
         logger = AgentLogger(
             log_file=self._run_log_file,
-            model_name=self._model_name,
+            model_name=selected_model or self._model_name,
             agent_label=label,
             progress=progress,
             agent_kind=kind,
@@ -251,10 +264,9 @@ class CliAgentRunner:
         #    its multi-turn history in the prompt, and provider session IDs can
         #    become unavailable when a sandbox or process changes, so every
         #    chat turn deliberately starts a fresh CLI session.
-        reuse_agent = kind != "chat" and (
-            reuse_session if reuse_session is not None else True
-        )
-        cache_key = f"{kind}:{session_key}" if session_key else kind
+        reuse_agent = kind != "chat" and (reuse_session if reuse_session is not None else True)
+        role_key = f"{kind}:{selected_model}:{selected_reasoning_effort}"
+        cache_key = f"{role_key}:{session_key}" if session_key else role_key
         agent = self._agents.get(cache_key) if reuse_agent else None
         if agent is not None:
             # Update the event handler for this invocation's logger.
@@ -273,14 +285,16 @@ class CliAgentRunner:
             sandbox = self._docker_sandboxes[kind]
             executor = DockerCommandExecutor(sandbox._container_id)
             agent = self._provider_cls(
-                model=self._model,
+                model=selected_model,
                 event_handler=logger,
                 executor=executor,
             )
+            self._configure_reasoning_effort(agent, selected_reasoning_effort)
             if reuse_agent:
                 self._agents[cache_key] = agent
         else:
-            agent = self._provider_cls(model=self._model, event_handler=logger)
+            agent = self._provider_cls(model=selected_model, event_handler=logger)
+            self._configure_reasoning_effort(agent, selected_reasoning_effort)
             # Host execution path: confine the agent to its workspace at the OS
             # level so it cannot read or modify sibling runs or unrelated host
             # files (issue #149). Container executors above are already
@@ -319,7 +333,9 @@ class CliAgentRunner:
             self._run_log_file,
         )
         log_and_print(
-            f"backend: cli, provider: {self._provider}, model: {self._model_name}, "
+            f"backend: cli, provider: {self._provider}, "
+            f"model: {selected_model or self._model_name}, "
+            f"reasoning_effort: {selected_reasoning_effort or 'provider_default'}, "
             f"cwd: {workspace}",
             self._run_log_file,
         )
@@ -385,10 +401,29 @@ class CliAgentRunner:
                         f"original agent error: {cleanup_exc}",
                         self._run_log_file,
                     )
-            self._write_usage_record(kind=kind, round_label=round_label, agent=agent)
+            self._write_usage_record(
+                kind=kind,
+                round_label=round_label,
+                agent=agent,
+                model_name=selected_model or self._model_name,
+                reasoning_effort=selected_reasoning_effort,
+            )
         return text
 
-    def _write_usage_record(self, *, kind: str, round_label: str, agent: Any) -> None:
+    def _configure_reasoning_effort(self, agent: CodingAgent, reasoning_effort: str | None) -> None:
+        """Apply provider-specific reasoning controls to a newly built CLI agent."""
+        if self._provider == "codex" and reasoning_effort is not None:
+            cast(CodexCodingAgent, agent).set_reasoning_effort(reasoning_effort)
+
+    def _write_usage_record(
+        self,
+        *,
+        kind: str,
+        round_label: str,
+        agent: Any,
+        model_name: str | None,
+        reasoning_effort: str | None,
+    ) -> None:
         """Append one JSONL record to ``<log_dir>/usage.jsonl`` for this call.
 
         Reads ``agent._last_session`` (stashed by
@@ -410,7 +445,8 @@ class CliAgentRunner:
             "kind": kind,
             "round_label": round_label,
             "provider": self._provider,
-            "model": self._model_name,
+            "model": model_name,
+            "reasoning_effort": reasoning_effort,
             "input_tokens": usage.get("input_tokens", 0),
             "cache_creation_input_tokens": usage.get("cache_creation_input_tokens", 0),
             "cache_read_input_tokens": usage.get("cache_read_input_tokens", 0),

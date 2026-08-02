@@ -58,6 +58,37 @@ region = "us-east5"
         assert config.repository.owner is None
         assert config.repository.visibility == "private"
 
+    def test_outer_and_inner_agent_models_are_parsed(self, tmp_path):
+        cfg_file = tmp_path / "agent.toml"
+        cfg_file.write_text(
+            """\
+[model]
+name = "gpt-5.6-sol"
+
+[thinking]
+level = "high"
+
+[agent]
+backend = "cli"
+cli_provider = "codex"
+
+[agent.outer]
+model = "gpt-5.6-sol"
+reasoning_effort = "xhigh"
+
+[agent.inner]
+model = "gpt-5.6-luna"
+reasoning_effort = "xhigh"
+"""
+        )
+
+        config = load_config(cfg_file)
+
+        assert config.agent.outer.model == "gpt-5.6-sol"
+        assert config.agent.outer.reasoning_effort == "xhigh"
+        assert config.agent.inner.model == "gpt-5.6-luna"
+        assert config.agent.inner.reasoning_effort == "xhigh"
+
 
 class TestLoadConfigErrors:
     def test_missing_model_name(self, tmp_path):

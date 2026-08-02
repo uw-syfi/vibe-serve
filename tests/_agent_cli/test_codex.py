@@ -84,6 +84,12 @@ class TestGetCommand:
         cmd = agent._get_command("hello")
         assert cmd[-2:] == ["--config", "foo=1"]
 
+    def test_reasoning_effort_is_passed_as_codex_config(self):
+        agent = _agent()
+        agent.set_reasoning_effort("xhigh")
+        cmd = agent._get_command("hello")
+        assert 'model_reasoning_effort="xhigh"' in cmd
+
 
 class TestGetResumeCommand:
     def test_resume_passes_dash_positional(self):

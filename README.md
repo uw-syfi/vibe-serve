@@ -182,6 +182,16 @@ backend = "cli"               # "cli" (codex/claude/gemini/opencode) or "deepage
 cli_provider = "codex"        # which coding-agent harness to drive
 # cli_timeout = 1800          # per-invocation timeout (seconds)
 
+# Optional role-specific CLI models. Other roles, including the independent
+# judge, continue to use [model].name and [thinking].level.
+[agent.outer]
+model = "gpt-5.6-sol"         # orchestrator pre-round and planning calls
+reasoning_effort = "xhigh"
+
+[agent.inner]
+model = "gpt-5.6-luna"        # implementer calls
+reasoning_effort = "xhigh"
+
 [repository]
 owner = "vibesys-playground"  # any GitHub user/org; enables pre-launch repository setup
 visibility = "private"        # private, public, or internal

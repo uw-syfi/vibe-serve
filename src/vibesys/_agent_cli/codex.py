@@ -61,6 +61,10 @@ class CodexCodingAgent(CLICodingAgent[CodexGenerationSession]):
         self.base_config_args = _shell_path_config_args(self.env)
         self.extra_config_args: list[str] = []
 
+    def set_reasoning_effort(self, effort: str) -> None:
+        """Apply a per-agent Codex reasoning effort to fresh and resumed turns."""
+        self.base_config_args.extend(["--config", f"model_reasoning_effort={_toml_str(effort)}"])
+
     @property
     def codex_path(self) -> str:
         """Return path to codex binary (for backward compatibility)."""

@@ -190,18 +190,12 @@ class TestDeepAgentsRunner:
             run_log_file=None,
         )
 
-        first = runner._session(
-            kind="implementer", reuse_session=True, session_key="hypothesis:a"
-        )
+        first = runner._session(kind="implementer", reuse_session=True, session_key="hypothesis:a")
         continued = runner._session(
             kind="implementer", reuse_session=True, session_key="hypothesis:a"
         )
-        other_role = runner._session(
-            kind="judge", reuse_session=True, session_key="hypothesis:a"
-        )
-        fresh = runner._session(
-            kind="implementer", reuse_session=False, session_key="hypothesis:a"
-        )
+        other_role = runner._session(kind="judge", reuse_session=True, session_key="hypothesis:a")
+        fresh = runner._session(kind="implementer", reuse_session=False, session_key="hypothesis:a")
 
         assert continued is first
         assert other_role is not first
@@ -242,7 +236,11 @@ def _make_fake_agent_class(
             self.uninstall_calls: list[dict] = []
             self.event_log: list[str] = []
             self._last_session: SimpleNamespace | None = None
+            self.reasoning_effort: str | None = None
             captured.append(self)
+
+        def set_reasoning_effort(self, effort):
+            self.reasoning_effort = effort
 
         def install_mcp_servers(self, workspace, servers):
             self.install_calls.append({"workspace": workspace, "servers": list(servers)})
@@ -358,6 +356,52 @@ class TestCliAgentRunner:
         assert len(captured) == 2
         invoke(session_key="hypothesis:a", reuse_session=False)
         assert len(captured) == 3
+
+    def test_cli_runner_selects_models_and_effort_by_loop_role(self, monkeypatch, tmp_path):
+        captured: list = []
+        fake_cls = _make_fake_agent_class(
+            generate_returns='{"analysis": "ok", "feedback": "", "verdict": "pass"}',
+            captured=captured,
+        )
+        monkeypatch.setitem(
+            __import__(
+                "vibesys.agents.cli_runner",
+                fromlist=["_PROVIDER_CLASSES"],
+            )._PROVIDER_CLASSES,
+            "codex",
+            fake_cls,
+        )
+        runner = CliAgentRunner(
+            provider="codex",
+            model="gpt-5.6-sol",
+            model_name="gpt-5.6-sol",
+            default_reasoning_effort="high",
+            role_models={"implementer": "gpt-5.6-luna"},
+            role_reasoning_efforts={
+                "orchestrator": "xhigh",
+                "implementer": "xhigh",
+            },
+        )
+        workspace = tmp_path / "ws"
+        workspace.mkdir()
+
+        for kind in ("orchestrator", "implementer", "judge"):
+            runner.invoke(
+                kind=kind,
+                workspace=workspace,
+                system_prompt="sys",
+                user_prompt="usr",
+                response_cls=JudgeResponse,
+                fallback_factory=_judge_fallback,
+                round_label=kind,
+            )
+
+        assert [agent.model for agent in captured] == [
+            "gpt-5.6-sol",
+            "gpt-5.6-luna",
+            "gpt-5.6-sol",
+        ]
+        assert [agent.reasoning_effort for agent in captured] == ["xhigh", "xhigh", "high"]
 
     @pytest.mark.parametrize("provider", ["claude", "gemini", "codex", "opencode"])
     def test_host_resource_declarations_apply_to_every_local_cli_provider(
@@ -1461,6 +1505,26 @@ class TestBuildAgentRunner:
             model_name="gpt-5.4",
         )
         assert runner._model_name == runner._model == "gpt-5.4"
+
+    def test_cli_backend_carries_outer_and_inner_role_configuration(self):
+        config = _agent_config(
+            backend="cli",
+            cli_provider="codex",
+            outer={"model": "gpt-5.6-sol", "reasoning_effort": "xhigh"},
+            inner={"model": "gpt-5.6-luna", "reasoning_effort": "xhigh"},
+        )
+        config.thinking.level = "high"
+        runner = self._cli_runner(config, model_name="gpt-5.6-sol")
+
+        assert runner._default_reasoning_effort == "high"
+        assert runner._role_models == {
+            "orchestrator": "gpt-5.6-sol",
+            "implementer": "gpt-5.6-luna",
+        }
+        assert runner._role_reasoning_efforts == {
+            "orchestrator": "xhigh",
+            "implementer": "xhigh",
+        }
 
 
 class TestAgentLoggerEventHandler:

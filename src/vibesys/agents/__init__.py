@@ -208,6 +208,23 @@ def build_agent_runner(
             docker_sandboxes=docker_sandboxes,
             host_resources=host_resources,
             log_dir=log_dir,
+            default_reasoning_effort=config.thinking.level,
+            role_models={
+                role: configured
+                for role, configured in {
+                    "orchestrator": agent_cfg.outer.model,
+                    "implementer": agent_cfg.inner.model,
+                }.items()
+                if configured is not None
+            },
+            role_reasoning_efforts={
+                role: configured
+                for role, configured in {
+                    "orchestrator": agent_cfg.outer.reasoning_effort,
+                    "implementer": agent_cfg.inner.reasoning_effort,
+                }.items()
+                if configured is not None
+            },
         )
 
     raise SystemExit(f"unknown agent backend: {backend!r}")
