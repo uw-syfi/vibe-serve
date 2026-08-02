@@ -246,6 +246,10 @@ safely flow into measurement: persist the capability result, abort on failure,
 then reuse the initialized service for smoke and the representative point. Do
 not require identical cold starts merely to keep capability or smoke artifacts
 separate.
+This also applies to repair rounds after judge feedback. When the same unchanged
+candidate needs multiple target-hardware validations, require compatible
+correctness, profiler-contract, and smoke checks to run as phases of one
+initialized controller instead of assigning one cold deployment per artifact.
 Write this explicitly into the task and pass criteria as one bounded controller
 invocation whenever the evaluation API permits it; do not describe each phase
 as a separate remote server. Require one-accelerator capacity, zero minimum-warm

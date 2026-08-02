@@ -102,6 +102,10 @@ invocation as soon as a gate fails. Use zero minimum-warm replicas, one
 accelerator unless the workload requires more, a short finite idle/scaledown
 timeout, an outer command timeout, and `finally` teardown. Do not keep a paid
 accelerator warm across agent reasoning turns.
+If self-review finds several target-hardware repairs on the unchanged
+candidate, validate compatible correctness, profiler-contract, and smoke hooks
+as adjacent phases of that same controller. Do not cold-start one accelerator
+per output artifact.
 Make the controller fail closed in code. Before remote execution, inject or
 synthesize a failed capability/correctness/smoke result and assert that the
 downstream representative or canonical callable is not invoked while the

@@ -147,6 +147,12 @@ same staged gates. Do not launch a second identical service merely to separate
 capability, smoke, or benchmark artifacts. Use a separate remote probe only
 when it is materially cheaper in isolation or its side effects could make the
 following measurement untrustworthy.
+Apply the same rule on judge retries. If one unchanged candidate needs several
+target-hardware repairs validated—such as a correctness event, profiler-hook
+schema, and service smoke—run them as adjacent phases on one initialized
+resource when their state is compatible. Do not pay a separate model/service
+cold start for every repaired hook merely because each writes a distinct
+artifact.
 For remote accelerators, make that reuse bounded and crash-safe: keep the warm
 resource only for the adjacent machine-driven phases, cap the deployment at one
 accelerator unless the workload requires otherwise, keep the minimum warm count

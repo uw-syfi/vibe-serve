@@ -160,6 +160,10 @@ zero minimum-warm replicas, a finite idle/scaledown backstop, bounded accelerato
 count, and best-effort teardown on success, failure, and interruption. Flag a
 permanently warm or unbounded deployment even when its benchmark result is
 otherwise valid.
+On a retry, also flag separate cold accelerator starts for each repaired
+correctness, profiler-contract, or smoke hook when those checks could safely run
+as adjacent phases on one initialized candidate. Distinct output artifacts do
+not by themselves justify distinct paid startups.
 Audit the temporal meaning of activation telemetry. A zero current-occupancy
 gauge sampled after requests drain is expected when resources were correctly
 released and cannot negate monotonic totals, retained peaks, or event evidence
