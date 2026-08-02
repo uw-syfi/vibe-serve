@@ -65,16 +65,32 @@ class GitTracker:
         self._log = log
         self._excluded_dirs = frozenset(excluded_dirs)
         self._trusted_input_baseline: str | None = None
+        self._git_dir: Path | None = None
+        self._work_tree: Path | None = None
+        # Keep dynamic snapshot exclusions outside the candidate worktree. An
+        # isolated agent may create or replace ``root/.git`` as another user;
+        # framework bookkeeping must remain host-owned and writable.
+        self._exclude_file = self.root.parent / ".vibesys-git-excludes" / self.root.name
 
     @property
     def _GIT_ENV(self) -> dict[str, str]:
-        """Git env with safe.directory set to workspace to avoid ownership errors."""
-        return {
+        """Git env pinned to the repository selected during initialization."""
+        safe_directory = self._work_tree or self.root
+        config = (
+            ("safe.directory", str(safe_directory)),
+            ("core.excludesFile", str(self._exclude_file)),
+        )
+        result = {
             **self._GIT_ENV_STATIC,
-            "GIT_CONFIG_COUNT": "1",
-            "GIT_CONFIG_KEY_0": "safe.directory",
-            "GIT_CONFIG_VALUE_0": str(self.root),
+            "GIT_CONFIG_COUNT": str(len(config)),
         }
+        for index, (key, value) in enumerate(config):
+            result[f"GIT_CONFIG_KEY_{index}"] = key
+            result[f"GIT_CONFIG_VALUE_{index}"] = value
+        if self._git_dir is not None and self._work_tree is not None:
+            result["GIT_DIR"] = str(self._git_dir)
+            result["GIT_WORK_TREE"] = str(self._work_tree)
+        return result
 
     def run(
         self, cmd: list[str], *, check: bool = True, env: dict[str, str] | None = None
@@ -103,6 +119,7 @@ class GitTracker:
                 raise ValueError(
                     f"--git-tracking with --resume but no git repository in {self.root}"
                 )
+            self._bind_repository()
             if trusted_input_baseline is not None:
                 self._trusted_input_baseline = self._resolve_trusted_input_baseline(
                     trusted_input_baseline
@@ -117,6 +134,7 @@ class GitTracker:
 
         if not self._inside_work_tree():
             self.run(["git", "init"])
+        self._bind_repository()
 
         gitignore = self.root / ".gitignore"
         existing_gitignore = gitignore.read_text() if gitignore.is_file() else ""
@@ -312,8 +330,8 @@ class GitTracker:
     # read (e.g. neuron-explorer's mode-600 ``system_profile.json``).  A single
     # such file makes ``git add -A`` exit 128 and would otherwise abort the whole
     # run.  These are always transient scratch artifacts we never want in a
-    # checkpoint, so we exclude them (local-only, via ``.git/info/exclude``)
-    # rather than fail.
+    # checkpoint, so we exclude them through a framework-owned exclude file
+    # outside the worktree rather than fail.
 
     def _collect_unreadable(self) -> list[str]:
         """Workspace-relative paths the snapshotting user cannot read.
@@ -354,15 +372,16 @@ class GitTracker:
         return paths
 
     def _exclude_paths(self, rel_paths: list[str]) -> None:
-        """Append *rel_paths* to ``.git/info/exclude`` (local, untracked)."""
+        """Append *rel_paths* to the framework-owned Git exclude file."""
         rel_paths = [p for p in dict.fromkeys(rel_paths) if p]
         if not rel_paths:
             return
-        exclude_file = self.root / ".git" / "info" / "exclude"
+        exclude_file = self._exclude_file
         exclude_file.parent.mkdir(parents=True, exist_ok=True)
         existing = exclude_file.read_text() if exclude_file.exists() else ""
         have = set(existing.splitlines())
-        new = [p for p in rel_paths if p not in have]
+        new = [self._exclude_pattern(p) for p in rel_paths]
+        new = [p for p in new if p not in have]
         if not new:
             return
         prefix = "" if (not existing or existing.endswith("\n")) else "\n"
@@ -388,6 +407,35 @@ class GitTracker:
             self._exclude_paths(offenders)
         # Final attempt: let run() raise with full diagnostics if it still fails.
         self.run(["git", "add", "-A", "--", "."])
+
+    def _bind_repository(self) -> None:
+        """Pin future commands to the repository currently containing ``root``.
+
+        Agents can run tools such as plain ``uv init`` that create a nested
+        ``.git`` directory after the framework initialized tracking. Without
+        explicit ``GIT_DIR``/``GIT_WORK_TREE``, later commands silently switch
+        repositories based on the current directory.
+        """
+        git_dir = self.run(["git", "rev-parse", "--absolute-git-dir"])
+        work_tree = self.run(["git", "rev-parse", "--show-toplevel"])
+        self._git_dir = Path(git_dir.stdout.decode(errors="replace").strip()).resolve()
+        self._work_tree = Path(work_tree.stdout.decode(errors="replace").strip()).resolve()
+
+    def _exclude_pattern(self, rel_path: str) -> str:
+        """Return an exact repository-root-relative ignore pattern."""
+        target = Path(rel_path)
+        if self._work_tree is not None:
+            try:
+                workspace_prefix = self.root.resolve().relative_to(self._work_tree)
+                # The proactive host scan reports workspace-relative paths,
+                # while Git's stderr can report worktree-relative paths. Do
+                # not apply the workspace prefix twice on the retry path.
+                prefix_parts = workspace_prefix.parts
+                if target.parts[: len(prefix_parts)] != prefix_parts:
+                    target = workspace_prefix / target
+            except ValueError:
+                pass
+        return "/" + target.as_posix().lstrip("/")
 
     def _inside_work_tree(self) -> bool:
         result = self.run(["git", "rev-parse", "--is-inside-work-tree"], check=False)

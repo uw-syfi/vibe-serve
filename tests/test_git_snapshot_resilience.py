@@ -69,6 +69,9 @@ def test_git_add_all_excludes_unreadable_and_succeeds(tmp_path):
     os.chmod(secret, 0o000)  # ...so make it truly unreadable
 
     tracker = _make_tracker(ws)
+    info_exclude = ws / ".git" / "info" / "exclude"
+    original_info_exclude = info_exclude.read_text()
+    os.chmod(info_exclude, 0o444)
     try:
         # Plain `git add -A` would exit 128 here; the resilient path must not.
         tracker._add_all()
@@ -81,8 +84,11 @@ def test_git_add_all_excludes_unreadable_and_succeeds(tmp_path):
         ).stdout.split()
         assert "code.py" in staged
         assert "system_profile.json" not in staged
-        # The offender is recorded in the local-only exclude file.
-        exclude = (ws / ".git" / "info" / "exclude").read_text()
+        # The offender is recorded outside the worktree; framework snapshots
+        # do not depend on a sandbox-owned `.git/info/exclude` being writable.
+        exclude = tracker._exclude_file.read_text()
         assert "system_profile.json" in exclude
+        assert info_exclude.read_text() == original_info_exclude
     finally:
+        os.chmod(info_exclude, 0o644)
         os.chmod(secret, 0o644)

@@ -23,7 +23,7 @@ You are a senior **ML serving engineer** owning this combined round.
 
 ## Python toolchain
 
-Use `uv` for Python package management. Run `uv init` if `pyproject.toml`
+Use `uv` for Python package management. Run `uv init --no-vcs` if `pyproject.toml`
 doesn't exist yet, and `uv add` for new dependencies. Always execute Python
 scripts via `uv run`.
 

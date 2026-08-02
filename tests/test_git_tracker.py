@@ -67,6 +67,35 @@ def test_init_uses_containing_experiment_repo_without_nesting(tmp_path):
     ]
 
 
+def test_snapshot_stays_bound_when_agent_creates_nested_repo(tmp_path):
+    experiment = tmp_path / "experiment"
+    workspace = experiment / "workspace"
+    workspace.mkdir(parents=True)
+    (workspace / "main.py").write_text("VALUE = 1\n")
+    subprocess.run(["git", "init", "-q", "-b", "main"], cwd=experiment, check=True)
+
+    tracker = _make_tracker(workspace)
+    tracker.init(existing=False)
+    initial_sha = tracker.current_sha()
+    assert tracker._exclude_pattern("secret.bin") == "/workspace/secret.bin"
+    assert tracker._exclude_pattern("workspace/secret.bin") == "/workspace/secret.bin"
+
+    # Reproduce an isolated/root agent running plain `uv init`: a new `.git`
+    # appears below the already-selected experiment repository.
+    subprocess.run(["git", "init", "-q"], cwd=workspace, check=True)
+    (workspace / "main.py").write_text("VALUE = 2\n")
+    tracker.snapshot("round 1")
+
+    assert tracker.current_sha() != initial_sha
+    assert _git_stdout(experiment, "log", "-1", "--format=%s").strip() == "round 1"
+    nested_head = subprocess.run(
+        ["git", "rev-parse", "--verify", "HEAD"],
+        cwd=workspace,
+        capture_output=True,
+    )
+    assert nested_head.returncode != 0
+
+
 def test_init_existing_requires_repo(ws):
     tracker = _make_tracker(ws)
     with pytest.raises(ValueError, match="no git repository"):

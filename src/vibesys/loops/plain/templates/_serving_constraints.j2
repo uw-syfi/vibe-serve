@@ -11,7 +11,7 @@ Build a production-ready FastAPI inference server that serves **the specific mod
 
 **GPU and dtype**: {{ device_dtype }}
 
-**Environment**: Initialize the project with `uv init` and add dependencies via `uv add`. Always use `uv run` to execute scripts and tests.
+**Environment**: Initialize the project with `uv init --no-vcs` and add dependencies via `uv add`. Always use `uv run` to execute scripts and tests.
 
 **VibeServeModel interface**: `main.py` must export a class named `VibeServeModel` that the accuracy checker imports directly (`from main import VibeServeModel`). The class must implement:
 

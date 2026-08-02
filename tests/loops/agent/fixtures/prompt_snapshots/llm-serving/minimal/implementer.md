@@ -164,7 +164,7 @@ remote environments may require mounting the declared model volume instead.
 
 ## Python toolchain
 
-Use `uv` for Python package management. Run `uv init` if `pyproject.toml`
+Use `uv` for Python package management. Run `uv init --no-vcs` if `pyproject.toml`
 doesn't exist yet, and `uv add` for new dependencies. Always execute Python
 scripts via `uv run`.
 
