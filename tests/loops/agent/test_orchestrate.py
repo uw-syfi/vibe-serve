@@ -19,6 +19,7 @@ from vibesys.loops.agent.loop import (
     run_agent_loop,
 )
 from vibesys.profilers import ProfilerKind, ProfilerPreflightResult
+from vibesys.run import GitTracker
 from vibesys.schemas import (
     HypothesisOutcome,
     ImplementerResponse,
@@ -259,6 +260,51 @@ def test_read_only_role_does_not_restore_clean_turn():
     assert result is expected
     ctx.git.checkout_tree.assert_not_called()
     ctx.lprint.assert_not_called()
+
+
+def test_read_only_role_preserves_allowed_roadmap_and_reverts_other_writes(tmp_path):
+    workspace = tmp_path / "workspace"
+    roadmap = workspace / "roadmap" / "index.md"
+    roadmap.parent.mkdir(parents=True)
+    roadmap.write_text("initial roadmap\n")
+    tracker = GitTracker(workspace, log=lambda _message: None)
+    tracker.init(existing=False)
+
+    expected = OrchestratorPlan(
+        task="next", pass_criteria="passes", reasoning="evidence supports next"
+    )
+
+    def invoke(**_kwargs):
+        roadmap.write_text("updated roadmap\n")
+        (workspace / "main.py").write_text("unauthorized candidate edit\n")
+        return expected
+
+    logs: list[str] = []
+    ctx = SimpleNamespace(
+        workspace=workspace,
+        git=tracker,
+        invoke=invoke,
+        snapshot_workspace=tracker.snapshot,
+        lprint=logs.append,
+    )
+
+    result = _invoke_read_only_role(
+        ctx,
+        role="orchestrator",
+        checkpoint_label="round-2-plan-input",
+        allowed_workspace_paths=("roadmap/index.md",),
+        kind="orchestrator",
+        system_prompt="plan",
+        user_prompt="return JSON",
+        response_cls=OrchestratorPlan,
+        fallback_factory=lambda: expected,
+    )
+
+    assert result is expected
+    assert roadmap.read_text() == "updated roadmap\n"
+    assert not (workspace / "main.py").exists()
+    assert tracker.pending_changes() == ["roadmap/index.md"]
+    assert any("main.py" in line for line in logs)
 
 
 def test_pre_round_decision_accepts_booleans():

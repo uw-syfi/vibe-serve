@@ -407,14 +407,17 @@ def _invoke_read_only_role(
     *,
     role: str,
     checkpoint_label: str,
+    allowed_workspace_paths: tuple[str, ...] = (),
     **invoke_kwargs: Any,
 ) -> Any:
-    """Invoke an evidence-reading role and undo any workspace mutations.
+    """Invoke an evidence-reading role and undo unauthorized mutations.
 
     Prompt-level role boundaries are useful guidance, but they are not an
     enforcement mechanism. Commit the framework's current state before the
     turn, then restore that exact tree if the agent writes tracked or untracked
-    files. The structured response remains usable after restoration.
+    files outside its narrow allowlist. The structured response remains usable
+    after restoration. Allowlisted text files are preserved across a full-tree
+    restore so one permitted write cannot smuggle unrelated candidate edits.
     """
     ctx.snapshot_workspace(checkpoint_label)
     checkpoint = ctx.git.current_sha()
@@ -425,22 +428,43 @@ def _invoke_read_only_role(
         return ctx.invoke(**invoke_kwargs)
     finally:
         changes = ctx.git.pending_changes()
-        if changes:
+        unauthorized = [path for path in changes if path not in allowed_workspace_paths]
+        if unauthorized:
+            preserved: dict[str, bytes | None] = {}
+            for rel_path in allowed_workspace_paths:
+                path = ctx.workspace / rel_path
+                preserved[rel_path] = path.read_bytes() if path.is_file() else None
             if not ctx.git.checkout_tree(checkpoint, clean=True):
                 raise RuntimeError(
                     f"Cannot isolate {role}: failed to restore workspace checkpoint "
                     f"{checkpoint[:12]}"
                 )
-            remaining = ctx.git.pending_changes()
+            for rel_path, content in preserved.items():
+                path = ctx.workspace / rel_path
+                if content is None:
+                    if path.exists() or path.is_symlink():
+                        path.unlink()
+                    continue
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(content)
+            remaining = [
+                path
+                for path in ctx.git.pending_changes()
+                if path not in allowed_workspace_paths
+            ]
             if remaining:
                 raise RuntimeError(
                     f"Cannot isolate {role}: workspace is still modified after restore: "
                     f"{', '.join(remaining[:8])}"
                 )
-            shown = ", ".join(changes[:8])
-            suffix = "" if len(changes) <= 8 else f", ... (+{len(changes) - 8} more)"
+            shown = ", ".join(unauthorized[:8])
+            suffix = (
+                ""
+                if len(unauthorized) <= 8
+                else f", ... (+{len(unauthorized) - 8} more)"
+            )
             ctx.lprint(
-                f"[role-isolation] reverted {len(changes)} workspace change(s) "
+                f"[role-isolation] reverted {len(unauthorized)} workspace change(s) "
                 f"attempted by {role}: {shown}{suffix}"
             )
 
@@ -656,6 +680,11 @@ def _run_orchestrator_plan(
         ctx,
         role="orchestrator",
         checkpoint_label=f"round-{round_number}-plan-input",
+        allowed_workspace_paths=(
+            f"{roadmap_location.rstrip('/')}/index.md"
+            if roadmap_location.endswith("/")
+            else roadmap_location,
+        ),
         kind="orchestrator",
         system_prompt=system_prompt,
         user_prompt="Produce this round's plan. Return only the JSON object.",
