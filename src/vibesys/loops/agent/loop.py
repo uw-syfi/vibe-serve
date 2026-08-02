@@ -90,6 +90,10 @@ class _RoundRecord:
     hypothesis_id: str | None = None
     hypothesis_outcome: str | None = None
     hypothesis_parent_round: int | None = None
+    # Exact tree from which this hypothesis started. This can be newer than
+    # the historical end-of-round checkpoint when an operator or framework
+    # repair lands between rounds.
+    hypothesis_parent_commit: str | None = None
     metrics: dict[str, float] = field(default_factory=dict)
     evaluation_artifact: str | None = None
     # Only framework-owned gates can set this. A judge-approved hypothesis may
@@ -110,6 +114,7 @@ class _RoundRecord:
             "hypothesis_id": self.hypothesis_id,
             "hypothesis_outcome": self.hypothesis_outcome,
             "hypothesis_parent_round": self.hypothesis_parent_round,
+            "hypothesis_parent_commit": self.hypothesis_parent_commit,
             "metrics": self.metrics,
             "evaluation_artifact": self.evaluation_artifact,
             "official_evaluation": self.official_evaluation,
@@ -129,6 +134,7 @@ class _RoundRecord:
             hypothesis_id=data.get("hypothesis_id"),
             hypothesis_outcome=data.get("hypothesis_outcome"),
             hypothesis_parent_round=data.get("hypothesis_parent_round"),
+            hypothesis_parent_commit=data.get("hypothesis_parent_commit"),
             metrics=data.get("metrics", {}),
             evaluation_artifact=data.get("evaluation_artifact"),
             # Runs written before sparse official evaluation executed global
@@ -151,6 +157,9 @@ class _ActiveHypothesis:
     plan: OrchestratorPlan
     started_round: int
     parent_round: int | None = None
+    # Exact pre-hypothesis tree. Unlike ``parent_round``, this preserves
+    # validated between-round repairs that belong to the real parent.
+    parent_commit: str | None = None
     feedback: str | None = None
     next_step: str | None = None
     # A plan-level rollback establishes the hypothesis parent exactly once.
@@ -180,6 +189,7 @@ class _ActiveHypothesis:
             "plan": self.plan.model_dump(mode="json"),
             "started_round": self.started_round,
             "parent_round": self.parent_round,
+            "parent_commit": self.parent_commit,
             "feedback": self.feedback,
             "next_step": self.next_step,
             "revert_applied": self.revert_applied,
@@ -203,6 +213,7 @@ class _ActiveHypothesis:
                 data["plan"].get("revert_to_round")
                 or (int(data["started_round"]) - 1 if int(data["started_round"]) > 1 else None),
             ),
+            parent_commit=data.get("parent_commit") or data.get("revert_commit"),
             feedback=data.get("feedback"),
             next_step=data.get("next_step"),
             revert_applied=bool(data.get("revert_applied", False)),
@@ -270,7 +281,41 @@ def _backfill_revert_commit(
     if parent is None or parent.commit is None:
         return False
     state.revert_commit = parent.commit
+    state.parent_commit = state.parent_commit or parent.commit
     return True
+
+
+_FAILED_HYPOTHESIS_OUTCOMES = frozenset(
+    {"blocked", "disproven", "inconclusive", "rejected"}
+)
+
+
+def _resolve_rollback_commit(
+    target: _RoundRecord,
+    records: list[_RoundRecord],
+) -> tuple[str | None, int | None]:
+    """Resolve a requested parent round to the actual failed-child base tree.
+
+    A round record names the historical tree at the end of that round. An
+    immediately following hypothesis can start from a newer tree after a
+    validated operator or framework repair. If that child later fails, restore
+    its recorded pre-hypothesis tree instead of erasing those independent
+    repairs along with the failed implementation.
+
+    The second return value identifies the failed child whose base was chosen;
+    ``None`` means the historical target commit is used unchanged.
+    """
+    if not records:
+        return target.commit, None
+    latest = records[-1]
+    if (
+        latest.round_number > target.round_number
+        and latest.hypothesis_parent_round == target.round_number
+        and latest.hypothesis_parent_commit is not None
+        and latest.hypothesis_outcome in _FAILED_HYPOTHESIS_OUTCOMES
+    ):
+        return latest.hypothesis_parent_commit, latest.round_number
+    return target.commit, None
 
 
 def _best_round(records: list[_RoundRecord]) -> _RoundRecord | None:
@@ -1625,6 +1670,7 @@ def run_agent_loop(
                             if round_number > 1
                             else None
                         ),
+                        parent_commit=ctx.git.current_sha(),
                     )
                     _save_active_hypothesis(active_hypothesis_path, active_hypothesis)
                 else:
@@ -1661,16 +1707,28 @@ def run_agent_loop(
                         None,
                     )
                     if target and target.commit:
+                        rollback_commit, failed_child_round = _resolve_rollback_commit(
+                            target, records
+                        )
+                        assert rollback_commit is not None
                         # Non-branch checkout so subsequent commits continue
                         # to land on the current branch as new commits after
                         # the reverted state.
-                        if ctx.git.checkout_tree(target.commit):
-                            ctx.lprint(
-                                "Reverted workspace to round "
-                                f"{plan.revert_to_round} ({target.commit[:8]})."
-                            )
+                        if ctx.git.checkout_tree(rollback_commit):
+                            if failed_child_round is None:
+                                ctx.lprint(
+                                    "Reverted workspace to round "
+                                    f"{plan.revert_to_round} ({rollback_commit[:8]})."
+                                )
+                            else:
+                                ctx.lprint(
+                                    "Reverted workspace to the pre-hypothesis parent of "
+                                    f"failed round {failed_child_round} ({rollback_commit[:8]}), "
+                                    f"based on parent round {plan.revert_to_round}."
+                                )
                             active_hypothesis.revert_applied = True
-                            active_hypothesis.revert_commit = target.commit
+                            active_hypothesis.revert_commit = rollback_commit
+                            active_hypothesis.parent_commit = rollback_commit
                             _save_active_hypothesis(active_hypothesis_path, active_hypothesis)
                         else:
                             ctx.lprint(
@@ -2106,6 +2164,7 @@ def run_agent_loop(
                         hypothesis_id=plan.hypothesis_id,
                         hypothesis_outcome=hypothesis_outcome,
                         hypothesis_parent_round=active_hypothesis.parent_round,
+                        hypothesis_parent_commit=active_hypothesis.parent_commit,
                         metrics=accepted_metrics,
                         evaluation_artifact=accepted_evaluation_artifact,
                         official_evaluation=(

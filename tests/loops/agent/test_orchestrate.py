@@ -17,6 +17,7 @@ from vibesys.loops.agent.loop import (
     _invoke_read_only_role,
     _official_evaluation_reason,
     _provisional_candidates_since_official,
+    _resolve_rollback_commit,
     _RoundRecord,
     _terminal_workspace_notice,
     run_agent_loop,
@@ -63,6 +64,60 @@ def test_legacy_active_hypothesis_backfills_framework_revert_commit():
     assert _backfill_revert_commit(state, records) is True
     assert state.revert_commit == "a" * 40
     assert _backfill_revert_commit(state, records) is False
+
+
+def test_failed_child_rollback_preserves_its_exact_parent_commit():
+    historical_parent = _RoundRecord(
+        round_number=20,
+        commit="a" * 40,
+        perf_metric=1400.0,
+        perf_unit="tok/s",
+        passed=True,
+    )
+    failed_child = _RoundRecord(
+        round_number=21,
+        commit="c" * 40,
+        perf_metric=None,
+        perf_unit=None,
+        passed=True,
+        hypothesis_outcome="disproven",
+        hypothesis_parent_round=20,
+        hypothesis_parent_commit="b" * 40,
+    )
+
+    commit, child_round = _resolve_rollback_commit(
+        historical_parent, [historical_parent, failed_child]
+    )
+
+    assert commit == "b" * 40
+    assert child_round == 21
+
+
+def test_distant_rollback_uses_requested_historical_commit():
+    historical_parent = _RoundRecord(
+        round_number=5,
+        commit="a" * 40,
+        perf_metric=None,
+        perf_unit=None,
+        passed=True,
+    )
+    failed_child = _RoundRecord(
+        round_number=21,
+        commit="c" * 40,
+        perf_metric=None,
+        perf_unit=None,
+        passed=True,
+        hypothesis_outcome="disproven",
+        hypothesis_parent_round=20,
+        hypothesis_parent_commit="b" * 40,
+    )
+
+    commit, child_round = _resolve_rollback_commit(
+        historical_parent, [historical_parent, failed_child]
+    )
+
+    assert commit == "a" * 40
+    assert child_round is None
 
 
 @pytest.fixture()
