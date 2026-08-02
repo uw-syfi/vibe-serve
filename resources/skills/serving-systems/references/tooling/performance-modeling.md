@@ -75,6 +75,26 @@ Python scope. Do not add that duration to the scope's CPU time or interpret it
 as independent work without a timeline or synchronization boundary that proves
 the attribution.
 
+Treat a coarse profiler scope as an envelope, not attribution to whichever
+operation its label suggests. Before choosing a mechanism from a hot composite
+scope:
+
+1. Inspect every operation enclosed by the scope.
+2. Count each operation at its real frequency per step, request, and useful
+   token.
+3. Separate device synchronization and transfers from Python bookkeeping,
+   cache metadata, tokenization, serialization, locks, and queue handoff.
+4. Use nested low-overhead counters, a timeline, or a one-variable causal A/B
+   probe when the ranking depends on one constituent.
+
+For example, a scope named `sampling_postprocess` may include batched argmax,
+per-request `.item()` synchronization, KV metadata updates, detokenization,
+stop-string scans, and stream enqueue work. A large envelope proves only that
+some enclosed work or dependency is expensive; it does not justify assigning
+the measured share to detokenization or any other constituent. Prefer the
+highest-frequency synchronization or transfer as the first discriminating
+probe when source inspection exposes one.
+
 Before proposing generic CPU/GPU overlap, inventory every host synchronization
 on the token-step path and multiply it by execution frequency. Search for
 `.item()`, `.tolist()`, CPU transfers, tensor truth tests, explicit
