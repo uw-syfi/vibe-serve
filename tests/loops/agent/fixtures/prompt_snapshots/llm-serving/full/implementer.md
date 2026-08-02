@@ -78,6 +78,13 @@ add a hypothesis-specific controller or new synthetic artifacts solely to wrap
 an ordinary candidate change, rename phases, or expose additional activation
 counters. Cite retained validation of unchanged evaluation plumbing and spend
 the round on the candidate plus the smallest discriminating measurement.
+If the plan nevertheless asks for synthetic fail-closed/success preflights or a
+new remote controller while leaving staged control flow unchanged, that request
+does not authorize evaluation-plumbing work: use the established runner and its
+retained contract evidence. New profile buckets, activation fields, summaries,
+thresholds, and local analyses are data changes, not staged-control-flow
+changes. A profiling-only round should use the established profiling entrypoint
+and generic raw payload.
 Treat new activation counters, threshold values, local comparisons, and summary
 labels as ordinary data. Return full health/row payloads from the generic runner
 and inspect them locally; do not add remote functions, counter-by-counter

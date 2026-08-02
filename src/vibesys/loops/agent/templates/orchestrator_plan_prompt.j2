@@ -237,6 +237,14 @@ Reuse established evaluation plumbing. For an ordinary candidate optimization,
 require the implementer to call the existing benchmark runner/controller and
 retain its normal artifacts; do not ask for a hypothesis-specific controller or
 another synthetic preflight merely to rename phases, counters, or output files.
+Do not enumerate synthetic fail-closed or synthetic success preflights as round
+work or judge criteria when the established runner's staged control flow is
+unchanged. Previously retained runner-contract evidence remains valid across
+candidate and profiler rounds. A new profile bucket, activation field, summary,
+threshold, or local analysis does not by itself change staged control flow or
+authorize another controller/preflight suite. Profiling-only rounds should call
+the established profiling entrypoint and retain its generic raw payload rather
+than add a profile-specific remote controller.
 New candidate activation counters, threshold values, local comparisons, and
 summary labels are ordinary row data, not evaluation-plumbing changes. Require
 the generic runner to retain the full health/row payload and let local analysis

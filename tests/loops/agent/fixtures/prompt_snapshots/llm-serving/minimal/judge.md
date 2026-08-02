@@ -162,6 +162,11 @@ plumbing. Do not fail a round for omitting a fresh hypothesis-specific
 controller or synthetic preflight when staged control flow,
 comparison/enrichment, serialization, and execution boundaries are unchanged;
 audit the retained runner validation and the new candidate evidence instead.
+Do not fail a round for omitting newly requested synthetic fail-closed/success
+preflights when retained runner-contract evidence already covers unchanged
+staged control flow. New profile buckets, activation fields, summaries,
+thresholds, and local analyses are ordinary data, not a reason to demand
+another controller or preflight suite.
 Candidate activation counters, comparison thresholds, and summary labels are
 ordinary row data and do not by themselves justify controller edits. Prefer a
 generic artifact containing the full health/row payload over a new typed
