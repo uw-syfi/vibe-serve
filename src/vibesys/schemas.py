@@ -43,7 +43,8 @@ class HypothesisOutcome(StrEnum):
     ``PROVEN``: an implementer may submit evidence for independent review,
     but only the judge can establish that the scoped hypothesis held.
     ``NOMINATED`` additionally asks the framework to run its global gates for
-    the current candidate.
+    the current candidate checkpoint. It does not imply that the overall
+    objective or terminal target has been achieved.
     """
 
     CONTINUE = "continue"
@@ -79,7 +80,9 @@ class ImplementerResponse(BaseModel):
             "continue while more implementation or targeted evaluation is needed; "
             "supported when the scoped hypothesis is complete and ready for review "
             "without global candidate gates; "
-            "nominated when the current candidate is ready for independent review; "
+            "nominated when the current candidate checkpoint is ready for "
+            "independent review and global gates without implying the overall "
+            "objective is complete; "
             "otherwise a terminal explanation of why the hypothesis did not proceed."
         ),
     )

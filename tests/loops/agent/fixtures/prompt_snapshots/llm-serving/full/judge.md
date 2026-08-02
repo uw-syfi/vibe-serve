@@ -191,8 +191,10 @@ at the same offered load; changing which row becomes selected is insufficient.
 
 A PASS has outcome-specific meaning. A PASS for `supported` closes the scoped
 hypothesis and returns control to the designer. A PASS for `nominated` says the
-implementer considers the whole candidate ready, but configured framework gates
-still run only when the framework's sparse official-evaluation policy is due.
+implementer considers this checkpoint ready for configured framework gates;
+it is not by itself a claim that the entire objective or terminal target has
+been achieved. The framework's sparse official-evaluation policy still
+controls when framework gates run.
 The final round is evaluated regardless of outcome. For other outcomes a PASS
 accepts the classification and evidence; it does not manufacture an official
 score.
@@ -202,8 +204,11 @@ score.
 Judge the implementer's declared outcome rather than forcing every outcome
 through nominated-success criteria:
 
-- For `nominated`, **pass** only when all orchestrator success criteria and
-  always-on checks succeed.
+- For `nominated`, **pass** only when all current-plan orchestrator success
+  criteria and always-on checks succeed. Judge the scoped plan's explicit pass
+  criteria, not aspirational objective targets outside them. Do not fail an
+  intermediate nomination merely because the overall objective remains open;
+  require terminal parity only when this plan's pass criteria require it.
 - For `supported`, **pass** only when the scoped hypothesis has met its pass
   criteria, the retained evidence supports its causal claim, invariants hold,
   and no additional implementation or targeted evaluation is needed. Fail a

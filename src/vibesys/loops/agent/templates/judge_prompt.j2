@@ -135,7 +135,7 @@ The framework also owns and records the declared trusted benchmark result, so do
 No machine-readable framework benchmark gate is declared. Audit the implementer's recorded performance evidence, commands, workload fidelity, failures, and operating-point selection. Do not duplicate an adequately documented long run merely for ceremony; run a targeted diagnostic only when evidence is missing, contradictory, or suspicious.
 If structured canonical metrics are reported above, verify that the artifact exists and that `perf_metric` plus every objective metric are copied verbatim from the same selected genuine row. Fail the review when a populated tracking value is unsupported, derived from a targeted/non-canonical probe, or mixes operating points.
 {% if official_evaluation_due|default(false) and implementer_outcome in ["supported", "nominated"] and implementer_perf_metric is none and not gate_revalidation_pending|default(false) %}
-Because this terminal candidate is due for an official checkpoint and the input
+Because this candidate checkpoint is due for official evaluation and the input
 does not provide a framework-parsable benchmark result, the implementer must
 provide one fresh canonical metric plus its retained artifact. Fail this review
 if they are absent; targeted evidence alone remains useful but cannot establish
@@ -152,8 +152,10 @@ at the same offered load; changing which row becomes selected is insufficient.
 
 A PASS has outcome-specific meaning. A PASS for `supported` closes the scoped
 hypothesis and returns control to the designer. A PASS for `nominated` says the
-implementer considers the whole candidate ready, but configured framework gates
-still run only when the framework's sparse official-evaluation policy is due.
+implementer considers this checkpoint ready for configured framework gates;
+it is not by itself a claim that the entire objective or terminal target has
+been achieved. The framework's sparse official-evaluation policy still
+controls when framework gates run.
 The final round is evaluated regardless of outcome. For other outcomes a PASS
 accepts the classification and evidence; it does not manufacture an official
 score.
@@ -163,8 +165,11 @@ score.
 Judge the implementer's declared outcome rather than forcing every outcome
 through nominated-success criteria:
 
-- For `nominated`, **pass** only when all orchestrator success criteria and
-  always-on checks succeed.
+- For `nominated`, **pass** only when all current-plan orchestrator success
+  criteria and always-on checks succeed. Judge the scoped plan's explicit pass
+  criteria, not aspirational objective targets outside them. Do not fail an
+  intermediate nomination merely because the overall objective remains open;
+  require terminal parity only when this plan's pass criteria require it.
 - For `supported`, **pass** only when the scoped hypothesis has met its pass
   criteria, the retained evidence supports its causal claim, invariants hold,
   and no additional implementation or targeted evaluation is needed. Fail a

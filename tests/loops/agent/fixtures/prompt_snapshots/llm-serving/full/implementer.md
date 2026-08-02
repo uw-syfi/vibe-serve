@@ -188,7 +188,10 @@ Report `hypothesis_outcome` precisely:
 
 - `continue`: more implementation or targeted evaluation is needed. Include a concrete `next_step`.
 - `supported`: the scoped hypothesis and its pass criteria are complete and ready for independent review, but the whole candidate is not being submitted to the global framework gates. Leave `next_step` empty so the designer owns the next hypothesis.
-- `nominated`: the current candidate is ready for independent review and official framework gates.
+- `nominated`: the current candidate checkpoint is ready for independent review
+  and official framework gates. This submits an intermediate checkpoint; it
+  does not claim that the whole objective or terminal target is achieved unless
+  this plan's pass criteria explicitly require that target.
 - `disproven`: mechanism-level evidence falsifies the hypothesis for this workload.
 - `implementation_failed`, `inconclusive`, or `blocked`: the claim was not fairly tested; explain why and what would unblock it.
 

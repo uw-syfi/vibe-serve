@@ -230,6 +230,8 @@ def test_llm_serving_rendered_prompts_keep_required_domain_content():
     assert "PASS for `supported` closes the scoped" in prompts["judge"]
     assert "configured framework gates" in prompts["judge"]
     assert "sparse official-evaluation policy" in prompts["judge"]
+    assert "intermediate checkpoint" in prompts["implementer"]
+    assert "not aspirational objective targets" in prompts["judge"]
     assert "cache/mask/position alignment" in prompts["judge"]
     assert "attention kernel itself must consume" in prompts["implementer"]
     assert "first reconstructs dense logical KV" in prompts["judge"]
