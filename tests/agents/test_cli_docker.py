@@ -88,3 +88,12 @@ def test_provider_auth_imports_exclude_bulk_runtime_roots():
             Path.home() / ".config" / "opencode",
         }
     )
+
+
+def test_codex_container_installs_luna_capable_cli_version():
+    commands = cli_docker.docker_init_commands("codex")
+
+    assert (
+        f"npm install -g --include=optional @openai/codex@{cli_docker.CODEX_DOCKER_CLI_VERSION}"
+    ) in commands
+    assert cli_docker.CODEX_DOCKER_CLI_VERSION == "0.144.4"

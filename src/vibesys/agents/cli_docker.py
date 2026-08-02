@@ -27,6 +27,11 @@ DOCKER_PROVIDER_ENV: dict[str, dict[str, str]] = {
 }
 
 
+# Keep the editor container aligned with the verified host CLI feature set.
+# Luna and its Max reasoning level require a newer CLI than the old 0.125 pin.
+CODEX_DOCKER_CLI_VERSION = "0.144.4"
+
+
 # Bash one-liners run inside the container at start() time, per provider.
 # Each list runs sequentially; a non-zero exit at any step raises RuntimeError.
 #
@@ -100,12 +105,11 @@ _DOCKER_INSTALL_COMMANDS: dict[str, list[str]] = {
     ],
     "codex": [
         _NODE_TARBALL_INSTALL,
-        # Pin to >=0.125.0 so the gpt-5.5 family of models works (0.118
-        # rejects them with 'requires a newer version of Codex').
+        # Pin the verified Luna-capable CLI rather than floating editor images.
         # `--include=optional` because newer codex packages ship the
         # Linux-x64 native binary as an optional dependency that
         # `npm install -g` silently skips on some npm configurations.
-        "npm install -g --include=optional @openai/codex@0.125.0",
+        f"npm install -g --include=optional @openai/codex@{CODEX_DOCKER_CLI_VERSION}",
         *_MCP_PYTHON_INSTALL,
     ],
 }
