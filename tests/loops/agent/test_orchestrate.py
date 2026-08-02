@@ -201,7 +201,15 @@ def _make_orchestrate_runner(
                 expected_behavior="ok",
                 hypothesis_outcome=outcome,
                 evidence="targeted evidence",
-                next_step="continue experiment" if outcome is HypothesisOutcome.CONTINUE else "",
+                next_step=(
+                    "continue experiment"
+                    if outcome
+                    in {
+                        HypothesisOutcome.CONTINUE,
+                        HypothesisOutcome.IMPLEMENTATION_FAILED,
+                    }
+                    else ""
+                ),
                 perf_metric=perf_metric,
                 perf_unit="tok/s" if perf_metric is not None else None,
                 metrics={"aggregate_throughput": perf_metric, "p99_latency_ms": 87.0}
@@ -1143,6 +1151,45 @@ def test_cadence_pass_keeps_a_continuing_hypothesis_active(tmp_path, ref_file):
     assert [round_data["hypothesis_outcome"] for round_data in rounds] == [
         "continue",
         "continue",
+        "proven",
+    ]
+
+
+def test_implementation_failure_with_repair_keeps_hypothesis_active(tmp_path, ref_file):
+    runner = _make_orchestrate_runner(
+        plans=[
+            OrchestratorPlan(
+                hypothesis_id="repairable-mechanism",
+                hypothesis="the mechanism helps after its runtime defect is repaired",
+                task="implement and test the mechanism",
+                pass_criteria="retain causal evidence",
+                reasoning="one persistent hypothesis",
+            )
+        ],
+        implementer_outcomes=[
+            HypothesisOutcome.IMPLEMENTATION_FAILED,
+            HypothesisOutcome.NOMINATED,
+        ],
+    )
+
+    _invoke_orchestrate(
+        tmp_path,
+        ref_file,
+        runner,
+        max_rounds=2,
+        judge_every=10,
+    )
+
+    assert runner.counters["orch_plan"] == 1
+    assert runner.counters["impl"] == 2
+    rounds_file = next((tmp_path / "exp_env").glob("*/logs/rounds.json"))
+    rounds = __import__("json").loads(rounds_file.read_text())
+    assert [round_data["hypothesis_id"] for round_data in rounds] == [
+        "repairable-mechanism",
+        "repairable-mechanism",
+    ]
+    assert [round_data["hypothesis_outcome"] for round_data in rounds] == [
+        "implementation_failed",
         "proven",
     ]
 

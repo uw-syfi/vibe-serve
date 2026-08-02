@@ -211,7 +211,12 @@ Report `hypothesis_outcome` precisely:
   does not claim that the whole objective or terminal target is achieved unless
   this plan's pass criteria explicitly require that target.
 - `disproven`: mechanism-level evidence falsifies the hypothesis for this workload.
-- `implementation_failed`, `inconclusive`, or `blocked`: the claim was not fairly tested; explain why and what would unblock it.
+- `implementation_failed`: the claim was not fairly tested because of a concrete
+  implementation/runtime defect. Include the smallest specific repair in
+  `next_step`; the framework keeps this hypothesis, workspace, and implementer
+  session active for that repair instead of asking the designer to rebuild it.
+- `inconclusive` or `blocked`: the claim was not fairly tested; explain why and
+  what would unblock it.
 
 ## Official evaluation for this working head
 

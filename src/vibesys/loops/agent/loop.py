@@ -285,9 +285,27 @@ def _backfill_revert_commit(
     return True
 
 
-_FAILED_HYPOTHESIS_OUTCOMES = frozenset(
-    {"blocked", "disproven", "inconclusive", "rejected"}
-)
+_FAILED_HYPOTHESIS_OUTCOMES = frozenset({"blocked", "disproven", "inconclusive", "rejected"})
+
+
+def _implementation_keeps_hypothesis_active(
+    implementation: ImplementerResponse | None,
+) -> bool:
+    """Return whether the same implementer goal owns the next round.
+
+    ``implementation_failed`` is not causal falsification.  When the
+    implementer names a concrete repair, keep its plan, workspace, and session
+    so a transient code/runtime defect does not force the designer to re-plan
+    or rebuild an already activated mechanism.  An empty repair step returns
+    control to the designer as before.
+    """
+    if implementation is None:
+        return False
+    if implementation.hypothesis_outcome is HypothesisOutcome.CONTINUE:
+        return True
+    return implementation.hypothesis_outcome is HypothesisOutcome.IMPLEMENTATION_FAILED and bool(
+        implementation.next_step.strip()
+    )
 
 
 def _resolve_rollback_commit(
@@ -2221,8 +2239,8 @@ def run_agent_loop(
                     if (
                         inner_loop == "multi-agent"
                         and implementation is not None
-                        and implementation.hypothesis_outcome
-                        not in {HypothesisOutcome.CONTINUE, HypothesisOutcome.NOMINATED}
+                        and not _implementation_keeps_hypothesis_active(implementation)
+                        and implementation.hypothesis_outcome is not HypothesisOutcome.NOMINATED
                     ):
                         # A reviewed terminal classification is accepted, but
                         # its implementation edits are still in the workspace.
@@ -2252,20 +2270,22 @@ def run_agent_loop(
                     # A provisional round is normal hypothesis work, not a
                     # judge-loop exhaustion or a performance regression.
                     carry.exhaustion_info = None
-                    carry.regression_info = _terminal_workspace_notice(records)
+                    carry.regression_info = (
+                        None
+                        if _implementation_keeps_hypothesis_active(implementation)
+                        else _terminal_workspace_notice(records)
+                    )
 
                 # The framework, rather than the designer, owns this lifecycle.
                 # A continuing implementation keeps its plan and session. An
                 # unreviewed terminal result hands control back to the designer;
                 # a rejected review keeps the same claim plus reviewer feedback
                 # so the implementer can address it on the next round.
-                if (
-                    passed
-                    and inner_loop == "multi-agent"
-                    and implementation is not None
-                    and implementation.hypothesis_outcome is HypothesisOutcome.CONTINUE
+                if inner_loop == "multi-agent" and _implementation_keeps_hypothesis_active(
+                    implementation
                 ):
-                    active_hypothesis.feedback = None
+                    active_hypothesis.feedback = feedback if reviewed and not passed else None
+                    assert implementation is not None
                     active_hypothesis.next_step = implementation.next_step
                 elif passed:
                     active_hypothesis = None
@@ -2276,9 +2296,8 @@ def run_agent_loop(
                         if implementation is not None
                         else active_hypothesis.next_step
                     )
-                elif (
-                    implementation is not None
-                    and implementation.hypothesis_outcome is not HypothesisOutcome.CONTINUE
+                elif implementation is not None and not _implementation_keeps_hypothesis_active(
+                    implementation
                 ):
                     active_hypothesis = None
                 else:

@@ -92,7 +92,10 @@ class ImplementerResponse(BaseModel):
     )
     next_step: str = Field(
         default="",
-        description="Concrete next action when continuing, blocked, or inconclusive.",
+        description=(
+            "Concrete next action when continuing or repairing an implementation failure, "
+            "or when blocked/inconclusive."
+        ),
     )
     perf_metric: FiniteFloat | None = Field(
         default=None,
