@@ -270,6 +270,35 @@ def test_run_context_defaults_profiler_support_paths(
         assert (ctx.workspace / workspace_name / "server.py").is_file()
 
 
+def test_cli_context_skips_unused_langchain_model_construction(tmp_path):
+    project_root = tmp_path / "project"
+    ref = _write_ref(tmp_path)
+
+    with (
+        patch("vibesys.context.PROJECT_ROOT", project_root),
+        patch("vibesys.context.build_model") as build_model,
+        patch("vibesys.context.build_agent_runner", return_value=MagicMock()),
+        patch("vibesys.context.backends.get", return_value=_FakeBackend()),
+        create_run_context(
+            config={
+                "model": {"name": "gpt-5.6-sol"},
+                "thinking": {"level": "xhigh"},
+                "agent": {"backend": "cli", "cli_provider": "codex"},
+            },
+            exp_name="cli-reasoning",
+            input_path=str(ref.parent),
+            accuracy_command="uv run python accuracy_checker/checker.py",
+            benchmark_command="uv run python benchmark/benchmark.py",
+            profiler_kind=ProfilerKind.NONE,
+            profiler_domain=DomainName.LLM_SERVING,
+            skills_dirs=[],
+            run_environment=RunEnvironmentSpec("local"),
+        ) as ctx,
+    ):
+        assert ctx.model is None
+        build_model.assert_not_called()
+
+
 @pytest.mark.parametrize(
     "selected",
     [ProfilerKind.NONE, *sorted(ACTIVE_PROFILER_KINDS, key=lambda kind: kind.value)],

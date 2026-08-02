@@ -344,7 +344,10 @@ def _assemble_run_context(
     resolved_backend = agent_backend or config.agent.backend or DEFAULT_AGENT_BACKEND
     resolved_cli_provider = cli_provider or config.agent.cli_provider or "codex"
 
-    model = build_model(config)
+    # CLI providers construct and configure their own agent process. Building
+    # the LangChain model here is both unused and incorrect for CLI-only knobs
+    # such as Codex reasoning effort, which the generic OpenAI adapter rejects.
+    model = None if resolved_backend == "cli" else build_model(config)
     model_name = config.model.name
 
     input_path_str = _coerce_dir_path(input_path, "--input")
