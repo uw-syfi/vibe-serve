@@ -152,6 +152,17 @@ compute/bandwidth range; if only hardware peak is available, label the result an
 optimistic upper bound and do not treat the gap to it as removable application
 overhead.
 
+Turn the terminal throughput target into a step-capacity feasibility check
+before ranking execution-kernel work. Calculate both the required cycle time at
+the current useful-token capacity and the minimum useful tokens per step at the
+credible cycle-time floor. Compare those values with the measured active batch,
+admission limit, graph-bucket limit, and memory-feasible capacity. If the target
+would require a cycle below the device lower bound or leave no credible margin
+for service overhead, do not assume optimizing the existing step can reach it:
+rank the smallest capacity or multi-token capability experiment alongside the
+kernel hypotheses. Preserve TTFT, TPOT, and latency constraints when testing a
+larger useful-token capacity; queued concurrency is not useful batch work.
+
 Do not choose a technique merely because other serving systems commonly use it.
 Consult a technical reference only after the evidence identifies the mechanism
 you need to understand.

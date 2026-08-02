@@ -178,6 +178,31 @@ Account for padding, inactive slots, graph buckets, admission limits, prefill
 interruptions, failures, and queue residence. A kernel roofline does not include
 these service losses.
 
+### Audit step capacity against the target
+
+Convert the terminal throughput target into two reciprocal feasibility checks:
+
+```text
+required_cycle_at_current_capacity = B_useful_current / target_throughput
+required_useful_tokens_at_floor = ceil(target_throughput * T_cycle_floor)
+```
+
+Use seconds consistently. Compare `required_cycle_at_current_capacity` with the
+whole-model device lower bound plus a defensible service-overhead margin. Compare
+`required_useful_tokens_at_floor` with the observed active batch, admission and
+graph-bucket limits, and the memory-feasible capacity after accounting for
+weights, KV cache, activations, graph-private buffers, and allocator reserve.
+
+If the required cycle is below the device lower bound, the current useful-token
+capacity cannot reach the target through faster execution of the same step. If
+it leaves almost no margin for scheduler, synchronization, sampling, and
+transport work, classify the path as high risk rather than terminally
+sufficient. Rank a bounded capacity or multi-token capability experiment
+against kernel work when it materially relaxes the required cycle. Do not count
+queued requests as useful batch tokens, and do not assume a larger capacity is
+free: validate memory, step-time scaling, graph coverage, admission behavior,
+TTFT, TPOT, and end-to-end latency at the proposed capacity.
+
 Model latency separately:
 
 ```text
