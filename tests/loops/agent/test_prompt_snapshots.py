@@ -336,9 +336,10 @@ def test_orchestrator_rejects_quantitative_use_of_perturbed_profiles():
         official_eval_cadence_due=False,
     )
 
-    assert "profile changed the\nheadline metric by more than 10%" in rendered
-    assert "Do not turn it into exclusive phase shares" in rendered
-    assert "causal A/B experiment instead" in rendered
+    normalized = " ".join(rendered.split())
+    assert "profile changed the headline metric by more than 10%" in normalized
+    assert "Do not turn it into exclusive phase shares" in normalized
+    assert "causal A/B experiment instead" in normalized
 
 
 def test_pre_round_prompt_does_not_profile_a_future_rollback_target():

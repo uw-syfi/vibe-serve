@@ -67,6 +67,22 @@ Required this round, in order:
 A library of curated technique-specific skills may be installed in your working directory. Your CLI's native skill mechanism exposes their names + short descriptions; activate (open) only the ones whose description matches the work this round needs. Don't try to enumerate or preload them.
 
 
+### Profiler trust rule
+
+Apply this rule to every profile you use, whether it was just collected or is a
+retained artifact from an earlier round. Before using any profiler duration to
+rank hypotheses or calculate Amdahl headroom, compare the profiled run with a
+recent uninstrumented control for the same candidate, workload shape, and
+operating point. If the profile changed the headline metric by more than 10%,
+changed the critical path, or lacks a comparable control, its accumulated phase
+durations are not quantitative attribution. You may use that capture only for
+structural facts such as path activation, operation ordering, graph coverage,
+fallback, or the presence of a cost center. Do not turn it into exclusive phase
+shares, removable milliseconds, Amdahl ceilings, or a hypothesis ranking by
+informally "discounting" the overhead. Request a lower-overhead measurement or
+use a causal A/B experiment instead. CPU and CUDA times from overlapping
+asynchronous scopes are never additive without timeline evidence.
+
 
 
 ## Evidence-led optimization method
