@@ -47,6 +47,32 @@ Is the problem known to be inside a specific kernel?
    ranking. If no comparable control exists, apply the same restriction and
    call the capture uncalibrated.
 
+## When CUPTI or external profilers are unavailable
+
+Record one capability artifact, then stop retrying the same unavailable
+permission/runtime pair. `CUPTI_ERROR_NOT_INITIALIZED`, an `nsys` daemon/export
+failure, or missing container tracing privileges is a measurement blocker, not
+evidence about the serving bottleneck.
+
+For decode-forward device-time ranking, fall back to a shape-faithful isolated
+microdriver with CUDA events:
+
+1. Derive batch size and context lengths from an uninstrumented production row.
+2. Warm the exact model, KV layout, and kernels before timing.
+3. Bracket a small set of mutually exclusive forward buckets with CUDA event
+   pairs on the executing stream; do not synchronize at bucket boundaries.
+4. Record several iterations, synchronize once after the complete window, and
+   compute event elapsed times afterward.
+5. Compare total microdriver wall time with an uninstrumented control at the
+   same shape. Reject quantitative attribution above the 10% perturbation band.
+
+Use this fallback only for within-forward device-time ranking. It cannot reveal
+CPU launch gaps, API synchronization, kernel names, or end-to-end phase shares.
+For CUDA-graph serving, time whole graph replay separately and use an eager
+same-shape microdriver for sub-forward buckets; do not present eager bucket
+fractions as graph-era end-to-end shares. Keep event recording gated out of the
+production service path.
+
 ## Tool 1: PyTorch Profiler (`torch.profiler`)
 
 In-process, Python-aware, fastest path to "which op is slow on the CPU side" and "does torch.compile actually fuse my code".
