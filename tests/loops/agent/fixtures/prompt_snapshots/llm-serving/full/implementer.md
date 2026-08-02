@@ -148,6 +148,14 @@ or `disproven` from that evidence and leave the next mechanism to the designer.
 Run a new diagnostic only for a named missing field, stale runtime assumption,
 or concrete comparability gap.
 
+For a capability retry, verify that the distinguishing package, version, API,
+runtime image, driver surface, or build artifact is actually different before
+launching remote hardware. If research leaves the candidate on the same
+API/runtime pair as a retained capability failure, do not rerun that probe to
+manufacture a fresh artifact. Reuse the retained failure, report the hypothesis
+as blocked or inconclusive, and name the concrete compatibility change that a
+future round must make.
+
 Report `hypothesis_outcome` precisely:
 
 - `continue`: more implementation or targeted evaluation is needed. Include a concrete `next_step`.

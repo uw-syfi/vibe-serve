@@ -236,6 +236,13 @@ evidence audit/closeout instead of recreating it. Require a fresh diagnostic
 only for an explicit missing field, stale runtime assumption, or concrete
 comparability gap.
 
+Do not label a retry as a distinct capability hypothesis merely because the
+earlier mechanism never activated. Name the concrete changed premise first —
+for example a different package/version, lower-level API, runtime image, driver
+surface, or build artifact. If none has been selected, do not require another
+remote probe of the same API/runtime pair; plan the compatibility change or a
+different mechanism instead.
+
 Do not require a duplicate benchmark merely to produce a cleaner artifact
 directory. Extra diagnostics written after measured rows completed do not
 retroactively contaminate those rows. When phase ordering proves measurement
