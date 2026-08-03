@@ -784,6 +784,34 @@ class TestCleanupOnExit:
         assert mock_run.call_args_list[1].args[0] == ["docker", "rm", "-f", "abc123"]
         assert "abc123" not in _live_containers
 
+    def test_sigint_defers_container_cleanup_until_stack_unwinds(self, monkeypatch):
+        import vs_sandbox.docker_sandbox as docker_sandbox
+
+        cleanup_calls: list[bool] = []
+        original_calls: list[tuple[int, object]] = []
+
+        def original_handler(signum, frame):
+            original_calls.append((signum, frame))
+            raise KeyboardInterrupt
+
+        monkeypatch.setattr(
+            docker_sandbox,
+            "_cleanup_containers",
+            lambda: cleanup_calls.append(True),
+        )
+        monkeypatch.setattr(docker_sandbox, "_original_sigint", original_handler)
+
+        with patch.object(docker_sandbox.signal, "signal") as restore_handler:
+            with pytest.raises(KeyboardInterrupt):
+                docker_sandbox._sigint_handler(2, None)
+
+        restore_handler.assert_called_once_with(
+            docker_sandbox.signal.SIGINT,
+            original_handler,
+        )
+        assert original_calls == [(2, None)]
+        assert cleanup_calls == []
+
 
 class TestWrite:
     @patch("subprocess.run")
