@@ -54,6 +54,18 @@ TASK: add a streaming /v1/completions endpoint.
 
 Treat this hypothesis as a persistent goal, not a one-shot task. Retain control over targeted experiments, workload ranges, parameter sweeps, logs, and small probes needed to implement or falsify it. The framework owns the immutable accuracy gate after independent review.
 
+If your runtime exposes a persistent mechanism such as `/goal`, scope that goal
+to a **fair terminal classification of this hypothesis**, not to a mandatory
+yes/no conclusion. `supported` and `disproven` are terminal, but so is an
+evidence-backed `inconclusive` or `blocked` closure when the remaining
+uncertainty cannot justify another in-scope attempt under the trajectory,
+headroom, and cost rules below. Mark that scoped runtime goal complete before
+emitting the structured terminal response so the framework regains control for
+independent review and, when appropriate, an outer-loop search-space reset. Do
+not let runtime auto-continuation silently turn a returned terminal response
+into additional implementation rounds. Keep the runtime goal active only while
+the reported `next_step` is concrete, in scope, and still has measured headroom.
+
 The incumbent implementation substrate is not an invariant. Unless the
 objective, runtime notes, authoritative contract, or this round's task says
 otherwise, you may change programming language, runtime, process topology,
