@@ -162,6 +162,13 @@ invocation as soon as a gate fails. Use zero minimum-warm replicas, one
 accelerator unless the workload requires more, a short finite idle/scaledown
 timeout, an outer command timeout, and `finally` teardown. Do not keep a paid
 accelerator warm across agent reasoning turns.
+Before launch, enumerate the maximum paid workload invocations across every
+success, ambiguity, repeat, fallback, and sweep branch and disable branches this
+round does not authorize. Never repeat the same candidate, workload, and
+operating point as a fallback: it cannot change the decision, so reuse the
+completed row. An automatic repeat needs a predeclared noise/ambiguity condition
+that can change classification; a fallback must change a named causal variable
+or operating point and persist its trigger before running.
 If self-review finds several target-hardware repairs on the unchanged
 candidate, validate compatible correctness, profiler-contract, and smoke hooks
 as adjacent phases of that same controller. Do not cold-start one accelerator

@@ -270,6 +270,14 @@ zero minimum-warm replicas, a finite idle/scaledown backstop, bounded accelerato
 count, and best-effort teardown on success, failure, and interruption. Flag a
 permanently warm or unbounded deployment even when its benchmark result is
 otherwise valid.
+Audit the controller's worst-case paid workload count across success,
+ambiguity, repeat, fallback, and sweep branches, not only the branch that the
+implementer expected. Flag a branch the plan did not authorize. A repeat or
+fallback at the same candidate, workload, and operating point as an already
+completed row cannot discriminate anything and should reuse the row. Accept an
+automatic repeat only for a predeclared ambiguity/noise condition that can
+change classification, and a fallback only when it changes a named causal
+variable or operating point and records its trigger before launch.
 On a retry, also flag separate cold accelerator starts for each repaired
 correctness, profiler-contract, or smoke hook when those checks could safely run
 as adjacent phases on one initialized candidate. Distinct output artifacts do

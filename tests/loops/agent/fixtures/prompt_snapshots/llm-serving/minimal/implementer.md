@@ -320,6 +320,16 @@ at zero, use a short finite idle/scaledown timeout, and stop the deployment in a
 that performs smoke -> directional -> conditional canonical work without agent
 think-time between phases. Never leave a permanently warm accelerator merely
 to accelerate a later agent turn.
+Before launching it, enumerate the maximum paid workload invocations across the
+controller's success, ambiguity, repeat, fallback, and sweep branches—not just
+the happy path named by the CLI flags. Disable every conditional branch that the
+current plan did not authorize. A repeat or fallback with the same candidate,
+workload, and operating point as an already completed row has no distinguishing
+information and must reuse that row rather than run again. Permit an automatic
+repeat only for a predeclared noise/ambiguity condition that can change the
+classification; require a fallback to change a named causal variable or
+operating point and state the decision it can change. Persist the triggering
+condition before entering any paid conditional branch.
 When a bounded remote controller can outlive one synchronous shell-tool call,
 start it as one background process with a retained PID and log, then poll that
 same process until it exits and artifact writeback completes. Quiet output is

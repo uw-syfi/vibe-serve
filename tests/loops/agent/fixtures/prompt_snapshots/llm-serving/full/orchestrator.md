@@ -522,6 +522,12 @@ replicas, a short finite idle/scaledown timeout, explicit `finally` teardown,
 and an outer command timeout. The crash backstop must scale the accelerator to
 zero without relying on the agent returning normally. Do not keep an
 accelerator warm across agent reasoning turns.
+Also state the maximum paid workload-invocation budget across all conditional
+repeat, fallback, and sweep branches. Do not authorize an automatic fallback
+that repeats an already completed candidate/workload/operating point; it adds no
+information. A repeat must be tied to a predeclared ambiguity band that can
+change classification, while a fallback must vary a named causal variable or
+operating point and name the decision it can change.
 For long model-load, compile, or graph-capture phases, require a declared remote
 phase deadline plus observable start, heartbeat/checkpoint, and completion
 state. The outer poll must outlive that deadline; quiet logs or an arbitrary
