@@ -238,6 +238,10 @@ def test_llm_serving_rendered_prompts_keep_required_domain_content():
     assert "PASS for `supported` closes the scoped" in prompts["judge"]
     assert "configured framework gates" in prompts["judge"]
     assert "sparse official-evaluation policy" in prompts["judge"]
+    assert "restoration and no-regression gates one-sided" in prompts["orchestrator"]
+    assert "parent-restoration and no-regression thresholds as one-sided" in prompts["implementer"]
+    assert "restoration and no-regression gates one-sided" in prompts["judge"]
+    assert "Parent-restoration and no-regression checks are one-sided" in prompts["single_agent"]
     assert "intermediate checkpoint" in prompts["implementer"]
     assert "not aspirational objective targets" in prompts["judge"]
     assert "cache/mask/position alignment" in prompts["judge"]
@@ -297,7 +301,10 @@ def test_llm_serving_rendered_prompts_keep_required_domain_content():
     assert "buffered generation, not token streaming" in prompts["judge"]
     assert "smallest target-environment capability probe" in prompts["implementer"]
     assert "put it first in the same bounded controller invocation" in prompts["implementer"]
-    assert "A probe is not materially cheaper merely because it sends no workload" in prompts["implementer"]
+    assert (
+        "A probe is not materially cheaper merely because it sends no workload"
+        in prompts["implementer"]
+    )
     assert "do not invent an ad hoc shorter cutoff" in prompts["implementer"]
     assert "Apply the same rule on judge retries" in prompts["implementer"]
     assert "two `.remote()` calls is two accelerator startups" in prompts["implementer"]
@@ -325,7 +332,7 @@ def test_llm_serving_rendered_prompts_keep_required_domain_content():
     assert "unrelated entry point is not useful" in prompts["orchestrator"]
     assert "minimal capability" in prompts["orchestrator"]
     assert "equivalent measurement from the same" in prompts["orchestrator"]
-    assert "runtime fingerprint or \"cheap\" probe" in prompts["orchestrator"]
+    assert 'runtime fingerprint or "cheap" probe' in prompts["orchestrator"]
     assert "small capability bisection" in prompts["orchestrator"]
     assert "Do not label a retry as a distinct capability hypothesis" in prompts["orchestrator"]
     assert "Do not repeat a previously disproven mechanism" in prompts["orchestrator"]

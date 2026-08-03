@@ -269,6 +269,12 @@ view. A single sub-percent miss is not a mechanism-level falsification when
 nearby or repeated parent rows vary by more than that amount. Run the smallest
 repeat that resolves the classification, or report `inconclusive`; do not turn
 measurement noise into a confident `proven` or `disproven` outcome.
+Treat parent-restoration and no-regression thresholds as one-sided: only an
+adverse deviation beyond noise can fail. A throughput increase or latency
+decrease larger than the variance band is still a valid restoration result,
+not evidence that the parent path failed to reproduce. Prove path identity
+with configuration, workload, and activation evidence rather than symmetric
+metric closeness.
 Compare the observed result with the separately stated minimum acceptance
 criteria, not with the expected-effect forecast. An activated implementation
 that misses the forecast but clears the minimum remains useful work: retain it,

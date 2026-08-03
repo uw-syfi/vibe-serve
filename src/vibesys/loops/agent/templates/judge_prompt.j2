@@ -220,6 +220,12 @@ separate minimum and appears to use its forecast as the cutoff, treat that as a
 planning defect: preserve credible positive evidence and request a justified
 retention decision rather than manufacturing a mechanism-level disproof.
 
+Audit restoration and no-regression gates one-sided. Only adverse movement
+beyond the supported variance band can fail; a throughput increase or latency
+decrease larger than the band does not make a parent/control incomparable.
+Require source, configuration, request-shape, and activation evidence for path
+identity instead of symmetric numerical closeness to historical metrics.
+
 Audit checkpoint retention independently from the causal forecast. For a
 `pareto_frontier` claim, verify that the raw artifact exists, every configured
 objective comes from the same fresh directly comparable end-to-end row, the

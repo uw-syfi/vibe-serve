@@ -284,6 +284,12 @@ evidence for the hypothesis and leave `perf_metric` null.
 
 If you could not run the benchmark this round, set `perf_metric: null` rather than fabricating a value.
 
+Parent-restoration and no-regression checks are one-sided: only adverse
+movement outside the variance band can fail. A throughput increase or latency
+decrease larger than the band remains a valid control. Establish path identity
+from configuration, request shape, and activation evidence rather than forcing
+beneficial metrics to remain symmetrically close to historical values.
+
 Classify checkpoint retention separately from the self-review verdict. A fresh
 directly comparable row may be `pareto_frontier` when hard invariants hold and
 it materially improves one configured objective without being dominated on

@@ -462,6 +462,14 @@ the smallest confirmation needed to classify it; report `inconclusive` until
 then. Avoid exact cutoffs with sub-percent margins unless the evidence shows
 the benchmark is stable at that precision.
 
+**Make restoration and no-regression gates one-sided.** A restored parent or
+control fails a performance gate only when an objective moves in the adverse
+direction beyond the variance band. An improvement larger than the band is not
+a restoration failure. Establish code-path/workload identity from source,
+configuration, activation counters, and request-shape evidence; never require a
+better metric to stay numerically close to its historical value. Apply
+ambiguity repeats only to adverse boundary misses, not to beneficial movement.
+
 **Do not relabel load as an optimization.** A plan cannot claim a performance
 win merely by changing which workload points are admitted, rejected, timed out,
 classified as overloaded, included in a sweep, or selected for reporting. A
