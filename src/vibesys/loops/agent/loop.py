@@ -345,19 +345,21 @@ def _implementation_keeps_hypothesis_active(
 ) -> bool:
     """Return whether the same implementer goal owns the next round.
 
-    ``implementation_failed`` is not causal falsification.  When the
-    implementer names a concrete repair, keep its plan, workspace, and session
-    so a transient code/runtime defect does not force the designer to re-plan
-    or rebuild an already activated mechanism.  An empty repair step returns
+    ``implementation_failed`` and a resolvable ``inconclusive`` result are not
+    causal falsification. When the implementer names a concrete repair or
+    discriminating next measurement, keep its plan, workspace, and session so
+    a transient defect or noisy boundary does not force the designer to re-plan
+    or rebuild an already activated mechanism. An empty next step returns
     control to the designer as before.
     """
     if implementation is None:
         return False
     if implementation.hypothesis_outcome is HypothesisOutcome.CONTINUE:
         return True
-    return implementation.hypothesis_outcome is HypothesisOutcome.IMPLEMENTATION_FAILED and bool(
-        implementation.next_step.strip()
-    )
+    return implementation.hypothesis_outcome in {
+        HypothesisOutcome.IMPLEMENTATION_FAILED,
+        HypothesisOutcome.INCONCLUSIVE,
+    } and bool(implementation.next_step.strip())
 
 
 def _resolve_rollback_commit(

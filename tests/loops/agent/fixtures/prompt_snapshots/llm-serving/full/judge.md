@@ -329,7 +329,9 @@ through nominated-success criteria:
   classification is supported by concrete evidence and the reported blocker or
   uncertainty prevented a fair causal test. Fail if the implementer could have
   resolved it with reasonable in-scope work or if evidence/invariants are
-  unsound.
+  unsound. For a resolvable `inconclusive` result, require a concrete smallest
+  next measurement; the framework will keep the persistent implementer session
+  active rather than paying for another designer plan.
 - Otherwise **fail**. Put every actionable issue in `feedback`.
 
 Your verdict must be consistent with your analysis.

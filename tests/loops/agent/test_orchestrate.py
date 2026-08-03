@@ -223,6 +223,7 @@ def _make_orchestrate_runner(
                     in {
                         HypothesisOutcome.CONTINUE,
                         HypothesisOutcome.IMPLEMENTATION_FAILED,
+                        HypothesisOutcome.INCONCLUSIVE,
                     }
                     else ""
                 ),
@@ -1407,6 +1408,45 @@ def test_implementation_failure_with_repair_keeps_hypothesis_active(tmp_path, re
     ]
     assert [round_data["hypothesis_outcome"] for round_data in rounds] == [
         "implementation_failed",
+        "proven",
+    ]
+
+
+def test_resolvable_inconclusive_result_keeps_hypothesis_active(tmp_path, ref_file):
+    runner = _make_orchestrate_runner(
+        plans=[
+            OrchestratorPlan(
+                hypothesis_id="variance-boundary",
+                hypothesis="one repeat resolves the causal classification",
+                task="measure and repeat only if ambiguous",
+                pass_criteria="retain a variance-aware classification",
+                reasoning="one persistent hypothesis",
+            )
+        ],
+        implementer_outcomes=[
+            HypothesisOutcome.INCONCLUSIVE,
+            HypothesisOutcome.NOMINATED,
+        ],
+    )
+
+    _invoke_orchestrate(
+        tmp_path,
+        ref_file,
+        runner,
+        max_rounds=2,
+        judge_every=10,
+    )
+
+    assert runner.counters["orch_plan"] == 1
+    assert runner.counters["impl"] == 2
+    rounds_file = next((tmp_path / "exp_env").glob("*/logs/rounds.json"))
+    rounds = __import__("json").loads(rounds_file.read_text())
+    assert [round_data["hypothesis_id"] for round_data in rounds] == [
+        "variance-boundary",
+        "variance-boundary",
+    ]
+    assert [round_data["hypothesis_outcome"] for round_data in rounds] == [
+        "inconclusive",
         "proven",
     ]
 
