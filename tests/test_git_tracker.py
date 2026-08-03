@@ -61,6 +61,7 @@ def test_init_uses_containing_experiment_repo_without_nesting(tmp_path):
     tracker.init(existing=False)
 
     assert not (workspace / ".git").exists()
+    assert tracker.history_root == experiment.resolve()
     assert _git_stdout(workspace, "show", "--format=", "--name-only").strip().splitlines() == [
         "workspace/.gitignore",
         "workspace/main.py",

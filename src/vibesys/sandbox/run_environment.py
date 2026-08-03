@@ -102,6 +102,7 @@ class RunEnvironmentRequest:
     benchmark_command: str | None = None
     profiler_support_path: str | None = None
     profiler_support_name: str | None = None
+    git_history_root: Path | None = None
     environment_bind_mounts: tuple[EnvironmentBindMount, ...] = ()
     log: Callable[[str], None] | None = None
     project_root: Path = PROJECT_ROOT
@@ -227,6 +228,8 @@ class DockerEnvironment:
         bind_mounts, docker_symlinks, passthrough = _container_mount_plan(request)
         extra_init_commands, cli_provider_env = _cli_container_setup(request)
         cli_provider_env.setdefault("UV_CACHE_DIR", "/workspace/.cache/uv")
+        if request.git_history_root is not None:
+            cli_provider_env.setdefault("VIBESYS_GIT_HISTORY", "/opt/vibesys-history")
         bind_mounts = _dedupe_mounts(bind_mounts)
         setup_fns = _symlink_setup_fns(docker_symlinks)
 
@@ -253,6 +256,7 @@ class DockerEnvironment:
                 prompt_notes=(
                     "Commands run inside the active execution environment. "
                     "Use normal shell commands to start, stop, and test the server."
+                    + _git_history_prompt_note(request.git_history_root)
                 ),
                 isolated=True,
                 cli_sandboxed=True,
@@ -362,9 +366,14 @@ class ModalEnvironment(_NoopWorkspaceRecovery):
         bind_mounts, docker_symlinks, passthrough = _container_mount_plan(request)
         extra_init_commands, cli_provider_env = _cli_container_setup(request)
         cli_provider_env.setdefault("UV_CACHE_DIR", "/workspace/.cache/uv")
+        if request.git_history_root is not None:
+            cli_provider_env.setdefault("VIBESYS_GIT_HISTORY", "/opt/vibesys-history")
         app_name = _modal_app_name(request.workspace, fallback=self.config.app)
         runtime_document = request.log_dir / "runtime-environment.md"
-        runtime_document.write_text(_modal_runtime_notes(self.config.gpu, app_name))
+        runtime_document.write_text(
+            _modal_runtime_notes(self.config.gpu, app_name)
+            + _git_history_runtime_notes(request.git_history_root)
+        )
         runtime_container_path = "/opt/vibesys-runtime/environment.md"
         bind_mounts.append((str(runtime_document), runtime_container_path, True))
         passthrough.append("/opt/vibesys-runtime")
@@ -670,6 +679,13 @@ def _modal_runtime_notes(gpu: str, app_name: str) -> str:
         "cleanly and every required local output exists. If writeback seems "
         "delayed, poll that process and the expected files instead of "
         "launching a duplicate Modal job.\n"
+        "  - Before any paid or official measurement, persist an exact snapshot "
+        "of every implementer-owned source and build input used by that runtime "
+        "beside the raw result. Record its content hash in the raw artifact. A "
+        "manifest containing only per-file hashes is not sufficient when source "
+        "may be edited later in the same turn; retain the source bytes, a source "
+        "archive, or an exact checkpoint plus a machine-readable diff. Create "
+        "this provenance artifact before launch, not retrospectively.\n"
         "  - The editor sets `UV_CACHE_DIR=/workspace/.cache/uv`; this ignored "
         "cache survives editor-container restarts. For repeated local checks "
         "with unchanged dependency metadata, use the existing environment "
@@ -842,6 +858,9 @@ def _container_mount_plan(
             )
 
     passthrough_paths: list[str] = []
+    if request.git_history_root is not None:
+        bind_mounts.append((str(request.git_history_root), "/opt/vibesys-history", True))
+        passthrough_paths.append("/opt/vibesys-history")
     for mount in request.environment_bind_mounts:
         resolved = mount.host_path.resolve()
         host_path = _find_mount_root(resolved)
@@ -876,6 +895,36 @@ def _container_mount_plan(
         bind_mounts.append((str(request.project_root), "/opt/vibesys", True))
 
     return bind_mounts, symlinks, passthrough_paths
+
+
+def _git_history_prompt_note(history_root: Path | None) -> str:
+    if history_root is None:
+        return ""
+    return (
+        " Framework-owned Git history is mounted read-only at "
+        "`/opt/vibesys-history`; inspect it with `git -c "
+        "safe.directory=/opt/vibesys-history -C /opt/vibesys-history log --oneline`. "
+        "Before a paid or official measurement, retain the exact measured source "
+        "bytes, archive, or checkpoint plus diff beside the raw result; hashes "
+        "without recoverable source are insufficient provenance."
+    )
+
+
+def _git_history_runtime_notes(history_root: Path | None) -> str:
+    if history_root is None:
+        return ""
+    return (
+        "\nCheckpoint history:\n"
+        "  - The framework-owned experiment repository is mounted read-only at "
+        "`/opt/vibesys-history`; `/workspace` alone may not contain discoverable "
+        "`.git` metadata. Inspect history with `git -c "
+        "safe.directory=/opt/vibesys-history -C /opt/vibesys-history log --oneline` "
+        "and list a checkpoint with `git -c "
+        "safe.directory=/opt/vibesys-history -C /opt/vibesys-history ls-tree -r "
+        "--name-only <commit>`. Retrieve exact bytes with the corresponding "
+        "`git ... show <commit>:<tree-path>` command. The repository is read-only; "
+        "the framework remains the sole owner of commits and rollback.\n"
+    )
 
 
 def _cli_container_setup(

@@ -115,6 +115,30 @@ def test_docker_environment_copies_cli_auth_from_readonly_staging(tmp_path, monk
     )
 
 
+def test_docker_environment_exposes_framework_git_history_read_only(tmp_path):
+    backend = FakeBackend()
+    env = build_run_environment(RunEnvironmentSpec("docker"))
+    history = tmp_path / "experiment-history"
+    history.mkdir()
+
+    session = env.open(
+        _request(
+            tmp_path,
+            backend,
+            agent_backend="cli",
+            cli_provider="codex",
+            git_history_root=history,
+        )
+    )
+
+    kwargs = backend.calls[0][1]
+    assert (str(history), "/opt/vibesys-history", True) in kwargs["bind_mounts"]
+    assert "/opt/vibesys-history" in kwargs["passthrough_paths"]
+    assert kwargs["extra_env"]["VIBESYS_GIT_HISTORY"] == "/opt/vibesys-history"
+    assert "/opt/vibesys-history" in session.view.prompt_notes
+    assert "hashes without recoverable source are insufficient" in session.view.prompt_notes
+
+
 def test_docker_environment_uses_environment_bind_mounts(tmp_path):
     backend = FakeBackend()
     env = build_run_environment(RunEnvironmentSpec("docker"))
@@ -299,6 +323,32 @@ def test_modal_environment_prompt_notes_require_remote_runtime_fingerprint(tmp_p
     assert "runtime fingerprint" in notes
     assert "must not be used to infer remote compatibility" in notes
     assert "same Modal image and hardware" in notes
+
+
+def test_modal_environment_documents_history_and_exact_measurement_source(tmp_path):
+    backend = FakeBackend()
+    env = build_run_environment(RunEnvironmentSpec("modal"))
+    history = tmp_path / "experiment-history"
+    history.mkdir()
+
+    env.open(
+        _request(
+            tmp_path,
+            backend,
+            agent_backend="cli",
+            cli_provider="codex",
+            git_history_root=history,
+        )
+    )
+    kwargs = backend.calls[0][1]
+    notes = _modal_runtime_document(tmp_path)
+
+    assert (str(history), "/opt/vibesys-history", True) in kwargs["bind_mounts"]
+    assert kwargs["extra_env"]["VIBESYS_GIT_HISTORY"] == "/opt/vibesys-history"
+    assert "git -c safe.directory=/opt/vibesys-history" in notes
+    assert "ls-tree -r --name-only <commit>" in notes
+    assert "manifest containing only per-file hashes is not sufficient" in notes
+    assert "Create this provenance artifact before launch" in notes
 
 
 def test_modal_environment_per_run_namespace_prefix_unique(tmp_path):

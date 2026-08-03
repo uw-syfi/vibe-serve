@@ -204,6 +204,17 @@ class GitTracker:
         except Exception:
             return None
 
+    @property
+    def history_root(self) -> Path | None:
+        """Return the repository worktree containing checkpoint history.
+
+        Sandboxed agents edit only ``root``, which can be a subdirectory of
+        the experiment repository. Run environments mount this larger root
+        read-only so agents can inspect the commits the framework advertises
+        without granting them ownership of snapshot bookkeeping.
+        """
+        return self._work_tree
+
     def pending_changes(self) -> list[str]:
         """Return tracked and untracked workspace paths changed since ``HEAD``.
 
