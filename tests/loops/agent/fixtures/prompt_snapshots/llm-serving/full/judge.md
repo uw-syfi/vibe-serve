@@ -19,6 +19,11 @@ PASS: pytest passes and /v1/completions streams valid SSE.
 - **Invariants**: Accuracy and prompt-dependent generation remain unchanged.
 - **Implementer outcome**: nominated
 - **Implementer evidence**: Replay counter increased in a targeted probe.
+- **Candidate disposition**: unassessed
+- **Candidate objective metrics**: (missing)
+- **Candidate evidence artifact**: `(missing)`
+- **Candidate operating point**: (missing)
+- **Candidate retention reason**: (missing)
 
 ## Runtime environment
 
@@ -270,6 +275,17 @@ good work merely because an estimate was optimistic. If the plan omitted a
 separate minimum and appears to use its forecast as the cutoff, treat that as a
 planning defect: preserve credible positive evidence and request a justified
 retention decision rather than manufacturing a mechanism-level disproof.
+
+Audit checkpoint retention independently from the causal forecast. For a
+`pareto_frontier` claim, verify that the raw artifact exists, every configured
+objective comes from the same fresh directly comparable end-to-end row, the
+operating point is explicit, hard correctness/workload invariants hold, and
+the claimed gain is not load relabeling or measurement selection. A regression
+on one soft performance axis does not invalidate a material improvement on
+another; PASS preserves the point as a provisional alternate parent. Fail an
+unsupported or dominated frontier claim, but do not require it to satisfy the
+simultaneous terminal target. Candidate metrics never replace official
+canonical tracking.
 
 A PASS has outcome-specific meaning. A PASS for `supported` closes the scoped
 hypothesis and returns control to the designer. A PASS for `nominated` says the

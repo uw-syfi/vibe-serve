@@ -11,10 +11,11 @@ both read from the benchmark's `--output-json` output:
 - **`aggregate_throughput`** — output tokens/sec, **maximize**.
 - **`p99_latency_ms`** — p99 end-to-end request latency in milliseconds, **minimize**.
 
-A candidate is admitted to the frontier if it is non-dominated: at least as good
-as the parent on both axes and strictly better on one. Raising throughput by
-inflating tail latency (e.g. unbounded batch sizes) is a real trade-off, not a
-free win — it moves you along the frontier, it does not dominate.
+A candidate is non-dominated when no retained point is at least as good on both
+axes and strictly better on one. It need not dominate its immediate parent.
+Raising throughput by inflating tail latency (e.g. larger batch sizes) is a real
+trade-off, not a free win: a credible bounded result can move along the frontier
+without replacing the lower-latency parent.
 
 ## Benchmark protocol — sweep to the overload boundary
 
@@ -86,6 +87,12 @@ invert, or substitute another field. Only set a metric to `null` if the server
 never served a single successful request (the benchmark produced no data for
 that field). Reporting `null` when a value was measured discards the run's
 fitness and drops the candidate from the frontier.
+
+For a targeted, directly comparable end-to-end point that is not a full
+canonical sweep, keep `perf_metric` and canonical `metrics` empty. The agent
+loop may instead record the same two values as provisional `candidate_metrics`,
+with the raw artifact and operating point, so a reviewed trade-off remains an
+alternate parent without being mistaken for the official score.
 
 ## Notes
 

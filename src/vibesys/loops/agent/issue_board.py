@@ -338,12 +338,22 @@ def append_implementer(
             + f"- **metrics**: {response.metrics}\n"
             + f"- **evaluation_artifact**: {response.evaluation_artifact or '(missing)'}\n"
         )
+    candidate_line = (
+        f"- **candidate_disposition**: {response.candidate_disposition.value}\n"
+        f"- **candidate_metrics**: {response.candidate_metrics or {}}\n"
+        "- **candidate_evaluation_artifact**: "
+        f"{response.candidate_evaluation_artifact or '(missing)'}\n"
+        f"- **candidate_operating_point**: {response.candidate_operating_point or '(none)'}\n"
+        "- **candidate_retention_reason**: "
+        f"{response.candidate_retention_reason or '(none)'}\n"
+    )
     block = (
         f"## Round {round_number} — Implementer (attempt {retry})\n"
         f"- **expected_behavior**: {response.expected_behavior}\n"
         f"- **hypothesis_outcome**: {response.hypothesis_outcome.value}\n"
         f"- **next_step**: {response.next_step or '(none)'}\n\n"
         f"{perf_line}"
+        f"{candidate_line}\n"
         f"### Summary\n{response.summary}\n\n"
         f"### Evidence\n{response.evidence or '(none)'}\n"
     )
@@ -409,11 +419,21 @@ def append_single_agent_round(
     if response.perf_metric is not None:
         unit = response.perf_unit or ""
         perf_line = f"- **perf_metric**: {response.perf_metric} {unit}\n".rstrip() + "\n"
+    candidate_line = (
+        f"- **candidate_disposition**: {response.candidate_disposition.value}\n"
+        f"- **candidate_metrics**: {response.candidate_metrics or {}}\n"
+        "- **candidate_evaluation_artifact**: "
+        f"{response.candidate_evaluation_artifact or '(missing)'}\n"
+        f"- **candidate_operating_point**: {response.candidate_operating_point or '(none)'}\n"
+        "- **candidate_retention_reason**: "
+        f"{response.candidate_retention_reason or '(none)'}\n"
+    )
     block = (
         f"## Round {round_number} — Single-agent (attempt {retry})\n"
         f"- **verdict**: {response.verdict.value}\n"
         f"- **expected_behavior**: {response.expected_behavior}\n"
         f"{perf_line}"
+        f"{candidate_line}"
         f"### Summary\n{response.summary}\n\n"
         f"### Self-review\n{response.self_review}\n\n"
         f"### Feedback\n{response.feedback}\n\n"

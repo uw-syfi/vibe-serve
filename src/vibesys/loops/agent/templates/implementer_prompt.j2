@@ -54,12 +54,31 @@ candidate.
 - **Invariants**: {{ invariants|default('(unspecified)') or '(unspecified)' }}
 
 Treat this hypothesis as a persistent goal, not a one-shot task. Retain control over targeted experiments, workload ranges, parameter sweeps, logs, and small probes needed to implement or falsify it. The framework owns the immutable accuracy gate after independent review.
+
+Checkpoint retention is separate from hypothesis truth and terminal success.
+After a fresh directly comparable end-to-end row, classify the current commit:
+
+- `pareto_frontier`: hard invariants hold and the point is credibly
+  non-dominated across the configured objectives, including a material
+  throughput/latency tradeoff. Report every configured objective from the same
+  row, its raw artifact, and its exact operating point. This declaration forces
+  independent review but does not make the row official.
+- `prerequisite`: reusable correctness, measurement, or infrastructure work
+  should survive even though the commit is not a performance-frontier point.
+- `discard`: the measured candidate is dominated, invalid, or not worth its
+  complexity.
+- `unassessed`: no fresh comparable row exists.
+
+A causal hypothesis may be `disproven` while its implementation is still a
+`pareto_frontier` tradeoff. Preserve both facts. Do not put targeted candidate
+values in `perf_metric`/`metrics`; those fields remain restricted to a fresh
+canonical evaluation.
 {% if gate_revalidation_pending|default(false) %}
 
 ## Framework gate revalidation
 
 The independent judge already approved this hypothesis's candidate and its
-canonical evidence{% if gate_approved_perf_metric is not none %} (`{{ gate_approved_perf_metric }}{{ (' ' ~ gate_approved_perf_unit) if gate_approved_perf_unit else '' }}`, artifact `{{ gate_approved_evaluation_artifact or '(missing)' }}`){% endif %}; a framework-owned gate then failed. Do not modify candidate behavior or rerun the canonical evaluation merely to resubmit it. Verify that the candidate remains unchanged, reuse the retained evidence, and return null performance tracking fields unless you actually produced a fresh canonical evaluation. The framework retains the previously approved tracking values while it revalidates its gate.
+canonical evidence{% if gate_approved_perf_metric is not none %} (`{{ gate_approved_perf_metric }}{{ (' ' ~ gate_approved_perf_unit) if gate_approved_perf_unit else '' }}`, artifact `{{ gate_approved_evaluation_artifact or '(missing)' }}`){% endif %}; a framework-owned gate then failed. Do not modify candidate behavior or rerun the canonical evaluation merely to resubmit it. Verify that the candidate remains unchanged, reuse the retained evidence, and return null canonical performance tracking fields unless you actually produced a fresh canonical evaluation. You may repeat the approved candidate-retention metadata without a new run; the framework retains both canonical and provisional values while it revalidates its gate.
 {% endif %}
 {% if framework_benchmark_enabled|default(false) %}
 It also owns the declared trusted benchmark run, so avoid duplicating that full run merely to produce an official score.
@@ -387,5 +406,10 @@ Return exactly one JSON object. Do not wrap in markdown fences.
   "perf_metric": <fresh canonical headline float or null>,
   "perf_unit": "<unit or null>",
   "metrics": {"<objective name>": <float>},
-  "evaluation_artifact": "<workspace-relative canonical summary path or null>"
+  "evaluation_artifact": "<workspace-relative canonical summary path or null>",
+  "candidate_disposition": "unassessed" | "discard" | "prerequisite" | "pareto_frontier",
+  "candidate_metrics": {"<objective name>": <fresh comparable float>},
+  "candidate_evaluation_artifact": "<workspace-relative raw candidate artifact or null>",
+  "candidate_operating_point": "<workload/load/config identity or empty>",
+  "candidate_retention_reason": "<why this checkpoint should or should not be retained>"
 }

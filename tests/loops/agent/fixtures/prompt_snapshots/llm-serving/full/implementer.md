@@ -53,6 +53,25 @@ TASK: add a streaming /v1/completions endpoint.
 - **Invariants**: Accuracy and prompt-dependent generation remain unchanged.
 
 Treat this hypothesis as a persistent goal, not a one-shot task. Retain control over targeted experiments, workload ranges, parameter sweeps, logs, and small probes needed to implement or falsify it. The framework owns the immutable accuracy gate after independent review.
+
+Checkpoint retention is separate from hypothesis truth and terminal success.
+After a fresh directly comparable end-to-end row, classify the current commit:
+
+- `pareto_frontier`: hard invariants hold and the point is credibly
+  non-dominated across the configured objectives, including a material
+  throughput/latency tradeoff. Report every configured objective from the same
+  row, its raw artifact, and its exact operating point. This declaration forces
+  independent review but does not make the row official.
+- `prerequisite`: reusable correctness, measurement, or infrastructure work
+  should survive even though the commit is not a performance-frontier point.
+- `discard`: the measured candidate is dominated, invalid, or not worth its
+  complexity.
+- `unassessed`: no fresh comparable row exists.
+
+A causal hypothesis may be `disproven` while its implementation is still a
+`pareto_frontier` tradeoff. Preserve both facts. Do not put targeted candidate
+values in `perf_metric`/`metrics`; those fields remain restricted to a fresh
+canonical evaluation.
 This input has no machine-readable framework benchmark gate. You own the performance evaluations needed to test the hypothesis, including a canonical workload measurement when the claim requires one. Preserve commands, raw rows, errors, and operating-point selection reasoning so another reviewer can audit them; prefer targeted experiments between canonical confirmations.
 
 Before editing or evaluating, search the durable progress files for a prior
@@ -394,5 +413,10 @@ Return exactly one JSON object. Do not wrap in markdown fences.
   "perf_metric": <fresh canonical headline float or null>,
   "perf_unit": "<unit or null>",
   "metrics": {"<objective name>": <float>},
-  "evaluation_artifact": "<workspace-relative canonical summary path or null>"
+  "evaluation_artifact": "<workspace-relative canonical summary path or null>",
+  "candidate_disposition": "unassessed" | "discard" | "prerequisite" | "pareto_frontier",
+  "candidate_metrics": {"<objective name>": <fresh comparable float>},
+  "candidate_evaluation_artifact": "<workspace-relative raw candidate artifact or null>",
+  "candidate_operating_point": "<workload/load/config identity or empty>",
+  "candidate_retention_reason": "<why this checkpoint should or should not be retained>"
 }

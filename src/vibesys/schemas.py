@@ -56,6 +56,21 @@ class HypothesisOutcome(StrEnum):
     BLOCKED = "blocked"
 
 
+class CandidateDisposition(StrEnum):
+    """How a measured candidate should be retained independently of its hypothesis.
+
+    Hypothesis truth and checkpoint utility are different questions. A causal
+    forecast can be disproven while its implementation still establishes a
+    useful throughput/latency tradeoff. These values keep that distinction
+    explicit without promoting provisional evidence to an official result.
+    """
+
+    UNASSESSED = "unassessed"
+    DISCARD = "discard"
+    PREREQUISITE = "prerequisite"
+    PARETO_FRONTIER = "pareto_frontier"
+
+
 class PerfTrend(StrEnum):
     IMPROVED = "improved"
     REGRESSED = "regressed"
@@ -115,6 +130,44 @@ class ImplementerResponse(BaseModel):
     evaluation_artifact: str | None = Field(
         default=None,
         description="Workspace-relative path to the retained canonical evaluation summary.",
+    )
+    candidate_disposition: CandidateDisposition = Field(
+        default=CandidateDisposition.UNASSESSED,
+        description=(
+            "Independent retention recommendation for the current checkpoint: "
+            "pareto_frontier for a credible non-dominated performance tradeoff, "
+            "prerequisite for reusable non-performance infrastructure, discard for "
+            "a dominated or invalid candidate, or unassessed without comparable evidence."
+        ),
+    )
+    candidate_metrics: dict[str, FiniteFloat] = Field(
+        default_factory=dict,
+        description=(
+            "Objective values from one fresh, directly comparable end-to-end row used "
+            "only for provisional Pareto memory. Unlike metrics, this row need not be "
+            "the full canonical evaluation and never updates official tracking."
+        ),
+    )
+    candidate_evaluation_artifact: str | None = Field(
+        default=None,
+        description=(
+            "Workspace-relative raw artifact supporting candidate_metrics; None when "
+            "the checkpoint has no comparable measured candidate evidence."
+        ),
+    )
+    candidate_operating_point: str = Field(
+        default="",
+        description=(
+            "Concise workload/load/configuration identity for candidate_metrics so "
+            "the framework and judge can establish comparability."
+        ),
+    )
+    candidate_retention_reason: str = Field(
+        default="",
+        description=(
+            "Why the candidate belongs on the Pareto frontier, is only a reusable "
+            "prerequisite, or should be discarded."
+        ),
     )
 
 
@@ -449,6 +502,26 @@ class SingleAgentRoundResponse(BaseModel):
     perf_unit: str | None = Field(
         default=None,
         description="Unit/field name for perf_metric (e.g. 'median_tok_per_sec'). None when perf_metric is None.",
+    )
+    candidate_disposition: CandidateDisposition = Field(
+        default=CandidateDisposition.UNASSESSED,
+        description="Independent provisional checkpoint-retention recommendation.",
+    )
+    candidate_metrics: dict[str, FiniteFloat] = Field(
+        default_factory=dict,
+        description="Objective values from one fresh directly comparable end-to-end row.",
+    )
+    candidate_evaluation_artifact: str | None = Field(
+        default=None,
+        description="Workspace-relative raw artifact supporting candidate_metrics.",
+    )
+    candidate_operating_point: str = Field(
+        default="",
+        description="Workload/load/configuration identity for candidate_metrics.",
+    )
+    candidate_retention_reason: str = Field(
+        default="",
+        description="Reason for retaining or discarding the candidate checkpoint.",
     )
 
 

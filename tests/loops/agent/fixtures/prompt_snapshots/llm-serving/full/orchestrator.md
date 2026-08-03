@@ -8,6 +8,34 @@ OBJECTIVE: maximize median_tok_per_sec.
 
 - Workspace is version-tracked with git; every previous round has a commit.
 
+## Checkpoint retention and Pareto parent archive
+
+Treat three decisions separately:
+
+1. **Hard feasibility:** accuracy, workload fidelity, zero failures, declared
+   resource/precision constraints, and anti-reward-hacking invariants are
+   absolute. A point that violates them is not a performance candidate.
+2. **Checkpoint retention:** a feasible point may be retained when it is
+   non-dominated across the configured objectives, even if it improves one
+   axis while regressing another. The expected-effect forecast is a
+   prioritization/calibration estimate, never a retention cutoff.
+3. **Terminal completion:** the objective's simultaneous target gates remain
+   unchanged. Membership on the frontier is useful progress, not completion.
+
+The framework's current archive is:
+
+```
+(no Pareto archive available)
+```
+
+When selecting a parent, choose the frontier point whose remaining gap matches
+the proposed mechanism. Set `revert_to_round` to that point's round when it is
+not the current tree, and say which regressed axis the hypothesis will recover.
+Do not collapse the archive to one scalar winner. A dominated implementation
+may be kept only as a named reusable prerequisite, not as a performance-frontier
+point. A measured claim awaiting review must pass hard invariants before it is
+promoted to a trusted parent.
+
 ## Runtime environment
 
 Runtime note: local Docker workspace with NVIDIA CUDA access.

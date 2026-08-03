@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import subprocess
 import sys
@@ -972,6 +973,8 @@ def _run_agent(args: argparse.Namespace) -> None:
         accuracy_timeout_seconds=bundle.manifest.accuracy.timeout_seconds,
         benchmark_timeout_seconds=bundle.manifest.benchmark.timeout_seconds,
         objective=objective,
+        objectives=_load_objectives_toml(bundle.root),
+        pareto_relative_noise=_load_pareto_relative_noise_toml(bundle.root),
         max_rounds=args.max_rounds,
         max_retries_per_round=args.max_retries_per_round,
         judge_every=args.judge_every,
@@ -1026,7 +1029,7 @@ def _parse_cli_objective(spec: str):
 
 
 def _load_objectives_toml(input_path: Path) -> list[Objective]:
-    """Read ``objectives.toml`` from the input bundle if present."""
+    """Read loop-independent Pareto axes from an input bundle when present."""
     from vibesys.loops.evolve.population import Objective
 
     path = input_path / "objectives.toml"
@@ -1045,6 +1048,32 @@ def _load_objectives_toml(input_path: Path) -> list[Objective]:
             )
         objectives.append(Objective(name=name, direction=direction))
     return objectives
+
+
+def _load_pareto_relative_noise_toml(input_path: Path) -> float:
+    """Read the agent loop's variance-aware dominance margin.
+
+    Exact Pareto dominance remains the default. Inputs with measured benchmark
+    variation can opt into a relative margin under ``[pareto]`` without
+    imposing one domain's noise level on every optimization workload.
+    """
+    path = input_path / "objectives.toml"
+    if not path.exists():
+        return 0.0
+    data = tomllib.loads(path.read_text())
+    raw_value = (data.get("pareto") or {}).get("relative_noise", 0.0)
+    if isinstance(raw_value, bool):
+        raise ValueError(f"Malformed pareto.relative_noise in {path}: {raw_value!r}")
+    try:
+        value = float(raw_value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"Malformed pareto.relative_noise in {path}: {raw_value!r}") from exc
+    if not math.isfinite(value) or not 0 <= value < 1:
+        raise ValueError(
+            f"Malformed pareto.relative_noise in {path}: expected a finite value "
+            f"in [0, 1), got {raw_value!r}"
+        )
+    return value
 
 
 def _resolve_objectives(args: argparse.Namespace) -> list[Objective]:

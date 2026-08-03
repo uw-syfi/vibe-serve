@@ -272,6 +272,15 @@ evidence for the hypothesis and leave `perf_metric` null.
 
 If you could not run the benchmark this round, set `perf_metric: null` rather than fabricating a value.
 
+Classify checkpoint retention separately from the self-review verdict. A fresh
+directly comparable row may be `pareto_frontier` when hard invariants hold and
+it materially improves one configured objective without being dominated on
+all objectives. Preserve every configured value from that same row and its raw
+artifact; this remains provisional and does not populate `perf_metric` unless
+the canonical evaluation was actually required. Use `prerequisite` for useful
+non-performance infrastructure, `discard` for a dominated/invalid point, and
+`unassessed` without a comparable row.
+
 ## Progress tracking
 
 The framework records your structured response in `progress/`. Read that artifact and the roadmap first to understand prior rounds; do NOT duplicate the framework's audit block manually.
@@ -292,7 +301,12 @@ Return exactly one JSON object. Do not wrap in markdown fences.
   "suggestions": "<actionable optimization suggestions tied to bottlenecks>",
   "profile_analysis": "<detailed interpretation of the captured profile>",
   "perf_metric": <float or null>,
-  "perf_unit": "<unit string or null>"
+  "perf_unit": "<unit string or null>",
+  "candidate_disposition": "unassessed" | "discard" | "prerequisite" | "pareto_frontier",
+  "candidate_metrics": {"<objective name>": <fresh comparable float>},
+  "candidate_evaluation_artifact": "<workspace-relative raw candidate artifact or null>",
+  "candidate_operating_point": "<workload/load/config identity or empty>",
+  "candidate_retention_reason": "<why this checkpoint should or should not be retained>"
 }
 
 IMPORTANT: Base profile fields on actual profiler data. Do not fabricate. The verdict must be consistent with the self-review and feedback fields.

@@ -24,6 +24,7 @@ from vibesys.domains.registry import resolve_domain
 from vibesys.domains.rendering import render_domain_section
 from vibesys.input_manifest import BenchmarkResult, WorkspaceSource
 from vibesys.loops.agent import issue_board
+from vibesys.loops.evolve.population import Objective
 from vibesys.loops.profiler import invoke_profiler
 from vibesys.profilers import (
     ProfilerKind,
@@ -37,6 +38,7 @@ from vibesys.sandbox.run_environment import (
     make_run_environment_spec,
 )
 from vibesys.schemas import (
+    CandidateDisposition,
     HypothesisOutcome,
     ImplementerResponse,
     JudgeResponse,
@@ -101,6 +103,15 @@ class _RoundRecord:
     # officially verified checkpoint.
     official_evaluation: bool = False
     official_evaluation_reason: str | None = None
+    # Candidate evidence is deliberately separate from official tracking.
+    # It may describe one directly comparable representative point rather
+    # than a full canonical evaluation and therefore never updates
+    # ``perf_metric`` or plateau detection by itself.
+    candidate_disposition: str = CandidateDisposition.UNASSESSED.value
+    candidate_metrics: dict[str, float] = field(default_factory=dict)
+    candidate_evaluation_artifact: str | None = None
+    candidate_operating_point: str = ""
+    candidate_retention_reason: str = ""
 
     def to_json(self) -> dict[str, Any]:
         return {
@@ -119,6 +130,11 @@ class _RoundRecord:
             "evaluation_artifact": self.evaluation_artifact,
             "official_evaluation": self.official_evaluation,
             "official_evaluation_reason": self.official_evaluation_reason,
+            "candidate_disposition": self.candidate_disposition,
+            "candidate_metrics": self.candidate_metrics,
+            "candidate_evaluation_artifact": self.candidate_evaluation_artifact,
+            "candidate_operating_point": self.candidate_operating_point,
+            "candidate_retention_reason": self.candidate_retention_reason,
         }
 
     @classmethod
@@ -147,6 +163,13 @@ class _RoundRecord:
                 )
             ),
             official_evaluation_reason=data.get("official_evaluation_reason"),
+            candidate_disposition=data.get(
+                "candidate_disposition", CandidateDisposition.UNASSESSED.value
+            ),
+            candidate_metrics=data.get("candidate_metrics", {}),
+            candidate_evaluation_artifact=data.get("candidate_evaluation_artifact"),
+            candidate_operating_point=data.get("candidate_operating_point", ""),
+            candidate_retention_reason=data.get("candidate_retention_reason", ""),
         )
 
 
@@ -181,6 +204,11 @@ class _ActiveHypothesis:
     gate_approved_perf_unit: str | None = None
     gate_approved_metrics: dict[str, float] = field(default_factory=dict)
     gate_approved_evaluation_artifact: str | None = None
+    gate_approved_candidate_disposition: str = CandidateDisposition.UNASSESSED.value
+    gate_approved_candidate_metrics: dict[str, float] = field(default_factory=dict)
+    gate_approved_candidate_evaluation_artifact: str | None = None
+    gate_approved_candidate_operating_point: str = ""
+    gate_approved_candidate_retention_reason: str = ""
     gate_candidate_commit: str | None = None
     gate_accuracy_passed: bool = False
 
@@ -199,6 +227,17 @@ class _ActiveHypothesis:
             "gate_approved_perf_unit": self.gate_approved_perf_unit,
             "gate_approved_metrics": self.gate_approved_metrics,
             "gate_approved_evaluation_artifact": self.gate_approved_evaluation_artifact,
+            "gate_approved_candidate_disposition": self.gate_approved_candidate_disposition,
+            "gate_approved_candidate_metrics": self.gate_approved_candidate_metrics,
+            "gate_approved_candidate_evaluation_artifact": (
+                self.gate_approved_candidate_evaluation_artifact
+            ),
+            "gate_approved_candidate_operating_point": (
+                self.gate_approved_candidate_operating_point
+            ),
+            "gate_approved_candidate_retention_reason": (
+                self.gate_approved_candidate_retention_reason
+            ),
             "gate_candidate_commit": self.gate_candidate_commit,
             "gate_accuracy_passed": self.gate_accuracy_passed,
         }
@@ -223,6 +262,19 @@ class _ActiveHypothesis:
             gate_approved_perf_unit=data.get("gate_approved_perf_unit"),
             gate_approved_metrics=data.get("gate_approved_metrics", {}),
             gate_approved_evaluation_artifact=data.get("gate_approved_evaluation_artifact"),
+            gate_approved_candidate_disposition=data.get(
+                "gate_approved_candidate_disposition", CandidateDisposition.UNASSESSED.value
+            ),
+            gate_approved_candidate_metrics=data.get("gate_approved_candidate_metrics", {}),
+            gate_approved_candidate_evaluation_artifact=data.get(
+                "gate_approved_candidate_evaluation_artifact"
+            ),
+            gate_approved_candidate_operating_point=data.get(
+                "gate_approved_candidate_operating_point", ""
+            ),
+            gate_approved_candidate_retention_reason=data.get(
+                "gate_approved_candidate_retention_reason", ""
+            ),
             gate_candidate_commit=data.get("gate_candidate_commit"),
             gate_accuracy_passed=bool(data.get("gate_accuracy_passed", False)),
         )
@@ -352,6 +404,181 @@ def _best_round(records: list[_RoundRecord]) -> _RoundRecord | None:
 
 
 # ---------------------------------------------------------------------------
+# Provisional Pareto checkpoint memory
+# ---------------------------------------------------------------------------
+
+
+_DEFAULT_PARETO_RELATIVE_NOISE = 0.0
+
+
+def _record_candidate_metrics(record: _RoundRecord) -> dict[str, float]:
+    """Return the comparable objective row associated with *record*.
+
+    Official metrics remain authoritative when present. Candidate metrics are
+    a separate, explicitly provisional channel for representative evaluations
+    that are useful for branch retention but must not update the canonical
+    headline trajectory.
+    """
+    if record.official_evaluation and record.metrics:
+        return record.metrics
+    if record.candidate_disposition == CandidateDisposition.PARETO_FRONTIER.value:
+        return record.candidate_metrics
+    return {}
+
+
+def _noise_aware_dominates(
+    a: dict[str, float],
+    b: dict[str, float],
+    objectives: list[Objective],
+    *,
+    relative_noise: float = _DEFAULT_PARETO_RELATIVE_NOISE,
+) -> bool:
+    """Return whether *a* materially dominates *b* outside benchmark noise.
+
+    A candidate dominates only when it is no worse than ``b`` within the
+    declared relative noise on every configured axis and better by more than
+    that noise on at least one. Missing axes make points incomparable. This
+    intentionally retains near-equal alternatives instead of converting a
+    sub-noise fluctuation into an automatic rollback.
+    """
+    if not objectives:
+        return False
+    materially_better = False
+    for objective in objectives:
+        a_value = a.get(objective.name)
+        b_value = b.get(objective.name)
+        if a_value is None or b_value is None:
+            return False
+        a_effective = objective.signed(a_value)
+        b_effective = objective.signed(b_value)
+        tolerance = abs(b_effective) * relative_noise
+        if a_effective < b_effective - tolerance:
+            return False
+        if a_effective > b_effective + tolerance:
+            materially_better = True
+    return materially_better
+
+
+def _trusted_candidate_records(
+    records: list[_RoundRecord], objectives: list[Objective]
+) -> list[_RoundRecord]:
+    """Return reviewed checkpoints with complete comparable objective rows."""
+    objective_names = {objective.name for objective in objectives}
+    if not objective_names:
+        return []
+    trusted: list[_RoundRecord] = []
+    for record in records:
+        metrics = _record_candidate_metrics(record)
+        if not objective_names.issubset(metrics):
+            continue
+        if not record.commit or not record.passed or not record.reviewed:
+            continue
+        if not (
+            record.official_evaluation
+            or record.candidate_disposition == CandidateDisposition.PARETO_FRONTIER.value
+        ):
+            continue
+        trusted.append(record)
+    return trusted
+
+
+def _pareto_frontier_records(
+    records: list[_RoundRecord],
+    objectives: list[Objective],
+    *,
+    relative_noise: float = _DEFAULT_PARETO_RELATIVE_NOISE,
+) -> list[_RoundRecord]:
+    """Compute the noise-aware frontier over independently reviewed points."""
+    candidates = _trusted_candidate_records(records, objectives)
+    return [
+        candidate
+        for candidate in candidates
+        if not any(
+            other is not candidate
+            and _noise_aware_dominates(
+                _record_candidate_metrics(other),
+                _record_candidate_metrics(candidate),
+                objectives,
+                relative_noise=relative_noise,
+            )
+            for other in candidates
+        )
+    ]
+
+
+def _format_metric_row(metrics: dict[str, float], objectives: list[Objective]) -> str:
+    return ", ".join(
+        f"{objective.name}={metrics[objective.name]:.6g} ({objective.direction})"
+        for objective in objectives
+        if objective.name in metrics
+    )
+
+
+def _pareto_archive_summary(
+    records: list[_RoundRecord],
+    objectives: list[Objective],
+    *,
+    relative_noise: float = _DEFAULT_PARETO_RELATIVE_NOISE,
+) -> str:
+    """Render trusted frontier parents and any measured points awaiting review."""
+    if not objectives:
+        return (
+            "No objective axes are configured. Use objectives.toml to enable "
+            "multi-objective checkpoint retention; official scalar tracking remains active."
+        )
+
+    lines = [
+        "Configured axes: "
+        + ", ".join(f"{objective.name}:{objective.direction}" for objective in objectives),
+        (
+            "Dominance is variance-aware: a point removes another only when it is no worse "
+            f"within {relative_noise:.0%} on every axis and better by more than "
+            f"{relative_noise:.0%} on at least one."
+        ),
+    ]
+    frontier = _pareto_frontier_records(records, objectives, relative_noise=relative_noise)
+    if frontier:
+        lines.append("Trusted frontier parents:")
+        for record in frontier:
+            evidence = "official" if record.official_evaluation else "reviewed provisional"
+            operating_point = record.candidate_operating_point or "canonical workload row"
+            artifact = record.candidate_evaluation_artifact or record.evaluation_artifact
+            lines.append(
+                f"- round {record.round_number}, commit {record.commit[:12]}, {evidence}: "
+                f"{_format_metric_row(_record_candidate_metrics(record), objectives)}; "
+                f"operating point: {operating_point}; artifact: {artifact or '(missing)'}"
+            )
+    else:
+        lines.append("Trusted frontier parents: none recorded yet.")
+
+    trusted_rounds = {
+        record.round_number for record in _trusted_candidate_records(records, objectives)
+    }
+    pending = [
+        record
+        for record in records
+        if record.round_number not in trusted_rounds
+        and record.commit
+        and record.candidate_disposition == CandidateDisposition.PARETO_FRONTIER.value
+        and all(objective.name in record.candidate_metrics for objective in objectives)
+    ]
+    if pending:
+        lines.append(
+            "Measured frontier claims awaiting independent review (retain the commit, but "
+            "do not treat it as a trusted parent until its hard invariants pass):"
+        )
+        for record in pending[-8:]:
+            lines.append(
+                f"- round {record.round_number}, commit {record.commit[:12]}: "
+                f"{_format_metric_row(record.candidate_metrics, objectives)}; "
+                f"operating point: {record.candidate_operating_point or '(unspecified)'}; "
+                f"artifact: {record.candidate_evaluation_artifact or '(missing)'}; "
+                f"reason: {record.candidate_retention_reason or '(unspecified)'}"
+            )
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
 # Plateau detection
 # ---------------------------------------------------------------------------
 
@@ -429,12 +656,14 @@ def _review_due(
     max_rounds: int,
     judge_every: int,
     outcome: HypothesisOutcome,
+    candidate_disposition: CandidateDisposition = CandidateDisposition.UNASSESSED,
 ) -> bool:
     """Return whether an independent review must run for this candidate."""
     return (
         round_number == max_rounds
         or round_number % judge_every == 0
         or outcome in {HypothesisOutcome.SUPPORTED, HypothesisOutcome.NOMINATED}
+        or candidate_disposition is CandidateDisposition.PARETO_FRONTIER
     )
 
 
@@ -444,7 +673,14 @@ def _provisional_candidates_since_official(records: list[_RoundRecord]) -> int:
     for record in reversed(records):
         if record.official_evaluation:
             break
-        if record.passed and record.reviewed and record.hypothesis_outcome == "proven":
+        if (
+            record.passed
+            and record.reviewed
+            and (
+                record.hypothesis_outcome == "proven"
+                or record.candidate_disposition == CandidateDisposition.PARETO_FRONTIER.value
+            )
+        ):
             count += 1
     return count
 
@@ -490,6 +726,26 @@ def _terminal_workspace_notice(records: list[_RoundRecord]) -> str | None:
     }
     if latest.hypothesis_outcome not in terminal_outcomes:
         return None
+
+    if latest.candidate_disposition == CandidateDisposition.PARETO_FRONTIER.value:
+        review_status = (
+            "independently reviewed"
+            if latest.passed and latest.reviewed
+            else "awaiting independent review"
+        )
+        return (
+            f"Hypothesis `{latest.hypothesis_id or 'unspecified'}` ended as "
+            f"`{latest.hypothesis_outcome}` in round {latest.round_number}, but its "
+            f"implementation reported a {review_status} Pareto checkpoint: "
+            f"{latest.candidate_metrics or '(metrics missing)'}. Preserve commit "
+            f"`{(latest.commit or '(missing)')[:12]}` as a distinct branch candidate. "
+            "The causal forecast and checkpoint retention decision are separate: do "
+            "not erase a credible throughput/latency tradeoff merely because another "
+            "axis or the forecast missed. If review is pending, validate hard "
+            "correctness and workload invariants before using it as a trusted parent. "
+            "Choose this checkpoint only when the next hypothesis names which frontier "
+            "gap it will improve; otherwise explicitly restore another frontier parent."
+        )
 
     started_round = latest.round_number
     for record in reversed(records[:-1]):
@@ -800,6 +1056,7 @@ def _run_orchestrator_plan(
     official_eval_every: int = 3,
     provisional_candidates: int = 0,
     official_eval_cadence_due: bool = False,
+    pareto_archive_summary: str = "",
 ) -> OrchestratorPlan:
     domain_orchestrator = render_domain_section(
         domain_definition,
@@ -825,6 +1082,7 @@ def _run_orchestrator_plan(
         official_eval_every=official_eval_every,
         provisional_candidates=provisional_candidates,
         official_eval_cadence_due=official_eval_cadence_due,
+        pareto_archive_summary=pareto_archive_summary,
     )
     plan = _invoke_read_only_role(
         ctx,
@@ -1013,6 +1271,11 @@ def _run_judge(
         implementer_perf_unit=implementation.perf_unit,
         implementer_metrics=implementation.metrics,
         implementer_evaluation_artifact=implementation.evaluation_artifact,
+        candidate_disposition=implementation.candidate_disposition.value,
+        candidate_metrics=implementation.candidate_metrics,
+        candidate_evaluation_artifact=implementation.candidate_evaluation_artifact,
+        candidate_operating_point=implementation.candidate_operating_point,
+        candidate_retention_reason=implementation.candidate_retention_reason,
         gate_revalidation_pending=gate_revalidation_pending,
         gate_approved_perf_metric=gate_approved_perf_metric,
         gate_approved_perf_unit=gate_approved_perf_unit,
@@ -1496,6 +1759,8 @@ def run_agent_loop(
     benchmark_command: str,
     objective: str,
     *,
+    objectives: list[Objective] | None = None,
+    pareto_relative_noise: float = _DEFAULT_PARETO_RELATIVE_NOISE,
     workspace_seed: Path | None = None,
     workspace_sources: tuple[WorkspaceSource, ...] = (),
     evaluator_path: Path | None = None,
@@ -1561,6 +1826,8 @@ def run_agent_loop(
         raise ValueError(f"judge_every must be >= 1, got {judge_every}")
     if official_eval_every < 1:
         raise ValueError(f"official_eval_every must be >= 1, got {official_eval_every}")
+    if not 0 <= pareto_relative_noise < 1:
+        raise ValueError(f"pareto_relative_noise must be in [0, 1), got {pareto_relative_noise}")
     if memory_layout not in issue_board.MEMORY_LAYOUTS:
         raise ValueError(
             f"Unknown memory_layout {memory_layout!r}; "
@@ -1573,6 +1840,7 @@ def run_agent_loop(
     # Resolve the registered domain once (fail fast on an unknown name). The
     # per-role files carry language, tooling, and use-case-specific contracts.
     domain_definition = resolve_domain(domain)
+    objectives = list(objectives or [])
     if modality is None and domain_definition.name is DomainName.LLM_SERVING:
         modality = "text_generation"
     run_environment = run_environment or make_run_environment_spec()
@@ -1693,6 +1961,11 @@ def run_agent_loop(
                         provisional_candidates=provisional_candidates,
                         official_eval_cadence_due=(
                             provisional_candidates + 1 >= official_eval_every
+                        ),
+                        pareto_archive_summary=_pareto_archive_summary(
+                            records,
+                            objectives,
+                            relative_noise=pareto_relative_noise,
                         ),
                     )
                     active_hypothesis = _ActiveHypothesis(
@@ -1837,6 +2110,7 @@ def run_agent_loop(
                             max_rounds=max_rounds,
                             judge_every=judge_every,
                             outcome=implementation.hypothesis_outcome,
+                            candidate_disposition=implementation.candidate_disposition,
                         )
                         if (
                             review_started
@@ -1846,6 +2120,8 @@ def run_agent_loop(
                                 HypothesisOutcome.SUPPORTED,
                                 HypothesisOutcome.NOMINATED,
                             }
+                            and implementation.candidate_disposition
+                            is not CandidateDisposition.PARETO_FRONTIER
                             and not framework_revalidation_required
                         ):
                             # A cadence-triggered review has already supplied
@@ -1896,10 +2172,33 @@ def run_agent_loop(
                             official_evaluation_reason=planned_official_reason,
                         )
                         if verdict.verdict == Verdict.PASS:
+                            if (
+                                implementation.candidate_disposition
+                                is CandidateDisposition.PARETO_FRONTIER
+                            ):
+                                active_hypothesis.gate_approved_candidate_disposition = (
+                                    implementation.candidate_disposition.value
+                                )
+                                active_hypothesis.gate_approved_candidate_metrics = dict(
+                                    implementation.candidate_metrics
+                                )
+                                active_hypothesis.gate_approved_candidate_evaluation_artifact = (
+                                    implementation.candidate_evaluation_artifact
+                                )
+                                active_hypothesis.gate_approved_candidate_operating_point = (
+                                    implementation.candidate_operating_point
+                                )
+                                active_hypothesis.gate_approved_candidate_retention_reason = (
+                                    implementation.candidate_retention_reason
+                                )
+                                _save_active_hypothesis(active_hypothesis_path, active_hypothesis)
                             candidate_ready = implementation.hypothesis_outcome in {
                                 HypothesisOutcome.SUPPORTED,
                                 HypothesisOutcome.NOMINATED,
-                            }
+                            } or (
+                                implementation.candidate_disposition
+                                is CandidateDisposition.PARETO_FRONTIER
+                            )
                             official_reason = _official_evaluation_reason(
                                 records=records,
                                 round_number=round_number,
@@ -2195,6 +2494,48 @@ def run_agent_loop(
                     hypothesis_outcome = implementation.hypothesis_outcome.value
                 else:
                     hypothesis_outcome = None
+
+                if implementation is not None:
+                    candidate_disposition = implementation.candidate_disposition.value
+                    candidate_metrics = dict(implementation.candidate_metrics)
+                    candidate_evaluation_artifact = implementation.candidate_evaluation_artifact
+                    candidate_operating_point = implementation.candidate_operating_point
+                    candidate_retention_reason = implementation.candidate_retention_reason
+                elif single_agent_response is not None:
+                    candidate_disposition = single_agent_response.candidate_disposition.value
+                    candidate_metrics = dict(single_agent_response.candidate_metrics)
+                    candidate_evaluation_artifact = (
+                        single_agent_response.candidate_evaluation_artifact
+                    )
+                    candidate_operating_point = single_agent_response.candidate_operating_point
+                    candidate_retention_reason = single_agent_response.candidate_retention_reason
+                else:
+                    candidate_disposition = CandidateDisposition.UNASSESSED.value
+                    candidate_metrics = {}
+                    candidate_evaluation_artifact = None
+                    candidate_operating_point = ""
+                    candidate_retention_reason = ""
+
+                # A framework-gate retry may correctly return no fresh candidate
+                # row. Preserve the judge-approved provisional evidence for the
+                # unchanged checkpoint just as canonical evidence is preserved.
+                if (
+                    candidate_disposition == CandidateDisposition.UNASSESSED.value
+                    and active_hypothesis.gate_revalidation_pending
+                    and active_hypothesis.gate_approved_candidate_disposition
+                    == CandidateDisposition.PARETO_FRONTIER.value
+                ):
+                    candidate_disposition = active_hypothesis.gate_approved_candidate_disposition
+                    candidate_metrics = dict(active_hypothesis.gate_approved_candidate_metrics)
+                    candidate_evaluation_artifact = (
+                        active_hypothesis.gate_approved_candidate_evaluation_artifact
+                    )
+                    candidate_operating_point = (
+                        active_hypothesis.gate_approved_candidate_operating_point
+                    )
+                    candidate_retention_reason = (
+                        active_hypothesis.gate_approved_candidate_retention_reason
+                    )
                 records.append(
                     _RoundRecord(
                         round_number=round_number,
@@ -2224,6 +2565,11 @@ def run_agent_loop(
                             )
                             else None
                         ),
+                        candidate_disposition=candidate_disposition,
+                        candidate_metrics=candidate_metrics,
+                        candidate_evaluation_artifact=candidate_evaluation_artifact,
+                        candidate_operating_point=candidate_operating_point,
+                        candidate_retention_reason=candidate_retention_reason,
                     )
                 )
                 _save_rounds_state(rounds_state_path, records)

@@ -1,11 +1,17 @@
-# Multi-objective (Pareto-frontier) configuration for the evolve loop.
+# Multi-objective (Pareto-frontier) configuration shared by optimization loops.
 #
 # Presence of this file next to OBJECTIVE.md switches the run into Pareto mode:
-# candidates are selected by non-domination across the axes below instead of a
-# single scalar. Each `name` MUST exactly match a top-level field emitted by
-# benchmark/benchmark.py --output-json (the profiler reads them verbatim into
-# ProfilerSummary.metrics). A missing/misnamed field drops the candidate from
-# the frontier and silently degrades the run to scalar softmax.
+# candidates are retained by non-domination across the axes below instead of a
+# single scalar. The evolve loop uses the frontier for population selection;
+# the agent loop exposes reviewed frontier checkpoints as alternate parents.
+# Each `name` MUST exactly match a top-level benchmark output field. A
+# missing/misnamed field makes that candidate incomparable and excludes it from
+# the computed frontier.
+
+[pareto]
+# Retained repeated rows and the workload's overload-resolution rule use 3% as
+# the ambiguity band. A point only dominates another outside this margin.
+relative_noise = 0.03
 
 # Primary axis — also drives perf_metric / best() / the scalar fallback.
 [[objective]]

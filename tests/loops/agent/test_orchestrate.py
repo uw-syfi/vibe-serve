@@ -16,16 +16,22 @@ from vibesys.loops.agent.loop import (
     _backfill_revert_commit,
     _invoke_read_only_role,
     _missing_implementer_response,
+    _noise_aware_dominates,
     _official_evaluation_reason,
+    _pareto_archive_summary,
+    _pareto_frontier_records,
     _provisional_candidates_since_official,
     _resolve_rollback_commit,
+    _review_due,
     _RoundRecord,
     _terminal_workspace_notice,
     run_agent_loop,
 )
+from vibesys.loops.evolve.population import Objective
 from vibesys.profilers import ProfilerKind, ProfilerPreflightResult
 from vibesys.run import GitTracker
 from vibesys.schemas import (
+    CandidateDisposition,
     HypothesisOutcome,
     ImplementerResponse,
     JudgeResponse,
@@ -421,6 +427,113 @@ def test_official_evaluation_cadence_counts_candidate_checkpoints_not_rounds():
     )
 
 
+def test_frontier_candidate_forces_review_outside_sparse_cadence():
+    assert _review_due(
+        round_number=5,
+        max_rounds=20,
+        judge_every=3,
+        outcome=HypothesisOutcome.DISPROVEN,
+        candidate_disposition=CandidateDisposition.PARETO_FRONTIER,
+    )
+
+
+def test_official_evaluation_cadence_counts_reviewed_frontier_tradeoff():
+    records = [
+        _RoundRecord(
+            2,
+            "b",
+            None,
+            None,
+            True,
+            reviewed=True,
+            hypothesis_outcome="disproven",
+            candidate_disposition=CandidateDisposition.PARETO_FRONTIER.value,
+            candidate_metrics={"throughput": 120.0, "latency": 90.0},
+        )
+    ]
+
+    assert _provisional_candidates_since_official(records) == 1
+
+
+def test_noise_aware_dominance_preserves_sub_noise_alternatives():
+    objectives = [Objective("throughput", "max"), Objective("latency", "min")]
+
+    assert not _noise_aware_dominates(
+        {"throughput": 102.0, "latency": 101.0},
+        {"throughput": 100.0, "latency": 100.0},
+        objectives,
+        relative_noise=0.03,
+    )
+    assert _noise_aware_dominates(
+        {"throughput": 110.0, "latency": 101.0},
+        {"throughput": 100.0, "latency": 100.0},
+        objectives,
+        relative_noise=0.03,
+    )
+
+
+def test_pareto_frontier_keeps_throughput_latency_tradeoff_and_drops_dominated_point():
+    objectives = [Objective("throughput", "max"), Objective("latency", "min")]
+
+    def candidate(round_number: int, throughput: float, latency: float) -> _RoundRecord:
+        return _RoundRecord(
+            round_number,
+            str(round_number) * 40,
+            None,
+            None,
+            True,
+            reviewed=True,
+            candidate_disposition=CandidateDisposition.PARETO_FRONTIER.value,
+            candidate_metrics={"throughput": throughput, "latency": latency},
+            candidate_evaluation_artifact=f"round-{round_number}.json",
+            candidate_operating_point="concurrency=128",
+        )
+
+    latency_parent = candidate(1, 100.0, 80.0)
+    throughput_parent = candidate(2, 140.0, 100.0)
+    dominated = candidate(3, 90.0, 110.0)
+
+    frontier = _pareto_frontier_records([latency_parent, throughput_parent, dominated], objectives)
+
+    assert [record.round_number for record in frontier] == [1, 2]
+
+
+def test_pareto_archive_distinguishes_trusted_and_pending_candidates():
+    objectives = [Objective("throughput", "max"), Objective("latency", "min")]
+    trusted = _RoundRecord(
+        49,
+        "a" * 40,
+        None,
+        None,
+        True,
+        reviewed=True,
+        candidate_disposition=CandidateDisposition.PARETO_FRONTIER.value,
+        candidate_metrics={"throughput": 5307.2, "latency": 3289.7},
+        candidate_evaluation_artifact="h31.json",
+        candidate_operating_point="concurrency=128",
+    )
+    pending = _RoundRecord(
+        51,
+        "b" * 40,
+        None,
+        None,
+        False,
+        reviewed=False,
+        candidate_disposition=CandidateDisposition.PARETO_FRONTIER.value,
+        candidate_metrics={"throughput": 6827.7, "latency": 3628.7},
+        candidate_evaluation_artifact="h33.json",
+        candidate_operating_point="concurrency=192",
+        candidate_retention_reason="higher-throughput tradeoff",
+    )
+
+    summary = _pareto_archive_summary([trusted, pending], objectives)
+
+    assert "Trusted frontier parents" in summary
+    assert "round 49" in summary
+    assert "awaiting independent review" in summary
+    assert "round 51" in summary
+
+
 def test_official_evaluation_cadence_resets_at_verified_checkpoint():
     records = [
         _RoundRecord(
@@ -483,6 +596,28 @@ def test_terminal_workspace_notice_points_designer_to_hypothesis_parent():
     assert "workspace edits are still present" in notice
     assert "recorded pre-hypothesis parent is round 28" in notice
     assert "revert_to_round=28" in notice
+
+
+def test_terminal_workspace_notice_preserves_pareto_tradeoff_commit():
+    record = _RoundRecord(
+        51,
+        "b" * 40,
+        None,
+        None,
+        False,
+        reviewed=False,
+        hypothesis_id="capacity-192",
+        hypothesis_outcome="disproven",
+        candidate_disposition=CandidateDisposition.PARETO_FRONTIER.value,
+        candidate_metrics={"throughput": 6827.7, "latency": 3628.7},
+    )
+
+    notice = _terminal_workspace_notice([record])
+
+    assert notice is not None
+    assert "Preserve commit" in notice
+    assert "awaiting independent review" in notice
+    assert "do not erase a credible throughput/latency tradeoff" in notice
 
 
 def test_terminal_workspace_notice_preserves_credible_continuation_checkpoint():

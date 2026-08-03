@@ -18,6 +18,7 @@ from vibesys.main import (
     _extract_loop_selection,
     _infer_resume_input,
     _load_objectives_toml,
+    _load_pareto_relative_noise_toml,
     _parse_cli_objective,
     _prepare_stub_agent_smoke_defaults,
     _prune_rounds_state,
@@ -1120,6 +1121,22 @@ direction = "avg"
 
     with pytest.raises(ValueError, match="Malformed entry"):
         _load_objectives_toml(tmp_path)
+
+
+def test_load_pareto_relative_noise_toml_is_opt_in(tmp_path):
+    assert _load_pareto_relative_noise_toml(tmp_path) == 0.0
+
+    (tmp_path / "objectives.toml").write_text("[pareto]\nrelative_noise = 0.03\n")
+
+    assert _load_pareto_relative_noise_toml(tmp_path) == 0.03
+
+
+@pytest.mark.parametrize("value", ["true", "-0.1", "1.0", '"noisy"'])
+def test_load_pareto_relative_noise_toml_rejects_invalid_values(tmp_path, value):
+    (tmp_path / "objectives.toml").write_text(f"[pareto]\nrelative_noise = {value}\n")
+
+    with pytest.raises(ValueError, match="pareto.relative_noise"):
+        _load_pareto_relative_noise_toml(tmp_path)
 
 
 def test_control_socket_from_argv_handles_empty_equals_and_space_form():
