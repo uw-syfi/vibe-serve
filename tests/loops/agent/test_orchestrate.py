@@ -2317,6 +2317,32 @@ def test_detect_plateau_ignores_rounds_without_perf():
     assert "rounds 1–4" in warning
 
 
+def test_detect_plateau_ignores_failed_official_measurements():
+    """A measured row rejected by the judge or another round gate is not
+    trusted trajectory evidence, even when the framework evaluator ran."""
+    from vibesys.loops.agent.loop import _detect_plateau
+
+    failed = _record(2, 100.0)
+    failed.passed = False
+    records = [
+        _record(1, 41.0),
+        failed,
+        _record(3, 41.3),
+        _record(4, 41.1),
+    ]
+    warning = _detect_plateau(records)
+    assert warning is not None
+    assert "rounds 1–4" in warning
+
+
+def test_failed_official_measurement_cannot_complete_plateau_streak():
+    from vibesys.loops.agent.loop import _detect_plateau
+
+    failed = _record(3, 41.1)
+    failed.passed = False
+    assert _detect_plateau([_record(1, 41.0), _record(2, 41.2), failed]) is None
+
+
 def test_detect_plateau_streak_must_be_recent():
     """A plateau early in the run that's followed by a clear win must NOT
     fire a warning on the next round — only the *last N* matter."""

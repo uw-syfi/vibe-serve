@@ -613,7 +613,10 @@ def _detect_plateau(
     fresh = [
         r
         for r in records
-        if r.official_evaluation and r.perf_metric is not None and not r.profile_skipped
+        if r.passed
+        and r.official_evaluation
+        and r.perf_metric is not None
+        and not r.profile_skipped
     ]
     if len(fresh) < min_streak:
         return None
