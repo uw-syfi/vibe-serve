@@ -31,6 +31,7 @@ def _agent() -> CodexCodingAgent:
     agent.model = None
     agent.base_config_args = []
     agent.extra_config_args = []
+    agent.output_schema_path = None
     return agent
 
 
@@ -90,6 +91,16 @@ class TestGetCommand:
         cmd = agent._get_command("hello")
         assert 'model_reasoning_effort="xhigh"' in cmd
 
+    def test_initial_command_includes_native_output_schema(self):
+        agent = _agent()
+        agent.set_output_schema_path(".cache/vibesys/response-schemas/judge.json")
+
+        cmd = agent._get_command("hello")
+
+        assert cmd[cmd.index("--output-schema") + 1] == (
+            ".cache/vibesys/response-schemas/judge.json"
+        )
+
 
 class TestGetResumeCommand:
     def test_resume_passes_dash_positional(self):
@@ -118,6 +129,16 @@ class TestGetResumeCommand:
         cmd = agent._get_resume_command("prompt", "sess-123")
         assert "--model" in cmd and cmd[cmd.index("--model") + 1] == "gpt-5"
         assert cmd[-2:] == ["--config", 'mcp_servers.x.command="python"']
+
+    def test_resume_command_includes_native_output_schema(self):
+        agent = _agent()
+        agent.set_output_schema_path(".cache/vibesys/response-schemas/implementer.json")
+
+        cmd = agent._get_resume_command("prompt", "sess-123")
+
+        assert cmd[cmd.index("--output-schema") + 1] == (
+            ".cache/vibesys/response-schemas/implementer.json"
+        )
 
 
 # ---------------------------------------------------------------------------

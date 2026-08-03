@@ -1,49 +1,29 @@
-Use the pre-staged model weights from the runtime; never redownload them. Local
-weights are at `/model`; remote runs mount the declared model volume.
+## LLM-serving implementation invariants
 
-For candidate components that use Python, use `uv` and the workspace
-environment. The serving hot path, scheduler, transport, kernels, and build need
-not remain Python; use reproducible native tooling integrated with the declared
-startup/evaluation lifecycle. Independent judge and framework gates remain
-binding.
+Trace every performance claim through the real request-to-model-to-stream path.
+Prove the intended attention, graph, batching, transport, or KV mechanism runs;
+a configured object, import, counter initialized to zero, or available backend
+is not activation. Record point-local useful batch/tokens, selected kernel/path,
+fallbacks, graph bucket, and resource limits without hot-loop synchronization.
 
-For batching, slot reuse, KV layout, masks, or scheduling, run a targeted
-concurrent mixed-length correctness probe before accepting performance. Compare
-deterministic production-path outputs with trusted unbatched/reference results,
-including a request that finishes while others remain active. Retain inputs,
-outputs, and comparison; single-request accuracy cannot prove cache/mask/position
-alignment.
+For candidate components that use Python, use `uv`; this is not a requirement that the serving hot path, scheduler, transport, or kernels remain Python.
 
-For layout, fusion, or kernel work, trace the production path to the actual
-operator before paid hardware. Record old/new operations and removed frequency,
-bytes, or launches. A class, flag, layout, or counter is not activation if the
-same expensive operation remains. A KV path that gathers/indexes logical pages
-before dense attention is not paged attention: the attention kernel itself must
-consume the page table. Fix or report this before representative benchmarking.
+Keep correctness and workload shape fixed. Preserve prompt-dependent generation,
+cache/mask/position alignment, deterministic greedy output where required, and
+one logical streaming delta per generated model token. Coalescing writes is
+allowed; changing the benchmark's token-record accounting is not.
 
-Treat activation telemetry as part of the hot path. Inventory every counter and
-`.item()`, `.tolist()`, CPU copy, or synchronization inside token/layer/request
-loops with its frequency. Maintain host totals/high-water marks incrementally;
-sample synchronized gauges outside measurement or at bounded frequency and
-measure observer overhead.
-
-Before paid profiling, write the decisions and plausible residuals it must
-resolve. Instrument all non-overlapping scopes/counters/timestamps in one pass,
-then exercise every scope locally; do not discover one missing scope at a time.
-Compare useful batch, cycle, and throughput with the retained control. A
-materially perturbed capture is qualitative only, not an end-to-end Amdahl
-bound. Reject `next_major` when its mechanism is already positive and
-fallback-free in that artifact.
-
-Before streaming/chunking work, inspect benchmark token accounting. When each
-nonempty SSE record counts as one output token, preserve exactly one model-delta
-record per generated model token. Retain per-request token IDs, nonempty records,
-and completion counts. Several complete records may share a transport write;
-splitting or merging model-token accounting is a metric artifact.
+Use the existing benchmark/controller path. Extend it only when the hypothesis
+changes staged control flow or serialization, then prove injected failure makes
+zero paid calls and one synthetic success traverses the new path. Capture exact
+candidate source/build inputs before launch, retain each completed row
+immediately, and run compatible control/candidate phases on one initialized
+server when valid.
 
 ## Use references as implementation support
 
-Once evidence and the active hypothesis identify a mechanism, open the
-`serving-systems` skill router and only its directly relevant references before
-editing. Do not browse it for arbitrary ideas. Name each reference used and the
-contract or pitfall it clarified.
+Load only narrow serving-systems references named by the plan or newly justified
+by evidence—for example API format, async scheduling, continuous batching,
+attention backend, CUDA graphs, or performance modeling. Do not preload the
+entire serving library and do not retain FastAPI, Python, or an incumbent module
+boundary unless the external contract requires it.

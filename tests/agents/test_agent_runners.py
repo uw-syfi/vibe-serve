@@ -227,6 +227,8 @@ def _make_fake_agent_class(
     from types import SimpleNamespace
 
     class FakeAgent:
+        supports_native_output_schema = False
+
         def __init__(self, model=None, event_handler=None):
             self.model = model
             self.event_handler = event_handler
@@ -237,10 +239,14 @@ def _make_fake_agent_class(
             self.event_log: list[str] = []
             self._last_session: SimpleNamespace | None = None
             self.reasoning_effort: str | None = None
+            self.output_schema_paths: list[str | None] = []
             captured.append(self)
 
         def set_reasoning_effort(self, effort):
             self.reasoning_effort = effort
+
+        def set_output_schema_path(self, path):
+            self.output_schema_paths.append(path)
 
         def install_mcp_servers(self, workspace, servers):
             self.install_calls.append({"workspace": workspace, "servers": list(servers)})
@@ -823,6 +829,79 @@ class TestCliAgentRunner:
         prompt = captured[0].generate_calls[0]["prompt"]
         assert "JudgeResponse" in prompt
         assert prompt.startswith("THE-SYSTEM-PROMPT")
+
+    def test_codex_uses_native_schema_without_prompt_duplication(self, monkeypatch, tmp_path):
+        captured: list = []
+        fake_cls = _make_fake_agent_class(
+            generate_returns='{"analysis": "ok", "feedback": "", "verdict": "pass"}',
+            captured=captured,
+        )
+        fake_cls.supports_native_output_schema = True
+        monkeypatch.setitem(
+            __import__(
+                "vibesys.agents.cli_runner",
+                fromlist=["_PROVIDER_CLASSES"],
+            )._PROVIDER_CLASSES,
+            "codex",
+            fake_cls,
+        )
+        workspace = tmp_path / "ws"
+        workspace.mkdir()
+        runner = CliAgentRunner(provider="codex", model="m", run_log_file=None)
+
+        runner.invoke(
+            kind="judge",
+            workspace=workspace,
+            system_prompt="THE-SYSTEM-PROMPT",
+            user_prompt="usr",
+            response_cls=JudgeResponse,
+            fallback_factory=_judge_fallback,
+            round_label="judge #1",
+        )
+
+        agent = captured[0]
+        relative = agent.output_schema_paths[-1]
+        assert relative is not None
+        assert relative.startswith(".cache/vibesys/response-schemas/")
+        assert (workspace / relative).is_file()
+        assert "Schema for JudgeResponse" not in agent.generate_calls[0]["prompt"]
+
+    def test_codex_schema_materialization_failure_uses_prompt_fallback(self, monkeypatch, tmp_path):
+        captured: list = []
+        fake_cls = _make_fake_agent_class(
+            generate_returns='{"analysis": "ok", "feedback": "", "verdict": "pass"}',
+            captured=captured,
+        )
+        fake_cls.supports_native_output_schema = True
+        runner_module = __import__(
+            "vibesys.agents.cli_runner",
+            fromlist=["_PROVIDER_CLASSES"],
+        )
+        monkeypatch.setitem(runner_module._PROVIDER_CLASSES, "codex", fake_cls)
+        monkeypatch.setattr(
+            runner_module,
+            "materialize_native_output_schema",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(ValueError("unsupported")),
+        )
+        workspace = tmp_path / "ws"
+        workspace.mkdir()
+        log = StringIO()
+        runner = CliAgentRunner(provider="codex", model="m", run_log_file=log)
+
+        result = runner.invoke(
+            kind="judge",
+            workspace=workspace,
+            system_prompt="THE-SYSTEM-PROMPT",
+            user_prompt="usr",
+            response_cls=JudgeResponse,
+            fallback_factory=_judge_fallback,
+            round_label="judge #1",
+        )
+
+        assert result.verdict == Verdict.PASS
+        assert captured[0].output_schema_paths == [None]
+        assert "Schema for JudgeResponse" in captured[0].generate_calls[0]["prompt"]
+        assert "using prompt fallback" in log.getvalue()
 
     def test_cli_runner_chat_returns_plain_text_in_a_fresh_session_per_turn(
         self, monkeypatch, tmp_path

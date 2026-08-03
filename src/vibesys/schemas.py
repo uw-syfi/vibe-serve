@@ -4,6 +4,7 @@ Every Pydantic model the framework uses to constrain an LLM's JSON
 output lives here, organized by purpose:
 
   - Enums:                Verdict, PerfTrend
+  - Skill routing:        SkillResourceSelection
   - Implementer / Judge:  ImplementerResponse, JudgeResponse
                           IssueImplementerResponse, IssueJudgeResponse
                           (the "Issue*" variants are the plain loop's
@@ -24,7 +25,7 @@ schemas in without dragging in the rest of the agent runtime.
 from enum import StrEnum
 from typing import Any
 
-from pydantic import BaseModel, Field, FiniteFloat
+from pydantic import BaseModel, ConfigDict, Field, FiniteFloat, field_validator
 
 # ===========================================================================
 # Enums
@@ -75,6 +76,39 @@ class PerfTrend(StrEnum):
     IMPROVED = "improved"
     REGRESSED = "regressed"
     MIXED = "mixed"
+
+
+class SkillResourceSelection(BaseModel):
+    """Advisory selection of resources from one installed agent skill.
+
+    The outer loop can recommend these resources, while implementation and
+    review agents remain free to select different installed skills.  Paths are
+    relative to the named skill root and are resolved by the framework before
+    they are shown to another agent.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    skill: str = Field(min_length=1, description="Exact installed skill name.")
+    resource_paths: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Optional files relative to the skill root. An empty list selects "
+            "the skill router without preselecting a resource."
+        ),
+    )
+    purpose: str = Field(
+        min_length=1,
+        description="Short reason these resources may help with the current work.",
+    )
+
+    @field_validator("skill", "purpose")
+    @classmethod
+    def _strip_required_text(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("must contain non-whitespace text")
+        return value
 
 
 # ===========================================================================
@@ -169,6 +203,13 @@ class ImplementerResponse(BaseModel):
             "prerequisite, or should be discarded."
         ),
     )
+    skill_context_updates: list[SkillResourceSelection] = Field(
+        default_factory=list,
+        description=(
+            "New skill resources consulted or selected during this turn. This is "
+            "advisory context for continuation, not an implementation allowlist."
+        ),
+    )
 
 
 class JudgeResponse(BaseModel):
@@ -181,6 +222,13 @@ class JudgeResponse(BaseModel):
         description="Specific actionable feedback for the implementer. Empty string if passing."
     )
     verdict: Verdict = Field(description="PASS if all criteria are met, FAIL otherwise.")
+    skills_used: list[SkillResourceSelection] = Field(
+        default_factory=list,
+        description=(
+            "Skill resources independently selected for this review; observational "
+            "only and never inherited by the implementer."
+        ),
+    )
 
 
 # ===========================================================================
@@ -441,6 +489,13 @@ class OrchestratorPlan(BaseModel):
         default="",
         description="Correctness and workload properties that must remain true during the experiment.",
     )
+    recommended_skills: list[SkillResourceSelection] = Field(
+        default_factory=list,
+        description=(
+            "Zero or more installed skill resources that may help implement this "
+            "hypothesis. Recommendations are advisory, not an allowlist or gate."
+        ),
+    )
     task: str = Field(description="Well-scoped implementation work handed to the implementer.")
     pass_criteria: str = Field(
         description="Feature-level pass criteria for the judge. Input-declared trusted gates run separately when configured."
@@ -526,6 +581,10 @@ class SingleAgentRoundResponse(BaseModel):
     candidate_retention_reason: str = Field(
         default="",
         description="Reason for retaining or discarding the candidate checkpoint.",
+    )
+    skill_context_updates: list[SkillResourceSelection] = Field(
+        default_factory=list,
+        description="New skill resources consulted or selected during this turn.",
     )
 
 

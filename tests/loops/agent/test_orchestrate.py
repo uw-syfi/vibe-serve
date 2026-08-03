@@ -39,6 +39,7 @@ from vibesys.schemas import (
     OrchestratorPlan,
     PreRoundDecision,
     ProfilerSummary,
+    SkillResourceSelection,
     Verdict,
 )
 
@@ -175,6 +176,7 @@ def _make_orchestrate_runner(
     judge_verdicts: list[str] | None = None,
     profiler_responses: list[ProfilerSummary] | None = None,
     implementer_perf_metrics: list[float | None] | None = None,
+    implementer_skill_updates: list[list[SkillResourceSelection]] | None = None,
 ):
     """Build a MagicMock AgentRunner whose invoke() returns scripted responses.
 
@@ -189,6 +191,7 @@ def _make_orchestrate_runner(
     judge_q = list(judge_verdicts or [])
     prof_q = list(profiler_responses or [])
     impl_perf_q = list(implementer_perf_metrics or [])
+    impl_skill_q = list(implementer_skill_updates or [])
     counters = {"impl": 0, "judge": 0, "orch_pre": 0, "orch_plan": 0, "prof": 0}
 
     runner = MagicMock(spec=AgentRunner)
@@ -213,6 +216,7 @@ def _make_orchestrate_runner(
             counters["impl"] += 1
             outcome = outcome_q.pop(0) if outcome_q else HypothesisOutcome.NOMINATED
             perf_metric = impl_perf_q.pop(0) if impl_perf_q else None
+            skill_updates = impl_skill_q.pop(0) if impl_skill_q else []
             return ImplementerResponse(
                 summary="Done.",
                 expected_behavior="ok",
@@ -234,6 +238,7 @@ def _make_orchestrate_runner(
                 if perf_metric is not None
                 else {},
                 evaluation_artifact="benchmark/summary.json" if perf_metric is not None else None,
+                skill_context_updates=skill_updates,
             )
         if kind == "judge":
             idx = counters["judge"]
@@ -870,6 +875,36 @@ def test_progress_writes_orchestrator_plan(tmp_path):
     assert "Retain at >=1.15x with no latency regression" in text
 
 
+@pytest.mark.parametrize(
+    ("progress_name", "artifact_root"),
+    [("progress", "progress"), ("progress.md", "progress-artifacts")],
+)
+def test_progress_writes_typed_role_handoffs_atomically(tmp_path, progress_name, artifact_root):
+    progress = tmp_path / progress_name
+    plan = OrchestratorPlan(
+        hypothesis_id="transport-boundary",
+        task="Replace the request-local queue.",
+        pass_criteria="The direct path activates.",
+        reasoning="The retained profile leaves a service residual.",
+    )
+    implementation = ImplementerResponse(
+        summary="Implemented direct delivery.",
+        expected_behavior="No request-local queue wakeup.",
+        evidence="Untrusted implementer claim.",
+    )
+
+    plan_path = issue_board.write_plan_artifact(progress, 12, plan)
+    evidence_path = issue_board.write_implementer_artifact(progress, 12, 2, implementation)
+
+    assert plan_path == tmp_path / artifact_root / "plans" / "round-0012.json"
+    assert evidence_path == (
+        tmp_path / artifact_root / "evidence" / "round-0012-attempt-02-implementer.json"
+    )
+    assert OrchestratorPlan.model_validate_json(plan_path.read_text()) == plan
+    assert ImplementerResponse.model_validate_json(evidence_path.read_text()) == implementation
+    assert not list((tmp_path / artifact_root).rglob(".*.tmp*"))
+
+
 def test_progress_replaces_interrupted_stage_instead_of_duplicating_it(tmp_path):
     progress = tmp_path / "progress"
     issue_board.append_pre_round_decision(
@@ -1353,6 +1388,56 @@ def test_loop_round_one_no_profile_runs_one_round(tmp_path, ref_file):
     assert runner.counters["orch_plan"] == 1
     assert runner.counters["impl"] == 1
     assert runner.counters["judge"] == 1
+
+
+def test_implementer_skill_updates_survive_a_renewed_continuation_prompt(tmp_path, ref_file):
+    skill = tmp_path / "skills" / "portable"
+    reference = skill / "references" / "transport.md"
+    reference.parent.mkdir(parents=True)
+    skill.joinpath("SKILL.md").write_text(
+        "---\nname: portable\ndescription: Portable transport guidance.\n---\n"
+    )
+    reference.write_text("transport guidance\n")
+    selection = SkillResourceSelection(
+        skill="portable",
+        resource_paths=["references/transport.md"],
+        purpose="Replace the request-local transport boundary.",
+    )
+    runner = _make_orchestrate_runner(
+        plans=[
+            OrchestratorPlan(
+                hypothesis_id="transport-boundary",
+                task="Replace request-local fanout.",
+                pass_criteria="The direct path activates.",
+                reasoning="The residual is host-side.",
+            )
+        ],
+        implementer_outcomes=[HypothesisOutcome.CONTINUE, HypothesisOutcome.NOMINATED],
+        implementer_skill_updates=[[selection], []],
+    )
+
+    _invoke_orchestrate(
+        tmp_path,
+        ref_file,
+        runner,
+        max_rounds=2,
+        judge_every=10,
+        skills_dirs=[str(skill)],
+    )
+
+    calls = [
+        call
+        for call in runner.invoke.call_args_list
+        if call.kwargs.get("session_key") == "hypothesis:transport-boundary"
+    ]
+    assert len(calls) == 2
+    assert "portable/references/transport.md" not in calls[0].kwargs["system_prompt"]
+    assert "portable/SKILL.md" in calls[1].kwargs["system_prompt"]
+    assert "portable/references/transport.md" in calls[1].kwargs["system_prompt"]
+
+    plan_path = calls[1].kwargs["workspace"] / "progress-artifacts" / "plans" / "round-0002.json"
+    persisted = OrchestratorPlan.model_validate_json(plan_path.read_text())
+    assert persisted.recommended_skills == [selection]
     assert runner.counters["prof"] == 0
 
 
@@ -2075,49 +2160,44 @@ def test_hypothesis_revert_is_applied_once_across_continuation_rounds(tmp_path, 
         call
         for call in runner.invoke.call_args_list
         if call.kwargs.get("response_cls") is ImplementerResponse
-        and "continued-repair" in call.kwargs["system_prompt"]
+        and call.kwargs.get("session_key") == "hypothesis:continued-repair"
     ]
     assert len(repair_calls) == 2
     assert all(
-        "already applied exactly once by the framework" in call.kwargs["system_prompt"]
+        "framework already materialized" in call.kwargs["system_prompt"].lower()
         for call in repair_calls
     )
     assert all(
-        "sandboxes may intentionally omit usable `.git` metadata"
-        in call.kwargs["system_prompt"].replace("\n", " ")
+        "do not re-run checkout" in call.kwargs["system_prompt"].lower()
+        or "do not repeat restoration" in call.kwargs["system_prompt"].lower()
         for call in repair_calls
     )
     assert all(
-        "do not alter candidate artifacts or rerun benchmarks"
-        in call.kwargs["system_prompt"].replace("\n", " ")
-        for call in repair_calls
-    )
-    assert all(
-        "reserve the next representative run for the post-change candidate"
-        in call.kwargs["system_prompt"].replace("\n", " ")
+        "reuse valid retained parent rows"
+        in call.kwargs["system_prompt"].replace("\n", " ").lower()
+        or "do not repeat restoration or parent measurement"
+        in call.kwargs["system_prompt"].replace("\n", " ").lower()
         for call in repair_calls
     )
     judge_calls = [
         call
         for call in runner.invoke.call_args_list
         if call.kwargs.get("response_cls") is JudgeResponse
-        and "continued-repair" in call.kwargs["system_prompt"]
+        and call.kwargs.get("round_label", "").startswith(("round-2-", "round-3-"))
     ]
     assert judge_calls
     assert all(
-        "Framework-owned parent provenance" in call.kwargs["system_prompt"] for call in judge_calls
-    )
-    assert all(
-        "do not fail solely because `git` cannot re-query it" in call.kwargs["system_prompt"]
+        "framework authoritatively materialized" in call.kwargs["system_prompt"].lower()
         for call in judge_calls
     )
     assert all(
-        "candidate-authored duplication is neither required nor stronger evidence"
+        "do not demand candidate-supplied git proof"
+        in call.kwargs["system_prompt"].replace("\n", " ").lower()
+        for call in judge_calls
+    )
+    assert all(
+        "duplicate measurement of a trustworthy retained parent row"
         in call.kwargs["system_prompt"].replace("\n", " ")
-        for call in judge_calls
-    )
-    assert all(
-        "benchmarking the untouched parent again" in call.kwargs["system_prompt"].replace("\n", " ")
         for call in judge_calls
     )
 
@@ -2163,11 +2243,11 @@ def test_failed_hypothesis_revert_is_retried_and_not_claimed_as_applied(tmp_path
         call
         for call in runner.invoke.call_args_list
         if call.kwargs.get("response_cls") is ImplementerResponse
-        and "retry-rollback" in call.kwargs["system_prompt"]
+        and call.kwargs.get("session_key") == "hypothesis:retry-rollback"
     ]
     assert len(retry_calls) == 2
-    assert "already applied exactly once" not in retry_calls[0].kwargs["system_prompt"]
-    assert "already applied exactly once" in retry_calls[1].kwargs["system_prompt"]
+    assert "framework already materialized" not in retry_calls[0].kwargs["system_prompt"].lower()
+    assert "framework already materialized" in retry_calls[1].kwargs["system_prompt"].lower()
 
 
 def test_judge_audited_implementer_metrics_are_recorded(tmp_path, ref_file):
@@ -2197,8 +2277,22 @@ def test_judge_audited_implementer_metrics_are_recorded(tmp_path, ref_file):
         for call in runner.invoke.call_args_list
         if call.kwargs.get("response_cls") is JudgeResponse
     )
-    assert "321.5 tok/s" in judge_call.kwargs["system_prompt"]
-    assert "benchmark/summary.json" in judge_call.kwargs["system_prompt"]
+    assert "321.5 tok/s" not in judge_call.kwargs["system_prompt"]
+    assert "benchmark/summary.json" not in judge_call.kwargs["system_prompt"]
+    evidence_files = list(
+        judge_call.kwargs["workspace"].glob(
+            "progress-artifacts/evidence/round-0001-attempt-01-implementer.json"
+        )
+    )
+    assert len(evidence_files) == 1
+    evidence = ImplementerResponse.model_validate_json(evidence_files[0].read_text())
+    assert evidence.perf_metric == 321.5
+    assert evidence.perf_unit == "tok/s"
+    assert evidence.evaluation_artifact == "benchmark/summary.json"
+    assert (
+        evidence_files[0].relative_to(judge_call.kwargs["workspace"]).as_posix()
+        in (judge_call.kwargs["system_prompt"])
+    )
 
 
 def test_loop_retries_when_framework_accuracy_gate_fails(tmp_path, ref_file):
@@ -2258,7 +2352,8 @@ def test_framework_gate_retry_preserves_judge_approved_metrics(tmp_path, ref_fil
     retry_prompt = implementer_calls[1].kwargs["system_prompt"]
     assert "Framework gate revalidation" in retry_prompt
     assert "321.5 tok/s" in retry_prompt
-    assert "Do not modify candidate behavior or rerun" in retry_prompt
+    assert "Do not change candidate behavior" in retry_prompt
+    assert "or duplicate the canonical run" in retry_prompt
 
 
 def test_loop_exhaustion_carries_to_next_round(tmp_path, ref_file):
@@ -2863,7 +2958,7 @@ def test_loop_threads_plateau_warning_into_prompt(tmp_path, ref_file):
     # Round 5 plan call sees rounds 1-4 in records (3 valid perf measurements
     # from rounds 2,3,4 — flat at 41.9-42.1) → warning fires.
     assert "Plateau detected" in seen_prompts[4]
-    assert "refresh an analytical performance model" in seen_prompts[4]
+    assert "Refresh an analytical performance model" in seen_prompts[4]
     assert "unexplained residual" in seen_prompts[4]
 
 

@@ -42,7 +42,12 @@ from vibesys.agent_runner import (
     parse_typed_response_text,
 )
 from vibesys.agents.callbacks import AgentLogger
-from vibesys.agents.cli_common import agent_label, build_schema_hint, materialize_skills
+from vibesys.agents.cli_common import (
+    agent_label,
+    build_schema_hint,
+    materialize_native_output_schema,
+    materialize_skills,
+)
 from vibesys.agents.host_resource_declarations import declare_agent_host_resources
 from vibesys.agents.progress import AgentProgress
 from vs_sandbox import HostResource, build_host_sandbox
@@ -167,7 +172,22 @@ class CliAgentRunner:
         reuse_session: bool | None = None,
         session_key: str | None = None,
     ) -> T:
-        schema_hint = build_schema_hint(response_cls)
+        native_schema_path: str | None = None
+        native_schema_supported = bool(
+            getattr(self._provider_cls, "supports_native_output_schema", False)
+            and callable(getattr(self._provider_cls, "set_output_schema_path", None))
+        )
+        if native_schema_supported:
+            try:
+                native_schema_path = materialize_native_output_schema(workspace, response_cls)
+            except (OSError, TypeError, ValueError) as exc:
+                log_and_print(
+                    f"[structured-output] native schema unavailable for "
+                    f"{response_cls.__name__}; using prompt fallback: "
+                    f"{type(exc).__name__}: {exc}",
+                    self._run_log_file,
+                )
+        schema_hint = "" if native_schema_path else build_schema_hint(response_cls)
         combined_prompt = f"{system_prompt}\n\n{user_prompt}{schema_hint}"
         text = self._generate(
             kind=kind,
@@ -180,6 +200,7 @@ class CliAgentRunner:
             mcp_servers=mcp_servers,
             reuse_session=reuse_session,
             session_key=session_key,
+            output_schema_path=native_schema_path,
         )
         label = agent_label(kind)
         parsed = parse_typed_response_text(text, response_cls)
@@ -235,6 +256,7 @@ class CliAgentRunner:
             mcp_servers=mcp_servers,
             reuse_session=reuse_session,
             session_key=session_key,
+            output_schema_path=None,
         )
         label = agent_label(kind)
         if text:
@@ -261,6 +283,7 @@ class CliAgentRunner:
         mcp_servers: list[MCPServerSpec] | None,
         reuse_session: bool | None,
         session_key: str | None,
+        output_schema_path: str | None,
     ) -> str:
         """Run one CLI generation with shared setup, logging, and cleanup."""
         label = agent_label(kind)
@@ -352,6 +375,17 @@ class CliAgentRunner:
             )
             cast(CodexCodingAgent, agent).session_id = None
             self._session_turn_counts[cache_key] = 0
+
+        # Set this on every turn, including plain-text turns, so a reused
+        # provider session cannot retain the previous response contract.
+        schema_setter = getattr(agent, "set_output_schema_path", None)
+        if callable(schema_setter):
+            schema_setter(output_schema_path)
+        elif output_schema_path is not None:
+            raise RuntimeError(
+                f"{type(agent).__name__} advertised native output schemas "
+                "without implementing set_output_schema_path()"
+            )
 
         # Layer GPU env vars on top of the captured interactive env so the
         # spawned subprocess inherits CUDA_VISIBLE_DEVICES. Containerised

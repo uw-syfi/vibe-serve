@@ -13,6 +13,9 @@ the plain loop's structured :class:`~vibesys.loops.plain.issue_board.IssueBoard`
 
 from __future__ import annotations
 
+import json
+import os
+import tempfile
 from pathlib import Path
 
 from vibesys.schemas import (
@@ -58,6 +61,59 @@ def display_path(path: Path, workspace: Path) -> str:
     """Return an agent-facing workspace-relative memory location."""
     location = path.relative_to(workspace).as_posix()
     return f"{location}/" if path.suffix != ".md" else location
+
+
+def _structured_artifact_root(progress_path: Path) -> Path:
+    """Return the framework-owned directory for typed role handoffs.
+
+    Directory memory layouts keep the artifacts below ``progress/``.  Legacy
+    ``progress.md`` runs use a sibling directory so the existing Markdown file
+    remains untouched.
+    """
+
+    if progress_path.suffix == ".md":
+        return progress_path.with_name(f"{progress_path.stem}-artifacts")
+    return progress_path
+
+
+def _write_json_atomic(path: Path, payload: object) -> Path:
+    """Atomically replace a framework-owned JSON handoff artifact."""
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            json.dump(payload, stream, indent=2)
+            stream.write("\n")
+        temporary.replace(path)
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
+    return path
+
+
+def write_plan_artifact(progress_path: Path, round_number: int, plan: OrchestratorPlan) -> Path:
+    """Persist the exact typed plan used by the framework for one round."""
+
+    path = _structured_artifact_root(progress_path) / "plans" / f"round-{round_number:04d}.json"
+    return _write_json_atomic(path, plan.model_dump(mode="json"))
+
+
+def write_implementer_artifact(
+    progress_path: Path,
+    round_number: int,
+    retry: int,
+    response: ImplementerResponse,
+) -> Path:
+    """Persist parsed implementer claims as untrusted data for Judge audit."""
+
+    path = (
+        _structured_artifact_root(progress_path)
+        / "evidence"
+        / f"round-{round_number:04d}-attempt-{retry:02d}-implementer.json"
+    )
+    return _write_json_atomic(path, response.model_dump(mode="json"))
 
 
 def pareto_archive_path(progress_path: Path) -> Path:

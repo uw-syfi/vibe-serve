@@ -13,8 +13,11 @@ routing) stay in the individual runner modules.
 
 from __future__ import annotations
 
+import hashlib
 import json
+import os
 import shutil
+import tempfile
 from pathlib import Path
 from typing import TextIO
 
@@ -32,6 +35,91 @@ CLI_SKILL_DIRS: tuple[str, ...] = (
     ".cursor/skills",
     ".opencode/skills",
 )
+
+_NATIVE_SCHEMA_DIR = Path(".cache/vibesys/response-schemas")
+
+# Codex's native response format accepts the object/array/scalar subset used
+# by Pydantic's ordinary model schemas. Reject constructs that require schema
+# evaluation features outside that subset instead of discovering the problem
+# after an expensive agent turn has started. Field names are not inspected as
+# keywords; ``properties`` and ``$defs`` are traversed as maps of subschemas.
+_UNSUPPORTED_NATIVE_SCHEMA_KEYWORDS = frozenset(
+    {
+        "$anchor",
+        "$dynamicAnchor",
+        "$dynamicRef",
+        "$id",
+        "$schema",
+        "allOf",
+        "contains",
+        "dependentRequired",
+        "dependentSchemas",
+        "else",
+        "if",
+        "maxContains",
+        "minContains",
+        "not",
+        "oneOf",
+        "patternProperties",
+        "prefixItems",
+        "propertyNames",
+        "then",
+        "unevaluatedItems",
+        "unevaluatedProperties",
+    }
+)
+
+
+def _validate_native_output_schema(schema: object) -> dict[str, object]:
+    """Validate the conservative JSON Schema subset used by CLI providers."""
+    if not isinstance(schema, dict) or schema.get("type") != "object":
+        raise ValueError("native output schema must have an object root")
+
+    def visit(node: object, location: str) -> None:
+        if isinstance(node, list):
+            for index, value in enumerate(node):
+                visit(value, f"{location}/{index}")
+            return
+        if not isinstance(node, dict):
+            return
+        for key, value in node.items():
+            if key in {"properties", "$defs", "definitions"}:
+                if not isinstance(value, dict):
+                    raise ValueError(f"native output schema {location}/{key} must be an object")
+                for name, subschema in value.items():
+                    visit(subschema, f"{location}/{key}/{name}")
+                continue
+            if key in _UNSUPPORTED_NATIVE_SCHEMA_KEYWORDS:
+                raise ValueError(
+                    f"native output schema uses unsupported keyword {key!r} at {location}"
+                )
+            if key == "$ref" and (not isinstance(value, str) or not value.startswith("#/")):
+                raise ValueError(f"native output schema uses a non-local $ref at {location}")
+            visit(value, f"{location}/{key}")
+
+    visit(schema, "#")
+    return schema
+
+
+def materialize_native_output_schema(workspace: Path, response_cls: type[BaseModel]) -> str:
+    """Atomically write a validated schema and return its relative CLI path."""
+    schema = _validate_native_output_schema(response_cls.model_json_schema())
+    encoded = (json.dumps(schema, indent=2, sort_keys=True, allow_nan=False) + "\n").encode()
+    digest = hashlib.sha256(encoded).hexdigest()[:16]
+    relative = _NATIVE_SCHEMA_DIR / f"{response_cls.__name__}-{digest}.json"
+    target = workspace / relative
+    target.parent.mkdir(parents=True, exist_ok=True)
+    fd, temporary_name = tempfile.mkstemp(prefix=f".{target.name}.", dir=target.parent)
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(encoded)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, target)
+    finally:
+        temporary.unlink(missing_ok=True)
+    return relative.as_posix()
 
 
 def agent_label(kind: str) -> str:

@@ -46,6 +46,7 @@ from vibesys.schemas import (
     PreRoundDecision,
     ProfilerSummary,
     SingleAgentRoundResponse,
+    SkillResourceSelection,
     Verdict,
 )
 from vibesys.server.events import (
@@ -55,6 +56,11 @@ from vibesys.server.events import (
     JudgeResultData,
     RoundFinishedData,
     SubprocessOutputData,
+)
+from vibesys.skills import (
+    ResolvedSkillSelection,
+    build_skill_catalog,
+    resolve_skill_selections,
 )
 
 # Candidate process boundaries selected by ``--interface``. Language, tooling,
@@ -591,6 +597,7 @@ def _pareto_archive_summary(
     if frontier:
         lines.append("Trusted frontier parents:")
         for record in frontier:
+            assert record.commit is not None
             evidence = "official" if record.official_evaluation else "reviewed provisional"
             operating_point = record.candidate_operating_point or "canonical workload row"
             artifact = record.candidate_evaluation_artifact or record.evaluation_artifact
@@ -619,6 +626,7 @@ def _pareto_archive_summary(
             "do not treat it as a trusted parent until its hard invariants pass):"
         )
         for record in pending[-8:]:
+            assert record.commit is not None
             lines.append(
                 f"- round {record.round_number}, commit {record.commit[:12]}: "
                 f"{_format_metric_row(record.candidate_metrics, objectives)}; "
@@ -998,6 +1006,7 @@ def _run_pre_round_decision(
         "orchestrator_pre_round_prompt.j2",
         template_dir=_TEMPLATE_DIR,
         objective=objective,
+        objective_location="OBJECTIVE.md",
         regression_info=carry.regression_info,
         exhaustion_info=carry.exhaustion_info,
         progress_location=progress_location,
@@ -1171,6 +1180,7 @@ def _run_orchestrator_plan(
         "orchestrator_plan_prompt.j2",
         template_dir=_TEMPLATE_DIR,
         objective=objective,
+        objective_location="OBJECTIVE.md",
         profiler_summary=profiler_summary,
         regression_info=carry.regression_info,
         exhaustion_info=carry.exhaustion_info,
@@ -1209,6 +1219,8 @@ def _run_orchestrator_plan(
     )
     if not plan.hypothesis_id.strip():
         plan.hypothesis_id = f"hypothesis-{round_number:04d}"
+    plan.recommended_skills, _ = _validate_skill_selections(ctx, plan.recommended_skills)
+    issue_board.write_plan_artifact(progress_path, round_number, plan)
     issue_board.append_orchestrator_plan(progress_path, round_number, plan)
     return plan
 
@@ -1225,6 +1237,49 @@ def _missing_implementer_response() -> ImplementerResponse:
             "ImplementerResponse before requesting review or official evaluation."
         ),
     )
+
+
+def _validate_skill_selections(
+    ctx: LoopContext,
+    selections: list[SkillResourceSelection],
+) -> tuple[list[SkillResourceSelection], list[ResolvedSkillSelection]]:
+    """Validate advisory skill paths before a role handoff.
+
+    Plans retain skill-relative paths so they can be resolved again after a
+    resumed run materializes skills in a fresh sandbox.  Prompts receive only
+    the corresponding agent-visible paths.  Invalid recommendations are
+    diagnostic, never a reason to abort an otherwise useful experiment.
+    """
+
+    if not selections:
+        return [], []
+    skill_sources = ctx.skill_source_paths
+    if not skill_sources:
+        ctx.lprint("[skills] ignored recommendations because no skills are installed")
+        return [], []
+    try:
+        catalog = build_skill_catalog(skill_sources)
+        resolved, diagnostics = resolve_skill_selections(selections, catalog)
+    except (OSError, ValueError) as exc:
+        ctx.lprint(
+            f"[skills] ignored recommendations because the catalog is invalid: "
+            f"{type(exc).__name__}: {exc}"
+        )
+        return [], []
+    for diagnostic in diagnostics:
+        ctx.lprint(f"[skills] {diagnostic}")
+
+    validated = [
+        SkillResourceSelection(
+            skill=selection.skill,
+            resource_paths=[
+                path.removeprefix(f"{selection.skill}/") for path in selection.resource_paths
+            ],
+            purpose=selection.purpose,
+        )
+        for selection in resolved
+    ]
+    return validated, resolved
 
 
 def _run_implementer(
@@ -1253,13 +1308,18 @@ def _run_implementer(
     official_evaluation_due: bool = False,
     official_evaluation_reason: str | None = None,
 ) -> ImplementerResponse:
+    plan.recommended_skills, resolved_skills = _validate_skill_selections(
+        ctx, plan.recommended_skills
+    )
+    plan_artifact = issue_board.write_plan_artifact(progress_path, round_number, plan)
+    plan_artifact_location = issue_board.display_path(plan_artifact, ctx.workspace)
     domain_implementer = render_domain_section(
         domain_definition,
         DomainRole.IMPLEMENTER,
         **_domain_render_context(ctx, modality, interface),
     )
     system_prompt = render_template(
-        "implementer_prompt.j2",
+        ("implementer_continuation_prompt.j2" if continuation_step else "implementer_prompt.j2"),
         template_dir=_TEMPLATE_DIR,
         reference_path=ctx.ref_name,
         modality=modality,
@@ -1268,6 +1328,8 @@ def _run_implementer(
         task=plan.task,
         pass_criteria=plan.pass_criteria,
         objective=objective,
+        objective_location="OBJECTIVE.md",
+        plan_artifact_location=plan_artifact_location,
         hypothesis_id=plan.hypothesis_id,
         hypothesis=plan.hypothesis,
         activation_evidence=plan.activation_evidence,
@@ -1292,6 +1354,7 @@ def _run_implementer(
         framework_benchmark_enabled=framework_benchmark_enabled,
         official_evaluation_due=official_evaluation_due,
         official_evaluation_reason=official_evaluation_reason,
+        recommended_skills=resolved_skills,
     )
     response = ctx.invoke(
         kind="implementer",
@@ -1308,6 +1371,15 @@ def _run_implementer(
         reuse_session=True,
         session_key=f"hypothesis:{plan.hypothesis_id}",
     )
+    response.skill_context_updates, _ = _validate_skill_selections(
+        ctx, response.skill_context_updates
+    )
+    if response.skill_context_updates:
+        plan.recommended_skills, _ = _validate_skill_selections(
+            ctx, [*plan.recommended_skills, *response.skill_context_updates]
+        )
+        issue_board.write_plan_artifact(progress_path, round_number, plan)
+    issue_board.write_implementer_artifact(progress_path, round_number, retry, response)
     issue_board.append_implementer(progress_path, round_number, retry, response)
     ctx.snapshot_workspace(f"round-{round_number}-retry-{retry}-implementer")
     return response
@@ -1340,6 +1412,16 @@ def _run_judge(
     official_evaluation_reason: str | None = None,
     pareto_archive_conflict: str | None = None,
 ) -> JudgeResponse:
+    # Rewrite both handoffs from the framework's parsed in-memory objects just
+    # before review. Candidate code may write the shared workspace, so the
+    # Judge must receive paths to fresh framework-owned records rather than
+    # interpolated free-form implementer prose.
+    plan_artifact = issue_board.write_plan_artifact(progress_path, round_number, plan)
+    implementer_artifact = issue_board.write_implementer_artifact(
+        progress_path, round_number, retry, implementation
+    )
+    plan_artifact_location = issue_board.display_path(plan_artifact, ctx.workspace)
+    implementer_artifact_location = issue_board.display_path(implementer_artifact, ctx.workspace)
     judge_domain_context = _domain_render_context(ctx, modality, interface)
     # Canonical accuracy and benchmark commands are framework-owned. Hiding
     # them from the judge prevents duplicate official runs while preserving
@@ -1364,6 +1446,9 @@ def _run_judge(
         runtime_notes=ctx.run_environment_view.prompt_notes,
         env_kind=ctx.run_environment_view.env_kind,
         objective=objective,
+        objective_location="OBJECTIVE.md",
+        plan_artifact_location=plan_artifact_location,
+        implementer_artifact_location=implementer_artifact_location,
         hypothesis_id=plan.hypothesis_id,
         hypothesis=plan.hypothesis,
         activation_evidence=plan.activation_evidence,
@@ -1415,6 +1500,7 @@ def _run_judge(
         round_label=f"round-{round_number}-retry-{retry}-judge",
         reuse_session=False,
     )
+    response.skills_used, _ = _validate_skill_selections(ctx, response.skills_used)
     if response.verdict is Verdict.PASS and pareto_archive_conflict:
         response = response.model_copy(
             update={
@@ -1471,6 +1557,11 @@ def _run_single_agent_round(
     multi-agent loop hands to the implementer is used here — it has
     workspace write access plus shell access for benchmarks/profiling.
     """
+    plan.recommended_skills, resolved_skills = _validate_skill_selections(
+        ctx, plan.recommended_skills
+    )
+    plan_artifact = issue_board.write_plan_artifact(progress_path, round_number, plan)
+    plan_artifact_location = issue_board.display_path(plan_artifact, ctx.workspace)
     domain_single_agent = render_domain_section(
         domain_definition,
         DomainRole.SINGLE_AGENT,
@@ -1512,6 +1603,9 @@ def _run_single_agent_round(
         retry=retry,
         feedback=feedback,
         objective=objective,
+        objective_location="OBJECTIVE.md",
+        plan_artifact_location=plan_artifact_location,
+        recommended_skills=resolved_skills,
         profile_focus=profile_focus,
         profiler_kind=ctx.profiler_kind,
         profiler_support_name=(effective_profiler.support_name if effective_profiler else None),
@@ -1547,6 +1641,14 @@ def _run_single_agent_round(
         reuse_session=True,
         session_key=f"hypothesis:{plan.hypothesis_id}",
     )
+    response.skill_context_updates, _ = _validate_skill_selections(
+        ctx, response.skill_context_updates
+    )
+    if response.skill_context_updates:
+        plan.recommended_skills, _ = _validate_skill_selections(
+            ctx, [*plan.recommended_skills, *response.skill_context_updates]
+        )
+        issue_board.write_plan_artifact(progress_path, round_number, plan)
     archive_conflict = _pareto_archive_conflict(
         candidate_disposition=response.candidate_disposition,
         candidate_metrics=dict(response.candidate_metrics),

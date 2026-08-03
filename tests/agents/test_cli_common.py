@@ -8,6 +8,7 @@ deliberate never-raise policy on copy failures.
 
 from __future__ import annotations
 
+import json
 from io import StringIO
 from pathlib import Path
 
@@ -18,9 +19,15 @@ from vibesys.agents.cli_common import (
     agent_label,
     build_schema_hint,
     discover_skill_dirs,
+    materialize_native_output_schema,
     materialize_skills,
 )
-from vibesys.schemas import JudgeResponse
+from vibesys.schemas import (
+    ImplementerResponse,
+    JudgeResponse,
+    OrchestratorPlan,
+    PreRoundDecision,
+)
 
 
 def _skill(root: Path, name: str, body: str = "# skill\n") -> Path:
@@ -183,3 +190,32 @@ class TestBuildSchemaHint:
     def test_forbids_markdown_fences(self):
         """CLI tools wrap JSON in fences unless told not to."""
         assert "Do not wrap it in markdown fences" in build_schema_hint(JudgeResponse)
+
+
+class TestMaterializeNativeOutputSchema:
+    @pytest.mark.parametrize(
+        "response_cls",
+        [PreRoundDecision, OrchestratorPlan, ImplementerResponse, JudgeResponse],
+    )
+    def test_active_agent_schemas_materialize_atomically(self, tmp_path, response_cls):
+        relative = materialize_native_output_schema(tmp_path, response_cls)
+        target = tmp_path / relative
+
+        assert relative.startswith(".cache/vibesys/response-schemas/")
+        assert json.loads(target.read_text()) == response_cls.model_json_schema()
+        assert not list(target.parent.glob(f".{target.name}.*"))
+
+    def test_rejects_unsupported_schema_constructs_before_writing(self, tmp_path):
+        class UnsupportedResponse(JudgeResponse):
+            @classmethod
+            def model_json_schema(cls, *args, **kwargs):
+                return {
+                    "type": "object",
+                    "properties": {"analysis": {"type": "string"}},
+                    "not": {"required": ["analysis"]},
+                }
+
+        with pytest.raises(ValueError, match="unsupported keyword 'not'"):
+            materialize_native_output_schema(tmp_path, UnsupportedResponse)
+
+        assert not (tmp_path / ".cache/vibesys/response-schemas").exists()

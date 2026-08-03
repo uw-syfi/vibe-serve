@@ -51,6 +51,9 @@ class LoopContext(Protocol):
     @property
     def run_log_path(self) -> Path: ...
 
+    @property
+    def skill_source_paths(self) -> list[Path]: ...
+
     # -- agent-facing commands ------------------------------------------------
     @property
     def judge_accuracy_command(self) -> str | None: ...
