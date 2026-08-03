@@ -140,6 +140,18 @@ search-space reset. This does not forbid incremental work that repairs a proven
 activation or correctness defect; name that defect and show why the repair
 changes the causal test.
 
+A distinguishing mechanism is necessary but not sufficient to justify another
+paid performance comparison. Before that run, bound the mechanism's attainable
+end-to-end effect from retained profiler evidence, counters, timing, or a cheap
+microbenchmark: estimate how much measured wall time the old path consumed, how
+much the proposed change can remove, and the resulting Amdahl-limited objective
+range. Compare that range with observed noise and the remaining objective gap.
+If even the optimistic bound is noise-scale or cannot move a material fraction
+of the gap after several attempts, retain any reusable code, close the
+hypothesis, and return control to the orchestrator. When the evidence needed to
+form the bound is missing, the next paid action may isolate that cost center; it
+must not silently become another full candidate/control comparison.
+
 Stage expensive evaluations. First establish activation and run the smallest
 representative end-to-end comparison that can reject the causal claim. If that
 probe directly meets the stated falsification criteria, stop the remaining

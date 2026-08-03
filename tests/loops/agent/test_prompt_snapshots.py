@@ -361,6 +361,8 @@ def test_llm_serving_rendered_prompts_keep_required_domain_content():
     assert "incumbent implementation substrate is not an invariant" in prompts["implementer"]
     assert "does not require a small source diff" in prompts["implementer"]
     assert "recent attempts within this persistent hypothesis" in prompts["implementer"]
+    assert "A distinguishing mechanism is necessary but not sufficient" in prompts["implementer"]
+    assert "Amdahl-limited objective" in prompts["implementer"]
     assert "building a FastAPI inference server" not in prompts["implementer"]
     assert "Your `main.py` must" not in prompts["implementer"]
     assert "not the incumbent" in prompts["judge"]
