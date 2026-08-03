@@ -347,6 +347,16 @@ through nominated-success criteria:
   active rather than paying for another designer plan.
 - Otherwise **fail**. Put every actionable issue in `feedback`.
 
+Audit `next_step` as a lifecycle decision. A nonempty
+`inconclusive.next_step` must stay within the current causal mechanism and name
+evidence or a repair that can still change its stated acceptance/falsification
+classification. Fail a nonempty step that is merely conditional (`if
+revisited`), asks for generic profiling, changes to a materially different
+mechanism, or requests a broader architecture/search-space reset: those ideas
+belong in evidence for the next designer, while `next_step` must be empty so the
+framework actually returns control. Do not let a useful retained Pareto point
+or an optional future experiment keep an exhausted hypothesis alive.
+
 Your verdict must be consistent with your analysis.
 
 ## Progress tracking

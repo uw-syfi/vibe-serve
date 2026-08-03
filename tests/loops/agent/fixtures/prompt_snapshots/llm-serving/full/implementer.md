@@ -459,6 +459,16 @@ Report `hypothesis_outcome` precisely:
 - `blocked`: the claim was not fairly tested because progress requires an
   external state change or authority; explain what would unblock it.
 
+`next_step` is framework control flow, not a place for optional future ideas. A
+nonempty `inconclusive.next_step` is valid only when it names missing evidence
+or a repair within the same causal mechanism whose result can still change this
+hypothesis's stated acceptance or falsification classification. Leave it empty
+when the current mechanism is exhausted and the remaining idea is conditional
+(`if revisited`), generic profiling, a different mechanism, or a broader
+architecture/search-space reset. Preserve that future direction in `evidence`
+or `summary` so the designer can consider it without silently granting another
+round to the old hypothesis.
+
 ## Official evaluation for this working head
 
 Official evaluation is deferred for this candidate. Preserve your freedom to
