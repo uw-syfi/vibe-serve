@@ -266,6 +266,35 @@ For static-inspection criteria, name the implementer-owned file and prohibited
 behavior precisely. Avoid repository-wide clauses that also match
 framework-provided evaluator or profiler directories.
 
+## Recent trajectory and search-space reset
+
+Before choosing a new hypothesis, audit the recent optimization trajectory, not
+just the latest result. Use the bounded progress window and inspect older round
+files when the active mechanism spans beyond it. Compare only measurements with
+a defensible workload and operating-point relationship. In `reasoning`, classify
+the trajectory as `advancing`, `noisy`, `plateauing`, or `regressing`, and support
+that label with the recent end-to-end deltas, the objective gap, and which code
+or architecture boundary those attempts actually changed. A failed experiment
+can add information, but a sequence of renamed variants against the same
+unchanged mechanism is not exploration.
+
+Infer a soft plateau from comparable targeted or provisional evidence even when
+the framework has not emitted its official-evaluation plateau warning. Treat the
+trajectory as needing a search-space reset when multiple well-activated attempts
+are within observed noise or regress, or when their plausible step size is too
+small to close a material fraction of the remaining target gap. Do not wait for
+another official sweep merely to recognize that pattern.
+
+On a search-space reset, derive at least three causally distinct alternatives
+from the calibrated residual and roofline—for example changing the algorithm or
+useful work per step, the device execution path, or a runtime/process/component
+boundary. Include at least one bounded high-upside structural option when the
+evidence permits one. Compare their attainable end-to-end range, information
+gain, implementation cost, and correctness risk, then choose the best single
+slice. “Provocative” means changing a limiting mechanism or boundary with a
+quantified path to the objective; novelty, a new language, or a large rewrite
+without such a path is not a strategy.
+
 ## Implementation substrate and architecture
 
 Treat the declared candidate contract as fixed, not the incumbent implementation.

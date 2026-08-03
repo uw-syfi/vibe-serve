@@ -130,6 +130,16 @@ operation/mechanism terms; searching only the new hypothesis's exact wording
 is insufficient. Read the prior plan and evidence around plausible hits before
 concluding that no comparable experiment exists.
 
+Also inspect the recent attempts within this persistent hypothesis as a
+trajectory. If multiple well-activated implementations are within observed
+noise or regress, do not spend another paid run on a nearby parameter or renamed
+variant unless the next change has a concrete distinguishing mechanism and a
+measurement that can expose it. Close the scoped hypothesis as `disproven` or
+`inconclusive` when appropriate so the orchestrator can perform a broader
+search-space reset. This does not forbid incremental work that repairs a proven
+activation or correctness defect; name that defect and show why the repair
+changes the causal test.
+
 Stage expensive evaluations. First establish activation and run the smallest
 representative end-to-end comparison that can reject the causal claim. If that
 probe directly meets the stated falsification criteria, stop the remaining

@@ -350,8 +350,14 @@ def test_llm_serving_rendered_prompts_keep_required_domain_content():
     assert "Do not repeat a previously disproven mechanism" in prompts["orchestrator"]
     assert "implementation language, runtime, process topology" in prompts["orchestrator"]
     assert "limits experimental uncertainty, not" in prompts["orchestrator"]
+    assert "trajectory as `advancing`, `noisy`, `plateauing`, or `regressing`" in prompts[
+        "orchestrator"
+    ]
+    assert "Infer a soft plateau" in prompts["orchestrator"]
+    assert "at least three causally distinct alternatives" in prompts["orchestrator"]
     assert "incumbent implementation substrate is not an invariant" in prompts["implementer"]
     assert "does not require a small source diff" in prompts["implementer"]
+    assert "recent attempts within this persistent hypothesis" in prompts["implementer"]
     assert "building a FastAPI inference server" not in prompts["implementer"]
     assert "Your `main.py` must" not in prompts["implementer"]
     assert "not the incumbent" in prompts["judge"]
