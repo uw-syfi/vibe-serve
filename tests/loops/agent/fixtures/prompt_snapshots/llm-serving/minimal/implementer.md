@@ -100,6 +100,15 @@ with empty performance tracking fields. Do not finish a canonical sweep merely
 to assign an official score to a hypothesis that has already been fairly
 falsified. Proceed to canonical confirmation only when the directional gate
 supports the claim or when the targeted evidence genuinely cannot decide it.
+After a live activation miss, do not spend another expensive run on a repair
+validated only against an idealized, fully populated, or otherwise easier
+input. First reconcile the proposed change quantitatively with the failed
+artifact's observed counters, shapes, timing, arrival pattern, and resource
+state. When feasible, add a cheap discriminating test or replay that reproduces
+that observed failure shape and fails on the old implementation. If the local
+environment cannot reproduce it, state the missing dimension explicitly and
+use the next paid run to isolate that dimension rather than rerunning the full
+comparison with an untested premise.
 Reuse the established benchmark runner and staged controller by default. Do not
 add a hypothesis-specific controller or new synthetic artifacts solely to wrap
 an ordinary candidate change, rename phases, or expose additional activation

@@ -254,6 +254,8 @@ def test_llm_serving_rendered_prompts_keep_required_domain_content():
     assert "Audit observer overhead in activation telemetry" in prompts["judge"]
     assert "Treat telemetry as production hot-path code" in prompts["single_agent"]
     assert "Stage expensive evaluations" in prompts["implementer"]
+    assert "add a cheap discriminating test or replay" in prompts["implementer"]
+    assert "fails on the old implementation" in prompts["implementer"]
     assert "Reuse the established benchmark runner" in prompts["implementer"]
     assert "Treat new activation counters" in prompts["implementer"]
     assert "If this round creates or changes staged control flow" in prompts["implementer"]
