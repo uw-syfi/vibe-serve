@@ -24,6 +24,10 @@ causal scope, minimum-acceptance criteria, and invariants remain in force.
 Prior evidence is context, not completion evidence for this round: do not
 return the previous summary unchanged. You retain control over the concrete
 probes, parameter ranges, and implementation choices used to execute it.
+If completed prerequisites now enable an evaluation named by the continuation,
+run it; do not substitute more cleanup, reporting, or modeling unless a newly
+failing preflight concretely blocks that evaluation. Report such a blocker
+instead of carrying the same unevaluated step into another round.
 
 ## Original hypothesis plan (historical context)
 

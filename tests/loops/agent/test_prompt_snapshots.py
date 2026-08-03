@@ -490,6 +490,7 @@ def test_implementer_continuation_precedes_and_qualifies_historical_plan():
     assert rendered.index(continuation_heading) < rendered.index(historical_heading)
     assert rendered.index("CURRENT STEP") < rendered.index("ORIGINAL PLAN")
     assert "supersedes completed or conflicting\nprocedural instructions" in rendered
+    assert "run it; do not substitute more cleanup, reporting, or modeling" in rendered
     assert "## This round's task (from the Orchestrator)" not in rendered
 
 
