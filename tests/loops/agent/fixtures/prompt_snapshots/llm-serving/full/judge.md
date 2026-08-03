@@ -181,10 +181,12 @@ When the runtime-environment block above states a framework-level fact (decorato
 - A second accelerator controller is valid when the first ran zero benchmark
   rows and either exact target-only evidence was changed by tested source, or an
   external pre-user-code failure was cleaned up. Verify trigger, source,
-  cleanup, and the prelaunch expected/maximum declaration; reject a retroactive
-  budget increase, blind/repeated work, an undeclared third invocation, or
-  excess over the orchestrator budget. Interpret `run one` as expected count,
-  not max one, unless the plan explicitly labels a `hard maximum: one`.
+  cleanup, and this round's prelaunch expected/maximum declaration; reject a
+  retroactive increase within the round, blind/repeated work, an undeclared
+  third invocation, or excess over the orchestrator budget. Budgets reset each
+  VibeSys round; prior-round invocations do not consume it.
+  Interpret `run one` as expected count, not max one, unless the plan explicitly
+  labels a `hard maximum: one`.
 - When startup dominates, a capability check which uses the same model/service
   state flows into smoke/measurement on one initialized controller when safe.
   Verify zero minimum warm replicas, finite idle/scaledown, bounded accelerator

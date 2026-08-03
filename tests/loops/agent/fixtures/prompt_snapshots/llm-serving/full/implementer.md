@@ -223,12 +223,13 @@ This input has no machine-readable framework benchmark gate. You own the perform
   controllers: a primary plus one conditional retry only when the first ran
   zero benchmark rows and either (a) exact target-only evidence is changed by
   the repaired source with local tests, or (b) external failure occurred before
-  user code and cleanup is confirmed. Declare expected and maximum counts plus
-  triggers before launch. For target-only capability work without a faithful
+  user code and cleanup is confirmed. Budgets reset each VibeSys round: before
+  its first launch, declare expected/maximum counts and triggers; prior-round
+  invocations do not consume it. For target-only work without a faithful
   local reproduction, normally reserve this maximum of two even though one is
-  expected; an unused reservation has no accelerator cost. Never increase the
-  declared maximum after launch. More needs explicit orchestrator cost/
-  information budget. Reuse all completed rows.
+  expected; unused capacity costs nothing. Never increase the current round's
+  maximum after launch. More needs explicit orchestrator cost/information
+  budget. Reuse all completed rows.
   A task or continuation saying `run one` means one expected primary unless it
   explicitly says `hard maximum: one`; do not let your prior `next_step`
   accidentally disable the conditional retry.

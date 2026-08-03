@@ -360,7 +360,7 @@ def test_llm_serving_rendered_prompts_keep_required_domain_content():
     assert "maximum paid workload invocations" in prompts["implementer"]
     assert "worst-case paid workload count" in prompts["judge"]
     assert "maximum paid workload invocations" in prompts["single_agent"]
-    assert "maximum paid workload-invocation budget" in prompts["orchestrator"]
+    assert "maximum paid workload invocations" in prompts["orchestrator"]
     assert (
         "primary plus one conditional retry only after zero benchmark rows"
         in prompts["orchestrator"]
@@ -373,14 +373,14 @@ def test_llm_serving_rendered_prompts_keep_required_domain_content():
     assert (
         "primary plus one conditional retry only if the first ran zero" in prompts["single_agent"]
     )
-    assert (
-        "Declare expected and maximum counts plus triggers before launch" in prompts["implementer"]
-    )
+    assert "declare expected/maximum counts and triggers" in prompts["implementer"]
     assert (
         "normally reserve this maximum of two even though one is expected" in prompts["implementer"]
     )
-    assert "never raise the declared maximum after launch" in prompts["orchestrator"]
-    assert "prelaunch expected/maximum declaration" in prompts["judge"]
+    assert "never raise the current" in prompts["orchestrator"]
+    assert "round's prelaunch expected/maximum declaration" in prompts["judge"]
+    for role in ("orchestrator", "implementer", "judge", "single_agent"):
+        assert "prior-round invocations do not consume" in prompts[role]
     assert "`run one` means one expected primary, not max one" in prompts["orchestrator"]
     assert "do not let your prior `next_step` accidentally disable" in prompts["implementer"]
     assert "a prior self-authored next step is not a hard cost cap" in prompts["single_agent"]

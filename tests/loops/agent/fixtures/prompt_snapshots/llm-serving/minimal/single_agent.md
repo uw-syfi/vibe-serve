@@ -152,11 +152,12 @@ completed.
   adjacent phases. The default is at most two bounded accelerator controllers:
   primary plus one conditional retry only if the first ran zero benchmark rows
   and either focused local tests cover the repaired target-only operation, or a
-  cleaned-up external failure preceded user code. Declare expected and maximum
-  counts plus triggers before launch. For target-only work without faithful
+  cleaned-up external failure preceded user code. Budgets reset each VibeSys
+  round: before its first launch, declare expected/maximum counts and triggers;
+  prior-round invocations do not consume it. For target-only work without faithful
   local reproduction, normally reserve two even though one is expected; the
-  unused reservation costs nothing. Never raise the maximum after launch;
-  exceeding two requires explicit cost/information justification.
+  unused reservation costs nothing. Never raise the current round's maximum
+  after launch; exceeding two requires explicit cost/information justification.
   Treat `run one` as one expected primary unless the plan explicitly says
   `hard maximum: one`; a prior self-authored next step is not a hard cost cap.
 - Keep observer control/profile and reset-safe capability bisection variants as

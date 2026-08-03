@@ -355,15 +355,17 @@ small capability bisection as checkpointed phases. For observer effect, run
 control then profiler adjacently when safe; a wrapper that issues two
 `.remote()` calls is still two accelerator startups. Split only for named state
 contamination or measurement-validity reasons.
-Declare the expected count and maximum paid workload-invocation budget and
-accelerator controllers separately.
+Budgets reset each VibeSys round: before its first launch, declare expected and
+maximum paid workload invocations and accelerator controllers separately;
+prior-round invocations do not consume it.
 Ordinary rounds expect and allow one. For target-only capability work whose
 failure cannot be reproduced locally, normally reserve a maximum of two before
 launch even though only one is expected: primary plus one conditional retry only
 after zero benchmark rows and either an exact tested repair or a confirmed-clean
 external pre-user-code failure. Reserving the retry costs nothing until its
-trigger fires and avoids another reasoning round; never raise the declared
-maximum after launch. More than two needs explicit cost/information justification.
+trigger fires and avoids another reasoning round; never raise the current
+round's declared maximum after launch. More than two needs explicit
+cost/information justification.
 Write `hard maximum: one` only when cost policy intentionally forbids the
 conditional retry; otherwise `run one` means one expected primary, not max one.
 Never rerun a completed candidate/workload/operating point; ambiguity repeats
