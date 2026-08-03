@@ -122,6 +122,7 @@ def _render_prompt(domain: DomainName, role: str, context: dict[str, object]) ->
             objective=context["objective"],
             pass_criteria=context["pass_criteria"],
             runtime_notes=context["runtime_notes"],
+            retry=context.get("retry", 1),
             benchmark_command=context["benchmark_command"],
             accuracy_command=context["accuracy_command"],
             domain_judge=_domain_section(domain, "judge", judge_domain_context),
@@ -492,6 +493,16 @@ def test_implementer_continuation_precedes_and_qualifies_historical_plan():
     assert "supersedes completed or conflicting\nprocedural instructions" in rendered
     assert "run it; do not substitute more cleanup, reporting, or modeling" in rendered
     assert "## This round's task (from the Orchestrator)" not in rendered
+
+
+def test_judge_retry_reuses_unchanged_review_evidence():
+    context = _CONTEXTS["minimal"] | {"retry": 2}
+
+    rendered = _render_prompt(DomainName.LLM_SERVING, "judge", context)
+
+    assert "## Retry review scope" in rendered
+    assert "verify the rejected fields and\ntheir consumers" in rendered
+    assert "Do not rerun unrelated suites merely to repeat attempt 1" in rendered
 
 
 def test_orchestrator_rejects_quantitative_use_of_perturbed_profiles():
