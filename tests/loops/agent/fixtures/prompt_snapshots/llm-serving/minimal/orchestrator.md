@@ -539,6 +539,13 @@ For long model-load, compile, or graph-capture phases, require a declared remote
 phase deadline plus observable start, heartbeat/checkpoint, and completion
 state. The outer poll must outlive that deadline; quiet logs or an arbitrary
 shorter local wait are not evidence of a hang.
+Require the deadline to be independently enforceable: a check performed only
+after a synchronous operation returns is telemetry, not a timeout. The task and
+pass criteria must name the watchdog, process/container, or remote-function
+boundary that can terminate a stuck operation and release the accelerator. If
+an in-process operation cannot be safely preempted, require a disposable worker;
+an async or thread wait that leaves the underlying work running does not satisfy
+the cost-safety contract.
 Require the smoke to traverse the newly changed failure-prone path; a smoke on
 an unrelated entry point is not useful preflight evidence and should not be run
 for ceremony. If activation requires batching or concurrency, require the

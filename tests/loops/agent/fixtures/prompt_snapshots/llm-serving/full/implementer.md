@@ -381,6 +381,15 @@ AOT compilation, and graph capture may legitimately remain quiet for minutes;
 do not invent an ad hoc shorter cutoff from elapsed time, missing local
 writeback, or wrapper CPU usage. Stop before the declared deadline only for a
 concrete terminal error or verified loss of progress, and retain that reason.
+A deadline checked only after a synchronous operation returns is telemetry, not
+timeout enforcement. Put any potentially blocking model load, compile, graph
+capture/replay, kernel, or remote-runtime operation behind an independently
+enforced watchdog, process, container, or remote-function boundary that can
+terminate the work and release the accelerator when its declared deadline
+expires. An async or thread wait that times out while the underlying operation
+continues is also insufficient. When the runtime cannot safely preempt the
+operation in process, isolate it in a disposable worker and make the owner
+persist the timeout outcome before deterministic cleanup.
 
 Preserve already-valid measured rows. A diagnostic or optional artifact created
 after measured rows completed cannot retroactively perturb them. Do not rerun a

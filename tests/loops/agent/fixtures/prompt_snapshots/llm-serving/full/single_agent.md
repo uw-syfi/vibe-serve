@@ -207,6 +207,12 @@ load, compilation, and graph capture, emit phase progress checkpoints, and keep
 the outer poll alive past those deadlines. Quiet output, missing local
 writeback, elapsed-time guesswork, or wrapper CPU usage alone do not prove a
 hang.
+A deadline checked only after a synchronous operation returns is telemetry, not
+timeout enforcement. Put potentially blocking model, compiler, graph, kernel,
+or remote-runtime work behind an independent watchdog, process/container, or
+remote-function boundary that can terminate it and release the accelerator. An
+async or thread wait is insufficient if the underlying operation keeps running;
+use a disposable worker when safe in-process preemption is unavailable.
 Reuse the established benchmark runner and controller for ordinary candidate
 changes. Do not build a round-specific controller or fresh synthetic artifacts
 solely to wrap the same evaluation flow, rename phases, or expose activation

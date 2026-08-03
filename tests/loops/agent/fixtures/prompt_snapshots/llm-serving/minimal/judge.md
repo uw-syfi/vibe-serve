@@ -321,6 +321,14 @@ not supported merely by quiet logs, missing local writeback, elapsed-time
 guesswork, or wrapper CPU usage before a declared remote phase deadline. Require
 observable phase progress and a concrete terminal error, expired declared
 deadline, or verified loss of progress.
+Inspect how that deadline is enforced. A duration check that runs only after a
+synchronous model load, compile, graph capture/replay, kernel, or remote call
+returns cannot stop a hang and is not a timeout. Likewise, an async or thread
+wait is insufficient when the underlying work continues after the waiter
+expires. Require an independent watchdog, process/container, or remote-function
+boundary that can terminate the operation and deterministically release the
+accelerator; require a disposable worker when safe in-process preemption is not
+available.
 Audit the temporal meaning of activation telemetry. A zero current-occupancy
 gauge sampled after requests drain is expected when resources were correctly
 released and cannot negate monotonic totals, retained peaks, or event evidence
