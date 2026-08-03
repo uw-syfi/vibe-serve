@@ -1596,7 +1596,7 @@ def test_disproven_retry_after_failed_review_returns_control_to_designer(tmp_pat
             HypothesisOutcome.DISPROVEN,
             HypothesisOutcome.NOMINATED,
         ],
-        judge_verdicts=["fail", "pass"],
+        judge_verdicts=["fail", "pass", "pass"],
     )
 
     _invoke_orchestrate(
@@ -1610,14 +1610,14 @@ def test_disproven_retry_after_failed_review_returns_control_to_designer(tmp_pat
 
     assert runner.counters["orch_plan"] == 2
     assert runner.counters["impl"] == 3
-    assert runner.counters["judge"] == 2
+    assert runner.counters["judge"] == 3
     rounds_file = next((tmp_path / "exp_env").glob("*/logs/rounds.json"))
     rounds = __import__("json").loads(rounds_file.read_text())
     assert [round_data["hypothesis_id"] for round_data in rounds] == [
         "falsified-after-review",
         "replacement-after-review",
     ]
-    assert [round_data["reviewed"] for round_data in rounds] == [False, True]
+    assert [round_data["reviewed"] for round_data in rounds] == [True, True]
     assert [round_data["hypothesis_outcome"] for round_data in rounds] == [
         "disproven",
         "proven",

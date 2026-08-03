@@ -2114,22 +2114,31 @@ def run_agent_loop(
                             outcome=implementation.hypothesis_outcome,
                             candidate_disposition=implementation.candidate_disposition,
                         )
+                        if review_started and not _implementation_keeps_hypothesis_active(
+                            implementation
+                        ):
+                            # Re-review a terminal response to feedback from a
+                            # failed judge. Sparse cadence controls the first
+                            # audit of a round, not whether the resulting repair
+                            # is independently verified.
+                            review_due = True
                         if (
                             review_started
                             and round_number != max_rounds
-                            and implementation.hypothesis_outcome
-                            not in {
-                                HypothesisOutcome.SUPPORTED,
-                                HypothesisOutcome.NOMINATED,
-                            }
+                            and _implementation_keeps_hypothesis_active(implementation)
                             and implementation.candidate_disposition
                             is not CandidateDisposition.PARETO_FRONTIER
                             and not framework_revalidation_required
                         ):
                             # A cadence-triggered review has already supplied
                             # feedback for this round.  Let a provisional retry
-                            # continue in the next framework round instead of
-                            # paying for the same independent audit twice.
+                            # that still owns the hypothesis continue in the
+                            # next framework round instead of paying for the
+                            # same independent audit twice.  A terminal retry
+                            # must be re-reviewed: otherwise a judge-requested
+                            # repair could be accepted without independent
+                            # verification merely because sparse cadence is not
+                            # due again.
                             review_due = False
                         if not review_due:
                             issue_board.append_judge_skipped(
