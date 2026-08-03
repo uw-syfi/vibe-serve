@@ -71,7 +71,14 @@ _UNSUPPORTED_NATIVE_SCHEMA_KEYWORDS = frozenset(
 
 
 def _validate_native_output_schema(schema: object) -> dict[str, object]:
-    """Validate the conservative JSON Schema subset used by CLI providers."""
+    """Normalize and validate the strict JSON Schema subset used by Codex.
+
+    Native structured output requires every declared object property and
+    forbids undeclared keys. Pydantic omits defaulted properties from
+    ``required`` and represents arbitrary mappings with a schema-valued
+    ``additionalProperties``; the former is normalized here while the latter
+    falls back to the portable prompt contract.
+    """
     if not isinstance(schema, dict) or schema.get("type") != "object":
         raise ValueError("native output schema must have an object root")
 
@@ -82,6 +89,31 @@ def _validate_native_output_schema(schema: object) -> dict[str, object]:
             return
         if not isinstance(node, dict):
             return
+        reference = node.get("$ref")
+        if reference is not None:
+            if not isinstance(reference, str) or not reference.startswith("#/"):
+                raise ValueError(f"native output schema uses a non-local $ref at {location}")
+            # Codex follows the older strict subset where a reference may not
+            # have annotation or validation siblings.
+            node.clear()
+            node["$ref"] = reference
+            return
+        node.pop("default", None)
+        properties = node.get("properties")
+        if properties is not None:
+            if not isinstance(properties, dict):
+                raise ValueError(f"native output schema {location}/properties must be an object")
+            additional = node.get("additionalProperties")
+            if additional not in (None, False):
+                raise ValueError(f"native output schema uses arbitrary object keys at {location}")
+            node["additionalProperties"] = False
+            node["required"] = list(properties)
+        elif node.get("type") == "object":
+            additional = node.get("additionalProperties")
+            if additional not in (None, False):
+                raise ValueError(f"native output schema uses arbitrary object keys at {location}")
+            node["additionalProperties"] = False
+            node["required"] = []
         for key, value in node.items():
             if key in {"properties", "$defs", "definitions"}:
                 if not isinstance(value, dict):
@@ -93,8 +125,6 @@ def _validate_native_output_schema(schema: object) -> dict[str, object]:
                 raise ValueError(
                     f"native output schema uses unsupported keyword {key!r} at {location}"
                 )
-            if key == "$ref" and (not isinstance(value, str) or not value.startswith("#/")):
-                raise ValueError(f"native output schema uses a non-local $ref at {location}")
             visit(value, f"{location}/{key}")
 
     visit(schema, "#")

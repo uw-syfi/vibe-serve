@@ -60,7 +60,7 @@ def resolve_paths(workspace: Path, layout: str) -> tuple[Path, Path]:
 def display_path(path: Path, workspace: Path) -> str:
     """Return an agent-facing workspace-relative memory location."""
     location = path.relative_to(workspace).as_posix()
-    return f"{location}/" if path.suffix != ".md" else location
+    return f"{location}/" if path.is_dir() else location
 
 
 def _structured_artifact_root(progress_path: Path) -> Path:

@@ -905,6 +905,17 @@ def test_progress_writes_typed_role_handoffs_atomically(tmp_path, progress_name,
     assert not list((tmp_path / artifact_root).rglob(".*.tmp*"))
 
 
+def test_agent_memory_paths_distinguish_files_from_directories(tmp_path):
+    workspace = tmp_path / "workspace"
+    directory = workspace / "progress"
+    artifact = directory / "plans" / "round-0012.json"
+    artifact.parent.mkdir(parents=True)
+    artifact.write_text("{}\n")
+
+    assert issue_board.display_path(directory, workspace) == "progress/"
+    assert issue_board.display_path(artifact, workspace) == "progress/plans/round-0012.json"
+
+
 def test_progress_replaces_interrupted_stage_instead_of_duplicating_it(tmp_path):
     progress = tmp_path / "progress"
     issue_board.append_pre_round_decision(

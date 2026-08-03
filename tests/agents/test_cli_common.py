@@ -195,15 +195,36 @@ class TestBuildSchemaHint:
 class TestMaterializeNativeOutputSchema:
     @pytest.mark.parametrize(
         "response_cls",
-        [PreRoundDecision, OrchestratorPlan, ImplementerResponse, JudgeResponse],
+        [PreRoundDecision, OrchestratorPlan, JudgeResponse],
     )
     def test_active_agent_schemas_materialize_atomically(self, tmp_path, response_cls):
         relative = materialize_native_output_schema(tmp_path, response_cls)
         target = tmp_path / relative
+        schema = json.loads(target.read_text())
+
+        def assert_strict_objects(node):
+            if isinstance(node, list):
+                for value in node:
+                    assert_strict_objects(value)
+            elif isinstance(node, dict):
+                if "$ref" in node:
+                    assert set(node) == {"$ref"}
+                if "properties" in node:
+                    assert set(node["required"]) == set(node["properties"])
+                    assert node["additionalProperties"] is False
+                for value in node.values():
+                    assert_strict_objects(value)
 
         assert relative.startswith(".cache/vibesys/response-schemas/")
-        assert json.loads(target.read_text()) == response_cls.model_json_schema()
+        assert_strict_objects(schema)
+        assert "default" not in target.read_text()
         assert not list(target.parent.glob(f".{target.name}.*"))
+
+    def test_schema_valued_mapping_falls_back_before_writing(self, tmp_path):
+        with pytest.raises(ValueError, match="arbitrary object keys"):
+            materialize_native_output_schema(tmp_path, ImplementerResponse)
+
+        assert not (tmp_path / ".cache/vibesys/response-schemas").exists()
 
     def test_rejects_unsupported_schema_constructs_before_writing(self, tmp_path):
         class UnsupportedResponse(JudgeResponse):
