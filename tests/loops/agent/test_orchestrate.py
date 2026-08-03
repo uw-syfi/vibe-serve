@@ -510,6 +510,59 @@ def test_pareto_frontier_keeps_throughput_latency_tradeoff_and_drops_dominated_p
     assert [record.round_number for record in frontier] == [1, 2]
 
 
+def test_live_archive_rejects_stale_frontier_claim_for_dominated_candidate():
+    from vibesys.loops.agent.loop import _pareto_archive_conflict
+
+    objectives = [Objective("throughput", "max"), Objective("latency", "min")]
+    trusted = _RoundRecord(
+        61,
+        "a" * 40,
+        None,
+        None,
+        True,
+        reviewed=True,
+        candidate_disposition=CandidateDisposition.PARETO_FRONTIER.value,
+        candidate_metrics={"throughput": 8795.8, "latency": 7724.0},
+    )
+
+    conflict = _pareto_archive_conflict(
+        candidate_disposition=CandidateDisposition.PARETO_FRONTIER,
+        candidate_metrics={"throughput": 7258.5, "latency": 9601.6},
+        records=[trusted],
+        objectives=objectives,
+    )
+
+    assert conflict is not None
+    assert "round 61" in conflict
+    assert "frozen into the hypothesis plan" in conflict
+
+
+def test_live_archive_preserves_real_throughput_latency_tradeoff():
+    from vibesys.loops.agent.loop import _pareto_archive_conflict
+
+    objectives = [Objective("throughput", "max"), Objective("latency", "min")]
+    trusted = _RoundRecord(
+        6,
+        "a" * 40,
+        None,
+        None,
+        True,
+        reviewed=True,
+        candidate_disposition=CandidateDisposition.PARETO_FRONTIER.value,
+        candidate_metrics={"throughput": 100.0, "latency": 80.0},
+    )
+
+    assert (
+        _pareto_archive_conflict(
+            candidate_disposition=CandidateDisposition.PARETO_FRONTIER,
+            candidate_metrics={"throughput": 140.0, "latency": 100.0},
+            records=[trusted],
+            objectives=objectives,
+        )
+        is None
+    )
+
+
 def test_pareto_archive_distinguishes_trusted_and_pending_candidates():
     objectives = [Objective("throughput", "max"), Objective("latency", "min")]
     trusted = _RoundRecord(

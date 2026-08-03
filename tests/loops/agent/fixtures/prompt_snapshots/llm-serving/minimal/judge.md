@@ -25,6 +25,18 @@ PASS: pytest passes and /v1/completions streams valid SSE.
 - **Candidate operating point**: (missing)
 - **Candidate retention reason**: (missing)
 
+## Live framework Pareto archive
+
+```
+Configured axes: throughput:max, latency:min
+Trusted frontier parents:
+- round 6, commit abc123, reviewed provisional: throughput=120, latency=80
+```
+
+This archive is recomputed from reviewed records for the current retry. Audit
+the disposition against it rather than relying on a numeric archive gate frozen
+into the original hypothesis plan.
+
 
 ## Modality: text generation (causal LM)
 

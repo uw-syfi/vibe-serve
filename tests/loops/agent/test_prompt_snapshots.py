@@ -44,6 +44,12 @@ _BASE_CONTEXT = {
     "invariants": "Accuracy and prompt-dependent generation remain unchanged.",
     "implementer_outcome": "nominated",
     "implementer_evidence": "Replay counter increased in a targeted probe.",
+    "pareto_archive_summary": (
+        "Configured axes: throughput:max, latency:min\n"
+        "Trusted frontier parents:\n"
+        "- round 6, commit abc123, reviewed provisional: "
+        "throughput=120, latency=80"
+    ),
     "env_kind": "local",
 }
 
@@ -101,6 +107,7 @@ def _render_prompt(domain: DomainName, role: str, context: dict[str, object]) ->
             framework_benchmark_enabled=context.get("framework_benchmark_enabled", False),
             official_evaluation_due=context.get("official_evaluation_due", False),
             official_evaluation_reason=context.get("official_evaluation_reason"),
+            pareto_archive_summary=context["pareto_archive_summary"],
         )
     if role == "judge":
         judge_domain_context = context | {
@@ -132,6 +139,7 @@ def _render_prompt(domain: DomainName, role: str, context: dict[str, object]) ->
             framework_benchmark_enabled=context.get("framework_benchmark_enabled", False),
             official_evaluation_due=context.get("official_evaluation_due", False),
             official_evaluation_reason=context.get("official_evaluation_reason"),
+            pareto_archive_summary=context["pareto_archive_summary"],
         )
     if role == "single_agent":
         profiler = profiler_definition(ProfilerKind.NSYS)
@@ -166,6 +174,7 @@ def _render_prompt(domain: DomainName, role: str, context: dict[str, object]) ->
             framework_benchmark_enabled=context.get("framework_benchmark_enabled", False),
             official_evaluation_due=context.get("official_evaluation_due", False),
             official_evaluation_reason=context.get("official_evaluation_reason"),
+            pareto_archive_summary=context["pareto_archive_summary"],
         )
     if role == "orchestrator":
         return render_template(
@@ -225,6 +234,7 @@ def test_llm_serving_prompt_snapshot(case_name: str, context: dict[str, object],
 def test_llm_serving_rendered_prompts_keep_required_domain_content():
     context = _CONTEXTS["full"]
     prompts = {role: _render_prompt(DomainName.LLM_SERVING, role, context) for role in _ROLES}
+    normalized_prompts = {role: " ".join(prompt.split()) for role, prompt in prompts.items()}
 
     assert all("main.py" not in prompt for prompt in prompts.values())
     assert "pre-staged model weights" in prompts["implementer"]
@@ -394,6 +404,10 @@ def test_llm_serving_rendered_prompts_keep_required_domain_content():
     assert "framework control flow, not a place for optional future ideas" in prompts["implementer"]
     assert "Audit `next_step` as a lifecycle decision" in prompts["judge"]
     assert "Do not let a useful retained Pareto point" in prompts["judge"]
+    assert "Live framework Pareto archive" in prompts["implementer"]
+    assert "supersedes any numeric archive threshold" in normalized_prompts["implementer"]
+    assert "recomputed from reviewed records" in prompts["judge"]
+    assert "supersedes a numeric" in normalized_prompts["single_agent"]
     assert "recent attempts within this persistent hypothesis" in prompts["implementer"]
     assert "A distinguishing mechanism is necessary but not sufficient" in prompts["implementer"]
     assert "Amdahl-limited objective" in prompts["implementer"]

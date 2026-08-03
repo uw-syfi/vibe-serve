@@ -508,6 +508,29 @@ def _pareto_frontier_records(
     ]
 
 
+def _pareto_archive_dominators(
+    candidate_metrics: dict[str, float],
+    records: list[_RoundRecord],
+    objectives: list[Objective],
+    *,
+    relative_noise: float = _DEFAULT_PARETO_RELATIVE_NOISE,
+) -> list[_RoundRecord]:
+    """Return trusted archive points that dominate a proposed candidate row."""
+    objective_names = {objective.name for objective in objectives}
+    if not objective_names or not objective_names.issubset(candidate_metrics):
+        return []
+    return [
+        record
+        for record in _trusted_candidate_records(records, objectives)
+        if _noise_aware_dominates(
+            _record_candidate_metrics(record),
+            candidate_metrics,
+            objectives,
+            relative_noise=relative_noise,
+        )
+    ]
+
+
 def _format_metric_row(metrics: dict[str, float], objectives: list[Objective]) -> str:
     return ", ".join(
         f"{objective.name}={metrics[objective.name]:.6g} ({objective.direction})"
@@ -578,6 +601,33 @@ def _pareto_archive_summary(
                 f"reason: {record.candidate_retention_reason or '(unspecified)'}"
             )
     return "\n".join(lines)
+
+
+def _pareto_archive_conflict(
+    *,
+    candidate_disposition: CandidateDisposition,
+    candidate_metrics: dict[str, float],
+    records: list[_RoundRecord],
+    objectives: list[Objective],
+) -> str | None:
+    """Explain why a claimed frontier row is dominated by the live archive."""
+    if candidate_disposition is not CandidateDisposition.PARETO_FRONTIER:
+        return None
+    dominators = _pareto_archive_dominators(candidate_metrics, records, objectives)
+    if not dominators:
+        return None
+    rows = "; ".join(
+        f"round {record.round_number} ({_format_metric_row(_record_candidate_metrics(record), objectives)})"
+        for record in dominators
+    )
+    return (
+        "The candidate's `pareto_frontier` disposition conflicts with the live "
+        f"noise-aware archive: it is dominated by {rows}. A numeric archive gate "
+        "frozen into the hypothesis plan does not override the current archive. "
+        "Report this row as `discard` unless its metrics or configured objective "
+        "comparability were recorded incorrectly; do not rerun an unchanged "
+        "candidate merely to repair the disposition."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1163,6 +1213,7 @@ def _run_implementer(
     framework_benchmark_enabled: bool = False,
     official_evaluation_due: bool = False,
     official_evaluation_reason: str | None = None,
+    pareto_archive_summary: str = "",
 ) -> ImplementerResponse:
     domain_implementer = render_domain_section(
         domain_definition,
@@ -1202,6 +1253,7 @@ def _run_implementer(
         framework_benchmark_enabled=framework_benchmark_enabled,
         official_evaluation_due=official_evaluation_due,
         official_evaluation_reason=official_evaluation_reason,
+        pareto_archive_summary=pareto_archive_summary,
     )
     response = ctx.invoke(
         kind="implementer",
@@ -1247,6 +1299,8 @@ def _run_judge(
     framework_benchmark_enabled: bool = False,
     official_evaluation_due: bool = False,
     official_evaluation_reason: str | None = None,
+    pareto_archive_summary: str = "",
+    pareto_archive_conflict: str | None = None,
 ) -> JudgeResponse:
     judge_domain_context = _domain_render_context(ctx, modality, interface)
     # Canonical accuracy and benchmark commands are framework-owned. Hiding
@@ -1302,6 +1356,8 @@ def _run_judge(
         framework_benchmark_enabled=framework_benchmark_enabled,
         official_evaluation_due=official_evaluation_due,
         official_evaluation_reason=official_evaluation_reason,
+        pareto_archive_summary=pareto_archive_summary,
+        pareto_archive_conflict=pareto_archive_conflict,
     )
     response = _invoke_read_only_role(
         ctx,
@@ -1321,6 +1377,16 @@ def _run_judge(
         round_label=f"round-{round_number}-retry-{retry}-judge",
         reuse_session=False,
     )
+    if response.verdict is Verdict.PASS and pareto_archive_conflict:
+        response = response.model_copy(
+            update={
+                "analysis": (
+                    f"{response.analysis}\n\nFramework Pareto guard: {pareto_archive_conflict}"
+                ),
+                "feedback": pareto_archive_conflict,
+                "verdict": Verdict.FAIL,
+            }
+        )
     if ctx.supervisor is not None:
         ctx.supervisor.record(
             EventType.JUDGE_RESULT,
@@ -1357,6 +1423,9 @@ def _run_single_agent_round(
     official_evaluation_due: bool = False,
     official_evaluation_reason: str | None = None,
     framework_benchmark_enabled: bool = False,
+    pareto_archive_summary: str = "",
+    pareto_records: list[_RoundRecord] | None = None,
+    objectives: list[Objective] | None = None,
 ) -> SingleAgentRoundResponse:
     """Invoke one agent that plays implementer + judge + profiler.
 
@@ -1416,6 +1485,7 @@ def _run_single_agent_round(
         official_evaluation_due=official_evaluation_due,
         official_evaluation_reason=official_evaluation_reason,
         framework_benchmark_enabled=framework_benchmark_enabled,
+        pareto_archive_summary=pareto_archive_summary,
     )
     response = ctx.invoke(
         kind="implementer",
@@ -1439,6 +1509,22 @@ def _run_single_agent_round(
         reuse_session=True,
         session_key=f"hypothesis:{plan.hypothesis_id}",
     )
+    archive_conflict = _pareto_archive_conflict(
+        candidate_disposition=response.candidate_disposition,
+        candidate_metrics=dict(response.candidate_metrics),
+        records=pareto_records or [],
+        objectives=objectives or [],
+    )
+    if response.verdict is Verdict.PASS and archive_conflict:
+        response = response.model_copy(
+            update={
+                "self_review": (
+                    f"{response.self_review}\n\nFramework Pareto guard: {archive_conflict}"
+                ),
+                "feedback": archive_conflict,
+                "verdict": Verdict.FAIL,
+            }
+        )
     issue_board.append_single_agent_round(progress_path, round_number, retry, response)
     ctx.snapshot_workspace(f"round-{round_number}-retry-{retry}-single-agent")
     return response
@@ -2084,6 +2170,7 @@ def run_agent_loop(
                 accepted_metrics: dict[str, float] = {}
                 accepted_evaluation_artifact: str | None = None
                 completed_official_evaluation_reason: str | None = None
+                live_pareto_archive = _pareto_archive_summary(records, objectives)
                 # ``max_retries_per_round >= 1`` is validated at entry, so the
                 # loop always runs; the initializer keeps ``retry`` provably
                 # bound for the post-loop round bookkeeping.
@@ -2118,6 +2205,7 @@ def run_agent_loop(
                             framework_benchmark_enabled=benchmark_result is not None,
                             official_evaluation_due=(planned_official_reason is not None),
                             official_evaluation_reason=planned_official_reason,
+                            pareto_archive_summary=live_pareto_archive,
                         )
                         review_due = _review_due(
                             round_number=round_number,
@@ -2168,6 +2256,12 @@ def run_agent_loop(
                         review_started = True
                         final_attempt_reviewed = True
                         framework_revalidation_required = False
+                        candidate_archive_conflict = _pareto_archive_conflict(
+                            candidate_disposition=implementation.candidate_disposition,
+                            candidate_metrics=dict(implementation.candidate_metrics),
+                            records=records,
+                            objectives=objectives,
+                        )
                         ctx.reselect_gpu()
                         verdict = _run_judge(
                             ctx,
@@ -2194,6 +2288,8 @@ def run_agent_loop(
                             framework_benchmark_enabled=benchmark_result is not None,
                             official_evaluation_due=(planned_official_reason is not None),
                             official_evaluation_reason=planned_official_reason,
+                            pareto_archive_summary=live_pareto_archive,
+                            pareto_archive_conflict=candidate_archive_conflict,
                         )
                         if verdict.verdict == Verdict.PASS:
                             if (
@@ -2328,6 +2424,9 @@ def run_agent_loop(
                             official_evaluation_due=(planned_official_reason is not None),
                             official_evaluation_reason=planned_official_reason,
                             framework_benchmark_enabled=benchmark_result is not None,
+                            pareto_archive_summary=live_pareto_archive,
+                            pareto_records=records,
+                            objectives=objectives,
                         )
                         if single_agent_response.verdict == Verdict.PASS:
                             official_reason = _official_evaluation_reason(

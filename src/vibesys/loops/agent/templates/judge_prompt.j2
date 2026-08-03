@@ -32,6 +32,27 @@ You are a senior code reviewer evaluating the candidate implementation.
 - **Candidate evidence artifact**: `{{ candidate_evaluation_artifact|default('(missing)') or '(missing)' }}`
 - **Candidate operating point**: {{ candidate_operating_point|default('(missing)') or '(missing)' }}
 - **Candidate retention reason**: {{ candidate_retention_reason|default('(missing)') or '(missing)' }}
+
+## Live framework Pareto archive
+
+```
+{{ pareto_archive_summary|default('(no Pareto archive available)') or '(no Pareto archive available)' }}
+```
+
+This archive is recomputed from reviewed records for the current retry. Audit
+the disposition against it rather than relying on a numeric archive gate frozen
+into the original hypothesis plan.
+{% if pareto_archive_conflict %}
+
+### Framework-detected disposition conflict
+
+{{ pareto_archive_conflict }}
+
+This is a deterministic framework rejection of the current
+`pareto_frontier` label. Fail that label even if every causal and correctness
+claim is otherwise valid, and request a report-only disposition repair without
+another unchanged performance run.
+{% endif %}
 {% if gate_revalidation_pending|default(false) %}
 
 ## Framework-approved evidence pending gate revalidation

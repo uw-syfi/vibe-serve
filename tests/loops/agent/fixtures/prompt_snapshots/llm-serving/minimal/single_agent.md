@@ -115,6 +115,21 @@ Evaluate observed performance against the minimum acceptance criteria, not the
 forecast. Retain a material improvement that clears the minimum even when the
 model overpredicted it, and record the forecast miss as calibration evidence.
 
+## Live framework Pareto archive
+
+```
+Configured axes: throughput:max, latency:min
+Trusted frontier parents:
+- round 6, commit abc123, reviewed provisional: throughput=120, latency=80
+```
+
+The framework recomputes this archive for every retry. It supersedes a numeric
+archive threshold frozen into an older hypothesis plan. Before returning
+`pareto_frontier`, verify that no trusted point is no worse within the
+configured noise band on every axis and materially better on at least one.
+Label a dominated row `discard` and retain its causal evidence without rerunning
+the unchanged candidate merely to repair the disposition.
+
 ## Implementation substrate and change scope
 
 Treat the external candidate contract as fixed, not the incumbent language,

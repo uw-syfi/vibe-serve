@@ -142,6 +142,23 @@ plan's independent archive/non-domination gate, you MUST report
 `inconclusive` or misses its minimum causal magnitude. Record both decisions
 explicitly. Do not downgrade such a point to `prerequisite`: that label is only
 for work whose measured performance is not itself a frontier candidate.
+
+## Live framework Pareto archive
+
+```
+Configured axes: throughput:max, latency:min
+Trusted frontier parents:
+- round 6, commit abc123, reviewed provisional: throughput=120, latency=80
+```
+
+The framework recomputes this archive for every retry. It supersedes any
+numeric archive threshold frozen into an older hypothesis plan. Compare a fresh
+candidate against these trusted objective rows before reporting its disposition.
+If a trusted point is no worse within the configured noise band on every axis
+and materially better on at least one, the fresh row is `discard`, not
+`pareto_frontier`; preserve its causal evidence but do not request another paid
+run merely to change the label. A genuine throughput/latency tradeoff remains a
+frontier candidate.
 This input has no machine-readable framework benchmark gate. You own the performance evaluations needed to test the hypothesis, including a canonical workload measurement when the claim requires one. Preserve commands, raw rows, errors, and operating-point selection reasoning so another reviewer can audit them; prefer targeted experiments between canonical confirmations.
 
 Before editing or evaluating, search the durable progress files for a prior

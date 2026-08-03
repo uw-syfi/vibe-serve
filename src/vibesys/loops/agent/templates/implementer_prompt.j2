@@ -140,6 +140,21 @@ plan's independent archive/non-domination gate, you MUST report
 `inconclusive` or misses its minimum causal magnitude. Record both decisions
 explicitly. Do not downgrade such a point to `prerequisite`: that label is only
 for work whose measured performance is not itself a frontier candidate.
+
+## Live framework Pareto archive
+
+```
+{{ pareto_archive_summary|default('(no Pareto archive available)') or '(no Pareto archive available)' }}
+```
+
+The framework recomputes this archive for every retry. It supersedes any
+numeric archive threshold frozen into an older hypothesis plan. Compare a fresh
+candidate against these trusted objective rows before reporting its disposition.
+If a trusted point is no worse within the configured noise band on every axis
+and materially better on at least one, the fresh row is `discard`, not
+`pareto_frontier`; preserve its causal evidence but do not request another paid
+run merely to change the label. A genuine throughput/latency tradeoff remains a
+frontier candidate.
 {% if gate_revalidation_pending|default(false) %}
 
 ## Framework gate revalidation
