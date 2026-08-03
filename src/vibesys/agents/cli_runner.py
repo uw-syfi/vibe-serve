@@ -69,6 +69,12 @@ _PROVIDER_CLASSES: dict[str, _ProviderFactory] = {
     "opencode": OpencodeCodingAgent,
 }
 
+# Codex provider threads retain useful implementation context, but long
+# tool-heavy systems turns can approach the provider context limit even when
+# the durable workspace contains everything needed to continue.  Keep one
+# adjacent continuation, then start a fresh provider thread on the third turn.
+_MAX_CODEX_SESSION_TURNS = 2
+
 
 def _is_missing_codex_rollout(exc: RuntimeError) -> bool:
     """Return whether Codex rejected a stale resumable thread."""
@@ -125,6 +131,7 @@ class CliAgentRunner:
         # the exception: its history is carried explicitly in each prompt, so
         # it must not depend on provider-side session state.
         self._agents: dict[str, CodingAgent] = {}
+        self._session_turn_counts: dict[str, int] = {}
 
     def invoke(
         self,
@@ -315,6 +322,20 @@ class CliAgentRunner:
             if reuse_agent:
                 self._agents[cache_key] = agent
 
+        if (
+            self._provider == "codex"
+            and reuse_agent
+            and self._session_turn_counts.get(cache_key, 0) >= _MAX_CODEX_SESSION_TURNS
+        ):
+            log_and_print(
+                f"[{label}] renewing Codex thread after "
+                f"{_MAX_CODEX_SESSION_TURNS} successful turns; durable workspace "
+                "state remains authoritative.",
+                self._run_log_file,
+            )
+            cast(CodexCodingAgent, agent).session_id = None
+            self._session_turn_counts[cache_key] = 0
+
         # Layer GPU env vars on top of the captured interactive env so the
         # spawned subprocess inherits CUDA_VISIBLE_DEVICES. Containerised
         # modes bake env vars into the container at start(), so skip here.
@@ -375,11 +396,16 @@ class CliAgentRunner:
                     self._run_log_file,
                 )
                 cast(CodexCodingAgent, agent).session_id = None
+                self._session_turn_counts[cache_key] = 0
                 text = agent.generate(
                     combined_prompt,
                     cwd=workspace_arg,
                     timeout=self._timeout,
                     silent=True,
+                )
+            if reuse_agent:
+                self._session_turn_counts[cache_key] = (
+                    self._session_turn_counts.get(cache_key, 0) + 1
                 )
         except BaseException as exc:
             agent_error = exc

@@ -541,6 +541,26 @@ class TestStop:
         assert "abc123" not in _live_containers
 
     @patch("subprocess.run")
+    def test_removal_already_in_progress_clears_ownership(self, mock_run, sandbox):
+        from vs_sandbox.docker_sandbox import _live_containers
+
+        sandbox._container_id = "abc123"
+        _live_containers["abc123"] = "vibesys-test"
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=[],
+            returncode=1,
+            stdout="",
+            stderr=(
+                "Error response from daemon: removal of container abc123 is already in progress"
+            ),
+        )
+
+        sandbox.stop()
+
+        assert sandbox._container_id is None
+        assert "abc123" not in _live_containers
+
+    @patch("subprocess.run")
     def test_keyboard_interrupt_is_not_swallowed(self, mock_run, sandbox):
         from vs_sandbox.docker_sandbox import _live_containers
 

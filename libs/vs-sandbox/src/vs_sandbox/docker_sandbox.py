@@ -503,8 +503,14 @@ class DockerSandbox(BaseSandbox):
                 )
                 self._log_cmd(cmd, result)
                 if cmd[1] == "rm":
-                    removed = result.returncode == 0 or "No such container" in (
-                        result.stderr or ""
+                    stderr = result.stderr or ""
+                    removed = (
+                        result.returncode == 0
+                        or "No such container" in stderr
+                        or (
+                            "removal of container" in stderr
+                            and "is already in progress" in stderr
+                        )
                     )
                     if not removed:
                         cleanup_error = RuntimeError(
