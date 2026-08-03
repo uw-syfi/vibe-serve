@@ -355,7 +355,9 @@ enforced deadline. A post-return duration check or async/thread waiter that
 leaves work running is not a timeout; name the watchdog/process/container/
 remote-function boundary, using a disposable worker when in-process preemption
 is unsafe. The outer poll outlives the deadline; quiet output alone is not a
-hang. Smoke must traverse the newly changed failure-prone path (including its
+hang. Checkpoints accumulated only in remote memory and returned at completion
+are not live or durable; require external visibility while the phase runs.
+Smoke must traverse the newly changed failure-prone path (including its
 minimum batching/concurrency); an unrelated entry point is not useful. Specify when each
 activation field is sampled: post-drain gates use totals/peaks/events; live
 occupancy is sampled live.

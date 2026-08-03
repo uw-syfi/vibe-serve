@@ -162,7 +162,9 @@ completed.
   another controller phase when it uses the same accelerator or initializer;
   split only for a concrete contamination or validity reason.
 - Declare deadlines and progress checkpoints for model load, compilation, graph
-  capture, and other blocking work. Quiet output alone is not a hang. A
+  capture, and other blocking work. A remote in-memory list returned only at
+  completion is not a live checkpoint; expose progress while the phase runs.
+  Quiet output alone is not a hang. A
   post-return check or async/thread wait that leaves work alive is not timeout
   enforcement; use a terminating watchdog, process/container, remote-function,
   or disposable-worker boundary and release the accelerator.

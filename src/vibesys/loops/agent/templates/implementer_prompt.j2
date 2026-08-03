@@ -253,6 +253,8 @@ This input has no machine-readable framework benchmark gate. You own the perform
   controller budget.
 - Declare each phase deadline and retained start/heartbeat/completion; do not
   invent an ad hoc shorter cutoff for quiet model load/compile/graph capture.
+  A checkpoint list held in remote memory until return is neither live nor
+  durable: emit or persist progress externally while the phase runs.
   A post-return duration check, async wait, or thread wait that leaves work
   running is not enforcement: use an independent watchdog/process/container/
   remote-function boundary, or a disposable worker when safe preemption is

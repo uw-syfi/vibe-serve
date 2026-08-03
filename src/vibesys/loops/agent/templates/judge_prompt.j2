@@ -163,6 +163,8 @@ When the runtime-environment block above states a framework-level fact (decorato
   concrete contamination/validity reason requires separation.
 - Quiet logs before a declared deadline do not prove failure. Require observable
   progress plus terminal error, expired deadline, or verified loss of progress.
+  Checkpoints retained only in remote memory until return are not observable;
+  require externally visible progress during long paid phases.
   A post-return duration check or async/thread wait leaving work alive is not a
   timeout; require an independent watchdog/process/container/remote-function or
   disposable worker that terminates work and releases the accelerator.

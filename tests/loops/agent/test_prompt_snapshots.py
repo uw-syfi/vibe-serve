@@ -340,6 +340,11 @@ def test_llm_serving_rendered_prompts_keep_required_domain_content():
         in prompts["implementer"]
     )
     assert "do not invent an ad hoc shorter cutoff" in prompts["implementer"]
+    assert (
+        "held in remote memory until return is neither live nor durable" in prompts["implementer"]
+    )
+    assert "returned at completion are not live or durable" in prompts["orchestrator"]
+    assert "retained only in remote memory until return are not observable" in prompts["judge"]
     assert "do not poll a healthy" in prompts["implementer"]
     assert "back off up" in prompts["implementer"]
     assert "to 60 seconds while state is unchanged" in prompts["implementer"]
