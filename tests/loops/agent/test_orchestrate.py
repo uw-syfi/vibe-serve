@@ -1476,6 +1476,51 @@ def test_implementation_failure_with_repair_keeps_hypothesis_active(tmp_path, re
     ]
 
 
+def test_repeated_implementation_failures_return_control_to_designer(tmp_path, ref_file):
+    runner = _make_orchestrate_runner(
+        plans=[
+            OrchestratorPlan(
+                hypothesis_id="repair-lease",
+                hypothesis="the mechanism helps after target-only repairs",
+                task="implement and repair the mechanism",
+                pass_criteria="retain causal evidence",
+                reasoning="start one persistent implementation lease",
+            ),
+            OrchestratorPlan(
+                hypothesis_id="designer-review",
+                hypothesis="compare the stalled repair against alternatives",
+                task="choose the next bounded experiment",
+                pass_criteria="retain a reviewed direction",
+                reasoning="the repair lease expired",
+            ),
+        ],
+        implementer_outcomes=[
+            HypothesisOutcome.IMPLEMENTATION_FAILED,
+            HypothesisOutcome.IMPLEMENTATION_FAILED,
+            HypothesisOutcome.IMPLEMENTATION_FAILED,
+            HypothesisOutcome.NOMINATED,
+        ],
+    )
+
+    _invoke_orchestrate(
+        tmp_path,
+        ref_file,
+        runner,
+        max_rounds=4,
+        judge_every=10,
+    )
+
+    assert runner.counters["orch_plan"] == 2
+    rounds_file = next((tmp_path / "exp_env").glob("*/logs/rounds.json"))
+    rounds = __import__("json").loads(rounds_file.read_text())
+    assert [round_data["hypothesis_id"] for round_data in rounds] == [
+        "repair-lease",
+        "repair-lease",
+        "repair-lease",
+        "designer-review",
+    ]
+
+
 def test_resolvable_inconclusive_result_keeps_hypothesis_active(tmp_path, ref_file):
     runner = _make_orchestrate_runner(
         plans=[
