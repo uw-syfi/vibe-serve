@@ -185,11 +185,11 @@ class _ActiveHypothesis:
     parent_commit: str | None = None
     feedback: str | None = None
     next_step: str | None = None
-    # Consecutive framework rounds retained only because an implementation
-    # defect or resolvable ambiguity named another concrete step. Bound this
-    # lease so persistent implementer ownership cannot become sunk-cost
-    # persistence without a fresh designer comparison against alternatives.
-    repair_continuations: int = 0
+    # Consecutive rounds retained under the same plan after its initial turn.
+    # Bound every continuation outcome, including an implementer-reported
+    # ``continue``: otherwise an agent can renew its own lease indefinitely and
+    # prevent the designer from comparing the work with higher-value options.
+    continuation_rounds: int = 0
     # A plan-level rollback establishes the hypothesis parent exactly once.
     # Persist the fact separately from round state so a continuation or
     # process resume cannot reapply it and erase in-hypothesis work.
@@ -225,7 +225,7 @@ class _ActiveHypothesis:
             "parent_commit": self.parent_commit,
             "feedback": self.feedback,
             "next_step": self.next_step,
-            "repair_continuations": self.repair_continuations,
+            "continuation_rounds": self.continuation_rounds,
             "revert_applied": self.revert_applied,
             "revert_commit": self.revert_commit,
             "gate_revalidation_pending": self.gate_revalidation_pending,
@@ -261,7 +261,9 @@ class _ActiveHypothesis:
             parent_commit=data.get("parent_commit") or data.get("revert_commit"),
             feedback=data.get("feedback"),
             next_step=data.get("next_step"),
-            repair_continuations=int(data.get("repair_continuations", 0)),
+            continuation_rounds=int(
+                data.get("continuation_rounds", data.get("repair_continuations", 0))
+            ),
             revert_applied=bool(data.get("revert_applied", False)),
             revert_commit=data.get("revert_commit"),
             gate_revalidation_pending=bool(data.get("gate_revalidation_pending", False)),
@@ -345,37 +347,44 @@ def _backfill_revert_commit(
 
 
 _FAILED_HYPOTHESIS_OUTCOMES = frozenset({"blocked", "disproven", "inconclusive", "rejected"})
-_MAX_REPAIR_CONTINUATIONS_WITHOUT_DESIGN_REVIEW = 2
+_MAX_CONTINUATION_ROUNDS_WITHOUT_DESIGN_REVIEW = 2
+
+
+def _implementation_requests_continuation(
+    implementation: ImplementerResponse | None,
+) -> bool:
+    """Return whether an implementation response names unfinished scoped work."""
+    if implementation is None:
+        return False
+    return bool(
+        implementation.hypothesis_outcome
+        in {
+            HypothesisOutcome.CONTINUE,
+            HypothesisOutcome.IMPLEMENTATION_FAILED,
+            HypothesisOutcome.INCONCLUSIVE,
+        }
+        and implementation.next_step.strip()
+    )
 
 
 def _implementation_keeps_hypothesis_active(
     implementation: ImplementerResponse | None,
     *,
-    repair_continuations: int = 0,
+    continuation_rounds: int = 0,
 ) -> bool:
     """Return whether the same implementer goal owns the next round.
 
-    ``implementation_failed`` and a resolvable ``inconclusive`` result are not
-    causal falsification. When the implementer names a concrete repair or
-    discriminating next measurement, keep its plan, workspace, and session so
-    a transient defect or noisy boundary does not immediately force the
-    designer to re-plan or rebuild an already activated mechanism. Return
-    control after two such continuation rounds, however, so the designer must
-    compare further repair against alternative mechanisms. An empty next step
-    returns control to the designer as before.
+    A concrete continuation can keep the plan, workspace, and session through
+    transient defects or a short multi-step implementation. Return control to
+    the designer after two continuation rounds regardless of the outcome label,
+    however, so ``continue`` cannot become an unbounded self-renewing lease.
+    This is a design checkpoint, not a forced rollback: the designer may retain
+    the same mechanism after comparing its remaining value with alternatives.
+    An empty next step returns control to the designer as before.
     """
-    if implementation is None:
-        return False
-    if implementation.hypothesis_outcome is HypothesisOutcome.CONTINUE:
-        return True
-    return (
-        implementation.hypothesis_outcome
-        in {
-            HypothesisOutcome.IMPLEMENTATION_FAILED,
-            HypothesisOutcome.INCONCLUSIVE,
-        }
-        and bool(implementation.next_step.strip())
-        and repair_continuations < _MAX_REPAIR_CONTINUATIONS_WITHOUT_DESIGN_REVIEW
+    return bool(
+        _implementation_requests_continuation(implementation)
+        and continuation_rounds < _MAX_CONTINUATION_ROUNDS_WITHOUT_DESIGN_REVIEW
     )
 
 
@@ -2254,9 +2263,8 @@ def run_agent_loop(
                                 implementation, records
                             ),
                         )
-                        if review_started and not _implementation_keeps_hypothesis_active(
-                            implementation,
-                            repair_continuations=active_hypothesis.repair_continuations,
+                        if review_started and not _implementation_requests_continuation(
+                            implementation
                         ):
                             # Re-review a terminal response to feedback from a
                             # failed judge. Sparse cadence controls the first
@@ -2266,10 +2274,7 @@ def run_agent_loop(
                         if (
                             review_started
                             and round_number != max_rounds
-                            and _implementation_keeps_hypothesis_active(
-                                implementation,
-                                repair_continuations=active_hypothesis.repair_continuations,
-                            )
+                            and _implementation_requests_continuation(implementation)
                             and implementation.candidate_disposition
                             is not CandidateDisposition.PARETO_FRONTIER
                             and not framework_revalidation_required
@@ -2778,7 +2783,7 @@ def run_agent_loop(
                         and implementation is not None
                         and not _implementation_keeps_hypothesis_active(
                             implementation,
-                            repair_continuations=active_hypothesis.repair_continuations,
+                            continuation_rounds=active_hypothesis.continuation_rounds,
                         )
                         and implementation.hypothesis_outcome is not HypothesisOutcome.NOMINATED
                     ):
@@ -2814,7 +2819,7 @@ def run_agent_loop(
                         None
                         if _implementation_keeps_hypothesis_active(
                             implementation,
-                            repair_continuations=active_hypothesis.repair_continuations,
+                            continuation_rounds=active_hypothesis.continuation_rounds,
                         )
                         else _terminal_workspace_notice(records)
                     )
@@ -2826,18 +2831,12 @@ def run_agent_loop(
                 # so the implementer can address it on the next round.
                 if inner_loop == "multi-agent" and _implementation_keeps_hypothesis_active(
                     implementation,
-                    repair_continuations=active_hypothesis.repair_continuations,
+                    continuation_rounds=active_hypothesis.continuation_rounds,
                 ):
                     active_hypothesis.feedback = feedback if reviewed and not passed else None
                     assert implementation is not None
                     active_hypothesis.next_step = implementation.next_step
-                    if implementation.hypothesis_outcome in {
-                        HypothesisOutcome.IMPLEMENTATION_FAILED,
-                        HypothesisOutcome.INCONCLUSIVE,
-                    }:
-                        active_hypothesis.repair_continuations += 1
-                    else:
-                        active_hypothesis.repair_continuations = 0
+                    active_hypothesis.continuation_rounds += 1
                 elif passed:
                     active_hypothesis = None
                 elif reviewed:
@@ -2849,7 +2848,7 @@ def run_agent_loop(
                     )
                 elif implementation is not None and not _implementation_keeps_hypothesis_active(
                     implementation,
-                    repair_continuations=active_hypothesis.repair_continuations,
+                    continuation_rounds=active_hypothesis.continuation_rounds,
                 ):
                     active_hypothesis = None
                 else:
