@@ -210,6 +210,19 @@ raw response and phase identity even when later local post-processing fails.
 Treat comparison and presentation artifacts as rebuildable views over the raw
 measurement, never as its only durable copy.
 
+Bind every representative or canonical performance claim to the exact candidate
+that produced it. Before the run, retain a restorable framework/VCS checkpoint
+or a complete content manifest for behavior-affecting candidate source, build
+inputs, runtime configuration, and the built artifact/image identity when the
+platform exposes one; one primary-file hash is insufficient for a multi-file or
+multi-language candidate.
+If you change behavior or execution/build configuration after measurement, keep
+the row as historical evidence for that measured checkpoint, but do not present
+it as evidence for the new workspace state. Either nominate and preserve the
+exact measured checkpoint or measure the new state when the claim requires it.
+Report-only analysis, documentation, and derived-view changes do not invalidate
+an otherwise identified row.
+
 ## Profiling step
 
 After (and only after) the implementation passes your self-judge gates, capture a profile so the orchestrator has a bottleneck signal for the next round.

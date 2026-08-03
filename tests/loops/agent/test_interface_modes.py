@@ -216,7 +216,8 @@ def test_llm_domain_owns_python_tooling():
         DomainRole.IMPLEMENTER,
         interface="inprocess",
     )
-    assert "Use `uv` for Python package management" in llm_prompt
+    assert "For candidate components that use Python, use `uv`" in llm_prompt
+    assert "not a requirement that the serving hot path" in llm_prompt
     assert generic_prompt == ""
 
 

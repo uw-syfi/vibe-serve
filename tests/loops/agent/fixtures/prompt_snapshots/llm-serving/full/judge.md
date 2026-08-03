@@ -239,6 +239,20 @@ For every `fallback=0`, `legacy=0`, error, or bypass field used to prove
 activation, verify that the corresponding alternate branch actually increments
 that field. A counter initialized to zero but never mutated is not evidence that
 the alternate path stayed inactive.
+Audit candidate identity before accepting retained performance evidence. A
+representative or canonical row must identify the exact measured candidate with
+a restorable framework/VCS checkpoint or a complete content manifest covering
+behavior-affecting source, build inputs, runtime configuration, and built
+artifact/image identity when the platform exposes one. One primary-file hash is
+insufficient when other files
+can change production behavior. Compare that identity with the candidate under
+review and inspect edits made after the run. If behavior or execution/build
+configuration changed afterward, treat the row as historical evidence for the
+older checkpoint, not performance evidence for the current candidate, unless
+the implementer explicitly nominates and preserves that exact older checkpoint.
+Do not invalidate a row for later report-only analysis, documentation, derived
+views, or diagnostics that phase-order evidence proves were inactive during the
+measurement.
 When the round creates or changes any of those evaluation paths, inspect the
 changed controller rather than trusting phase labels. A failed capability,
 correctness, or smoke gate must return before any downstream

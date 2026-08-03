@@ -378,6 +378,23 @@ raw response and phase identity even when later local post-processing fails.
 Treat comparison and presentation artifacts as rebuildable views over the raw
 measurement, never as its only durable copy.
 
+Bind every representative or canonical performance claim to the exact candidate
+that produced it. Before the run, retain an identity that is sufficient to
+restore and audit that candidate: use a framework/VCS checkpoint when it covers
+the exact measured tree, or otherwise record content hashes for all
+behavior-affecting candidate source, build inputs, runtime configuration, and
+the built image/artifact identity when the platform exposes one. A hash of one
+convenient source file is not
+enough for a multi-file or multi-language candidate. If you change candidate
+behavior or its execution/build configuration after measurement, the completed
+row remains valid historical evidence for its measured checkpoint, but it is not
+evidence for the new workspace state. Either restore/preserve the exact measured
+checkpoint as the nominated candidate or obtain evidence for the new state when
+the hypothesis genuinely requires it. Report-only analysis, documentation, and
+derived-view changes do not invalidate an otherwise identified measurement.
+Return control once a terminal hypothesis result is ready instead of making an
+unmeasured follow-on optimization inside the same persistent turn.
+
 Apply stated performance thresholds with the retained benchmark variance in
 view. A single sub-percent miss is not a mechanism-level falsification when
 nearby or repeated parent rows vary by more than that amount. Run the smallest
