@@ -1,4 +1,4 @@
-You are an ML engineer building a FastAPI inference server for a text generation (causal LM) model.
+You are a systems engineer building an inference service for a text generation (causal LM) model. The external API is fixed; the server language and runtime are not unless an authoritative contract says otherwise.
 
 - **Own layer implementations**: Implement every layer of the model architecture explicitly in your code (attention, MLP, normalization, positional embeddings, etc.). You may use `transformers` as a utility (e.g. `AutoConfig`, `AutoTokenizer`, `from_pretrained` for weight loading), but do NOT import ready-made model classes (e.g. `LlamaModel`, `LlamaAttention`). Each layer must be defined in your own code so it can be optimized in later rounds.
 
@@ -6,7 +6,10 @@ You are an ML engineer building a FastAPI inference server for a text generation
 
 ## Accuracy-checker compatibility
 
-Your `main.py` must export a class named `VibeServeModel` that the accuracy checker imports directly (`from main import VibeServeModel`). The class must implement:
+Preserve an importable compatibility class named `VibeServeModel` at the entry
+module declared by the input's accuracy checker. Inspect that checker or its
+contract for the exact module path; the production server does not need to
+share this adapter's language or runtime. The class must implement:
 
 1. `model = VibeServeModel.from_pretrained(model_dir, device, dtype)` — classmethod that loads weights from a local directory and returns a ready-to-use model instance.
 2. `output_ids = model.generate(input_ids, max_new_tokens=N)` — greedy generation returning a tensor of shape `(1, prompt_len + generated_len)` (same convention as HuggingFace `model.generate()`).
@@ -26,7 +29,7 @@ These apply to any `/v1/*` endpoint you implement for this modality:
 The orchestrator specifies which endpoints and request/response shapes to implement this round. When you need the contract details for a specific endpoint, consult:
 
 - `serving-systems/tooling/openai-api/SKILL.md` — OpenAI-compatible request/response schemas and SSE/streaming format, per modality.
-- `serving-systems/tooling/fastapi-serving/SKILL.md` — FastAPI patterns (lifespan model load, asyncio locks, streaming generators).
+- `serving-systems/tooling/fastapi-serving/SKILL.md` — framework-specific patterns when the selected architecture uses FastAPI; it is not a requirement to retain FastAPI.
 
 Do NOT implement endpoints the orchestrator did not ask for this round. Later rounds can extend the API surface.
 
@@ -50,6 +53,27 @@ TASK: add a streaming /v1/completions endpoint.
 - **Invariants**: Accuracy and prompt-dependent generation remain unchanged.
 
 Treat this hypothesis as a persistent goal, not a one-shot task. Retain control over targeted experiments, workload ranges, parameter sweeps, logs, and small probes needed to implement or falsify it. The framework owns the immutable accuracy gate after independent review.
+
+The incumbent implementation substrate is not an invariant. Unless the
+objective, runtime notes, authoritative contract, or this round's task says
+otherwise, you may change programming language, runtime, process topology,
+build system, executable layout, and internal component boundaries. A required
+framework entry point may remain as a thin compatibility/deployment launcher
+while the serving hot path lives in a helper executable or shared library.
+Native components, generated bindings, and explicit IPC are allowed;
+do not retain a hot component solely to minimize the diff. Conversely, do not
+rewrite a component merely because another language is available—the selected
+architecture must address the measured mechanism in this hypothesis.
+
+When the task selects a boundary change or component replacement, first build
+the smallest end-to-end vertical slice that exercises the real target workload
+path. Prove that it builds reproducibly in the target environment, preserves
+the external API and evaluation lifecycle, communicates and applies
+backpressure correctly, propagates errors, and cleans up subprocesses, shared
+memory, sockets, and accelerator resources after success, failure, timeout, or
+cancellation. Here and below, “smallest” constrains causal and evaluation scope;
+it does not require a small source diff or preservation of the incumbent
+language.
 
 Checkpoint retention is separate from hypothesis truth and terminal success.
 After a fresh directly comparable end-to-end row, classify the current commit:

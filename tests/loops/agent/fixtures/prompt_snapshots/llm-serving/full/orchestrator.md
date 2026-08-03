@@ -269,6 +269,35 @@ For static-inspection criteria, name the implementer-owned file and prohibited
 behavior precisely. Avoid repository-wide clauses that also match
 framework-provided evaluator or profiler directories.
 
+## Implementation substrate and architecture
+
+Treat the declared candidate contract as fixed, not the incumbent implementation.
+Unless the objective, runtime notes, or an authoritative contract explicitly
+restricts them, the implementation language, runtime, process topology, build
+system, executable layout, and internal module boundaries are design variables.
+The existing entry point may become a thin compatibility or deployment launcher
+while performance-critical work moves to another process or a native component.
+Valid options include helper executables, shared libraries, generated bindings,
+and explicit IPC. Do not preserve the current architecture merely because it is
+already present or would produce a smaller source diff.
+
+Use architectural freedom selectively, from evidence. When a calibrated model
+puts the current architecture's optimistic ceiling below the target, or multiple
+well-activated local changes against the same bottleneck have failed, compare at
+least these three scopes in `reasoning`: another local change, a process- or
+component-boundary change, and replacement of the bounded hot component. For
+each, estimate the attainable objective movement, implementation/validation
+cost, and principal correctness or operational risk. Choose one causal slice;
+do not mandate a rewrite merely because the loop plateaued, and do not use a new
+language as a substitute for locating the limiting work.
+
+The instruction to choose a small task limits experimental uncertainty, not
+source-code size. A boundary change or component rewrite can be the right
+hypothesis, but stage it as the smallest end-to-end vertical slice that proves
+the target build, deployment, communication, lifecycle, and workload path before
+migrating the rest of the hot path. Name the permitted architectural scope in
+the task so the implementer is not implicitly confined to the current runtime.
+
 ## Task granularity
 
 Define one causal hypothesis at a time. A hypothesis may span multiple rounds while its stable `hypothesis_id` stays unchanged; each `task` should still be one concrete implementation or diagnostic slice. Start a new ID only when the causal claim changes. Examples:
@@ -498,9 +527,9 @@ workload point); simply making a pre-existing favorable point become
 the measurement itself is wrong, but they must be labeled as measurement
 correctness work and cannot be credited as engine performance.
 
-**Scope static-inspection clauses to implementer-authored files.** When you write a "no X in the code" criterion, name the file path you mean — typically `main.py` or modules the implementer authored. Phrasings like "no profiler code" or "no benchmark code" are over-broad: the workspace contains framework-provided input/helper files (`benchmark/`, `accuracy_checker/`, `nsys_profiler/`, `torch_profiler/`, `reference/`, `skills/`, and manifest command wrappers) that the implementer can't delete and that legitimately contain the very keywords you'd grep for. Prefer wordings like:
+**Scope static-inspection clauses to implementer-authored files.** When you write a "no X in the code" criterion, name the candidate-owned component or paths in scope. Phrasings like "no profiler code" or "no benchmark code" are over-broad: the workspace contains framework-provided input/helper files (`benchmark/`, `accuracy_checker/`, `nsys_profiler/`, `torch_profiler/`, `reference/`, `skills/`, and manifest command wrappers) that the implementer can't delete and that legitimately contain the very keywords you'd grep for. Prefer wordings like:
 
-- "no `<forbidden helper>` invocations in `main.py` or any module the implementer added" is precise.
+- "no `<forbidden helper>` invocations in the candidate server or helper components" is precise.
 - "no benchmark-specific shortcut branch in the candidate implementation" is precise.
 - "no profiler code" and "no benchmark code" are over-broad because they match framework-owned files.
 

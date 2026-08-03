@@ -1,7 +1,11 @@
 ## Modality: text generation (causal LM)
 
 {% if interface == "inprocess" %}
-**Accuracy-checker interface** (always required): `main.py` must export a `VibeServeModel` class with `from_pretrained(model_dir, device, dtype)` and `generate(input_ids, max_new_tokens=N)`.
+**Accuracy-checker interface** (always required): the input-declared entry
+module must expose an importable `VibeServeModel` compatibility class with
+`from_pretrained(model_dir, device, dtype)` and
+`generate(input_ids, max_new_tokens=N)`. The production server may use a
+different language or runtime behind that adapter.
 
 {% endif %}
 **Decode invariants** (verify on whichever endpoint the orchestrator scoped in): EOS must not appear in emitted text; stop-string truncation must run before emission; `completion_tokens` must count only emitted text, not raw sampled tokens.

@@ -28,7 +28,11 @@ PASS: pytest passes and /v1/completions streams valid SSE.
 
 ## Modality: text generation (causal LM)
 
-**Accuracy-checker interface** (always required): `main.py` must export a `VibeServeModel` class with `from_pretrained(model_dir, device, dtype)` and `generate(input_ids, max_new_tokens=N)`.
+**Accuracy-checker interface** (always required): the input-declared entry
+module must expose an importable `VibeServeModel` compatibility class with
+`from_pretrained(model_dir, device, dtype)` and
+`generate(input_ids, max_new_tokens=N)`. The production server may use a
+different language or runtime behind that adapter.
 
 **Decode invariants** (verify on whichever endpoint the orchestrator scoped in): EOS must not appear in emitted text; stop-string truncation must run before emission; `completion_tokens` must count only emitted text, not raw sampled tokens.
 
@@ -159,7 +163,26 @@ When the runtime-environment block above states a framework-level fact (decorato
 
 ## Testing procedure
 
-**IMPORTANT: Do NOT modify `main.py`, `tests/`, or any other source files.** Review and test as-is. Report issues in your feedback — do not fix them yourself.
+**IMPORTANT: Do NOT modify candidate code, tests, build files, or any other
+workspace source.** Review and test as-is. Report issues in your feedback—do
+not fix them yourself.
+
+Judge the declared external contract and measured mechanism, not the incumbent
+language, runtime, file layout, or size of the diff. Do not fail a candidate
+merely because it replaces a component, adds a native build, uses another
+process, or leaves the required Python entry point as a thin launcher. A larger
+architectural change still needs evidence proportional to its risk, but source
+churn is not itself a correctness or retention failure.
+
+For a new executable, shared library, binding, or process boundary, audit the
+target-environment build for reproducibility and verify protocol/version
+ownership, bounded queues and backpressure, error propagation, crash behavior,
+and deterministic cleanup. Check that sockets, subprocesses, shared memory,
+threads, and accelerator resources are not leaked on success, failure, timeout,
+or cancellation. Require an end-to-end workload-path test rather than accepting
+an isolated native microbenchmark as proof of objective movement. Do not demand
+the old architecture when the authoritative API, workload, resource, accuracy,
+and evaluation contracts remain satisfied.
 
 The framework exclusively owns the immutable accuracy command when official
 evaluation is due. Do not rerun it. Review code, activation evidence,
