@@ -290,6 +290,13 @@ unsupported or dominated frontier claim, but do not require it to satisfy the
 simultaneous terminal target. Candidate metrics never replace official
 canonical tracking.
 
+Also audit erroneous downgrades. If the implementer's own artifact and analysis
+show that hard invariants hold and a row clears the plan's independent
+archive/non-domination gate, fail a `prerequisite`, `discard`, or `unassessed`
+disposition and require `pareto_frontier`, even when the row misses the scoped
+minimum-acceptance magnitude. The causal outcome and checkpoint-retention
+classification are separate outputs; neither is allowed to erase the other.
+
 A PASS has outcome-specific meaning. A PASS for `supported` closes the scoped
 hypothesis and returns control to the designer. A PASS for `nominated` says the
 implementer considers this checkpoint ready for configured framework gates;

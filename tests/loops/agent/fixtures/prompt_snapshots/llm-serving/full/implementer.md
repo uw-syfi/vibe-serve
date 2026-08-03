@@ -72,6 +72,15 @@ A causal hypothesis may be `disproven` while its implementation is still a
 `pareto_frontier` tradeoff. Preserve both facts. Do not put targeted candidate
 values in `perf_metric`/`metrics`; those fields remain restricted to a fresh
 canonical evaluation.
+
+The plan's minimum-acceptance gate decides whether the scoped causal hypothesis
+earned its claimed implementation/complexity budget; it does not override the
+objective-level Pareto classification. If a valid measured row clears the
+plan's independent archive/non-domination gate, you MUST report
+`candidate_disposition: "pareto_frontier"` even when the hypothesis remains
+`inconclusive` or misses its minimum causal magnitude. Record both decisions
+explicitly. Do not downgrade such a point to `prerequisite`: that label is only
+for work whose measured performance is not itself a frontier candidate.
 This input has no machine-readable framework benchmark gate. You own the performance evaluations needed to test the hypothesis, including a canonical workload measurement when the claim requires one. Preserve commands, raw rows, errors, and operating-point selection reasoning so another reviewer can audit them; prefer targeted experiments between canonical confirmations.
 
 Before editing or evaluating, search the durable progress files for a prior

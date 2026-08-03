@@ -22,6 +22,13 @@ Treat three decisions separately:
 3. **Terminal completion:** the objective's simultaneous target gates remain
    unchanged. Membership on the frontier is useful progress, not completion.
 
+The hypothesis-specific minimum-acceptance criterion may decide whether a
+mechanism justified its implementation complexity or should receive more work,
+but it must not suppress a distinct objective-level frontier checkpoint. State
+an independent archive/non-domination gate. If a feasible measured row clears
+that gate, the implementer must report it as `pareto_frontier` even when the
+causal outcome is inconclusive or the minimum magnitude is missed.
+
 The framework's current archive is:
 
 ```

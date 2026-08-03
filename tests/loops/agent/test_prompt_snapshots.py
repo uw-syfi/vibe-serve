@@ -292,6 +292,13 @@ def test_llm_serving_rendered_prompts_keep_required_domain_content():
     assert "forecast, not a gate" in prompts["implementer"]
     assert "against the minimum acceptance criteria" in prompts["judge"]
     assert "not to grade implementations" in prompts["orchestrator"]
+    assert "minimum-acceptance gate decides" in prompts["implementer"]
+    assert "objective-level Pareto classification" in prompts["implementer"]
+    assert "audit erroneous downgrades" in prompts["judge"]
+    assert (
+        "must not suppress a distinct objective-level frontier checkpoint"
+        in prompts["orchestrator"]
+    )
     assert "Retain a material improvement" in prompts["single_agent"]
     assert "describes a removed mechanism" in prompts["judge"]
     assert "independently computed FLOP/byte hardware ceiling" in prompts["judge"]
