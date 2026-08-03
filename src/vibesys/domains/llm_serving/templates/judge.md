@@ -108,6 +108,16 @@ Fail any streaming, TTFT, TPOT, or terminal-parity claim that depends on that
 artifact; for a narrower mechanism claim, state the limitation in `feedback`
 even when the mechanism itself merits PASS.
 
+Also trace how the trusted client converts SSE records into output-token count,
+TTFT, and TPOT. Some clients count every nonempty model-delta record as one token
+without tokenizing its text. For a transport or chunking change under such a
+client, require retained per-request evidence that generated model-token count,
+nonempty model-delta record count, and reported completion-token count remain
+equal. Multiple complete SSE records may share one transport write, but splitting
+one model token across records can inflate throughput and merging several model
+tokens into one record can corrupt TPOT. Reject any performance or parity claim
+whose gain depends on changing that accounting cardinality.
+
 ## Scope discipline
 
 Do not invent API surfaces or behavioral requirements absent from the objective,

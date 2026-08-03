@@ -251,6 +251,15 @@ or every live request each decode step. A mechanism cannot be fairly falsified
 by a benchmark whose new telemetry adds synchronization at the same frequency
 as the operation being optimized.
 
+Treat streaming record granularity as part of the measurement contract. Before
+planning a transport, serialization, or chunk-coalescing optimization, inspect
+how the trusted client derives output-token count, TTFT, and TPOT. When it counts
+nonempty SSE records as tokens, require the candidate to preserve one such
+record per generated model token and retain a comparison among generated token
+IDs, emitted model-delta records, and reported completion tokens. It is valid to
+place several complete SSE records in one transport write; it is not valid to
+split or merge their model-token accounting to improve a measured metric.
+
 ## Scoping API work
 
 When a task touches an endpoint or message schema, name the exact surface being

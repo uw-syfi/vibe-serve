@@ -55,6 +55,14 @@ than rescanning device tensors or all live requests each decode step; otherwise
 measure and remove the observer overhead before accepting either a performance
 win or a mechanism-level disproof.
 
+Before changing streaming transport or chunking, inspect how the trusted client
+derives output-token count, TTFT, and TPOT. If it counts nonempty SSE records as
+tokens, preserve one model-delta record per generated model token and retain a
+targeted comparison against generated token IDs and reported completion tokens.
+Several complete SSE records may be coalesced into one transport write; splitting
+or merging their model-token accounting to move benchmark metrics is a
+reward-hacking failure.
+
 ## Required: read the relevant skill BEFORE writing code
 
 The `serving-systems` skill provides technical references. Use it only after

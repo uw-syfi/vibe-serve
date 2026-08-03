@@ -495,6 +495,15 @@ decode step merely to publish `/health`. If a gauge requires a synchronized
 sample, collect it outside the measured path or at a bounded low frequency and
 measure the observer overhead first.
 
+Before changing streaming transport or chunking, read the trusted benchmark's
+token-accounting code. If it treats each nonempty SSE record as one output token,
+preserve exactly one model-delta record per generated model token. Retain a
+targeted artifact comparing generated token IDs, nonempty model-delta records,
+and reported completion tokens for each request. Coalescing several complete SSE
+records into one transport write is allowed; splitting one model token across
+records or merging multiple model tokens into one counted record is a metric
+artifact, not a performance optimization.
+
 ## Use references as implementation support, not as a search policy
 
 The `serving-systems` skill provides technical references. After the active
