@@ -294,6 +294,14 @@ because one poll interval produced no output; inspect process state and the
 controller's atomic phase checkpoints first. Keep the outer wall-clock timeout
 longer than the controller's declared worst-case phase budget, while retaining
 the remote idle/scaledown backstop for crashes.
+Make polling cadence proportional to the remote phase. During model load,
+compilation, graph capture, or another minutes-long phase, do not poll a healthy
+unchanged PID every few seconds. Start with a 20-30 second interval, back off up
+to 60 seconds while state is unchanged, and shorten it only when a checkpoint
+shows a short phase or imminent completion. Do not emit repeated unchanged
+process trees or log tails; report transitions, new checkpoints, deadline
+crossings, and terminal errors. Polling more frequently does not accelerate the
+remote work and consumes the context needed for optimization reasoning.
 Declare each expensive phase's timeout before launching it and expose retained
 phase-start, heartbeat/checkpoint, and phase-complete evidence. Model loading,
 AOT compilation, and graph capture may legitimately remain quiet for minutes;

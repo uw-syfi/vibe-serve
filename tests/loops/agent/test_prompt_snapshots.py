@@ -318,6 +318,9 @@ def test_llm_serving_rendered_prompts_keep_required_domain_content():
         in prompts["implementer"]
     )
     assert "do not invent an ad hoc shorter cutoff" in prompts["implementer"]
+    assert "do not poll a healthy" in prompts["implementer"]
+    assert "back off up" in prompts["implementer"]
+    assert "to 60 seconds while state is unchanged" in prompts["implementer"]
     assert "Apply the same rule on judge retries" in prompts["implementer"]
     assert "two `.remote()` calls is two accelerator startups" in prompts["implementer"]
     assert "small discrete bisection" in prompts["implementer"]
