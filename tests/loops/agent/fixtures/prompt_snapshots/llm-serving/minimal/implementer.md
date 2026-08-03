@@ -217,6 +217,15 @@ the changed state; exercise every applicable path locally or explain the target-
 only dimension. Do not patch one observed failure and discover the next stale
 consumer on another cold accelerator launch. The next target run must test the
 smallest remaining target-only uncertainty after this consumer-wide audit.
+When a target-only capability fails, preserve enough evidence to locate the
+failure before paying for a repair retry: the exception type and message, full
+traceback, and the last completed named substage or operation. Do not catch a
+broad capture/compile/probe sequence and retain only `repr(exc)` when several
+mutations or API calls could have raised the same error. Split that sequence
+into diagnostic substages or record a moving substage marker in the same
+artifact. Before the next paid launch, demonstrate how the proposed repair
+changes the exact failing operation; if local execution cannot exercise it,
+make that operation the first isolated gate in the existing bounded controller.
 Reuse the established benchmark runner and staged controller by default. Do not
 add a hypothesis-specific controller or new synthetic artifacts solely to wrap
 an ordinary candidate change, rename phases, or expose additional activation

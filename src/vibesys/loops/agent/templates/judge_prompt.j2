@@ -187,6 +187,13 @@ changed remote callables for reads of retained workspace artifacts that were
 not explicitly bundled or mounted. Baselines must cross the boundary as
 primitive inputs, or comparison must happen only after the raw response is
 durably local.
+For a target-only capability retry, require the prior failure artifact to retain
+the exception type/message, full traceback, and last completed named substage or
+operation. A broad `repr(exc)` around several capture, compile, mutation, or API
+calls does not localize the defect and cannot support another paid repair guess.
+Require the repair to change the exact failing operation, or require the next
+bounded controller to isolate that operation as its first gate before any
+downstream workload.
 When remote startup dominates and the plan requires staged evaluation on one
 live instance, audit that an expensive capability check which uses the same
 model/service state flows into smoke and measurement in one bounded controller
