@@ -196,7 +196,7 @@ class DockerCommandExecutor:
 
         watchdog_killed = False
         try:
-            if request.timeout is not None:
+            if request.timeout is not None and not self._is_codex_json_command(request.argv):
                 process.wait(timeout=request.timeout)
             else:
                 watchdog_killed = self._wait_with_docker_exec_watchdog(
@@ -204,6 +204,7 @@ class DockerCommandExecutor:
                     request.argv,
                     sink=sink,
                     stdout_lines=stdout_lines,
+                    timeout=request.timeout,
                 )
         except subprocess.TimeoutExpired:
             self._kill_process_group(process)
@@ -235,6 +236,7 @@ class DockerCommandExecutor:
         *,
         sink: CommandStreamSink,
         stdout_lines: list[str],
+        timeout: float | None,
     ) -> bool:
         child_binary = os.path.basename(cmd[0]) if cmd else ""
         watchdog_killed = False
@@ -243,12 +245,19 @@ class DockerCommandExecutor:
         next_codex_poll = time.monotonic()
         completion_fingerprint: str | None = None
         completion_seen_at: float | None = None
+        deadline = time.monotonic() + timeout if timeout is not None else None
         while True:
+            now = time.monotonic()
+            if deadline is not None and now >= deadline:
+                raise subprocess.TimeoutExpired(list(cmd), timeout)
+            wait_seconds = 5.0 if deadline is None else min(5.0, deadline - now)
             try:
-                process.wait(timeout=5)
+                process.wait(timeout=wait_seconds)
                 return watchdog_killed
             except subprocess.TimeoutExpired:
                 now = time.monotonic()
+                if deadline is not None and now >= deadline:
+                    raise subprocess.TimeoutExpired(list(cmd), timeout) from None
                 if codex_thread_id is None and watch_codex_rollout:
                     codex_thread_id = self._codex_started_thread_id(stdout_lines)
                 if codex_thread_id is not None and now >= next_codex_poll:

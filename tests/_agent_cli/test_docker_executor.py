@@ -188,7 +188,7 @@ def test_docker_executor_recovers_stable_completed_codex_rollout(monkeypatch):
             stdin="prompt",
             cwd="/ignored",
             env={},
-            timeout=None,
+            timeout=7200,
         ),
         CallbackCommandStreamSink(
             on_stdout=stdout.append,
