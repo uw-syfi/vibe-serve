@@ -178,6 +178,11 @@ This input has no machine-readable framework benchmark gate. You own the perform
   counters/shapes/timing/arrival/resource state; when feasible, add a cheap
   discriminating test or replay that reproduces the failure and fails on the old
   implementation.
+- Before a paid causal A/B, serialize and test the pair manifest: control and
+  candidate must match on every workload, prerequisite, engine, and resource
+  dimension except the named causal variable. Enable retained prerequisite
+  mechanisms in both rows; never fold an earlier optimization into only the
+  candidate. Fail closed before the paid call when the manifest differs elsewhere.
 - When representation, ownership, or lifecycle changes, audit all consumers of
   that contract: completion, cancellation, error, timeout, cleanup, reset,
   telemetry, diagnostic, and controller paths. Exercise them locally or name
