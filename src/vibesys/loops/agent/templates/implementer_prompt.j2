@@ -236,6 +236,9 @@ This input has no machine-readable framework benchmark gate. You own the perform
   expected; an unused reservation has no accelerator cost. Never increase the
   declared maximum after launch. More needs explicit orchestrator cost/
   information budget. Reuse all completed rows.
+  A task or continuation saying `run one` means one expected primary unless it
+  explicitly says `hard maximum: one`; do not let your prior `next_step`
+  accidentally disable the conditional retry.
 - Keep remote reuse bounded: one accelerator unless required, zero minimum warm
   replicas, finite idle/scaledown, `finally` teardown, and no warm resource
   across reasoning turns. Declare maximum paid workload invocations over every

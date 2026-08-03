@@ -376,6 +376,9 @@ def test_llm_serving_rendered_prompts_keep_required_domain_content():
     )
     assert "never raise the declared maximum after launch" in prompts["orchestrator"]
     assert "prelaunch expected/maximum declaration" in prompts["judge"]
+    assert "`run one` means one expected primary, not max one" in prompts["orchestrator"]
+    assert "do not let your prior `next_step` accidentally disable" in prompts["implementer"]
+    assert "a prior self-authored next step is not a hard cost cap" in prompts["single_agent"]
     assert "same candidate" in prompts["implementer"]
     assert "operating point as an already completed row" in prompts["implementer"]
     assert "Preserve already-valid measured rows" in prompts["implementer"]

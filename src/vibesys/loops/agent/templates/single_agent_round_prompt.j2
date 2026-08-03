@@ -154,6 +154,8 @@ completed.
   local reproduction, normally reserve two even though one is expected; the
   unused reservation costs nothing. Never raise the maximum after launch;
   exceeding two requires explicit cost/information justification.
+  Treat `run one` as one expected primary unless the plan explicitly says
+  `hard maximum: one`; a prior self-authored next step is not a hard cost cap.
 - Keep observer control/profile and reset-safe capability bisection variants as
   adjacent checkpointed phases when state can be reset. An entrypoint that
   issues two `.remote()` calls pays for two starts. A runtime fingerprint is

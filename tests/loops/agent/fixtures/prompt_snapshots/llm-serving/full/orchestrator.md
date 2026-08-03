@@ -364,6 +364,8 @@ after zero benchmark rows and either an exact tested repair or a confirmed-clean
 external pre-user-code failure. Reserving the retry costs nothing until its
 trigger fires and avoids another reasoning round; never raise the declared
 maximum after launch. More than two needs explicit cost/information justification.
+Write `hard maximum: one` only when cost policy intentionally forbids the
+conditional retry; otherwise `run one` means one expected primary, not max one.
 Never rerun a completed candidate/workload/operating point; ambiguity repeats
 must change classification and fallbacks must vary a named causal variable.
 Use one accelerator, zero minimum warm replicas, finite idle/scaledown,
