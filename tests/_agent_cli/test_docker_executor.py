@@ -229,3 +229,20 @@ def test_codex_rollout_watchdog_requires_resumed_json_thread():
         )
         is None
     )
+
+
+def test_codex_rollout_watchdog_learns_fresh_thread_from_stream():
+    thread_id = "019fc654-87f2-7702-8bf2-05b6f4f006dc"
+    stdout_lines = [
+        "not-json\n",
+        json.dumps({"type": "thread.started", "thread_id": thread_id}) + "\n",
+        json.dumps({"type": "turn.started"}) + "\n",
+    ]
+
+    assert DockerCommandExecutor._codex_started_thread_id(stdout_lines) == thread_id
+    assert (
+        DockerCommandExecutor._codex_started_thread_id(
+            [json.dumps({"type": "thread.started", "thread_id": "../../unsafe"})]
+        )
+        is None
+    )

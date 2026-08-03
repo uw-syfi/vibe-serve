@@ -239,6 +239,7 @@ class DockerCommandExecutor:
         child_binary = os.path.basename(cmd[0]) if cmd else ""
         watchdog_killed = False
         codex_thread_id = self._codex_resume_thread_id(cmd)
+        watch_codex_rollout = self._is_codex_json_command(cmd)
         next_codex_poll = time.monotonic()
         completion_fingerprint: str | None = None
         completion_seen_at: float | None = None
@@ -248,6 +249,8 @@ class DockerCommandExecutor:
                 return watchdog_killed
             except subprocess.TimeoutExpired:
                 now = time.monotonic()
+                if codex_thread_id is None and watch_codex_rollout:
+                    codex_thread_id = self._codex_started_thread_id(stdout_lines)
                 if codex_thread_id is not None and now >= next_codex_poll:
                     next_codex_poll = now + self._CODEX_ROLLOUT_POLL_SECONDS
                     completion = self._read_codex_rollout_completion(codex_thread_id)
@@ -290,9 +293,16 @@ class DockerCommandExecutor:
                     return watchdog_killed
 
     @staticmethod
-    def _codex_resume_thread_id(cmd: Sequence[str]) -> str | None:
-        """Return the validated thread ID for ``codex exec resume`` commands."""
+    def _is_codex_json_command(cmd: Sequence[str]) -> bool:
+        """Return whether *cmd* is a machine-readable Codex exec invocation."""
         if not cmd or os.path.basename(cmd[0]) != "codex" or "--json" not in cmd:
+            return False
+        return "exec" in cmd
+
+    @classmethod
+    def _codex_resume_thread_id(cls, cmd: Sequence[str]) -> str | None:
+        """Return the validated thread ID for ``codex exec resume`` commands."""
+        if not cls._is_codex_json_command(cmd):
             return None
         try:
             resume_index = cmd.index("resume")
@@ -302,6 +312,21 @@ class DockerCommandExecutor:
         if not re.fullmatch(r"[0-9a-fA-F-]{32,64}", thread_id):
             return None
         return thread_id
+
+    @staticmethod
+    def _codex_started_thread_id(stdout_lines: Sequence[str]) -> str | None:
+        """Recover a fresh invocation's thread ID from its streamed JSON."""
+        for line in reversed(stdout_lines):
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(event, dict) or event.get("type") != "thread.started":
+                continue
+            thread_id = event.get("thread_id")
+            if isinstance(thread_id, str) and re.fullmatch(r"[0-9a-fA-F-]{32,64}", thread_id):
+                return thread_id
+        return None
 
     def _read_codex_rollout_completion(
         self,
