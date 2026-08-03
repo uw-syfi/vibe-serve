@@ -233,18 +233,30 @@ class GitTracker:
     def checkout_tree(self, sha: str, *, clean: bool = False) -> bool:
         """Materialize *sha*'s tree into the working directory.
 
-        Uses ``git checkout <sha> -- .`` so HEAD stays where it is and the
-        next ``git commit`` produces a new child commit (rather than
-        rewriting history).  With ``clean=True``, untracked files left over
-        from a prior failed attempt are removed via ``git clean -fd``.
+        Restores both the index and worktree from *sha* so paths introduced
+        after that snapshot are deleted as well as modified paths being reset.
+        HEAD stays where it is, so the next commit produces a new child commit
+        rather than rewriting history. With ``clean=True``, untracked files
+        left over from a prior failed attempt are removed via ``git clean
+        -fd``.
         """
         try:
-            self.run(["git", "checkout", sha, "--", "."])
+            self.run(
+                [
+                    "git",
+                    "restore",
+                    f"--source={sha}",
+                    "--staged",
+                    "--worktree",
+                    "--",
+                    ".",
+                ]
+            )
             if clean:
-                self.run(["git", "clean", "-fd"], check=False)
+                self.run(["git", "clean", "-fd", "--", "."], check=False)
             return True
         except Exception as exc:
-            self._log(f"[warn] git checkout {sha[:8]} failed: {exc}")
+            self._log(f"[warn] git tree restore {sha[:8]} failed: {exc}")
             return False
 
     def trusted_input_changes(self) -> list[str]:

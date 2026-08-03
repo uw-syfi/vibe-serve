@@ -3,7 +3,7 @@
 import subprocess
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 import pytest
 
@@ -1552,6 +1552,7 @@ def test_hypothesis_revert_is_applied_once_across_continuation_rounds(tmp_path, 
         )
 
     assert checkout_tree.call_count == 1
+    checkout_tree.assert_called_once_with(ANY, clean=True)
     repair_calls = [
         call
         for call in runner.invoke.call_args_list

@@ -1746,10 +1746,10 @@ def run_agent_loop(
                             target, records
                         )
                         assert rollback_commit is not None
-                        # Non-branch checkout so subsequent commits continue
-                        # to land on the current branch as new commits after
-                        # the reverted state.
-                        if ctx.git.checkout_tree(rollback_commit):
+                        # Restore the tree without moving HEAD so subsequent
+                        # commits land on the current branch as new commits
+                        # after the reverted state.
+                        if ctx.git.checkout_tree(rollback_commit, clean=True):
                             if failed_child_round is None:
                                 ctx.lprint(
                                     "Reverted workspace to round "

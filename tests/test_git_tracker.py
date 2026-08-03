@@ -160,11 +160,13 @@ def test_checkout_tree_restores_snapshot_without_moving_head(ws):
     first = tracker.current_sha()
 
     (ws / "main.py").write_text("VALUE = 2\n")
+    (ws / "later.py").write_text("ONLY_IN_LATER_SNAPSHOT = True\n")
     tracker.snapshot("round 1")
     second = tracker.current_sha()
 
     assert tracker.checkout_tree(first) is True
     assert (ws / "main.py").read_text() == "VALUE = 1\n"
+    assert not (ws / "later.py").exists()
     # HEAD stays put so the next commit lands as a new child commit.
     assert tracker.current_sha() == second
 
@@ -185,7 +187,7 @@ def test_checkout_tree_returns_false_and_logs_on_bad_sha(ws):
     tracker.init(existing=False)
 
     assert tracker.checkout_tree("0000000000000000000000000000000000000000") is False
-    assert any("git checkout 00000000 failed" in line for line in logs)
+    assert any("git tree restore 00000000 failed" in line for line in logs)
 
 
 def test_trusted_input_changes_reports_committed_and_pending_edits(ws):
