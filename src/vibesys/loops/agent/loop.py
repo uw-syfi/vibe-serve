@@ -659,13 +659,22 @@ def _review_due(
     judge_every: int,
     outcome: HypothesisOutcome,
     candidate_disposition: CandidateDisposition = CandidateDisposition.UNASSESSED,
+    candidate_evidence_present: bool = False,
 ) -> bool:
-    """Return whether an independent review must run for this candidate."""
+    """Return whether an independent review must run for this candidate.
+
+    A fresh objective row is itself a checkpoint-retention claim.  Review it
+    even when the implementer labels the checkpoint ``prerequisite`` or
+    ``discard`` so a mistaken disposition cannot bypass the independent judge
+    and disappear from Pareto memory.  The judge can audit the existing raw
+    artifact without requiring another benchmark run.
+    """
     return (
         round_number == max_rounds
         or round_number % judge_every == 0
         or outcome in {HypothesisOutcome.SUPPORTED, HypothesisOutcome.NOMINATED}
         or candidate_disposition is CandidateDisposition.PARETO_FRONTIER
+        or candidate_evidence_present
     )
 
 
@@ -2113,6 +2122,7 @@ def run_agent_loop(
                             judge_every=judge_every,
                             outcome=implementation.hypothesis_outcome,
                             candidate_disposition=implementation.candidate_disposition,
+                            candidate_evidence_present=bool(implementation.candidate_metrics),
                         )
                         if review_started and not _implementation_keeps_hypothesis_active(
                             implementation

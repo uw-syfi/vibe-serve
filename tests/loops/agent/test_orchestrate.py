@@ -438,6 +438,17 @@ def test_frontier_candidate_forces_review_outside_sparse_cadence():
     )
 
 
+def test_measured_candidate_forces_review_even_when_disposition_is_downgraded():
+    assert _review_due(
+        round_number=5,
+        max_rounds=20,
+        judge_every=3,
+        outcome=HypothesisOutcome.INCONCLUSIVE,
+        candidate_disposition=CandidateDisposition.PREREQUISITE,
+        candidate_evidence_present=True,
+    )
+
+
 def test_official_evaluation_cadence_counts_reviewed_frontier_tradeoff():
     records = [
         _RoundRecord(
