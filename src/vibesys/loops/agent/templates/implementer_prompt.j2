@@ -13,9 +13,26 @@
 
 {{ objective }}
 
+{% if continuation_step %}
+## Required continuation (authoritative current task)
+
+{{ continuation_step }}
+
+Execute this continuation now. It supersedes completed or conflicting
+procedural instructions in the original plan below. The plan's hypothesis,
+causal scope, minimum-acceptance criteria, and invariants remain in force.
+Prior evidence is context, not completion evidence for this round: do not
+return the previous summary unchanged. You retain control over the concrete
+probes, parameter ranges, and implementation choices used to execute it.
+
+## Original hypothesis plan (historical context)
+
+{{ task }}
+{% else %}
 ## This round's task (from the Orchestrator)
 
 {{ task }}
+{% endif %}
 {% if framework_revert_applied|default(false) %}
 
 ## Framework-applied parent state
@@ -282,14 +299,6 @@ This input has no machine-readable framework benchmark gate. You own the perform
   or comparability gap. A capability retry must change package/version/API/
   image/driver/build; never manufacture a fresh artifact from the same failed
   API/runtime pair.
-{% if continuation_step %}
-
-## Required continuation from the previous round
-
-{{ continuation_step }}
-
-Act on this step now. Prior evidence is context, not completion evidence for this round: do not return the previous summary unchanged. You retain control over the concrete probes, parameter ranges, and implementation choices used to execute it.
-{% endif %}
 
 Report `hypothesis_outcome` precisely:
 

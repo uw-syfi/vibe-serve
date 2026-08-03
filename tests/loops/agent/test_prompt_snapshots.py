@@ -95,6 +95,7 @@ def _render_prompt(domain: DomainName, role: str, context: dict[str, object]) ->
             pass_criteria=context["pass_criteria"],
             objective=context["objective"],
             feedback=None,
+            continuation_step=context.get("continuation_step"),
             hypothesis_id=context["hypothesis_id"],
             hypothesis=context["hypothesis"],
             activation_evidence=context["activation_evidence"],
@@ -474,6 +475,22 @@ def test_llm_serving_rendered_prompts_keep_required_domain_content():
     assert "Evidence-led optimization method" in prompts["orchestrator"]
     assert "Continuous batching" not in prompts["orchestrator"]
     assert "CUDA graphs" not in prompts["orchestrator"]
+
+
+def test_implementer_continuation_precedes_and_qualifies_historical_plan():
+    context = _CONTEXTS["minimal"] | {
+        "task": "ORIGINAL PLAN: do not launch the accelerator.",
+        "continuation_step": "CURRENT STEP: launch the validated accelerator pair.",
+    }
+
+    rendered = _render_prompt(DomainName.LLM_SERVING, "implementer", context)
+
+    continuation_heading = "## Required continuation (authoritative current task)"
+    historical_heading = "## Original hypothesis plan (historical context)"
+    assert rendered.index(continuation_heading) < rendered.index(historical_heading)
+    assert rendered.index("CURRENT STEP") < rendered.index("ORIGINAL PLAN")
+    assert "supersedes completed or conflicting\nprocedural instructions" in rendered
+    assert "## This round's task (from the Orchestrator)" not in rendered
 
 
 def test_orchestrator_rejects_quantitative_use_of_perturbed_profiles():
