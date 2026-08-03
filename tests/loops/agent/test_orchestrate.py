@@ -787,6 +787,52 @@ def test_terminal_workspace_notice_preserves_credible_continuation_checkpoint():
     assert "An older implementation cannot be required to reproduce" in notice
 
 
+def test_terminal_workspace_notice_keeps_original_parent_after_same_id_reproposal():
+    records = [
+        _RoundRecord(60, "a" * 40, None, None, True),
+        _RoundRecord(
+            61,
+            "b" * 40,
+            None,
+            None,
+            True,
+            reviewed=True,
+            hypothesis_id="quantum-decode",
+            hypothesis_outcome="implementation_failed",
+            hypothesis_parent_round=60,
+        ),
+        _RoundRecord(
+            62,
+            "c" * 40,
+            None,
+            None,
+            True,
+            reviewed=True,
+            hypothesis_id="quantum-decode",
+            hypothesis_outcome="blocked",
+            hypothesis_parent_round=60,
+        ),
+        _RoundRecord(
+            63,
+            "d" * 40,
+            None,
+            None,
+            True,
+            reviewed=True,
+            hypothesis_id="quantum-decode",
+            hypothesis_outcome="inconclusive",
+            hypothesis_parent_round=62,
+        ),
+    ]
+
+    notice = _terminal_workspace_notice(records)
+
+    assert notice is not None
+    assert "recorded pre-hypothesis parent is round 60" in notice
+    assert "revert_to_round=60" in notice
+    assert "recorded pre-hypothesis parent is round 62" not in notice
+
+
 def test_profiler_summary_perf_metric_optional():
     p = ProfilerSummary(analysis="a", bottlenecks="b", suggestions="s")
     assert p.perf_metric is None

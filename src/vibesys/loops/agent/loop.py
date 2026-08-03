@@ -848,17 +848,18 @@ def _terminal_workspace_notice(records: list[_RoundRecord]) -> str | None:
             "gap it will improve; otherwise explicitly restore another frontier parent."
         )
 
-    started_round = latest.round_number
+    campaign_records = [latest]
     for record in reversed(records[:-1]):
         if record.hypothesis_id != latest.hypothesis_id:
             break
-        started_round = record.round_number
+        campaign_records.append(record)
+    campaign_records.reverse()
+    started_round = campaign_records[0].round_number
     parent_round = next(
         (
             record.hypothesis_parent_round
-            for record in reversed(records)
-            if record.hypothesis_id == latest.hypothesis_id
-            and record.hypothesis_parent_round is not None
+            for record in campaign_records
+            if record.hypothesis_parent_round is not None
         ),
         started_round - 1 if started_round > 1 else None,
     )
