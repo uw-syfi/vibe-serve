@@ -401,6 +401,65 @@ class TestCliAgentRunner:
         assert len(captured) == 1
         assert session_ids == ["thread-1", "thread-1", "thread-3"]
 
+    @pytest.mark.parametrize(
+        "session_state",
+        [
+            {
+                "final_usage": {"input_tokens": 10_000_000},
+                "duration_ms": 1,
+            },
+            {
+                "final_usage": {"input_tokens": 1},
+                "duration_ms": 600_000,
+            },
+        ],
+    )
+    def test_codex_persistent_session_renews_after_heavy_turn(
+        self, monkeypatch, tmp_path, session_state
+    ):
+        captured: list = []
+        fake_cls = _make_fake_agent_class(
+            generate_returns='{"analysis": "ok", "feedback": "", "verdict": "pass"}',
+            captured=captured,
+            session_state=session_state,
+        )
+        original_generate = fake_cls.generate
+
+        def generate(self, *args, **kwargs):
+            if getattr(self, "session_id", None) is None:
+                self.session_id = f"thread-{len(self.generate_calls) + 1}"
+            session_ids.append(self.session_id)
+            return original_generate(self, *args, **kwargs)
+
+        fake_cls.generate = generate
+        monkeypatch.setitem(
+            __import__(
+                "vibesys.agents.cli_runner",
+                fromlist=["_PROVIDER_CLASSES"],
+            )._PROVIDER_CLASSES,
+            "codex",
+            fake_cls,
+        )
+        runner = CliAgentRunner(provider="codex", model="m", run_log_file=None)
+        workspace = tmp_path / "ws"
+        workspace.mkdir()
+        session_ids: list[str] = []
+
+        for _ in range(2):
+            runner.invoke(
+                kind="judge",
+                workspace=workspace,
+                system_prompt="sys",
+                user_prompt="usr",
+                response_cls=JudgeResponse,
+                fallback_factory=_judge_fallback,
+                round_label="review",
+                reuse_session=True,
+                session_key="hypothesis:a",
+            )
+
+        assert session_ids == ["thread-1", "thread-2"]
+
     def test_cli_runner_selects_models_and_effort_by_loop_role(self, monkeypatch, tmp_path):
         captured: list = []
         fake_cls = _make_fake_agent_class(

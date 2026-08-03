@@ -74,12 +74,28 @@ _PROVIDER_CLASSES: dict[str, _ProviderFactory] = {
 # the durable workspace contains everything needed to continue.  Keep one
 # adjacent continuation, then start a fresh provider thread on the third turn.
 _MAX_CODEX_SESSION_TURNS = 2
+_MAX_CODEX_SESSION_INPUT_TOKENS = 10_000_000
+_MAX_CODEX_SESSION_DURATION_MS = 600_000
 
 
 def _is_missing_codex_rollout(exc: RuntimeError) -> bool:
     """Return whether Codex rejected a stale resumable thread."""
     message = str(exc)
     return "thread/resume failed" in message and "no rollout found" in message
+
+
+def _heavy_codex_turn_reason(agent: CodingAgent) -> str | None:
+    """Explain why the previous Codex turn is too heavy to resume efficiently."""
+    session = getattr(agent, "_last_session", None)
+    usage = getattr(session, "final_usage", None) or {}
+    input_tokens = int(usage.get("input_tokens", 0) or 0)
+    duration_ms = int(getattr(session, "duration_ms", 0) or 0)
+    reasons: list[str] = []
+    if input_tokens >= _MAX_CODEX_SESSION_INPUT_TOKENS:
+        reasons.append(f"{input_tokens} input tokens")
+    if duration_ms >= _MAX_CODEX_SESSION_DURATION_MS:
+        reasons.append(f"{duration_ms} ms duration")
+    return " and ".join(reasons) or None
 
 
 class CliAgentRunner:
@@ -322,14 +338,15 @@ class CliAgentRunner:
             if reuse_agent:
                 self._agents[cache_key] = agent
 
-        if (
-            self._provider == "codex"
-            and reuse_agent
-            and self._session_turn_counts.get(cache_key, 0) >= _MAX_CODEX_SESSION_TURNS
-        ):
+        renewal_reason: str | None = None
+        if self._provider == "codex" and reuse_agent:
+            if self._session_turn_counts.get(cache_key, 0) >= _MAX_CODEX_SESSION_TURNS:
+                renewal_reason = f"{_MAX_CODEX_SESSION_TURNS} successful turns"
+            else:
+                renewal_reason = _heavy_codex_turn_reason(agent)
+        if renewal_reason is not None:
             log_and_print(
-                f"[{label}] renewing Codex thread after "
-                f"{_MAX_CODEX_SESSION_TURNS} successful turns; durable workspace "
+                f"[{label}] renewing Codex thread after {renewal_reason}; durable workspace "
                 "state remains authoritative.",
                 self._run_log_file,
             )
