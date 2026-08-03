@@ -347,6 +347,8 @@ def test_modal_environment_documents_history_and_exact_measurement_source(tmp_pa
     assert kwargs["extra_env"]["VIBESYS_GIT_HISTORY"] == "/opt/vibesys-history"
     assert "git -c safe.directory=/opt/vibesys-history" in notes
     assert "ls-tree -r --name-only <commit>" in notes
+    assert "Do not run `git checkout`" in notes
+    assert "preserving Git HEAD, roadmap/progress/Pareto" in notes
     assert "manifest containing only per-file hashes is not sufficient" in notes
     assert "Create this provenance artifact before launch" in notes
 
@@ -426,8 +428,11 @@ def test_modal_environment_prompt_notes_reuse_workspace_uv_cache(tmp_path):
     notes = _modal_runtime_document(tmp_path)
 
     assert "UV_CACHE_DIR=/workspace/.cache/uv" in notes
-    assert "uv run --no-sync" in notes
-    assert "multi-gigabyte CUDA stack" in notes
+    assert ".venv/bin/python -m pytest" in notes
+    assert "explicitly first on `PYTHONPATH`" in notes
+    assert "do not ask uv to create an overlay" in notes
+    assert "never delete or recreate `.venv`" in notes
+    assert "never broad roots" in notes
 
 
 def test_modal_environment_with_deepagents_uses_docker_too(tmp_path):

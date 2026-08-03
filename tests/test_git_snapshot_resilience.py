@@ -57,6 +57,30 @@ def test_collect_unreadable_finds_mode000_file(tmp_path):
         os.chmod(secret, 0o644)  # let pytest clean up
 
 
+def test_collect_unreadable_does_not_enter_ignored_runtime_trees(tmp_path, monkeypatch):
+    ws = tmp_path / "ws"
+    ignored = ws / ".venv" / "lib"
+    ignored.mkdir(parents=True)
+    (ignored / "large-package.so").write_text("cached")
+    source = ws / "src"
+    source.mkdir()
+    (source / "engine.py").write_text("pass\n")
+
+    checked: list[str] = []
+    real_access = os.access
+
+    def recording_access(path, mode):
+        checked.append(os.fspath(path))
+        return real_access(path, mode)
+
+    monkeypatch.setattr(os, "access", recording_access)
+    tracker = _make_tracker(ws, excluded_dirs={".venv"})
+
+    assert tracker._collect_unreadable() == []
+    assert any(path.endswith("src/engine.py") for path in checked)
+    assert all(".venv" not in path for path in checked)
+
+
 @pytest.mark.skipif(os.geteuid() == 0, reason="root can read mode-000 files")
 def test_git_add_all_excludes_unreadable_and_succeeds(tmp_path):
     ws = tmp_path / "ws"

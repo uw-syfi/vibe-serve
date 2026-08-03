@@ -182,6 +182,30 @@ def test_checkout_tree_clean_removes_untracked_files(ws):
     assert not (ws / "leftover.txt").exists()
 
 
+def test_checkout_tree_clean_keeps_ignored_runtime_assets(ws):
+    tracker = GitTracker(
+        ws,
+        log=lambda _msg: None,
+        excluded_dirs={".git", ".venv", ".cache"},
+    )
+    tracker.init(existing=False)
+    first = tracker.current_sha()
+    assert first is not None
+
+    environment = ws / ".venv" / "bin" / "python"
+    environment.parent.mkdir(parents=True)
+    environment.write_text("persistent interpreter\n")
+    cache_entry = ws / ".cache" / "uv" / "wheel"
+    cache_entry.parent.mkdir(parents=True)
+    cache_entry.write_text("persistent package cache\n")
+    (ws / "scratch.txt").write_text("remove me\n")
+
+    assert tracker.checkout_tree(first, clean=True) is True
+    assert environment.read_text() == "persistent interpreter\n"
+    assert cache_entry.read_text() == "persistent package cache\n"
+    assert not (ws / "scratch.txt").exists()
+
+
 def test_checkout_tree_preserves_framework_memory_while_removing_later_code(ws):
     tracker = _make_tracker(ws)
     tracker.init(existing=False)

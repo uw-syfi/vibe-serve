@@ -402,17 +402,26 @@ class GitTracker:
     def _collect_unreadable(self) -> list[str]:
         """Workspace-relative paths the snapshotting user cannot read.
 
-        Walks the worktree (skipping ``.git``, never following symlinks) and
-        records files lacking ``R_OK`` and directories lacking ``R_OK|X_OK``
-        (an unsearchable dir hides its whole subtree from ``git add`` too).
+        Walks the worktree (skipping Git-ignored runtime/artifact directories,
+        never following symlinks) and records files lacking ``R_OK`` and
+        directories lacking ``R_OK|X_OK`` (an unsearchable dir hides its whole
+        subtree from ``git add`` too). Pruning ignored trees matters because a
+        Python/CUDA environment can contain gigabytes and hundreds of thousands
+        of files that ``git add`` itself will never inspect.
         """
         unreadable: list[str] = []
         root = str(self.root)
+        ignored_dirs = {".git", *self._excluded_dirs}
+        ignored_dirs.update(
+            pattern.removesuffix("/")
+            for pattern in self._ARTIFACT_GITIGNORE_PATTERNS
+            if pattern.endswith("/") and not set(pattern).intersection("*?[")
+        )
         for dirpath, dirnames, filenames in os.walk(root):
-            if ".git" in dirnames:
-                dirnames.remove(".git")
             kept = []
             for d in dirnames:
+                if d in ignored_dirs:
+                    continue
                 full = os.path.join(dirpath, d)
                 if os.access(full, os.R_OK | os.X_OK):
                     kept.append(d)

@@ -455,7 +455,11 @@ class OrchestratorPlan(BaseModel):
     )
     revert_to_round: int | None = Field(
         default=None,
-        description="Optional round number to roll back the workspace to (via git checkout of that round's commit) before the implementer runs.",
+        description=(
+            "Optional round number whose candidate tree the framework should "
+            "materialize before the implementer runs. The framework preserves "
+            "durable experiment memory and does not move Git HEAD."
+        ),
     )
     reasoning: str = Field(
         description="Short explanation of the orchestrator's reasoning for this round."
