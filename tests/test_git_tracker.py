@@ -181,6 +181,30 @@ def test_checkout_tree_clean_removes_untracked_files(ws):
     assert not (ws / "leftover.txt").exists()
 
 
+def test_checkout_tree_preserves_framework_memory_while_removing_later_code(ws):
+    tracker = _make_tracker(ws)
+    tracker.init(existing=False)
+    first = tracker.current_sha()
+
+    (ws / "later.py").write_text("ONLY_IN_LATER_SNAPSHOT = True\n")
+    progress = ws / "progress"
+    progress.mkdir()
+    (progress / "round-0002.md").write_text("# Round 2\n")
+    tracker.snapshot("round 2")
+    second = tracker.current_sha()
+    (progress / "round-0003.md").write_text("# Round 3 in progress\n")
+
+    assert tracker.checkout_tree(
+        first,
+        clean=True,
+        preserve_paths=("progress",),
+    )
+    assert not (ws / "later.py").exists()
+    assert (progress / "round-0002.md").read_text() == "# Round 2\n"
+    assert (progress / "round-0003.md").read_text() == "# Round 3 in progress\n"
+    assert tracker.current_sha() == second
+
+
 def test_checkout_tree_returns_false_and_logs_on_bad_sha(ws):
     logs: list[str] = []
     tracker = _make_tracker(ws, logs)

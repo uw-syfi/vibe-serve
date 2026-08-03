@@ -1749,7 +1749,15 @@ def run_agent_loop(
                         # Restore the tree without moving HEAD so subsequent
                         # commits land on the current branch as new commits
                         # after the reverted state.
-                        if ctx.git.checkout_tree(rollback_commit, clean=True):
+                        memory_paths = tuple(
+                            str(path.relative_to(ctx.workspace))
+                            for path in (roadmap_path, progress_path)
+                        )
+                        if ctx.git.checkout_tree(
+                            rollback_commit,
+                            clean=True,
+                            preserve_paths=memory_paths,
+                        ):
                             if failed_child_round is None:
                                 ctx.lprint(
                                     "Reverted workspace to round "

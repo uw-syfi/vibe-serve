@@ -230,7 +230,13 @@ class GitTracker:
             if len(line) > 3
         )
 
-    def checkout_tree(self, sha: str, *, clean: bool = False) -> bool:
+    def checkout_tree(
+        self,
+        sha: str,
+        *,
+        clean: bool = False,
+        preserve_paths: Iterable[str | Path] = (),
+    ) -> bool:
         """Materialize *sha*'s tree into the working directory.
 
         Restores both the index and worktree from *sha* so paths introduced
@@ -238,9 +244,13 @@ class GitTracker:
         HEAD stays where it is, so the next commit produces a new child commit
         rather than rewriting history. With ``clean=True``, untracked files
         left over from a prior failed attempt are removed via ``git clean
-        -fd``.
+        -fd``. Files below workspace-relative ``preserve_paths`` are captured
+        before the restore and reapplied afterwards. This is intended for
+        framework-owned memory that must survive a candidate-code rollback.
         """
+        preserved: dict[Path, bytes] = {}
         try:
+            preserved = self._capture_preserved_paths(preserve_paths)
             self.run(
                 [
                     "git",
@@ -254,10 +264,41 @@ class GitTracker:
             )
             if clean:
                 self.run(["git", "clean", "-fd", "--", "."], check=False)
+            self._restore_preserved_paths(preserved)
             return True
         except Exception as exc:
+            try:
+                self._restore_preserved_paths(preserved)
+            except Exception as preserve_exc:
+                self._log(
+                    "[warn] failed to restore preserved workspace memory after "
+                    f"tree restore error: {preserve_exc}"
+                )
             self._log(f"[warn] git tree restore {sha[:8]} failed: {exc}")
             return False
+
+    def _capture_preserved_paths(self, paths: Iterable[str | Path]) -> dict[Path, bytes]:
+        """Read regular files below workspace-relative *paths*."""
+        preserved: dict[Path, bytes] = {}
+        for raw_path in paths:
+            relative = Path(raw_path)
+            if relative.is_absolute() or relative == Path(".") or ".." in relative.parts:
+                raise ValueError(f"preserved path must be workspace-relative: {raw_path}")
+            source = self.root / relative
+            if source.is_file():
+                preserved[relative] = source.read_bytes()
+            elif source.is_dir():
+                for child in source.rglob("*"):
+                    if child.is_file():
+                        preserved[child.relative_to(self.root)] = child.read_bytes()
+        return preserved
+
+    def _restore_preserved_paths(self, preserved: dict[Path, bytes]) -> None:
+        """Reapply files captured by :meth:`_capture_preserved_paths`."""
+        for relative, content in preserved.items():
+            destination = self.root / relative
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_bytes(content)
 
     def trusted_input_changes(self) -> list[str]:
         """Return evaluator-owned paths changed since the trusted baseline."""

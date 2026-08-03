@@ -1552,7 +1552,11 @@ def test_hypothesis_revert_is_applied_once_across_continuation_rounds(tmp_path, 
         )
 
     assert checkout_tree.call_count == 1
-    checkout_tree.assert_called_once_with(ANY, clean=True)
+    checkout_tree.assert_called_once_with(
+        ANY,
+        clean=True,
+        preserve_paths=("roadmap.md", "progress.md"),
+    )
     repair_calls = [
         call
         for call in runner.invoke.call_args_list
