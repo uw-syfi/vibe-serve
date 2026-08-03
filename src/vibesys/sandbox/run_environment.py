@@ -226,6 +226,7 @@ class DockerEnvironment:
     def open(self, request: RunEnvironmentRequest) -> RunEnvironmentSession:
         bind_mounts, docker_symlinks, passthrough = _container_mount_plan(request)
         extra_init_commands, cli_provider_env = _cli_container_setup(request)
+        cli_provider_env.setdefault("UV_CACHE_DIR", "/workspace/.cache/uv")
         bind_mounts = _dedupe_mounts(bind_mounts)
         setup_fns = _symlink_setup_fns(docker_symlinks)
 
@@ -339,9 +340,9 @@ class ModalEnvironment(_NoopWorkspaceRecovery):
         """Open the Modal-via-Docker run environment.
 
         Architecture (refactor April 2026): the agent (codex CLI) runs inside
-        a *local* Docker container that does file editing only.  GPU-bound
-        execution dispatches to Modal via ``modal run main.py::<function>``
-        calls the implementer-authored code makes; we install the Modal
+        a *local* Docker container that does file editing only. GPU-bound
+        execution dispatches to Modal via the candidate's declared ``modal run``
+        entrypoint; we install the Modal
         Python SDK and mount the host's ``~/.modal.toml`` into the container
         so those calls authenticate.
 
@@ -360,6 +361,13 @@ class ModalEnvironment(_NoopWorkspaceRecovery):
 
         bind_mounts, docker_symlinks, passthrough = _container_mount_plan(request)
         extra_init_commands, cli_provider_env = _cli_container_setup(request)
+        cli_provider_env.setdefault("UV_CACHE_DIR", "/workspace/.cache/uv")
+        app_name = _modal_app_name(request.workspace, fallback=self.config.app)
+        runtime_document = request.log_dir / "runtime-environment.md"
+        runtime_document.write_text(_modal_runtime_notes(self.config.gpu, app_name))
+        runtime_container_path = "/opt/vibesys-runtime/environment.md"
+        bind_mounts.append((str(runtime_document), runtime_container_path, True))
+        passthrough.append("/opt/vibesys-runtime")
         evaluator_helper = request.project_root / "src/vibesys/sandbox/modal_evaluator.py"
         evaluator_container_path = "/opt/vibesys-modal-evaluator.py"
         bind_mounts.append((str(evaluator_helper), evaluator_container_path, True))
@@ -395,12 +403,11 @@ class ModalEnvironment(_NoopWorkspaceRecovery):
         log: Callable[[str], None] = request.log or (lambda _: None)
         log(
             "[modal] starting local Docker editor; GPU work will dispatch "
-            "to Modal via `modal run main.py::<function>`"
+            "to Modal via the candidate's declared `modal run` entrypoint"
         )
         # DOCKER-kind sandboxes always implement start().
         sandbox.start()  # pyright: ignore[reportAttributeAccessIssue]
 
-        app_name = _modal_app_name(request.workspace, fallback=self.config.app)
         setup_timeout_seconds = 600
         evaluator_prefix = (
             f"python {evaluator_container_path} "
@@ -416,7 +423,11 @@ class ModalEnvironment(_NoopWorkspaceRecovery):
                         request.profiler_support_name if request.profiler_support_path else None
                     ),
                 ),
-                prompt_notes=_modal_runtime_notes(self.config.gpu, app_name),
+                prompt_notes=(
+                    f"Runtime instructions are at `{runtime_container_path}`. Read that "
+                    "file before executing, deploying, benchmarking, or profiling; it "
+                    "contains the authoritative environment and lifecycle rules."
+                ),
                 isolated=True,
                 cli_sandboxed=True,
                 host_device_reselect=False,
@@ -543,7 +554,7 @@ def make_run_environment_spec(
     """Build a spec from the current CLI compatibility flags.
 
     Modal mode (April 2026 refactor) runs the agent in a *local Docker
-    container* and dispatches GPU work via ``modal run main.py::<function>``,
+    container* and dispatches GPU work via the candidate's ``modal run`` entrypoint,
     so the legacy long-lived-Modal-sandbox knobs (timeout / idle_timeout)
     no longer apply here — they live on the implementer's per-function
     ``@app.function(timeout=...)`` / ``@app.cls(container_idle_timeout=...)``
@@ -647,7 +658,9 @@ def _modal_runtime_notes(gpu: str, app_name: str) -> str:
         "candidate (for example, the actual package/runtime versions and "
         "toolchain paths named by the error). Preserve that output with the "
         "experiment, then base compatibility changes on the remote evidence.\n"
-        "  - To run any GPU work: `uv run modal run main.py::<function>`. "
+        "  - To run GPU work, use `uv run modal run "
+        "<candidate-modal-module>::<function>`. Discover the module from the "
+        "candidate's build/deployment path; no incumbent filename is fixed. "
         "The Modal CLI is installed and authenticated (`~/.modal.toml` "
         "is mounted from the host). Use local-entrypoint Click options "
         "directly in kebab-case; do not insert a `--` separator. A remote "
@@ -657,6 +670,14 @@ def _modal_runtime_notes(gpu: str, app_name: str) -> str:
         "cleanly and every required local output exists. If writeback seems "
         "delayed, poll that process and the expected files instead of "
         "launching a duplicate Modal job.\n"
+        "  - The editor sets `UV_CACHE_DIR=/workspace/.cache/uv`; this ignored "
+        "cache survives editor-container restarts. For repeated local checks "
+        "with unchanged dependency metadata, use the existing environment "
+        "without refreshing or recreating it (for example, `uv run --no-sync "
+        "...`). Synchronize once only after a dependency change or a verified "
+        "missing import. If an interrupted run left `.venv` invalid, allow one "
+        "repair; the persistent cache prevents downloading the multi-gigabyte "
+        "CUDA stack again.\n"
         "  - Model weights are pre-staged in Modal Volumes by the "
         "framework before this round started. Read the model metadata "
         "files in your reference/input directory (typically "
@@ -692,23 +713,24 @@ def _modal_runtime_notes(gpu: str, app_name: str) -> str:
         "file into the image explicitly "
         "(`image.add_local_file('reference/meta.json', "
         "'/root/reference/meta.json')`). Verify startup with "
-        "`modal run main.py::<fn>` or a deploy + `/health` probe BEFORE "
+        "the candidate's declared `modal run` entrypoint or a deploy + "
+        "`/health` probe BEFORE "
         "relying on the endpoint.\n"
         "  - Use `scaledown_window=120` on `@app.cls` so back-to-back "
         "benchmark calls reuse the warm container and preserve loaded state "
         "between invocations. Note: Modal renamed `container_idle_timeout` to "
         "`scaledown_window` (Feb 2025); the old name raises a deprecation "
         "error in current Modal SDK versions, so do NOT use it.\n"
-        "  - Do NOT run `python main.py` to start a long-lived FastAPI "
-        "server inside this container — there's no GPU here. Direct "
-        "`Server.method.remote(...)` calls or `modal run main.py::<function>` "
-        "are the testing interface.\n"
+        "  - Do NOT start a long-lived GPU server inside this editor "
+        "container; there is no GPU here. Remote method calls or the "
+        "candidate's declared `modal run` entrypoint are the testing "
+        "interface.\n"
         "\n"
         "Profiling on Modal — REQUIRED entry point:\n"
         "  Profiling must run on the Modal GPU container, NOT in this "
         "editor container. The framework's profiler agent expects the "
-        "following two symbols in `main.py` and will invoke the local "
-        "entrypoint by name; without these, the profiler agent cannot "
+        "following two symbols in the candidate's Modal module and will "
+        "invoke the declared local entrypoint; without these, it cannot "
         "capture real GPU traces and will fall back to synthetic data.\n"
         "\n"
         f"  1. `@app.function(image=..., gpu={gpu!r}, volumes=...)` "
@@ -718,11 +740,7 @@ def _modal_runtime_notes(gpu: str, app_name: str) -> str:
         "model.generate calls inside the function) in `torch.profiler."
         "profile(activities=[CPU, CUDA])`, summarizes the captured "
         "events into the JSON schema documented at "
-        "`torch_profiler/analyze_torch_profile.py` (the schema in the "
-        "module docstring: `{version, captured_at, mode, device, dtype, "
-        "num_iters, total_cuda_time_us, total_cpu_time_us, events: "
-        "[{name, category, cpu_time_us, cuda_time_us, self_cpu_time_us, "
-        "self_cuda_time_us, count}, ...]}`), and **returns the dict**.\n"
+        "`torch_profiler/analyze_torch_profile.py`, and **returns the dict**.\n"
         "  2. `@app.local_entrypoint()` called `modal_profile(output: "
         "str = '/workspace/prof.json', num_iters: int = 20, max_tokens: "
         "int = 32, prompt: str = 'The capital of France is')` — calls "
@@ -730,35 +748,10 @@ def _modal_runtime_notes(gpu: str, app_name: str) -> str:
         "JSON to `output` so the analyzer subcommands "
         "(`tables`, `kernels`, `summary`, …) can read it.\n"
         "\n"
-        "  Reference for the JSON shape: copy the `_summarize_prof` "
-        "helper from `torch_profiler/analyze_torch_profile.py`. The "
-        "minimum acceptable summarizer is:\n"
-        "      from torch.autograd import DeviceType\n"
-        "      def _summarize(prof, num_iters):\n"
-        "          totals = prof.key_averages()\n"
-        "          events, total_cuda, total_cpu = [], 0.0, 0.0\n"
-        "          for ev in totals:\n"
-        "              cuda_us = float(getattr(ev, 'device_time_total', 0.0) or 0.0)\n"
-        "              cpu_us = float(getattr(ev, 'cpu_time_total', 0.0) or 0.0)\n"
-        "              self_cuda = float(getattr(ev, 'self_device_time_total', 0.0) or 0.0)\n"
-        "              self_cpu = float(getattr(ev, 'self_cpu_time_total', 0.0) or 0.0)\n"
-        "              name = ev.key\n"
-        "              if ev.device_type == DeviceType.CUDA or 'cuda' in name.lower() or (cuda_us > 0 and cpu_us < cuda_us / 4):\n"
-        "                  cat = 'kernel'\n"
-        "              elif name.startswith('aten::') or name.startswith('torch::'):\n"
-        "                  cat = 'operator'\n"
-        "              elif any(t in name.lower() for t in ('memcpy', 'memset', 'malloc', 'free')):\n"
-        "                  cat = 'memory'\n"
-        "              else:\n"
-        "                  cat = 'cpu'\n"
-        "              events.append({'name': name, 'category': cat,\n"
-        "                  'cpu_time_us': cpu_us, 'cuda_time_us': cuda_us,\n"
-        "                  'self_cpu_time_us': self_cpu, 'self_cuda_time_us': self_cuda,\n"
-        "                  'count': int(ev.count)})\n"
-        "              total_cuda += self_cuda; total_cpu += self_cpu\n"
-        "          return {'version': 1, 'total_cuda_time_us': total_cuda,\n"
-        "              'total_cpu_time_us': total_cpu, 'num_events': len(events),\n"
-        "              'events': events, 'num_iters': num_iters}\n"
+        "  Read the module docstring and `_summarize_prof` helper in "
+        "`torch_profiler/analyze_torch_profile.py` for the authoritative JSON "
+        "shape and implementation. That source is mounted in the workspace; "
+        "do not reconstruct the schema from prompt prose.\n"
         "  Wrap your representative workload (a torch.profiler.schedule "
         "with wait/warmup/active is recommended; otherwise profile "
         "inside a plain `with torch.profiler.profile(...) as prof:` "

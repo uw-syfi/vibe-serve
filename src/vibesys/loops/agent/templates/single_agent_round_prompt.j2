@@ -68,9 +68,8 @@ model overpredicted it, and record the forecast miss as calibration evidence.
 
 ## Live framework Pareto archive
 
-```
-{{ pareto_archive_summary|default('(no Pareto archive available)') or '(no Pareto archive available)' }}
-```
+Read `{{ pareto_archive_location|default('pareto-frontier.md') }}` before
+classifying a fresh candidate. The archive contents are not embedded here.
 
 The framework recomputes this archive for every retry. It supersedes a numeric
 archive threshold frozen into an older hypothesis plan. Before returning

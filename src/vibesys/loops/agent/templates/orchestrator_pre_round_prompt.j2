@@ -8,21 +8,22 @@ Decide only whether to profile **before** the next planning call. This profiling
 
 ## Progress so far
 
-Recent `{{ progress_location|default('progress.md') }}` follows; inspect older
-rounds only when relevant.
-
-```
-{{ recent_progress_text|default('(no prior progress)') or '(no prior progress)' }}
-```
+The durable history is at `{{ progress_location|default('progress.md') }}`.
+Inspect the latest relevant round with tools before deciding. Read older rounds
+only when the profiling decision depends on them.
 
 {% if regression_info %}
 ## Regression detected
-{{ regression_info }}
+The framework recorded a regression/terminal-workspace notice in the latest
+applicable round under `{{ progress_location|default('progress.md') }}`. Read
+that entry before deciding whether profiling the current tree is meaningful.
 {% endif %}
 
 {% if exhaustion_info %}
 ## Previous round exhausted the judge loop
-{{ exhaustion_info }}
+The latest applicable round under
+`{{ progress_location|default('progress.md') }}` contains the exact judge
+feedback. Read it before deciding whether another profile would unblock repair.
 {% endif %}
 
 ## Skills

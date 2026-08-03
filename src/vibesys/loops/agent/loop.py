@@ -1001,7 +1001,6 @@ def _run_pre_round_decision(
         regression_info=carry.regression_info,
         exhaustion_info=carry.exhaustion_info,
         progress_location=progress_location,
-        recent_progress_text=issue_board.read_progress(progress_path),
     )
     decision = _invoke_read_only_role(
         ctx,
@@ -1092,20 +1091,15 @@ def _run_profiler(
         profiler_support_name=profiler_definition(ctx.profiler_kind).support_name,
         profiler_mcp_name=profiler_definition(ctx.profiler_kind).mcp_name,
     )
-    recent_progress = issue_board.read_progress(progress_path)
-    if recent_progress:
-        progress_location = issue_board.display_path(progress_path, ctx.workspace)
-        system_prompt += f"""
+    progress_location = issue_board.display_path(progress_path, ctx.workspace)
+    system_prompt += f"""
 
 ## Recent campaign context
 
-The durable progress artifact is `{progress_location}`. The bounded recent
-window below identifies the current candidate, hypothesis, and retained
-evaluation artifacts:
-
-```
-{recent_progress}
-```
+The durable progress artifact is `{progress_location}`. Inspect the most recent
+applicable round with tools to identify the current candidate, hypothesis, and
+retained evaluation artifacts. Read older rounds only when the requested focus
+depends on them.
 
 For the requested profile focus, resolve artifacts explicitly referenced by
 the most recent applicable round before considering older similarly named
@@ -1158,7 +1152,7 @@ def _run_orchestrator_plan(
     progress_path: Path,
     progress_location: str,
     roadmap_location: str,
-    roadmap_text: str,
+    pareto_archive_location: str,
     plateau_warning: str | None,
     modality: str | None,
     interface: str,
@@ -1167,7 +1161,6 @@ def _run_orchestrator_plan(
     official_eval_every: int = 3,
     provisional_candidates: int = 0,
     official_eval_cadence_due: bool = False,
-    pareto_archive_summary: str = "",
 ) -> OrchestratorPlan:
     domain_orchestrator = render_domain_section(
         domain_definition,
@@ -1181,10 +1174,9 @@ def _run_orchestrator_plan(
         profiler_summary=profiler_summary,
         regression_info=carry.regression_info,
         exhaustion_info=carry.exhaustion_info,
-        roadmap_text=roadmap_text,
-        recent_progress_text=issue_board.read_progress(progress_path),
         progress_location=progress_location,
         roadmap_location=roadmap_location,
+        pareto_archive_location=pareto_archive_location,
         plateau_warning=plateau_warning,
         domain_orchestrator=domain_orchestrator,
         runtime_notes=ctx.run_environment_view.prompt_notes,
@@ -1193,7 +1185,6 @@ def _run_orchestrator_plan(
         official_eval_every=official_eval_every,
         provisional_candidates=provisional_candidates,
         official_eval_cadence_due=official_eval_cadence_due,
-        pareto_archive_summary=pareto_archive_summary,
     )
     plan = _invoke_read_only_role(
         ctx,
@@ -1253,6 +1244,7 @@ def _run_implementer(
     framework_revert_commit: str | None,
     progress_path: Path,
     progress_location: str,
+    pareto_archive_location: str,
     gate_revalidation_pending: bool = False,
     gate_approved_perf_metric: float | None = None,
     gate_approved_perf_unit: str | None = None,
@@ -1260,7 +1252,6 @@ def _run_implementer(
     framework_benchmark_enabled: bool = False,
     official_evaluation_due: bool = False,
     official_evaluation_reason: str | None = None,
-    pareto_archive_summary: str = "",
 ) -> ImplementerResponse:
     domain_implementer = render_domain_section(
         domain_definition,
@@ -1285,6 +1276,7 @@ def _run_implementer(
         minimum_acceptance_criteria=plan.minimum_acceptance_criteria,
         invariants=plan.invariants,
         progress_location=progress_location,
+        pareto_archive_location=pareto_archive_location,
         retry=retry,
         feedback=feedback,
         continuation_step=continuation_step,
@@ -1300,7 +1292,6 @@ def _run_implementer(
         framework_benchmark_enabled=framework_benchmark_enabled,
         official_evaluation_due=official_evaluation_due,
         official_evaluation_reason=official_evaluation_reason,
-        pareto_archive_summary=pareto_archive_summary,
     )
     response = ctx.invoke(
         kind="implementer",
@@ -1334,6 +1325,7 @@ def _run_judge(
     domain_definition: DomainDefinition,
     progress_path: Path,
     progress_location: str,
+    pareto_archive_location: str,
     objective: str,
     framework_revert_applied: bool,
     framework_revert_round: int | None,
@@ -1346,7 +1338,6 @@ def _run_judge(
     framework_benchmark_enabled: bool = False,
     official_evaluation_due: bool = False,
     official_evaluation_reason: str | None = None,
-    pareto_archive_summary: str = "",
     pareto_archive_conflict: str | None = None,
 ) -> JudgeResponse:
     judge_domain_context = _domain_render_context(ctx, modality, interface)
@@ -1397,13 +1388,13 @@ def _run_judge(
         gate_approved_metrics=gate_approved_metrics or {},
         gate_approved_evaluation_artifact=gate_approved_evaluation_artifact,
         progress_location=progress_location,
+        pareto_archive_location=pareto_archive_location,
         framework_revert_applied=framework_revert_applied,
         framework_revert_round=framework_revert_round,
         framework_revert_commit=framework_revert_commit,
         framework_benchmark_enabled=framework_benchmark_enabled,
         official_evaluation_due=official_evaluation_due,
         official_evaluation_reason=official_evaluation_reason,
-        pareto_archive_summary=pareto_archive_summary,
         pareto_archive_conflict=pareto_archive_conflict,
     )
     response = _invoke_read_only_role(
@@ -1465,12 +1456,12 @@ def _run_single_agent_round(
     feedback: str | None,
     progress_path: Path,
     progress_location: str,
+    pareto_archive_location: str,
     objective: str,
     profile_focus: str,
     official_evaluation_due: bool = False,
     official_evaluation_reason: str | None = None,
     framework_benchmark_enabled: bool = False,
-    pareto_archive_summary: str = "",
     pareto_records: list[_RoundRecord] | None = None,
     objectives: list[Objective] | None = None,
 ) -> SingleAgentRoundResponse:
@@ -1517,6 +1508,7 @@ def _run_single_agent_round(
         minimum_acceptance_criteria=plan.minimum_acceptance_criteria,
         invariants=plan.invariants,
         progress_location=progress_location,
+        pareto_archive_location=pareto_archive_location,
         retry=retry,
         feedback=feedback,
         objective=objective,
@@ -1532,7 +1524,6 @@ def _run_single_agent_round(
         official_evaluation_due=official_evaluation_due,
         official_evaluation_reason=official_evaluation_reason,
         framework_benchmark_enabled=framework_benchmark_enabled,
-        pareto_archive_summary=pareto_archive_summary,
     )
     response = ctx.invoke(
         kind="implementer",
@@ -2024,6 +2015,8 @@ def run_agent_loop(
     issue_board.ensure_roadmap_file(roadmap_path)
     progress_location = issue_board.display_path(progress_path, ctx.workspace)
     roadmap_location = issue_board.display_path(roadmap_path, ctx.workspace)
+    pareto_archive_path = issue_board.pareto_archive_path(progress_path)
+    pareto_archive_location = issue_board.display_path(pareto_archive_path, ctx.workspace)
 
     rounds_state_path = ctx.log_dir / "rounds.json"
     records = _load_rounds_state(rounds_state_path)
@@ -2046,6 +2039,14 @@ def run_agent_loop(
     try:
         while round_number <= max_rounds:
             ctx.switch_log_file(f"round{round_number:03d}")
+            issue_board.write_pareto_archive(
+                progress_path,
+                _pareto_archive_summary(
+                    records,
+                    objectives,
+                    relative_noise=pareto_relative_noise,
+                ),
+            )
             round_progress = RoundProgress(round_number, max_rounds)
             ctx.lprint(f"\n{'=' * 60}\n  {round_progress.label()}\n{'=' * 60}\n")
 
@@ -2086,7 +2087,6 @@ def run_agent_loop(
                             last_single_agent_response
                         )
 
-                    roadmap_text = issue_board.read_roadmap(roadmap_path)
                     plateau_warning = _detect_plateau(records)
                     provisional_candidates = _provisional_candidates_since_official(records)
                     plan = _run_orchestrator_plan(
@@ -2098,7 +2098,7 @@ def run_agent_loop(
                         progress_path=progress_path,
                         progress_location=progress_location,
                         roadmap_location=roadmap_location,
-                        roadmap_text=roadmap_text,
+                        pareto_archive_location=pareto_archive_location,
                         plateau_warning=plateau_warning,
                         modality=modality,
                         interface=interface,
@@ -2108,11 +2108,6 @@ def run_agent_loop(
                         provisional_candidates=provisional_candidates,
                         official_eval_cadence_due=(
                             provisional_candidates + 1 >= official_eval_every
-                        ),
-                        pareto_archive_summary=_pareto_archive_summary(
-                            records,
-                            objectives,
-                            relative_noise=pareto_relative_noise,
                         ),
                     )
                     active_hypothesis = _ActiveHypothesis(
@@ -2171,7 +2166,7 @@ def run_agent_loop(
                         # after the reverted state.
                         memory_paths = tuple(
                             str(path.relative_to(ctx.workspace))
-                            for path in (roadmap_path, progress_path)
+                            for path in (roadmap_path, progress_path, pareto_archive_path)
                         )
                         if ctx.git.checkout_tree(
                             rollback_commit,
@@ -2217,7 +2212,6 @@ def run_agent_loop(
                 accepted_metrics: dict[str, float] = {}
                 accepted_evaluation_artifact: str | None = None
                 completed_official_evaluation_reason: str | None = None
-                live_pareto_archive = _pareto_archive_summary(records, objectives)
                 # ``max_retries_per_round >= 1`` is validated at entry, so the
                 # loop always runs; the initializer keeps ``retry`` provably
                 # bound for the post-loop round bookkeeping.
@@ -2249,10 +2243,10 @@ def run_agent_loop(
                             ),
                             progress_path=progress_path,
                             progress_location=progress_location,
+                            pareto_archive_location=pareto_archive_location,
                             framework_benchmark_enabled=benchmark_result is not None,
                             official_evaluation_due=(planned_official_reason is not None),
                             official_evaluation_reason=planned_official_reason,
-                            pareto_archive_summary=live_pareto_archive,
                         )
                         review_due = _review_due(
                             round_number=round_number,
@@ -2322,6 +2316,7 @@ def run_agent_loop(
                             domain_definition=domain_definition,
                             progress_path=progress_path,
                             progress_location=progress_location,
+                            pareto_archive_location=pareto_archive_location,
                             objective=objective,
                             framework_revert_applied=active_hypothesis.revert_applied,
                             framework_revert_round=active_hypothesis.parent_round,
@@ -2336,7 +2331,6 @@ def run_agent_loop(
                             framework_benchmark_enabled=benchmark_result is not None,
                             official_evaluation_due=(planned_official_reason is not None),
                             official_evaluation_reason=planned_official_reason,
-                            pareto_archive_summary=live_pareto_archive,
                             pareto_archive_conflict=candidate_archive_conflict,
                         )
                         if verdict.verdict == Verdict.PASS:
@@ -2467,12 +2461,12 @@ def run_agent_loop(
                             feedback=feedback,
                             progress_path=progress_path,
                             progress_location=progress_location,
+                            pareto_archive_location=pareto_archive_location,
                             objective=objective,
                             profile_focus=last_profile_focus,
                             official_evaluation_due=(planned_official_reason is not None),
                             official_evaluation_reason=planned_official_reason,
                             framework_benchmark_enabled=benchmark_result is not None,
-                            pareto_archive_summary=live_pareto_archive,
                             pareto_records=records,
                             objectives=objectives,
                         )

@@ -1,9 +1,10 @@
 An NVIDIA Nsight Systems analysis toolkit is available at `nsys_profiler/analyze_nsys.py`. A profile run takes several minutes (FlashInfer JIT + capture + export), which is why profiling is gated by the diagnosis step above.
 
-1. Pre-warm FlashInfer JIT (CRITICAL — first-time kernel compilation takes minutes and will otherwise dominate the capture):
+1. Inspect the manifest, checker, and candidate build/run documentation to identify
+   the real server command and port. Pre-warm FlashInfer JIT (CRITICAL — first-time
+   kernel compilation takes minutes and will otherwise dominate the capture):
    ```
-   pkill -f "python main.py" 2>/dev/null || true; sleep 2
-   PORT=8077 uv run python main.py > /tmp/prewarm.log 2>&1 &
+   <declared server command> > /tmp/prewarm.log 2>&1 &
    PID=$!
    for i in $(seq 1 120); do curl -s http://localhost:8077/health 2>/dev/null | grep -q ok && break; sleep 2; done
    curl -s -X POST http://localhost:8077/v1/completions -H "Content-Type: application/json" \
@@ -13,8 +14,8 @@ An NVIDIA Nsight Systems analysis toolkit is available at `nsys_profiler/analyze
 
 2. Profile under a representative benchmark load (pick the load level closest to saturation from your earlier runs):
    ```
-   PORT=8077 nsys profile --trace=cuda,nvtx --cuda-memory-usage=true --force-overwrite true \
-     -o /tmp/profile uv run python main.py &
+   nsys profile --trace=cuda,nvtx --cuda-memory-usage=true --force-overwrite true \
+     -o /tmp/profile <declared server command> &
    NSYS_PID=$!
    for i in $(seq 1 120); do curl -s http://localhost:8077/health 2>/dev/null | grep -q ok && break; sleep 2; done
    curl -s -X POST http://localhost:8077/v1/completions -H "Content-Type: application/json" \

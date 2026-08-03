@@ -27,11 +27,8 @@ PASS: pytest passes and /v1/completions streams valid SSE.
 
 ## Live framework Pareto archive
 
-```
-Configured axes: throughput:max, latency:min
-Trusted frontier parents:
-- round 6, commit abc123, reviewed provisional: throughput=120, latency=80
-```
+Read `progress/pareto-frontier.md` when auditing
+the candidate disposition. The archive contents are not embedded here.
 
 This archive is recomputed from reviewed records for the current retry. Audit
 the disposition against it rather than relying on a numeric archive gate frozen

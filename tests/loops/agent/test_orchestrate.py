@@ -2027,7 +2027,7 @@ def test_hypothesis_revert_is_applied_once_across_continuation_rounds(tmp_path, 
     checkout_tree.assert_called_once_with(
         ANY,
         clean=True,
-        preserve_paths=("roadmap.md", "progress.md"),
+        preserve_paths=("roadmap.md", "progress.md", "pareto-frontier.md"),
     )
     repair_calls = [
         call
@@ -2325,7 +2325,8 @@ def test_loop_orchestrator_requests_profile_before_plan(tmp_path, ref_file):
     # Profiler must come BEFORE the round-2 plan call.
     assert prof_idx < plan_idx[1]
     assert "Recent campaign context" in profiler_prompts[0]
-    assert "Round 1" in profiler_prompts[0]
+    assert "The durable progress artifact is `progress.md`" in profiler_prompts[0]
+    assert "Round 1" not in profiler_prompts[0]
     assert "Do not launch a duplicate expensive evaluation" in profiler_prompts[0]
 
 
@@ -2543,6 +2544,41 @@ def test_read_roadmap_missing_returns_empty(tmp_path):
 
     p = tmp_path / "nope.md"
     assert issue_board.read_roadmap(p) == ""
+
+
+def test_outer_prompts_reference_memory_paths_without_embedding_contents():
+    template_dir = (
+        Path(__file__).resolve().parents[3] / "src" / "vibesys" / "loops" / "agent" / "templates"
+    )
+    plan_prompt = (template_dir / "orchestrator_plan_prompt.j2").read_text()
+    pre_prompt = (template_dir / "orchestrator_pre_round_prompt.j2").read_text()
+
+    assert "progress_location" in plan_prompt
+    assert "roadmap_location" in plan_prompt
+    assert "pareto_archive_location" in plan_prompt
+    assert "recent_progress_text" not in plan_prompt
+    assert "roadmap_text" not in plan_prompt
+    assert "pareto_archive_summary" not in plan_prompt
+    assert "progress_location" in pre_prompt
+    assert "recent_progress_text" not in pre_prompt
+
+    for name in ("implementer_prompt.j2", "judge_prompt.j2", "single_agent_round_prompt.j2"):
+        role_prompt = (template_dir / name).read_text()
+        assert "pareto_archive_location" in role_prompt
+        assert "pareto_archive_summary" not in role_prompt
+
+
+@pytest.mark.parametrize(
+    ("progress_name", "expected"),
+    (("progress.md", "pareto-frontier.md"), ("progress", "progress/pareto-frontier.md")),
+)
+def test_pareto_archive_is_materialized_beside_progress(tmp_path, progress_name, expected):
+    progress_path = tmp_path / progress_name
+
+    document = issue_board.write_pareto_archive(progress_path, "Trusted frontier: round 4")
+
+    assert document == tmp_path / expected
+    assert document.read_text() == "# Pareto frontier\n\nTrusted frontier: round 4\n"
 
 
 def _record(round_number: int, perf: float | None, unit: str = "tok/s"):

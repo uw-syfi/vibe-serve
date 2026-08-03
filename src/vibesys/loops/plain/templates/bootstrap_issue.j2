@@ -6,7 +6,7 @@ This is the foundation issue. Subsequent perf, feature, and bug issues filed by 
 
 ## Acceptance criteria
 
-- `main.py` exists in the workspace and exports a `VibeServeModel` class with the `from_pretrained` / `generate` interface described above.
+- The entry module imported by the accuracy checker exports a `VibeServeModel` class with the `from_pretrained` / `generate` interface described above.
 - A FastAPI server exposes both `/v1/completions` (SSE streaming) and `/health` endpoints.
 - The model loads on GPU with `bfloat16`/`float16` from `/model` — no `float32`, no CPU, no internet fetches.
 - Every layer of the model architecture is implemented in the workspace code (no `LlamaModel` / `LlamaAttention` imports).

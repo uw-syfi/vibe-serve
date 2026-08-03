@@ -26,9 +26,8 @@ from vibesys.schemas import (
 
 MEMORY_LAYOUTS = ("files", "directories")
 # The roadmap carries durable strategy, while progress files are an audit trail.
-# Keep only a small recency window in fresh-session prompts so long runs do not
-# repeatedly pay to inject verbose implementer and judge reports. Older rounds
-# remain available in the workspace for targeted inspection.
+# Keep a bounded read helper for callers that explicitly request recent audit
+# text. Agent prompts receive only the durable path and inspect it with tools.
 _RECENT_PROGRESS_ROUNDS = 4
 
 
@@ -61,6 +60,21 @@ def display_path(path: Path, workspace: Path) -> str:
     return f"{location}/" if path.suffix != ".md" else location
 
 
+def pareto_archive_path(progress_path: Path) -> Path:
+    """Return the framework-owned Pareto archive beside progress history."""
+    if progress_path.suffix == ".md":
+        return progress_path.with_name("pareto-frontier.md")
+    return progress_path / "pareto-frontier.md"
+
+
+def write_pareto_archive(progress_path: Path, summary: str) -> Path:
+    """Materialize the derived frontier so agents can inspect it on demand."""
+    document = pareto_archive_path(progress_path)
+    document.parent.mkdir(parents=True, exist_ok=True)
+    document.write_text(f"# Pareto frontier\n\n{summary.rstrip()}\n")
+    return document
+
+
 def _roadmap_document(roadmap_path: Path) -> Path:
     return roadmap_path if roadmap_path.suffix == ".md" else roadmap_path / "index.md"
 
@@ -73,9 +87,10 @@ def _roadmap_document(roadmap_path: Path) -> Path:
 _ROADMAP_HEADER = """# Roadmap
 
 You (the Orchestrator) own this file end-to-end. Update it every round
-*before* deciding the round's task. The framework reads it back into
-your next prompt — it does not parse it, so format it however you find
-useful, but follow these conventions so the structure stays legible:
+*before* deciding the round's task. The framework names this file in
+your next prompt but does not inject or parse its contents, so inspect it
+with tools and format it however you find useful. Follow these conventions
+so the structure stays legible:
 
 - **Major** items: structural changes expected to move the headline
   performance metric meaningfully. Derive them from measured bottlenecks and
@@ -158,10 +173,7 @@ def ensure_roadmap_file(roadmap_path: Path) -> None:
 
 
 def read_roadmap(roadmap_path: Path) -> str:
-    """Return the current roadmap contents, or an empty string if missing.
-
-    Callers thread this into the orchestrator's prompt verbatim.
-    """
+    """Return the current roadmap contents, or an empty string if missing."""
     document = _roadmap_document(roadmap_path)
     if not document.exists():
         return ""
@@ -176,9 +188,8 @@ def read_roadmap(roadmap_path: Path) -> str:
 _PROGRESS_HEADER = "# Progress\n\n"
 _PROGRESS_README = """# Progress
 
-Each round has its own `round-NNNN.md` audit log. The framework injects a
-bounded recent window into the orchestrator prompt; older rounds remain
-available for targeted inspection.
+Each round has its own `round-NNNN.md` audit log. Agent prompts name this
+directory; agents inspect only the rounds relevant to the current decision.
 """
 
 

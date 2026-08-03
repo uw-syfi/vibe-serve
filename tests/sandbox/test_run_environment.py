@@ -44,6 +44,10 @@ def _request(tmp_path: Path, backend: FakeBackend, **overrides):
     return RunEnvironmentRequest(**values)
 
 
+def _modal_runtime_document(tmp_path: Path) -> str:
+    return (tmp_path / "logs" / "runtime-environment.md").read_text()
+
+
 def test_local_environment_opens_local_sandbox_with_host_paths(tmp_path):
     backend = FakeBackend()
     env = build_run_environment(RunEnvironmentSpec("local"))
@@ -83,6 +87,7 @@ def test_docker_environment_opens_one_started_sandbox_with_agent_paths(tmp_path)
     assert session.view.cli_sandboxed is True
     assert session.view.paths.accuracy_command == "uv run python accuracy_checker/checker.py"
     assert session.view.paths.benchmark_command == "uv run python benchmark/benchmark.py"
+    assert backend.calls[0][1]["extra_env"]["UV_CACHE_DIR"] == "/workspace/.cache/uv"
     backend.sandbox.start.assert_called_once()
 
     session.close()
@@ -232,24 +237,35 @@ def test_modal_environment_installs_modal_sdk_in_docker(tmp_path):
     assert any("pip install" in c and "modal" in c for c in commands), (
         f"expected `pip install modal` in init commands, got: {commands}"
     )
+    assert backend.calls[0][1]["extra_env"]["UV_CACHE_DIR"] == "/workspace/.cache/uv"
 
 
-def test_modal_environment_prompt_notes_describe_modal_dispatch(tmp_path):
-    """The view's prompt_notes should explain to agents that GPU work
-    dispatches via `modal run main.py::<function>` and tell them how to
-    discover pre-staged model volumes — without hardcoding any specific
-    model IDs / volume names / mount paths."""
+def test_modal_environment_prompt_references_runtime_document(tmp_path):
+    """Prompts name the runtime manual instead of embedding it in every role."""
     backend = FakeBackend()
     env = build_run_environment(RunEnvironmentSpec("modal"))
 
     session = env.open(_request(tmp_path, backend, agent_backend="cli", cli_provider="codex"))
 
     notes = session.view.prompt_notes
-    assert "modal run" in notes
-    assert "@app.cls" in notes or "@app.function" in notes
-    assert "GPU" in notes
+    runtime = _modal_runtime_document(tmp_path)
+
+    assert notes == (
+        "Runtime instructions are at `/opt/vibesys-runtime/environment.md`. Read that "
+        "file before executing, deploying, benchmarking, or profiling; it contains "
+        "the authoritative environment and lifecycle rules."
+    )
+    assert "modal run" not in notes
+    assert "modal run" in runtime
+    assert "@app.cls" in runtime or "@app.function" in runtime
+    assert "GPU" in runtime
+    assert any(
+        container_path == "/opt/vibesys-runtime/environment.md" and read_only
+        for _, container_path, read_only in backend.calls[0][1]["bind_mounts"]
+    )
+    assert "/opt/vibesys-runtime" in backend.calls[0][1]["passthrough_paths"]
     # Tell the agent where to look up volume names rather than baking them in.
-    assert "meta.json" in notes
+    assert "meta.json" in runtime
     # No hardcoded model IDs or vibesys-internal volume names should leak
     # into the runtime-notes block.
     forbidden = (
@@ -259,7 +275,7 @@ def test_modal_environment_prompt_notes_describe_modal_dispatch(tmp_path):
         "vibesys-model-yuhuili",
     )
     for token in forbidden:
-        assert token not in notes, f"prompt_notes leaks task-specific token {token!r}"
+        assert token not in runtime, f"runtime manual leaks task-specific token {token!r}"
     prior_solution_terms = (
         "EAGLE3",
         "speculative decoding",
@@ -269,15 +285,15 @@ def test_modal_environment_prompt_notes_describe_modal_dispatch(tmp_path):
         "paged attention",
     )
     for term in prior_solution_terms:
-        assert term.casefold() not in notes.casefold()
+        assert term.casefold() not in runtime.casefold()
 
 
 def test_modal_environment_prompt_notes_require_remote_runtime_fingerprint(tmp_path):
     backend = FakeBackend()
     env = build_run_environment(RunEnvironmentSpec("modal"))
 
-    session = env.open(_request(tmp_path, backend, agent_backend="cli", cli_provider="codex"))
-    notes = session.view.prompt_notes
+    env.open(_request(tmp_path, backend, agent_backend="cli", cli_provider="codex"))
+    notes = _modal_runtime_document(tmp_path)
 
     assert "authoritative runtime" in notes
     assert "runtime fingerprint" in notes
@@ -319,8 +335,10 @@ def test_modal_environment_per_run_namespace_prefix_unique(tmp_path):
         agent_backend="cli",
         cli_provider="codex",
     )
-    notes_a = env.open(req_a).view.prompt_notes
-    notes_b = env.open(req_b).view.prompt_notes
+    env.open(req_a)
+    env.open(req_b)
+    notes_a = (log_a / "runtime-environment.md").read_text()
+    notes_b = (log_b / "runtime-environment.md").read_text()
 
     # Each run's prefix is `vibesys-<exp-dir-name-sanitized>`.
     assert "vibesys-20260429-100000-runa" in notes_a
@@ -336,8 +354,8 @@ def test_modal_environment_runtime_notes_describe_profile_contract(tmp_path):
     backend = FakeBackend()
     env = build_run_environment(RunEnvironmentSpec("modal"))
 
-    session = env.open(_request(tmp_path, backend, agent_backend="cli", cli_provider="codex"))
-    notes = session.view.prompt_notes
+    env.open(_request(tmp_path, backend, agent_backend="cli", cli_provider="codex"))
+    notes = _modal_runtime_document(tmp_path)
 
     assert "modal_profile" in notes
     assert "profile_remote" in notes
@@ -345,7 +363,21 @@ def test_modal_environment_runtime_notes_describe_profile_contract(tmp_path):
     assert "torch.profiler" in notes
     # Schema reference for the analyzer-compatible JSON shape.
     assert "analyze_torch_profile.py" in notes
-    assert "total_cuda_time_us" in notes
+    assert "_summarize_prof" in notes
+    assert "total_cuda_time_us" not in notes
+    assert "from torch.autograd import DeviceType" not in notes
+
+
+def test_modal_environment_prompt_notes_reuse_workspace_uv_cache(tmp_path):
+    backend = FakeBackend()
+    env = build_run_environment(RunEnvironmentSpec("modal"))
+
+    env.open(_request(tmp_path, backend, agent_backend="cli", cli_provider="codex"))
+    notes = _modal_runtime_document(tmp_path)
+
+    assert "UV_CACHE_DIR=/workspace/.cache/uv" in notes
+    assert "uv run --no-sync" in notes
+    assert "multi-gigabyte CUDA stack" in notes
 
 
 def test_modal_environment_with_deepagents_uses_docker_too(tmp_path):

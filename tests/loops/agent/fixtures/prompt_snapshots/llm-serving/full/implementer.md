@@ -145,11 +145,8 @@ for work whose measured performance is not itself a frontier candidate.
 
 ## Live framework Pareto archive
 
-```
-Configured axes: throughput:max, latency:min
-Trusted frontier parents:
-- round 6, commit abc123, reviewed provisional: throughput=120, latency=80
-```
+Read `progress/pareto-frontier.md` before
+classifying a fresh candidate. The archive contents are not embedded here.
 
 The framework recomputes this archive for every retry. It supersedes any
 numeric archive threshold frozen into an older hypothesis plan. Compare a fresh

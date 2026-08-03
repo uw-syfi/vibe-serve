@@ -31,10 +31,9 @@ _BASE_CONTEXT = {
     "task": "TASK: add a streaming /v1/completions endpoint.",
     "pass_criteria": "PASS: pytest passes and /v1/completions streams valid SSE.",
     "objective": "OBJECTIVE: maximize median_tok_per_sec.",
-    "roadmap_text": "- major-1: todo - establish the serving optimization floor.",
-    "recent_progress_text": "# Round 7\n\nImplementer is still testing graph activation.",
     "progress_location": "progress/",
     "roadmap_location": "roadmap/",
+    "pareto_archive_location": "progress/pareto-frontier.md",
     "hypothesis_id": "cuda-graph-decode",
     "hypothesis": "Removing decode launch overhead will improve median_tok_per_sec.",
     "activation_evidence": "cuda_graph_replays increases on steady requests.",
@@ -44,12 +43,6 @@ _BASE_CONTEXT = {
     "invariants": "Accuracy and prompt-dependent generation remain unchanged.",
     "implementer_outcome": "nominated",
     "implementer_evidence": "Replay counter increased in a targeted probe.",
-    "pareto_archive_summary": (
-        "Configured axes: throughput:max, latency:min\n"
-        "Trusted frontier parents:\n"
-        "- round 6, commit abc123, reviewed provisional: "
-        "throughput=120, latency=80"
-    ),
     "env_kind": "local",
 }
 
@@ -108,7 +101,7 @@ def _render_prompt(domain: DomainName, role: str, context: dict[str, object]) ->
             framework_benchmark_enabled=context.get("framework_benchmark_enabled", False),
             official_evaluation_due=context.get("official_evaluation_due", False),
             official_evaluation_reason=context.get("official_evaluation_reason"),
-            pareto_archive_summary=context["pareto_archive_summary"],
+            pareto_archive_location=context["pareto_archive_location"],
         )
     if role == "judge":
         judge_domain_context = context | {
@@ -141,7 +134,7 @@ def _render_prompt(domain: DomainName, role: str, context: dict[str, object]) ->
             framework_benchmark_enabled=context.get("framework_benchmark_enabled", False),
             official_evaluation_due=context.get("official_evaluation_due", False),
             official_evaluation_reason=context.get("official_evaluation_reason"),
-            pareto_archive_summary=context["pareto_archive_summary"],
+            pareto_archive_location=context["pareto_archive_location"],
         )
     if role == "single_agent":
         profiler = profiler_definition(ProfilerKind.NSYS)
@@ -176,7 +169,7 @@ def _render_prompt(domain: DomainName, role: str, context: dict[str, object]) ->
             framework_benchmark_enabled=context.get("framework_benchmark_enabled", False),
             official_evaluation_due=context.get("official_evaluation_due", False),
             official_evaluation_reason=context.get("official_evaluation_reason"),
-            pareto_archive_summary=context["pareto_archive_summary"],
+            pareto_archive_location=context["pareto_archive_location"],
         )
     if role == "orchestrator":
         return render_template(
@@ -186,10 +179,9 @@ def _render_prompt(domain: DomainName, role: str, context: dict[str, object]) ->
             profiler_summary=None,
             regression_info=None,
             exhaustion_info=None,
-            roadmap_text=context["roadmap_text"],
-            recent_progress_text=context["recent_progress_text"],
             progress_location=context["progress_location"],
             roadmap_location=context["roadmap_location"],
+            pareto_archive_location=context["pareto_archive_location"],
             plateau_warning=None,
             runtime_notes=context["runtime_notes"],
             env_kind=context["env_kind"],
@@ -520,10 +512,9 @@ def test_orchestrator_rejects_quantitative_use_of_perturbed_profiles():
         },
         regression_info=None,
         exhaustion_info=None,
-        roadmap_text=context["roadmap_text"],
-        recent_progress_text=context["recent_progress_text"],
         progress_location=context["progress_location"],
         roadmap_location=context["roadmap_location"],
+        pareto_archive_location=context["pareto_archive_location"],
         plateau_warning=None,
         runtime_notes=context["runtime_notes"],
         env_kind=context["env_kind"],
@@ -547,11 +538,55 @@ def test_pre_round_prompt_does_not_profile_a_future_rollback_target():
         regression_info="A disproven hypothesis remains in the workspace.",
         exhaustion_info=None,
         progress_location="progress/",
-        recent_progress_text="# Round 4\n\nOutcome: disproven",
     )
 
     assert "profiling phase runs before" in rendered
     assert "let the plan restore the trusted" in rendered
+
+
+def test_orchestrator_prompts_route_durable_details_through_progress_files():
+    context = _CONTEXTS["full"]
+    sentinels = {
+        "regression": "REGRESSION_DETAIL_MUST_NOT_BE_EMBEDDED",
+        "exhaustion": "JUDGE_DETAIL_MUST_NOT_BE_EMBEDDED",
+        "profile": "PROFILE_DETAIL_MUST_NOT_BE_EMBEDDED",
+    }
+    pre_round = render_template(
+        "orchestrator_pre_round_prompt.j2",
+        template_dir=_TEMPLATE_DIR,
+        objective=context["objective"],
+        regression_info=sentinels["regression"],
+        exhaustion_info=sentinels["exhaustion"],
+        progress_location=context["progress_location"],
+    )
+    plan = render_template(
+        "orchestrator_plan_prompt.j2",
+        template_dir=_TEMPLATE_DIR,
+        objective=context["objective"],
+        profiler_summary={
+            "bottlenecks": sentinels["profile"],
+            "suggestions": sentinels["profile"],
+            "analysis": sentinels["profile"],
+            "perf_metric": None,
+            "perf_unit": None,
+        },
+        regression_info=sentinels["regression"],
+        exhaustion_info=sentinels["exhaustion"],
+        progress_location=context["progress_location"],
+        roadmap_location=context["roadmap_location"],
+        pareto_archive_location=context["pareto_archive_location"],
+        plateau_warning=None,
+        runtime_notes=context["runtime_notes"],
+        env_kind=context["env_kind"],
+        domain_orchestrator=_domain_section(DomainName.LLM_SERVING, "orchestrator", context),
+        official_eval_every=3,
+        provisional_candidates=0,
+        official_eval_cadence_due=False,
+    )
+
+    for rendered in (pre_round, plan):
+        assert context["progress_location"] in rendered
+        assert all(sentinel not in rendered for sentinel in sentinels.values())
 
 
 def test_official_evaluation_due_changes_agent_measurement_contract():

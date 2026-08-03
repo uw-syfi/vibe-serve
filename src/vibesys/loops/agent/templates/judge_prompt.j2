@@ -47,9 +47,8 @@ invariant changed. Do not rerun unrelated suites merely to repeat attempt 1.
 
 ## Live framework Pareto archive
 
-```
-{{ pareto_archive_summary|default('(no Pareto archive available)') or '(no Pareto archive available)' }}
-```
+Read `{{ pareto_archive_location|default('pareto-frontier.md') }}` when auditing
+the candidate disposition. The archive contents are not embedded here.
 
 This archive is recomputed from reviewed records for the current retry. Audit
 the disposition against it rather than relying on a numeric archive gate frozen

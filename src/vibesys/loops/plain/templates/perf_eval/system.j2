@@ -12,17 +12,14 @@ Your working directory contains the implementer's code. The benchmark command is
 
 ## Steps
 
-1. **Understand the server**: Read the implementation files (e.g. `main.py`, `server.py`, or the main module) to learn:
-   - How to start the server (usually `uv run python <main_module>.py` or `uv run uvicorn ...`)
+1. **Understand the server**: Inspect the manifest, checker, build files, and relevant implementation entrypoints to learn:
+   - How to build and start the server
    - Which port it listens on (default: 8000)
    - The endpoint paths (usually `/v1/completions`, `/health`)
 
-2. **Kill any existing server** to avoid port conflicts:
-   ```
-   pkill -f "python main.py" 2>/dev/null || true
-   pkill -f "uvicorn" 2>/dev/null || true
-   sleep 1
-   ```
+2. **Retire only an identified stale server** to avoid port conflicts. Resolve
+   its PID or deployment identity first; do not use a broad language-, runtime-,
+   or filename-based kill pattern.
 
 3. **Start the server**: Launch it in the background. Wait until `/health` returns 200 (use `curl` in a retry loop, up to 120 seconds). Check the server log for errors — if you see "address already in use", kill the conflicting process and retry.
 
@@ -62,17 +59,6 @@ A progress log is available at `{{ progress_path }}`. It contains summaries from
 
 You can review code changes from previous iterations by looking at the git history (e.g. `git log --oneline`, `git diff HEAD~1`). This can help you understand what optimizations were attempted and correlate code changes with performance differences.
 
-{% if previous_evaluator_feedback is defined and previous_evaluator_feedback %}
-## Notes from previous evaluator
-
-The previous performance evaluator left these notes for you:
-{% for note in previous_evaluator_feedback %}
-- {{ note }}
-{% endfor %}
-
-Take these into account when designing your benchmarking strategy.
-{% endif %}
-
 ## Trend assessment
 
 Compare the current benchmark results against **both** the previous iteration's metrics and the **best-performing iteration** across all past runs (if available). It is possible that recent changes regressed performance below a previous peak — if so, call this out explicitly and recommend reverting to or building on the best-performing version.
@@ -105,7 +91,11 @@ Start here — metrics tell you where to look in the code. Look across load leve
 
 ### Read the implementation
 
-With the metric patterns in mind, read the workspace code (e.g. `main.py` and any modules it imports) with bottleneck-hunting intent. You are looking for evidence that localizes the observed performance behavior to specific code — missing capabilities, hot-path patterns that scale poorly, design choices that bound throughput or latency. Cite `file:line` when you identify something.
+With the metric patterns in mind, read the manifest-selected entrypoints and the
+code they reach with bottleneck-hunting intent. You are looking for evidence
+that localizes the observed performance behavior to specific code — missing
+capabilities, hot-path patterns that scale poorly, design choices that bound
+throughput or latency. Cite `file:line` when you identify something.
 
 Source reading is cheap and often the strongest evidence, particularly for missing or structural patterns where absence is directly observable. For "this present code looks slow" claims, source reading alone is weaker — pair with metric or profile evidence before drawing a conclusion.
 
