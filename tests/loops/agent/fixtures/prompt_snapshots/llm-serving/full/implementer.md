@@ -223,8 +223,12 @@ This input has no machine-readable framework benchmark gate. You own the perform
   controllers: a primary plus one conditional retry only when the first ran
   zero benchmark rows and either (a) exact target-only evidence is changed by
   the repaired source with local tests, or (b) external failure occurred before
-  user code and cleanup is confirmed. Declare triggers and maximum first; more
-  needs explicit orchestrator cost/information budget. Reuse all completed rows.
+  user code and cleanup is confirmed. Declare expected and maximum counts plus
+  triggers before launch. For target-only capability work without a faithful
+  local reproduction, normally reserve this maximum of two even though one is
+  expected; an unused reservation has no accelerator cost. Never increase the
+  declared maximum after launch. More needs explicit orchestrator cost/
+  information budget. Reuse all completed rows.
 - Keep remote reuse bounded: one accelerator unless required, zero minimum warm
   replicas, finite idle/scaledown, `finally` teardown, and no warm resource
   across reasoning turns. Declare maximum paid workload invocations over every

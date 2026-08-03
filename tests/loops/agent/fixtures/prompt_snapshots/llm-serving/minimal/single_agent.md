@@ -152,7 +152,10 @@ completed.
   adjacent phases. The default is at most two bounded accelerator controllers:
   primary plus one conditional retry only if the first ran zero benchmark rows
   and either focused local tests cover the repaired target-only operation, or a
-  cleaned-up external failure preceded user code. Declare triggers and maximum;
+  cleaned-up external failure preceded user code. Declare expected and maximum
+  counts plus triggers before launch. For target-only work without faithful
+  local reproduction, normally reserve two even though one is expected; the
+  unused reservation costs nothing. Never raise the maximum after launch;
   exceeding two requires explicit cost/information justification.
 - Keep observer control/profile and reset-safe capability bisection variants as
   adjacent checkpointed phases when state can be reset. An entrypoint that

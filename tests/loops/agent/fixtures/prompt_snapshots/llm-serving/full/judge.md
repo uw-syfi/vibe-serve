@@ -181,8 +181,9 @@ When the runtime-environment block above states a framework-level fact (decorato
 - A second accelerator controller is valid when the first ran zero benchmark
   rows and either exact target-only evidence was changed by tested source, or an
   external pre-user-code failure was cleaned up. Verify trigger, source,
-  cleanup, and declared maximum; reject blind/repeated work, an undeclared third
-  invocation, or excess over the orchestrator budget.
+  cleanup, and the prelaunch expected/maximum declaration; reject a retroactive
+  budget increase, blind/repeated work, an undeclared third invocation, or
+  excess over the orchestrator budget.
 - When startup dominates, a capability check which uses the same model/service
   state flows into smoke/measurement on one initialized controller when safe.
   Verify zero minimum warm replicas, finite idle/scaledown, bounded accelerator

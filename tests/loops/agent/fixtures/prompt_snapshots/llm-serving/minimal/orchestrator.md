@@ -352,11 +352,15 @@ small capability bisection as checkpointed phases. For observer effect, run
 control then profiler adjacently when safe; a wrapper that issues two
 `.remote()` calls is still two accelerator startups. Split only for named state
 contamination or measurement-validity reasons.
-Declare the maximum paid workload-invocation budget and accelerator controllers.
-Ordinary rounds normally use one bounded controller; target-only risky work may
-default to two: a primary plus one conditional retry only after zero benchmark
-rows and either an exact repaired failure or confirmed-clean external pre-user-
-code failure. More than two needs explicit cost/information justification.
+Declare the expected count and maximum paid workload-invocation budget and
+accelerator controllers separately.
+Ordinary rounds expect and allow one. For target-only capability work whose
+failure cannot be reproduced locally, normally reserve a maximum of two before
+launch even though only one is expected: primary plus one conditional retry only
+after zero benchmark rows and either an exact tested repair or a confirmed-clean
+external pre-user-code failure. Reserving the retry costs nothing until its
+trigger fires and avoids another reasoning round; never raise the declared
+maximum after launch. More than two needs explicit cost/information justification.
 Never rerun a completed candidate/workload/operating point; ambiguity repeats
 must change classification and fallbacks must vary a named causal variable.
 Use one accelerator, zero minimum warm replicas, finite idle/scaledown,
