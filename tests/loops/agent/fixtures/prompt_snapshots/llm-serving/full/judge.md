@@ -293,6 +293,18 @@ unsupported or dominated frontier claim, but do not require it to satisfy the
 simultaneous terminal target. Candidate metrics never replace official
 canonical tracking.
 
+Classify invariant scope before using a failed check to veto provisional
+archival. Hard invariants are requirements declared by the objective, API,
+workload, resource contract, failure-rate contract, anti-reward-hacking policy,
+or immutable official gate. A hypothesis-specific diagnostic may deliberately
+be stronger—for example, bitwise-identical greedy text across different
+physical batch shapes. Its failure blocks causal support and canonical
+promotion, but does not invalidate an otherwise genuine nondominated measured
+row unless the evidence shows actual state corruption or a declared-contract
+failure. In that case preserve the provisional point and commit, make the
+diagnostic blocker explicit, and require the smallest discriminating test.
+This distinction never relaxes an official accuracy or terminal gate.
+
 Also audit erroneous downgrades. If the implementer's own artifact and analysis
 show that hard invariants hold and a row clears the plan's independent
 archive/non-domination gate, fail a `prerequisite`, `discard`, or `unassessed`

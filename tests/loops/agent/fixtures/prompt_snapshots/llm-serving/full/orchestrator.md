@@ -22,6 +22,14 @@ Treat three decisions separately:
 3. **Terminal completion:** the objective's simultaneous target gates remain
    unchanged. Membership on the frontier is useful progress, not completion.
 
+Label every invariant as either a declared objective/API/workload/resource
+constraint or a stronger hypothesis-specific diagnostic guard. A failed
+stronger guard blocks causal support and canonical promotion, but does not
+retroactively erase a genuine nondominated provisional measurement unless it
+demonstrates an actual declared-contract violation. Preserve such a point with
+the unresolved blocker explicit and plan the smallest discriminating test.
+Official accuracy and terminal gates remain mandatory.
+
 The hypothesis-specific minimum-acceptance criterion may decide whether a
 mechanism justified its implementation complexity or should receive more work,
 but it must not suppress a distinct objective-level frontier checkpoint. State
