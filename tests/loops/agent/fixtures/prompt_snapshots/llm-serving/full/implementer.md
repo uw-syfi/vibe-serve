@@ -169,6 +169,14 @@ that observed failure shape and fails on the old implementation. If the local
 environment cannot reproduce it, state the missing dimension explicitly and
 use the next paid run to isolate that dimension rather than rerunning the full
 comparison with an untested premise.
+When a repair changes representation, ownership, or lifecycle semantics, audit
+all consumers of that contract before the next paid retry—not only the first
+gate that failed. Enumerate completion, cancellation, error, timeout, cleanup,
+toggle/reset, telemetry, diagnostic, and controller paths that read or mutate
+the changed state; exercise every applicable path locally or explain the target-
+only dimension. Do not patch one observed failure and discover the next stale
+consumer on another cold accelerator launch. The next target run must test the
+smallest remaining target-only uncertainty after this consumer-wide audit.
 Reuse the established benchmark runner and staged controller by default. Do not
 add a hypothesis-specific controller or new synthetic artifacts solely to wrap
 an ordinary candidate change, rename phases, or expose additional activation
