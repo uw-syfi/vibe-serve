@@ -250,7 +250,11 @@ def _append(progress_path: Path, block: str, round_number: int) -> None:
             output.append(normalized_block)
             replaced = True
         index += 1
-        while index < len(lines) and not lines[index].startswith("## Round "):
+        # A framework section owns its H3 children, but not a neighboring H2.
+        # Operators and recovery tooling may append evidence under their own H2
+        # between an interrupted phase and resume. Preserve that evidence when
+        # replacing the stable framework heading.
+        while index < len(lines) and not lines[index].startswith("## "):
             index += 1
 
     if not replaced:

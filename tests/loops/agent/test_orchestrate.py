@@ -909,6 +909,48 @@ def test_progress_replaces_interrupted_stage_instead_of_duplicating_it(tmp_path)
     assert "Keep this plan" in text
 
 
+def test_progress_replacement_preserves_operator_recovery_section(tmp_path):
+    progress = tmp_path / "progress"
+    issue_board.append_hypothesis_continuation(
+        progress,
+        7,
+        plan=OrchestratorPlan(
+            hypothesis_id="transport",
+            hypothesis="remove queue fanout",
+            task="recover exact source",
+            pass_criteria="source is recoverable",
+            reasoning="continue interrupted work",
+        ),
+        started_round=6,
+    )
+    round_file = progress / "round-0007.md"
+    with round_file.open("a") as document:
+        document.write(
+            "## Operator recovery evidence\n"
+            "Exact measured bytes are retained at `recovery/source.py`.\n\n"
+        )
+
+    issue_board.append_hypothesis_continuation(
+        progress,
+        7,
+        plan=OrchestratorPlan(
+            hypothesis_id="transport",
+            hypothesis="remove queue fanout",
+            task="verify recovered source",
+            pass_criteria="source is recoverable",
+            reasoning="resume interrupted work",
+        ),
+        started_round=6,
+    )
+
+    text = round_file.read_text()
+    assert text.count("## Round 7 — Active hypothesis continuation") == 1
+    assert "verify recovered source" in text
+    assert "recover exact source" not in text
+    assert text.count("## Operator recovery evidence") == 1
+    assert "Exact measured bytes are retained" in text
+
+
 def test_progress_preserves_distinct_attempts_but_replaces_same_attempt(tmp_path):
     progress = tmp_path / "progress.md"
     issue_board.append_implementer(
