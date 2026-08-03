@@ -189,6 +189,17 @@ roofline-based end-to-end bound for the proposed mechanism. Use ranges and name
 the assumptions. If uncertainty changes which hypothesis has the most
 headroom, request the smallest discriminating profile instead of guessing.
 
+Before requesting a paid profile, write a decision-oriented coverage plan.
+Name every plausible residual whose ranking could change the next hypothesis,
+trace the active production branches, and specify the non-overlapping scopes,
+counters, or timestamps needed to distinguish them. Require local synthetic
+activation of the complete scope set before launching the accelerator; do not
+discover one omitted decision-critical scope per cold profile. State how
+observer perturbation will be bounded against an uninstrumented row. A capture
+that materially changes useful batch, cycle time, or throughput is qualitative
+diagnostic evidence, not an Amdahl calibration. Never recommend a mechanism
+that the same artifact proves is already fully active.
+
 Do not relabel a reference engine's observed score as an analytical hardware
 ceiling. Compute the independent FLOP/byte bound and then use the reference as
 an empirical achievability check. Treat `None`, `null`, or an unparseable value

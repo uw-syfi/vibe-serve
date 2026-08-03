@@ -40,6 +40,15 @@ than rescanning device tensors or all live requests each decode step; otherwise
 measure and remove the observer overhead before accepting either a performance
 win or a mechanism-level disproof.
 
+Before a paid profile, enumerate the decisions it must support, audit the
+production branches and plausible residuals that could change those decisions,
+and locally activate the complete non-overlapping scope/counter set. Do not
+discover one omitted scope per accelerator launch. Compare useful batch, cycle
+time, and throughput with the retained uninstrumented row; a materially
+perturbed capture is qualitative only and cannot supply an end-to-end Amdahl
+bound. Reject any profiler recommendation for a mechanism that the same capture
+shows is already fully active and fallback-free.
+
 Before changing streaming transport or chunking, inspect how the trusted client
 derives output-token count, TTFT, and TPOT. If it counts nonempty SSE records as
 tokens, preserve one model-delta record per generated model token and retain a

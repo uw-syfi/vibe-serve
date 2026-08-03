@@ -83,6 +83,16 @@ rescans device tensors or live requests every decode step and could dominate
 the claimed change. Require incremental host counters, bounded asynchronous
 sampling, or a measured observer-overhead bound.
 
+For a paid profile, audit the pre-launch coverage plan as well as the resulting
+file. The capture should exercise every decision-critical scope and active
+production branch identified before launch; do not accept serial accelerator
+retries caused by discovering one omitted scope at a time. Compare useful
+batch, cycle time, and end-to-end throughput with the retained uninstrumented
+row. If observer perturbation is material, allow qualitative localization but
+reject quantitative Amdahl calibration from the perturbed section totals.
+Reject a profiler-generated recommendation when the same artifact proves that
+mechanism is already fully active and fallback-free.
+
 Do not duplicate commands that the framework declares as trusted gates or
 invent an official score. For benchmark protocols without a machine-readable
 framework gate, audit the implementer's retained performance evidence and run

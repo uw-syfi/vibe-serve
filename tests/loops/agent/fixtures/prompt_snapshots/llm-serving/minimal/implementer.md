@@ -495,6 +495,18 @@ decode step merely to publish `/health`. If a gauge requires a synchronized
 sample, collect it outside the measured path or at a bounded low frequency and
 measure the observer overhead first.
 
+Before a paid profiling launch, list the decisions the capture must support and
+audit all production branches and plausible residuals that could change those
+decisions. Add the complete set of non-overlapping scopes, counters, and
+timestamps in one instrumentation pass, then exercise every required scope with
+a local synthetic probe. Do not pay for a sequence of profiles that discovers
+one missing scope at a time. Compare the captured row with the retained
+uninstrumented operating point: if instrumentation materially changes useful
+batch, cycle time, or throughput, preserve it only as qualitative diagnostic
+evidence and do not derive an end-to-end Amdahl bound from its section totals.
+Reject any generated `next_major` recommendation whose activation is already
+positive and fallback-free in the same artifact.
+
 Before changing streaming transport or chunking, read the trusted benchmark's
 token-accounting code. If it treats each nonempty SSE record as one output token,
 preserve exactly one model-delta record per generated model token. Retain a
