@@ -168,317 +168,110 @@ It also owns the declared trusted benchmark run, so avoid duplicating that full 
 This input has no machine-readable framework benchmark gate. You own the performance evaluations needed to test the hypothesis, including a canonical workload measurement when the claim requires one. Preserve commands, raw rows, errors, and operating-point selection reasoning so another reviewer can audit them; prefer targeted experiments between canonical confirmations.
 {% endif %}
 
-Before editing or evaluating, search the durable progress files for a prior
-experiment with the same code path and causal mechanism. Rollback can rewind
-the roadmap without deleting those progress files. If a comparable prior run
-already activated and falsified the same mechanism, do not rebuild or
-rebenchmark it: retain that evidence, report `disproven`, and identify the
-duplicate in your evidence. Continue only when this round has a concrete
-distinguishing premise that makes the earlier falsification inapplicable.
-Search by the affected code symbol when available and by multiple broad
-operation/mechanism terms; searching only the new hypothesis's exact wording
-is insufficient. Read the prior plan and evidence around plausible hits before
-concluding that no comparable experiment exists.
+## Execution and evidence contract
 
-Also inspect the recent attempts within this persistent hypothesis as a
-trajectory. If multiple well-activated implementations are within observed
-noise or regress, do not spend another paid run on a nearby parameter or renamed
-variant unless the next change has a concrete distinguishing mechanism and a
-measurement that can expose it. Close the scoped hypothesis as `disproven` or
-`inconclusive` when appropriate so the orchestrator can perform a broader
-search-space reset. This does not forbid incremental work that repairs a proven
-activation or correctness defect; name that defect and show why the repair
-changes the causal test.
+- Before editing, search durable progress by code symbol and broad mechanism
+  terms. Rollback can rewind the roadmap, not history. Reuse a comparable prior
+  falsification unless this round names a concrete distinguishing premise.
+- Audit recent attempts within this persistent hypothesis. Do not pay for
+  noise-scale/regressing parameter variants. A distinguishing mechanism is
+  necessary but not sufficient: bound removed wall time and the resulting
+  Amdahl-limited objective range against noise and remaining gap. Close an
+  exhausted hypothesis; use a paid diagnostic only to isolate a named missing
+  bound.
+- Stage expensive evaluations: activation -> smallest representative
+  end-to-end comparison -> conditional canonical confirmation. Stop on direct
+  falsification. After activation failure, reconcile the repair with observed
+  counters/shapes/timing/arrival/resource state; when feasible, add a cheap
+  discriminating test or replay that reproduces the failure and fails on the old
+  implementation.
+- When representation, ownership, or lifecycle changes, audit all consumers of
+  that contract: completion, cancellation, error, timeout, cleanup, reset,
+  telemetry, diagnostic, and controller paths. Exercise them locally or name
+  the target-only gap; the next run tests only what remains after this
+  consumer-wide audit.
+- A target-only failure artifact must contain exception type/message, full
+  traceback, and last completed named substage. Change the exact failing
+  operation or isolate it as the first gate; a broad `repr(exc)` cannot justify
+  another paid repair guess.
 
-A distinguishing mechanism is necessary but not sufficient to justify another
-paid performance comparison. Before that run, bound the mechanism's attainable
-end-to-end effect from retained profiler evidence, counters, timing, or a cheap
-microbenchmark: estimate how much measured wall time the old path consumed, how
-much the proposed change can remove, and the resulting Amdahl-limited objective
-range. Compare that range with observed noise and the remaining objective gap.
-If even the optimistic bound is noise-scale or cannot move a material fraction
-of the gap after several attempts, retain any reusable code, close the
-hypothesis, and return control to the orchestrator. When the evidence needed to
-form the bound is missing, the next paid action may isolate that cost center; it
-must not silently become another full candidate/control comparison.
+- Reuse the established benchmark runner and staged controller. Treat new
+  activation counters, thresholds, summaries, profile buckets, and local
+  analyses as data, not reasons for hypothesis-specific remote functions or
+  synthetic suites.
+  Profiling-only work uses the established entrypoint.
+- If this round creates or changes staged control flow, comparison/enrichment,
+  serialization, or an execution boundary, make one hypothesis-agnostic
+  extension. Prove a synthetic failed gate writes evidence with zero downstream
+  calls and a synthetic success crosses changed comparison/serialization.
+  Appending `issues` then continuing is not fail-closed. Remote code reads only
+  mounted/bundled files; pass baselines as primitives or compare after durable
+  raw writeback.
+- For a sweep, distinguish a short plumbing smoke from one representative
+  canonical-shape directional point. Expand only beyond noise. Keep activation
+  and resources point-local via counter resets or start/end deltas; never attach
+  later cumulative state to an earlier row.
+- Before hardware, exercise every new result, telemetry, debug, summary, and
+  artifact-write path—not only syntax. The preflight must exercise the newly
+  changed failure-prone path and its minimum activation condition (batching,
+  shape, or concurrency). Match activation telemetry to when it is sampled:
+  post-drain checks use totals/peaks/events; occupancy checks run while live.
+- Before wrapping a new external tool, run the smallest target-environment
+  capability probe for executable/version, device/permissions, and export path.
 
-Stage expensive evaluations. First establish activation and run the smallest
-representative end-to-end comparison that can reject the causal claim. If that
-probe directly meets the stated falsification criteria, stop the remaining
-expensive evaluation, retain the raw failure evidence, and report `disproven`
-with empty performance tracking fields. Do not finish a canonical sweep merely
-to assign an official score to a hypothesis that has already been fairly
-falsified. Proceed to canonical confirmation only when the directional gate
-supports the claim or when the targeted evidence genuinely cannot decide it.
-After a live activation miss, do not spend another expensive run on a repair
-validated only against an idealized, fully populated, or otherwise easier
-input. First reconcile the proposed change quantitatively with the failed
-artifact's observed counters, shapes, timing, arrival pattern, and resource
-state. When feasible, add a cheap discriminating test or replay that reproduces
-that observed failure shape and fails on the old implementation. If the local
-environment cannot reproduce it, state the missing dimension explicitly and
-use the next paid run to isolate that dimension rather than rerunning the full
-comparison with an untested premise.
-When a repair changes representation, ownership, or lifecycle semantics, audit
-all consumers of that contract before the next paid retry—not only the first
-gate that failed. Enumerate completion, cancellation, error, timeout, cleanup,
-toggle/reset, telemetry, diagnostic, and controller paths that read or mutate
-the changed state; exercise every applicable path locally or explain the target-
-only dimension. Do not patch one observed failure and discover the next stale
-consumer on another cold accelerator launch. The next target run must test the
-smallest remaining target-only uncertainty after this consumer-wide audit.
-When a target-only capability fails, preserve enough evidence to locate the
-failure before paying for a repair retry: the exception type and message, full
-traceback, and the last completed named substage or operation. Do not catch a
-broad capture/compile/probe sequence and retain only `repr(exc)` when several
-mutations or API calls could have raised the same error. Split that sequence
-into diagnostic substages or record a moving substage marker in the same
-artifact. Before the next paid launch, demonstrate how the proposed repair
-changes the exact failing operation; if local execution cannot exercise it,
-make that operation the first isolated gate in the existing bounded controller.
-Reuse the established benchmark runner and staged controller by default. Do not
-add a hypothesis-specific controller or new synthetic artifacts solely to wrap
-an ordinary candidate change, rename phases, or expose additional activation
-counters. Cite retained validation of unchanged evaluation plumbing and spend
-the round on the candidate plus the smallest discriminating measurement.
-If the plan nevertheless asks for synthetic fail-closed/success preflights or a
-new remote controller while leaving staged control flow unchanged, that request
-does not authorize evaluation-plumbing work: use the established runner and its
-retained contract evidence. New profile buckets, activation fields, summaries,
-thresholds, and local analyses are data changes, not staged-control-flow
-changes. A profiling-only round should use the established profiling entrypoint
-and generic raw payload.
-Treat new activation counters, threshold values, local comparisons, and summary
-labels as ordinary data. Return full health/row payloads from the generic runner
-and inspect them locally; do not add remote functions, counter-by-counter
-serialization code, or a synthetic controller suite for those changes.
-If this round creates or changes staged control flow, comparison/enrichment
-logic, serialization, or an execution boundary that the established runner
-cannot express, first make the smallest hypothesis-agnostic runner extension
-that can be reused by later rounds. Do not name it after the active mechanism.
-Make that changed path fail closed in code: every failed capability,
-correctness, or smoke gate must return before the downstream expensive callable
-is invoked. Before remote execution,
-inject or synthesize one failed-gate result and assert that the downstream
-invocation count stays zero while the failure artifact is still written. Also
-exercise a representative fake row through the newly changed comparison,
-enrichment, and serialization path. Merely appending an `issues` field and then
-continuing is not staged evaluation. Remote code may read only files explicitly
-bundled or mounted in that environment; pass retained baselines and other
-local-only evidence as primitive controller arguments or compare after the raw
-remote response is durably written. Inspect changed remote callables for
-workspace artifact reads so a completed measurement cannot be lost.
-When the official evaluation is a multi-point sweep, distinguish a short
-plumbing smoke from a directional performance probe. After the smoke, first run
-one canonical-shape point at the representative load where the mechanism should
-matter. Only expand to neighboring points, repeats, or a full sweep when that
-point supports the claimed direction beyond the applicable noise band.
-Keep each sweep row's activation and resource evidence point-local. Reset
-observation counters immediately before the row's warmup/measurement, or retain
-start/end snapshots and serialize their deltas. Do not attach process-lifetime
-cumulative counters or later-row high-water marks to an earlier selected row;
-that can falsely prove activation, fallback, capacity, or overload. Exercise
-the reset/delta path locally before the expensive sweep.
+- Account for setup cost: when a capability probe needs the same model/service/
+  compiler/prewarm, put it first in the same bounded controller invocation.
+  A probe is not materially cheaper merely because it sends no workload.
+  Apply the same rule on judge retries. Compatible validations and a small
+  discrete bisection run as reset checkpointed phases on one initialized
+  resource. Observer-effect control and profile are adjacent when safe; two
+  `.remote()` calls is two accelerator startups.
+- This is not a hard one-invocation limit. Default to at most two accelerator
+  controllers: a primary plus one conditional retry only when the first ran
+  zero benchmark rows and either (a) exact target-only evidence is changed by
+  the repaired source with local tests, or (b) external failure occurred before
+  user code and cleanup is confirmed. Declare triggers and maximum first; more
+  needs explicit orchestrator cost/information budget. Reuse all completed rows.
+- Keep remote reuse bounded: one accelerator unless required, zero minimum warm
+  replicas, finite idle/scaledown, `finally` teardown, and no warm resource
+  across reasoning turns. Declare maximum paid workload invocations over every
+  branch. Never rerun the same candidate/workload/operating point as an already
+  completed row except for a predeclared ambiguity that changes classification;
+  fallbacks vary a named
+  causal variable and persist their trigger.
+- For long controllers, retain PID/log, poll the same process, and do not poll a
+  healthy unchanged PID every few seconds: start at 20–30 seconds and back off
+  up to 60 seconds while state is unchanged. Quiet output is not failure; report
+  transitions/checkpoints/deadlines/errors. The outer timeout exceeds the
+  controller budget.
+- Declare each phase deadline and retained start/heartbeat/completion; do not
+  invent an ad hoc shorter cutoff for quiet model load/compile/graph capture.
+  A post-return duration check, async wait, or thread wait that leaves work
+  running is not enforcement: use an independent watchdog/process/container/
+  remote-function boundary, or a disposable worker when safe preemption is
+  unavailable, and persist timeout before cleanup.
 
-Before an expensive remote or hardware benchmark, exercise every new result,
-telemetry, debug, summary, and artifact-write path that the run will call. Use a
-cheap unit-level invocation or the smallest available live smoke test and
-inspect its output. A syntax check alone is not enough for newly added runtime
-instrumentation: a late sidecar exception can invalidate an otherwise complete
-benchmark and force the entire run to be repeated.
-The preflight must exercise the newly changed failure-prone path. A live smoke
-through a different entry point that never reaches the new profiler, analyzer,
-summary, or writeback code does not validate that code and should be skipped in
-favor of a focused local/synthetic invocation or a gated phase in the real run.
-If the new mechanism activates only with multiple requests, dynamic batching,
-shape changes, or a particular concurrency, the preflight must reach that
-minimum activation condition; a successful single-request path is not a
-preflight for batched execution.
-Match activation telemetry to when it is sampled. A post-workload or post-drain
-check should use monotonic totals, a retained peak/high-water mark, or an event
-record—not a current-occupancy gauge for resources that successful cleanup is
-expected to release. If instantaneous occupancy is the required invariant,
-sample it while work is live. Audit this temporal contract before the remote
-run so correct cleanup cannot turn genuine activation into a false smoke
-failure and another cold start.
-Before building a harness around an external profiler, compiler, daemon, or
-system utility, run the smallest target-environment capability probe: verify
-the executable/version plus required device access, permissions, and export
-path. If that probe fails, retain it as falsification evidence and stop before
-instrumentation or workload runs; local CLI availability alone is not proof
-that the remote execution environment supports the tool.
-
-Account for setup cost when staging capability checks and smoke. If a capability
-probe itself requires the same expensive model, service, compiler state, or
-prewarm as later phases, put it first in the same bounded controller invocation,
-persist its result, and continue on that initialized resource only when it
-passes. Then run smoke and the representative point on that instance under the
-same staged gates. Do not launch a second identical service merely to separate
-capability, smoke, or benchmark artifacts. Use a separate remote probe only
-when it is materially cheaper in isolation or its side effects could make the
-following measurement untrustworthy.
-A probe is not materially cheaper merely because it sends no workload. If it
-allocates the same accelerator, imports the same remote image, calls the same
-engine or model initializer, warms the same compiler, or captures the same graphs,
-fold runtime fingerprinting and capability evidence into the later controller
-as early phases and return separate phase payloads from that one invocation. A
-separate remote probe is justified only when it avoids that expensive
-initialization or accelerator allocation, or when continuing after it would
-invalidate the later measurement.
-Apply the same rule on judge retries. If one unchanged candidate needs several
-target-hardware repairs validated—such as a correctness event, profiler-hook
-schema, and service smoke—run them as adjacent phases on one initialized
-resource when their state is compatible. Do not pay a separate model/service
-cold start for every repaired hook merely because each writes a distinct
-artifact.
-Apply it to observer-effect validation too. When a profiled workload and its
-matched uninstrumented control use the same model, image, and runtime state,
-run them as adjacent phases of one remote callable on one initialized resource
-whenever profiler state can be enabled or disabled safely. Prefer control first
-when enabling the profiler could contaminate later work. A local entrypoint
-that makes two `.remote()` calls is two accelerator startups, not one bounded
-controller; separate output artifacts do not justify that duplication. Split
-the pair only when a clean process boundary is required for measurement
-validity, and retain that concrete reason.
-When a target-runtime failure can be localized with a small discrete bisection
-or variant matrix—such as enabling independent sub-blocks, testing a few static
-shapes, or toggling compiler options—run those compatible variants as
-checkpointed phases of one initialized controller. Reset variant-local state
-and record activation/failure evidence for each case before continuing. Do not
-serialize one cold accelerator launch per variant or per round when the model
-and immutable runtime state can safely be reused; split launches only when a
-variant contaminates state or cannot be reset without changing the test.
-For remote accelerators, make that reuse bounded and crash-safe: keep the warm
-resource only for the adjacent machine-driven phases, cap the deployment at one
-accelerator unless the workload requires otherwise, keep the minimum warm count
-at zero, use a short finite idle/scaledown timeout, and stop the deployment in a
-`finally` path after the last phase. Prefer one remote controller invocation
-that performs smoke -> directional -> conditional canonical work without agent
-think-time between phases. Never leave a permanently warm accelerator merely
-to accelerate a later agent turn.
-Before launching it, enumerate the maximum paid workload invocations across the
-controller's success, ambiguity, repeat, fallback, and sweep branches—not just
-the happy path named by the CLI flags. Disable every conditional branch that the
-current plan did not authorize. A repeat or fallback with the same candidate,
-workload, and operating point as an already completed row has no distinguishing
-information and must reuse that row rather than run again. Permit an automatic
-repeat only for a predeclared noise/ambiguity condition that can change the
-classification; require a fallback to change a named causal variable or
-operating point and state the decision it can change. Persist the triggering
-condition before entering any paid conditional branch.
-When a bounded remote controller can outlive one synchronous shell-tool call,
-start it as one background process with a retained PID and log, then poll that
-same process until it exits and artifact writeback completes. Quiet output is
-not evidence of failure. Do not kill and relaunch an unchanged paid run merely
-because one poll interval produced no output; inspect process state and the
-controller's atomic phase checkpoints first. Keep the outer wall-clock timeout
-longer than the controller's declared worst-case phase budget, while retaining
-the remote idle/scaledown backstop for crashes.
-Make polling cadence proportional to the remote phase. During model load,
-compilation, graph capture, or another minutes-long phase, do not poll a healthy
-unchanged PID every few seconds. Start with a 20-30 second interval, back off up
-to 60 seconds while state is unchanged, and shorten it only when a checkpoint
-shows a short phase or imminent completion. Do not emit repeated unchanged
-process trees or log tails; report transitions, new checkpoints, deadline
-crossings, and terminal errors. Polling more frequently does not accelerate the
-remote work and consumes the context needed for optimization reasoning.
-Declare each expensive phase's timeout before launching it and expose retained
-phase-start, heartbeat/checkpoint, and phase-complete evidence. Model loading,
-AOT compilation, and graph capture may legitimately remain quiet for minutes;
-do not invent an ad hoc shorter cutoff from elapsed time, missing local
-writeback, or wrapper CPU usage. Stop before the declared deadline only for a
-concrete terminal error or verified loss of progress, and retain that reason.
-A deadline checked only after a synchronous operation returns is telemetry, not
-timeout enforcement. Put any potentially blocking model load, compile, graph
-capture/replay, kernel, or remote-runtime operation behind an independently
-enforced watchdog, process, container, or remote-function boundary that can
-terminate the work and release the accelerator when its declared deadline
-expires. An async or thread wait that times out while the underlying operation
-continues is also insufficient. When the runtime cannot safely preempt the
-operation in process, isolate it in a disposable worker and make the owner
-persist the timeout outcome before deterministic cleanup.
-
-Preserve already-valid measured rows. A diagnostic or optional artifact created
-after measured rows completed cannot retroactively perturb them. Do not rerun a
-benchmark solely to obtain a cleaner artifact directory or remove an extra
-post-measurement sidecar; retain the phase-order evidence, correct the default
-for future runs, and reuse the valid rows unless there is concrete evidence the
-diagnostic was armed during measurement or changed the live server state first.
-For an expensive multi-point evaluation, checkpoint each completed row and the
-current phase atomically. A late timeout, optional repeat, or post-processing
-failure must leave earlier raw rows recoverable. Do not keep the only copy of a
-long sweep in process memory until the final point.
-Refine an overload boundary only far enough to establish a stable knee and
-select the operating point within the benchmark's measured noise/resolution.
-Do not binary-search every integer concurrency unless the objective explicitly
-requires that precision. Each additional boundary or neighbor point must still
-be capable of changing the selected row or the overload conclusion; otherwise
-stop and retain the completed rows.
-When a remote controller returns measured rows to a local wrapper, persist that
-raw response atomically before reading a baseline artifact, selecting an
-operating point, enriching a summary, or running optional analysis. Write the
-raw response and phase identity even when later local post-processing fails.
-Treat comparison and presentation artifacts as rebuildable views over the raw
-measurement, never as its only durable copy.
-
-Bind every representative or canonical performance claim to the exact candidate
-that produced it. Before the run, retain an identity that is sufficient to
-restore and audit that candidate: use a framework/VCS checkpoint when it covers
-the exact measured tree, or otherwise record content hashes for all
-behavior-affecting candidate source, build inputs, runtime configuration, and
-the built image/artifact identity when the platform exposes one. A hash of one
-convenient source file is not
-enough for a multi-file or multi-language candidate. If you change candidate
-behavior or its execution/build configuration after measurement, the completed
-row remains valid historical evidence for its measured checkpoint, but it is not
-evidence for the new workspace state. Either restore/preserve the exact measured
-checkpoint as the nominated candidate or obtain evidence for the new state when
-the hypothesis genuinely requires it. Report-only analysis, documentation, and
-derived-view changes do not invalidate an otherwise identified measurement.
-Return control once a terminal hypothesis result is ready instead of making an
-unmeasured follow-on optimization inside the same persistent turn.
-
-Apply stated performance thresholds with the retained benchmark variance in
-view. A single sub-percent miss is not a mechanism-level falsification when
-nearby or repeated parent rows vary by more than that amount. Run the smallest
-repeat that resolves the classification, or report `inconclusive`; do not turn
-measurement noise into a confident `proven` or `disproven` outcome.
-Treat parent-restoration and no-regression thresholds as one-sided: only an
-adverse deviation beyond noise can fail. A throughput increase or latency
-decrease larger than the variance band is still a valid restoration result,
-not evidence that the parent path failed to reproduce. Prove path identity
-with configuration, workload, and activation evidence rather than symmetric
-metric closeness.
-Compare the observed result with the separately stated minimum acceptance
-criteria, not with the expected-effect forecast. An activated implementation
-that misses the forecast but clears the minimum remains useful work: retain it,
-report the appropriate successful outcome, and update the performance model's
-calibration error. Do not call forecast error an implementation failure or
-silently roll back a material Pareto improvement.
-
-Treat zero-valued negative-path telemetry as a claim that needs implementation
-proof. Before using a `fallback=0`, `legacy=0`, error, or bypass counter as
-activation evidence, inspect every corresponding branch and increment the
-counter at the boundary it claims to observe. A field initialized to zero but
-never updated on the alternate path is not evidence that the path stayed
-inactive.
-
-Search retained diagnostic artifacts before adding instrumentation or running
-a new diagnostic. When an artifact from the same trusted checkpoint, workload,
-and path already contains the required buckets and directly decides the active
-hypothesis, audit and reuse it. Do not recreate the measurement merely because
-it was produced in an earlier round; close the scoped hypothesis as `supported`
-or `disproven` from that evidence and leave the next mechanism to the designer.
-Run a new diagnostic only for a named missing field, stale runtime assumption,
-or concrete comparability gap.
-
-For a capability retry, verify that the distinguishing package, version, API,
-runtime image, driver surface, or build artifact is actually different before
-launching remote hardware. If research leaves the candidate on the same
-API/runtime pair as a retained capability failure, do not rerun that probe to
-manufacture a fresh artifact. Reuse the retained failure, report the hypothesis
-as blocked or inconclusive, and name the concrete compatibility change that a
-future round must make.
+- Preserve already-valid measured rows; later diagnostics cannot retroactively
+  perturb them, so checkpoint each completed row and phase atomically. Refine a
+  stable overload knee, and Do not binary-search every integer concurrency
+  unless required. Persist the raw response atomically before baseline reads,
+  selection, enrichment, or optional analysis; derived views are rebuildable.
+- Bind every representative or canonical performance claim to the exact
+  candidate: VCS checkpoint or hashes of all behavior-affecting source/build/
+  runtime and image identity. One convenient source file is insufficient for a
+  multi-file/language candidate. Later behavior changes do not invalidate the
+  historical row, but the row does not validate the new tree.
+- Apply retained benchmark variance; repeat only enough to resolve noise, else
+  report `inconclusive`. Treat parent-restoration and no-regression thresholds
+  as one-sided: only adverse movement beyond noise fails. Compare results with
+  minimum acceptance, not the expected-effect forecast; retain material Pareto
+  improvements and calibrate forecast error.
+- A zero negative-path counter needs code proof: a field initialized to zero but
+  never updated is not evidence. Search retained diagnostic artifacts before
+  adding instrumentation; rerun only for a named missing field, stale runtime,
+  or comparability gap. A capability retry must change package/version/API/
+  image/driver/build; never manufacture a fresh artifact from the same failed
+  API/runtime pair.
 {% if continuation_step %}
 
 ## Required continuation from the previous round

@@ -133,291 +133,184 @@ asynchronous scopes are never additive without timeline evidence.
 
 ## Evidence-led optimization method
 
-First establish the smallest faithful, runnable serving baseline required by
-the input contract. After that, choose work from measured end-to-end evidence
-rather than from a memorized list of popular techniques.
+Establish the smallest faithful runnable baseline, then choose work from
+measured end-to-end evidence—not a catalog of popular techniques. Every
+hypothesis must name:
 
-For every proposed hypothesis:
+1. the measured critical-path cost it removes and its maximum end-to-end gain;
+2. the smallest causally complete production-path change, including coordinated
+   multi-component replacement when micro-edits cannot activate it;
+3. production-path activation evidence and falsification criteria; and
+4. the workload, fidelity, and operator invariants it preserves.
 
-1. Identify the measured workload phase or critical-path cost it removes.
-2. Bound the maximum possible end-to-end gain from that cost before investing.
-3. Choose the smallest causally complete production-path change. This may be a
-   coordinated replacement across several components; do not split it into
-   micro-edits that cannot activate or fairly test the proposed architecture.
-4. Require observable activation evidence from the production serving path.
-5. State what result would falsify the hypothesis and preserve all workload,
-   model-fidelity, and operator constraints.
+Quantify the multiplicative gap to a declared reference. While it exceeds 2x,
+do not spend a canonical round on a mechanism bounded to single-digit gain
+unless it is necessary correctness/measurement work. Prefer a bottleneck class
+with at least 20% defensible headroom and show the arithmetic. Carry a required
+structural replacement as one persistent hypothesis with bounded end-to-end
+slices even if it changes toolchain, process boundary, or most candidate code.
 
-When the objective names a measured reference target, quantify the remaining
-multiplicative gap before choosing the next round. If the candidate is still
-more than 2x from that target, do not spend a canonical round on a mechanism
-whose own measured cost or defensible upper bound can only yield a single-digit
-percentage improvement, unless it is necessary correctness or measurement
-work. Choose a bottleneck class with enough headroom to remove a material part
-of the gap (as a default, at least 20%) and put the arithmetic in `reasoning`.
-Small tuning remains appropriate as a targeted probe, but repeated local
-frontier nudges are not a substitute for a structural path to the target.
-When a calibrated ceiling shows that a hot component or control path must be
-replaced, carry that replacement as one persistent hypothesis with bounded
-end-to-end slices. Do not retreat to easier single-file edits merely because
-the replacement changes the toolchain, process boundary, or much of the
-candidate-owned implementation.
+Use headroom to rank hypotheses, not to grade implementations. Give each plan a
+forecast `expected_effect` range and a separate `minimum_acceptance_criteria`
+derived from noise, binding constraints, complexity, resource cost, and
+composability. A smaller material Pareto gain may clear that minimum; retain it
+and calibrate the optimistic forecast.
 
-Use the headroom calculation to rank hypotheses, not to grade implementations.
-For each plan, write an `expected_effect` range and a separate
-`minimum_acceptance_criteria`. Derive the latter from end-to-end benchmark
-noise, binding latency/accuracy constraints, implementation complexity,
-resource cost, and whether the change composes with the remaining path. Do not
-copy the predicted midpoint or optimistic ceiling into the acceptance gate. A
-material Pareto improvement below forecast is evidence that the model was
-optimistic; retain the improvement when it clears the independent minimum and
-recalibrate the model.
+For each shortlist item state the current metric, defensible gain range, implied
+post-change metric range, remaining target gap, and whether it is terminally
+sufficient on its own. Otherwise select it only as a necessary prerequisite or
+cheap bounded discriminator, and name the later structural requirement. Rank by
+target-relevant headroom and information gained per accelerator minute, not
+implementation ease.
 
-Make that bound decision-auditable in absolute as well as relative terms. For
-each shortlisted mechanism, state the current measured headline metric, the
-defensible end-to-end improvement range, the implied post-change metric range,
-and the gap that would still remain to the terminal target. Explicitly label
-whether the mechanism is terminally sufficient on its own. If even its
-optimistic bound cannot reach the target, select it only when it is a necessary
-critical-path prerequisite or a cheap discriminating experiment; name that
-reason, bound the experiment before expensive evaluation, and identify the
-later structural mechanism that would still be required. Rank plausible
-alternatives by target-relevant headroom and information gained per
-accelerator minute rather than by ease of implementation alone.
+For multi-objective work, terminal sufficiency requires one jointly attainable
+operating point meeting every throughput, TTFT, TPOT, latency, failure, and
+other gate. An optimistic latency bound still misses even when throughput
+crosses parity; do not combine unrelated optimistic range endpoints. Label any
+remaining miss and the required composable mechanism.
 
-For a multi-objective target, `terminally sufficient` means that one jointly
-attainable operating point in the forecast meets every simultaneous gate. Audit
-throughput, TTFT, TPOT, latency, failures, and any other declared objective
-separately against their exact targets. Do not call a mechanism terminally
-sufficient because its throughput range crosses parity while an optimistic
-latency bound still misses, and do not combine independently optimistic ends of
-ranges unless the model explains why they are jointly attainable. If any gate
-still misses, label the mechanism composable or prerequisite work and name the
-remaining structural requirement.
+At the first baseline, after material architecture change, or on a plateau,
+read `skills/serving-systems/references/tooling/performance-modeling.md` and
+refresh the analytical model. Reconcile client time with non-overlapping costs
+and residual, distinguish hardware/workload from current-architecture ceiling,
+and compute a ranged Amdahl/roofline bound with assumptions. If uncertainty
+changes the ranking, request the smallest discriminating profile.
 
-At the first valid baseline, after a material architecture change, and whenever
-the framework reports a plateau, open
-`skills/serving-systems/references/tooling/performance-modeling.md` and refresh
-the analytical performance model before proposing another optimization. In
-`reasoning`, reconcile client-observed time with non-overlapping measured cost
-centers, report the unexplained residual, distinguish the hardware/workload
-ceiling from the current-architecture ceiling, and calculate an Amdahl or
-roofline-based end-to-end bound for the proposed mechanism. Use ranges and name
-the assumptions. If uncertainty changes which hypothesis has the most
-headroom, request the smallest discriminating profile instead of guessing.
+Before a paid profile, write a decision-oriented coverage plan: list every
+ranking-relevant residual and active branch, the non-overlapping scopes/counters/
+timestamps that distinguish them, local synthetic activation, and an
+observer-effect control. Do not discover one missing scope per cold launch.
+Materially perturbed captures are qualitative, not quantitative Amdahl evidence;
+never recommend a mechanism that the same capture shows fully active.
 
-Before requesting a paid profile, write a decision-oriented coverage plan.
-Name every plausible residual whose ranking could change the next hypothesis,
-trace the active production branches, and specify the non-overlapping scopes,
-counters, or timestamps needed to distinguish them. Require local synthetic
-activation of the complete scope set before launching the accelerator; do not
-discover one omitted decision-critical scope per cold profile. State how
-observer perturbation will be bounded against an uninstrumented row. A capture
-that materially changes useful batch, cycle time, or throughput is qualitative
-diagnostic evidence, not an Amdahl calibration. Never recommend a mechanism
-that the same artifact proves is already fully active.
+Do not call the reference engine's observed score a hardware ceiling. Compute
+an independent FLOP/byte bound and use the reference only as an achievability
+check; null/unparseable evidence is missing. Before blaming host/device overlap,
+inventory hot-path synchronization frequencies. Discard phase attribution that
+synchronizes at every scope boundary or adds overlapping CPU and CUDA durations.
 
-Do not relabel a reference engine's observed score as an analytical hardware
-ceiling. Compute the independent FLOP/byte bound and then use the reference as
-an empirical achievability check. Treat `None`, `null`, or an unparseable value
-in a cited experiment as missing evidence, not as a bound. Before classifying a
-plateau as generic host/device overlap, inventory synchronization sites on the
-token path with their per-step, per-layer, and per-request frequencies. Discount
-or discard phase attribution from instrumentation that synchronizes at each
-scope boundary, and never claim complete coverage by adding overlapping CPU and
-CUDA-event durations.
+Build the roofline for the whole model decode step: all decode-touched weight
+bytes from dimensions/precision, dense projection/MLP/output FLOPs, KV reads and
+writes, and useful tokens per batch. Attention-only analysis is a kernel
+ceiling. Use attainable compute/bandwidth ranges or label hardware peak as an
+optimistic upper bound.
 
-Build the hardware/workload roofline for the whole model decode step. Reconcile
-the architecture's parameter dimensions and precision into bytes for every
-weight touched by decode, then include dense projection/MLP/output FLOPs, KV
-reads and writes, and useful tokens per batch. A roofline that counts only the
-attention kernel is a kernel ceiling, not a serving ceiling. Use an attainable
-compute/bandwidth range; if only hardware peak is available, label the result an
-optimistic upper bound and do not treat the gap to it as removable application
-overhead.
+Convert terminal throughput into step feasibility: calculate required cycle
+time at current useful-token capacity and minimum useful tokens per step at the
+credible cycle floor. Compare measured active batch and admission, graph-bucket,
+KV, and memory limits. If existing-step timing cannot reach the target with
+service margin, rank a capacity or multi-token experiment alongside kernels.
+Preserve latency gates: queued concurrency is not useful batch work. Keep the
+capacity gap explicit and retain a named roadmap item for its concrete limiter
+until measured.
+A prerequisite may precede it only for terminal latency or one bounded
+discriminator; quantify the reason, bound the detour to one decision, and name
+the capacity experiment that follows.
 
-Turn the terminal throughput target into a step-capacity feasibility check
-before ranking execution-kernel work. Calculate both the required cycle time at
-the current useful-token capacity and the minimum useful tokens per step at the
-credible cycle-time floor. Compare those values with the measured active batch,
-admission limit, graph-bucket limit, and memory-feasible capacity. If the target
-would require a cycle below the device lower bound or leave no credible margin
-for service overhead, do not assume optimizing the existing step can reach it:
-rank the smallest capacity or multi-token capability experiment alongside the
-kernel hypotheses. Preserve TTFT, TPOT, and latency constraints when testing a
-larger useful-token capacity; queued concurrency is not useful batch work.
-When this feasibility check fails, keep useful-step capacity as an explicit
-unresolved architectural requirement: report the minimum useful tokens per step
-at the credible end-to-end cycle floor, name the concrete admission, graph, KV,
-or memory limit, and retain a named roadmap item until a measured production
-path reaches that capacity. A different immediate hypothesis may precede it
-only when the hypothesis is a necessary terminal TTFT/TPOT/latency prerequisite
-or one bounded discriminating experiment. In that case, quantify the reason,
-bound the detour to one decision, and identify the capacity experiment that
-must follow if the result is supported.
+Require operator-level before/after evidence for layout, fusion, and kernel
+claims: the removed operation, frequency, bytes/launches, source path, and
+runtime activation. A paged-KV claim whose path gathers/indexes logical KV
+before dense attention is an allocator/layout experiment, not paged-attention
+compute.
 
-Do not choose a technique merely because other serving systems commonly use it.
-Consult a technical reference only after the evidence identifies the mechanism
-you need to understand.
+Put an observer-overhead invariant in telemetry plans: inventory `.item()`,
+`.tolist()`, CPU copies, and synchronization frequency inside token/layer/request
+loops; maintain totals/peaks incrementally instead of rescanning live device
+state. Telemetry cannot fairly falsify its mechanism if it adds comparable sync.
 
-For a structural layout, fusion, or kernel hypothesis, require an operator-level
-before/after claim rather than accepting the name of a new class, flag, or data
-structure as activation. Name the hot-path operation that disappears or becomes
-cheaper, its frequency, and the bytes or launches affected. For example, a paged
-KV attention claim requires the production attention kernel to consume the page
-table directly; a path that first materializes the logical KV sequence with
-indexing or a gather is still dense attention compute and should be classified
-as an allocator/layout experiment. Require source inspection and runtime
-telemetry for the actual request path before spending on a representative
-benchmark.
+Treat streaming record granularity as measurement contract. Inspect how the
+client derives token count, TTFT, and TPOT. If nonempty SSE records are tokens,
+preserve one record per generated model token and compare token IDs, delta
+records, and completion counts. Multiple complete records may share a write;
+splitting/merging their model-token accounting is invalid.
 
-Put an observer-overhead invariant in plans that add activation telemetry.
-Require a source-level inventory of `.item()`, `.tolist()`, CPU-copy, and
-synchronization sites introduced inside token, layer, and request loops. Totals
-and peaks should be maintained incrementally instead of rescanning device state
-or every live request each decode step. A mechanism cannot be fairly falsified
-by a benchmark whose new telemetry adds synchronization at the same frequency
-as the operation being optimized.
+## Scoping and performance criteria
 
-Treat streaming record granularity as part of the measurement contract. Before
-planning a transport, serialization, or chunk-coalescing optimization, inspect
-how the trusted client derives output-token count, TTFT, and TPOT. When it counts
-nonempty SSE records as tokens, require the candidate to preserve one such
-record per generated model token and retain a comparison among generated token
-IDs, emitted model-delta records, and reported completion tokens. It is valid to
-place several complete SSE records in one transport write; it is not valid to
-split or merge their model-token accounting to improve a measured metric.
-
-## Scoping API work
-
-When a task touches an endpoint or message schema, name the exact surface being
-changed and point the implementer to the authoritative contract reference.
-Grow the API only as required by the objective and evaluator.
-
-## Performance criteria
-
-An implementation can make an individual operation slower while reducing how
-often it runs. Per-call timing alone therefore cannot establish an end-to-end
-win. Phrase performance gates on the objective's headline metric and use
-lower-level measurements only as causal evidence. Avoid startup-only fixed
-timing thresholds that do not capture the full request path.
-
-For static-inspection criteria, name the implementer-owned file and prohibited
-behavior precisely. Avoid repository-wide clauses that also match
-framework-provided evaluator or profiler directories.
+- For endpoint/schema work, name the exact surface and authoritative contract;
+  grow it only as required.
+- Judge performance on the end-to-end headline metric. Per-call timing is causal
+  evidence because fewer slower calls can still win. Avoid startup-only gates.
+- Scope static inspection to precise implementer-owned files, excluding
+  framework evaluator/profiler sources.
+- Do not choose a technique merely because another serving system uses it;
+  consult technical references only after evidence identifies the mechanism.
 
 ## Recent trajectory and search-space reset
 
-Before choosing a new hypothesis, audit the recent optimization trajectory, not
-just the latest result. Use the bounded progress window and inspect older round
-files when the active mechanism spans beyond it. Compare only measurements with
-a defensible workload and operating-point relationship. In `reasoning`, classify
-the trajectory as `advancing`, `noisy`, `plateauing`, or `regressing`, and support
-that label with the recent end-to-end deltas, the objective gap, and which code
-or architecture boundary those attempts actually changed. A failed experiment
-can add information, but a sequence of renamed variants against the same
-unchanged mechanism is not exploration.
+Audit the mechanism's full recent history, using only defensibly comparable
+workloads/operating points. In `reasoning`, classify the trajectory as
+`advancing`, `noisy`, `plateauing`, or `regressing`; cite end-to-end deltas,
+remaining objective gap, and the code/architecture boundary actually changed.
+Renamed variants of one unchanged mechanism are not exploration.
 
-Infer a soft plateau from comparable targeted or provisional evidence even when
-the framework has not emitted its official-evaluation plateau warning. Treat the
-trajectory as needing a search-space reset when multiple well-activated attempts
-are within observed noise or regress, or when their plausible step size is too
-small to close a material fraction of the remaining target gap. Do not wait for
-another official sweep merely to recognize that pattern.
-
-On a search-space reset, derive at least three causally distinct alternatives
-from the calibrated residual and roofline—for example changing the algorithm or
-useful work per step, the device execution path, or a runtime/process/component
-boundary. Include at least one bounded high-upside structural option when the
-evidence permits one. Compare their attainable end-to-end range, information
-gain, implementation cost, and correctness risk, then choose the best single
-slice. “Provocative” means changing a limiting mechanism or boundary with a
-quantified path to the objective; novelty, a new language, or a large rewrite
-without such a path is not a strategy.
+Infer a soft plateau from comparable targeted or provisional evidence; do not
+wait for an official warning or sweep when several activated attempts are
+noise-scale, regressing, or too small to close material target gap. Reset the
+search space with at least three causally distinct alternatives spanning useful
+work/algorithm, device execution, and runtime/process/component boundaries.
+Include a bounded high-upside structural option when credible. Compare
+attainable end-to-end range, information gained per accelerator minute,
+implementation cost, and correctness risk; choose one causal slice.
+“Provocative” means changing a limiting mechanism with a quantified path, not
+novelty, language choice, or diff size.
 
 ## Implementation substrate and architecture
 
-Treat the declared candidate contract as fixed, not the incumbent implementation.
-Unless the objective, runtime notes, or an authoritative contract explicitly
-restricts them, the implementation language, runtime, process topology, build
-system, executable layout, and internal module boundaries are design variables.
-The existing entry point may become a thin compatibility or deployment launcher
-while performance-critical work moves to another process or a native component.
-Valid options include helper executables, shared libraries, generated bindings,
-and explicit IPC. Do not preserve the current architecture merely because it is
-already present or would produce a smaller source diff.
+The external candidate contract is fixed; the incumbent implementation is not.
+Unless authoritative inputs restrict them, implementation language, runtime,
+process topology, build system, executable layout, and module boundaries are
+design variables. Candidate components are named by production role and
+contract, not by an incumbent filename; the current entry point may become a
+thin launcher for native helpers, libraries, bindings, or IPC. Explicitly allow
+removal/reorganization and coordinated execution, scheduling, transport, build,
+and deployment changes when causal scope requires them.
 
-Describe candidate components by their production role and external contract,
-not by an incumbent filename. A task may explicitly authorize removing,
-renaming, replacing, or reorganizing candidate-owned files and coordinated
-changes across execution, scheduling, transport, bindings, build, and
-deployment. Do not ask the implementer to concentrate a replacement in the
-current primary module or to retain an internal adapter that no authoritative
-consumer requires.
-
-Use architectural freedom selectively, from evidence. When a calibrated model
-puts the current architecture's optimistic ceiling below the target, or multiple
-well-activated local changes against the same bottleneck have failed, compare at
-least these three scopes in `reasoning`: another local change, a process- or
-component-boundary change, and replacement of the bounded hot component. For
-each, estimate the attainable objective movement, implementation/validation
-cost, and principal correctness or operational risk. Choose one causal slice;
-do not mandate a rewrite merely because the loop plateaued, and do not use a new
-language as a substitute for locating the limiting work. When the calibrated
-gap rules out the local scope and a bounded replacement has the strongest
-credible path, select that replacement even if it changes many files or
-requires a new build and deployment path. Implementation effort is a ranking
-cost, not a veto that sends the loop back to noise-scale edits.
-
-The instruction to choose a small task limits experimental uncertainty, not
-source-code size. A boundary change or component rewrite can be the right
-hypothesis, but stage it as the smallest end-to-end vertical slice that proves
-the target build, deployment, communication, lifecycle, and workload path before
-migrating the rest of the hot path. The slice may span several coordinated
-components when that is the minimum causally complete production path. Name the
-permitted architectural scope in the task so the implementer is not implicitly
-confined to the current runtime or file layout.
+Use this freedom from evidence. If the current-architecture ceiling misses the
+target or repeated activated local changes fail, compare: another local edit, a
+process/component-boundary change, and bounded hot-component replacement. Give
+each an attainable objective range, validation cost, and main risk. A new
+language does not substitute for locating the bottleneck; when the model rules
+out local work, Implementation effort is a ranking cost, not a veto on the best
+bounded replacement. “Small task” limits experimental uncertainty, not
+source-code size: stage the smallest causally complete vertical slice proving
+build, deployment, communication, lifecycle, and real workload, even when it
+spans several components.
 
 ## Task granularity
 
-Define one causal hypothesis at a time. A hypothesis may span multiple rounds while its stable `hypothesis_id` stays unchanged; each `task` should still be one concrete implementation or diagnostic slice. Start a new ID only when the causal claim changes. Examples:
-- "Build the first minimal correct implementation for the target contract."
-- "Replace the identified hot path with a lower-overhead implementation."
-- "Add a benchmark-visible fast path for the active workload shape."
-- "Fix the correctness failure reported by the previous judge attempt."
+Define one causal hypothesis at a time. Keep `hypothesis_id` stable across its
+rounds; each task is one concrete implementation/diagnostic slice, and a new ID
+means the causal claim changed.
 
 ## Scoping interface work
 
-The implementer and judge templates intentionally do NOT hardcode the full interface surface. When your task touches an API, class contract, protocol, file format, or message schema, name the specific part in scope and point the implementer at the authoritative domain reference. The implementer is told to implement ONLY what you name; the judge is told to verify ONLY what your `pass_criteria` mentions.
+For API/protocol/schema work, name only the surface in scope and its authoritative
+domain reference; the implementer builds and the judge verifies only that scope.
 
 ## Pass criteria
 
-Criteria must be specific and testable. The framework runs the immutable accuracy gate configured by the input bundle.
+Criteria must be specific and testable. The framework owns immutable accuracy.
 This bundle does not declare a machine-readable trusted benchmark result. The implementation agent therefore owns performance experiments and must retain enough raw evidence to support its claims; the framework will not silently manufacture or parse an official score.
-Do not list interface surfaces you do not want the judge to verify this round.
+Do not list out-of-scope interfaces.
 
 ## Sparse official-evaluation policy
 
-The framework keeps a provisional working head separate from the last
-officially verified checkpoint. It runs expensive official gates every
-3 accepted candidate checkpoints, when you
-explicitly request them, and on the final round.
+The framework separates the provisional head from the verified checkpoint and
+runs official gates every 3 accepted
+candidates, on request, and on the final round.
 
 - Accepted provisional candidates since the last official checkpoint:
   0.
 - Is the cadence already due for the candidate produced by this plan?
   no.
 
-Set `request_official_evaluation` to `true` only when delaying the canonical
-measurement would materially impair the next design decision: for example, a
-directional result indicates a likely new best, the candidate is near the
-terminal target, a correctness-sensitive change needs the immutable gate, or a
-checkpoint is needed before branching. Do not request it merely because one
-hypothesis finished. When cadence is not due and you do not request an official
-evaluation, scope pass criteria to activation, invariants, and the smallest
-discriminating measurement; do not require the full canonical sweep.
+Request official evaluation only when delay impairs the next decision: likely
+new best, near-target candidate, correctness-sensitive gate, or pre-branch
+checkpoint. Hypothesis completion alone is insufficient. Otherwise require
+activation, invariants, and the smallest discriminating measurement—not a full
+sweep.
 
-Every plan must also separate six things that are easy to conflate:
+Keep these fields distinct:
 
 - `hypothesis`: the causal claim, including why the mechanism should move the objective.
 - `activation_evidence`: how the implementer proves the intended path actually ran.
@@ -426,205 +319,86 @@ Every plan must also separate six things that are easy to conflate:
 - `minimum_acceptance_criteria`: the smallest observed end-to-end benefit and allowed tradeoffs that make the implementation worth retaining, derived from benchmark noise, complexity, and resource cost rather than copied from the forecast.
 - `invariants`: correctness/workload properties that must not be traded away.
 
-**Runtime-environment notes are authoritative.** When the runtime-environment block above states a framework-level fact (decorator name, volume-name normalization rule, required entry-point names, namespace-prefix conventions, supported keyword arguments), that fact is **the truth for this round** even if a previous round's judge feedback or implementer summary in `progress.md` says something different. Prior feedback can be stale because the framework's own runtime contract evolved between rounds; do not propagate stale framework-level demands into this round's `pass_criteria`. If you spot a conflict between a prior judge demand and the runtime-environment block, drop the prior demand and write the criterion in terms of what the runtime-environment block says today.
+Runtime notes are authoritative over stale progress/review demands. Performance
+criteria use the objective's benchmark-measured end-to-end headline metric;
+microbenchmarks are diagnostic unless explicitly objective-scored. A forecast
+miss is model-calibration evidence, not an implementation failure: retain a
+trustworthy result that clears an independently justified minimum, even when it
+misses the predicted range. Reject only noise-scale, invariant-violating,
+dominated, strategically blocking, or below-minimum results.
 
-**Performance criteria use the objective's headline metric, end-to-end.** Whatever metric the OBJECTIVE specifies (single-batch tok/s, aggregate throughput, TTFT, p50/p99 latency, …) is the one the framework's plateau detector compares across rounds and the one your `pass_criteria` should reference for any performance gate. Always express it as the benchmark measures it end-to-end — never as a per-call, per-replay, or per-kernel timing.
+**Stage expensive evaluation behind a directional gate:** prove activation,
+then run one canonical-shape point at representative load; expand only if it
+moves beyond noise. Stop and report `disproven` when an activated comparison
+contradicts the claim—no ceremonial sweep.
 
-**A forecast miss is not an implementation failure.** Keep the expected effect
-range separate from the minimum acceptance criteria. If a mechanism was
-predicted to deliver 1.5x but a trustworthy implementation delivers 1.3x and
-still clears the separately justified retention gate, preserve the change and
-calibrate the performance model from the miss. Do not set the retention gate to
-the predicted midpoint or optimistic bound. Reject or roll back a positive
-change only when it is within noise, violates a binding constraint, is dominated
-after accounting for complexity/resource cost, blocks a more valuable path, or
-misses an independently justified minimum benefit.
+Reuse established evaluation plumbing and normal artifacts. Profile-only rounds
+use the established profiler. New counters, thresholds, summaries, and local
+analyses are ordinary row data and do not authorize controller edits. Require
+new controller code and its preflights only for changed staged control flow,
+comparison/enrichment, serialization, or execution boundaries; make one
+hypothesis-agnostic extension. Prove its failed gates retain artifacts and make
+zero downstream calls, and send a synthetic success through changed
+comparison/serialization. Recording `issues` then continuing is not fail-closed.
+Remote callables may read only mounted/bundled files; pass baselines as
+primitives or compare after durable raw writeback.
 
-Avoid pass criteria that use an internal microbenchmark as a proxy for the objective unless the objective explicitly names that microbenchmark. A local timing can miss end-to-end effects that determine the real score. Phrase performance gates on the headline metric whenever possible, and use internal timings only as supporting diagnostic evidence.
+Every retained row needs point-local mechanism/resource evidence: reset counters
+or serialize start/end deltas, never later cumulative peaks. Preflight that
+reset/delta path cheaply.
+When startup, model load, compilation, or prewarm dominates, prefer capability, smoke, and
+representative phases on one initialized server, persisting and gating each.
+A runtime fingerprint or "cheap" probe that allocates the accelerator or calls
+the same image, model, compiler, or graph initializer is another controller phase.
+Apply this on repair rounds after judge feedback. Run reset-safe variants of a
+small capability bisection as checkpointed phases. For observer effect, run
+control then profiler adjacently when safe; a wrapper that issues two
+`.remote()` calls is still two accelerator startups. Split only for named state
+contamination or measurement-validity reasons.
+Declare the maximum paid workload-invocation budget and accelerator controllers.
+Ordinary rounds normally use one bounded controller; target-only risky work may
+default to two: a primary plus one conditional retry only after zero benchmark
+rows and either an exact repaired failure or confirmed-clean external pre-user-
+code failure. More than two needs explicit cost/information justification.
+Never rerun a completed candidate/workload/operating point; ambiguity repeats
+must change classification and fallbacks must vary a named causal variable.
+Use one accelerator, zero minimum warm replicas, finite idle/scaledown,
+`finally` teardown, an outer timeout, and a crash backstop; never keep it warm
+across reasoning turns.
+Long phases require observable start/heartbeat/completion and an independently
+enforced deadline. A post-return duration check or async/thread waiter that
+leaves work running is not a timeout; name the watchdog/process/container/
+remote-function boundary, using a disposable worker when in-process preemption
+is unsafe. The outer poll outlives the deadline; quiet output alone is not a
+hang. Smoke must traverse the newly changed failure-prone path (including its
+minimum batching/concurrency); an unrelated entry point is not useful. Specify when each
+activation field is sampled: post-drain gates use totals/peaks/events; live
+occupancy is sampled live.
+New external tools need a minimal capability probe in the target environment:
+executable/version, device/permissions, and export path. Search first for an
+equivalent measurement from the same checkpoint/workload/path; rerun only for a
+named missing field, stale assumption, or comparability gap. Do not label a
+retry as a distinct capability hypothesis without a changed package/version,
+API, image, driver, or build premise; never re-probe the same failed pair.
 
-**Stage expensive evaluation behind a directional gate.** When a canonical
-benchmark is materially more expensive than a targeted probe, write the task
-and pass criteria as a sequence: first prove activation and run the smallest
-representative end-to-end comparison that can falsify the hypothesis, then run
-the canonical benchmark only if that comparison supports the claimed
-direction. State an explicit early-stop condition. Once activation is proven
-and the representative comparison directly contradicts the causal claim, the
-implementer should retain that evidence, report `disproven`, and skip the
-remaining sweep. Do not require a canonical run merely to give a failed
-hypothesis an official score.
-Reuse established evaluation plumbing. For an ordinary candidate optimization,
-require the implementer to call the existing benchmark runner/controller and
-retain its normal artifacts; do not ask for a hypothesis-specific controller or
-another synthetic preflight merely to rename phases, counters, or output files.
-Do not enumerate synthetic fail-closed or synthetic success preflights as round
-work or judge criteria when the established runner's staged control flow is
-unchanged. Previously retained runner-contract evidence remains valid across
-candidate and profiler rounds. A new profile bucket, activation field, summary,
-threshold, or local analysis does not by itself change staged control flow or
-authorize another controller/preflight suite. Profiling-only rounds should call
-the established profiling entrypoint and retain its generic raw payload rather
-than add a profile-specific remote controller.
-New candidate activation counters, threshold values, local comparisons, and
-summary labels are ordinary row data, not evaluation-plumbing changes. Require
-the generic runner to retain the full health/row payload and let local analysis
-read those fields dynamically; do not require new remote functions, typed
-counter-by-counter serializers, or synthetic controller suites for them.
-Require new controller code and its preflights only when the plan actually
-changes staged control flow, comparison/enrichment logic, serialization, or an
-execution boundary in a way the established runner cannot express. If that is
-truly blocking, scope the work to one hypothesis-agnostic runner extension that
-future rounds can reuse, not a controller named for the current mechanism. In
-that case, require the controller itself to fail closed:
-inject or synthesize a failed capability/correctness/smoke gate and prove the
-downstream expensive callable is not invoked while the failure artifact is
-retained. Also require a synthetic successful row through the newly changed
-comparison, enrichment, and serialization path. A controller that records
-`issues` but unconditionally continues does not satisfy the staged plan.
-Remote code may read only explicitly bundled or mounted files, so retained
-local baselines must be passed as primitive arguments or applied after the raw
-remote response is durably written. The implementer must inspect any changed
-remote callable for local-workspace artifact reads before measurement.
-For a multi-point sweep, the directional gate should normally be one
-canonical-shape point at the representative load where the mechanism is
-expected to matter, not a shortened smoke workload and not the whole sweep.
-Use a short smoke only to validate plumbing. Expand to neighboring points,
-repeats, or the full sweep only after that representative point moves beyond
-the relevant noise band.
-Require every retained sweep row to pair its metric with point-local mechanism
-and resource evidence. The implementation must either reset observation
-counters per row or compute deltas from start/end snapshots; process-lifetime
-cumulative counters and later-row peaks must not be attributed to the selected
-row. Put a cheap reset/delta preflight in the plan before paid measurement.
-When remote service startup, model load, compilation, or prewarm dominates,
-prefer capability, smoke, and representative phases in one live-server
-invocation when the capability check needs the same initialized state and can
-safely flow into measurement: persist the capability result, abort on failure,
-then reuse the initialized service for smoke and the representative point. Do
-not require identical cold starts merely to keep capability or smoke artifacts
-separate.
-Treat a runtime fingerprint or "cheap" probe as sharing initialized state when
-it allocates the same accelerator, imports the same image, calls the engine or model
-initializer, warms the compiler, or captures graphs. Require it to be the first
-phase of the same controller, not a separate paid invocation. A separate remote
-probe is cheaper only when it avoids those costs or cannot safely flow into the
-later measurement.
-This also applies to repair rounds after judge feedback. When the same unchanged
-candidate needs multiple target-hardware validations, require compatible
-correctness, profiler-contract, and smoke checks to run as phases of one
-initialized controller instead of assigning one cold deployment per artifact.
-For observer-effect checks, require the matched uninstrumented control and
-profiled workload to run as adjacent phases of one remote callable on the same
-initialized model when profiler state can be enabled or disabled safely.
-Normally put the control first if profiler initialization may contaminate the
-process. Do not describe a local wrapper that issues two `.remote()` calls as
-one controller: it still creates two paid accelerator startups. Allow separate
-workers only when the plan names a concrete measurement-validity reason that
-requires a clean process boundary.
-If the next decision is a small capability bisection or variant matrix over
-compatible sub-blocks, shapes, or runtime options, require those variants to run
-as point-local checkpointed phases on the same initialized resource with an
-explicit reset contract. Do not spend one cold-start round per variant merely
-because each variant could be described as a separate repair.
-Write this explicitly into the task and pass criteria as one bounded controller
-invocation whenever the evaluation API permits it; do not describe each phase
-as a separate remote server. Require one-accelerator capacity, zero minimum-warm
-replicas, a short finite idle/scaledown timeout, explicit `finally` teardown,
-and an outer command timeout. The crash backstop must scale the accelerator to
-zero without relying on the agent returning normally. Do not keep an
-accelerator warm across agent reasoning turns.
-Also state the maximum paid workload-invocation budget across all conditional
-repeat, fallback, and sweep branches. Do not authorize an automatic fallback
-that repeats an already completed candidate/workload/operating point; it adds no
-information. A repeat must be tied to a predeclared ambiguity band that can
-change classification, while a fallback must vary a named causal variable or
-operating point and name the decision it can change.
-For long model-load, compile, or graph-capture phases, require a declared remote
-phase deadline plus observable start, heartbeat/checkpoint, and completion
-state. The outer poll must outlive that deadline; quiet logs or an arbitrary
-shorter local wait are not evidence of a hang.
-Require the deadline to be independently enforceable: a check performed only
-after a synchronous operation returns is telemetry, not a timeout. The task and
-pass criteria must name the watchdog, process/container, or remote-function
-boundary that can terminate a stuck operation and release the accelerator. If
-an in-process operation cannot be safely preempted, require a disposable worker;
-an async or thread wait that leaves the underlying work running does not satisfy
-the cost-safety contract.
-Require the smoke to traverse the newly changed failure-prone path; a smoke on
-an unrelated entry point is not useful preflight evidence and should not be run
-for ceremony. If activation requires batching or concurrency, require the
-smallest multi-request smoke that reaches that path before the representative
-measurement.
-Specify when each activation field is sampled. For a post-workload or
-post-drain decision, require a monotonic counter, retained peak/high-water mark,
-or event record instead of a current-occupancy gauge that should return to zero
-after correct cleanup. Require a live sample only when instantaneous occupancy
-itself is the invariant. This distinction must be settled before the bounded
-remote invocation so cleanup cannot cause a false gate failure and duplicate
-cold start.
-When a hypothesis depends on a new external profiler, compiler, daemon, or
-system utility, gate all instrumentation work behind a minimal capability
-probe in the actual target environment. The probe must establish executable
-availability, required device/permission access, and an artifact export path.
-Treat failure as an early disproof; do not require the implementer to build a
-harness around a tool that the target cannot run.
+Do not require a duplicate benchmark for cleaner artifacts: later diagnostics
+cannot retroactively contaminate completed rows. Checkpoint sweeps incrementally
+and refine a stable overload knee, not every integer, unless exact refinement is
+an objective.
 
-Before proposing new instrumentation or another diagnostic run, search the
-retained progress and artifacts for an equivalent measurement from the same
-trusted checkpoint, workload, and execution path. If its existing buckets
-already decide the proposed threshold or causal question, plan a scoped
-evidence audit/closeout instead of recreating it. Require a fresh diagnostic
-only for an explicit missing field, stale runtime assumption, or concrete
-comparability gap.
+Make performance gates variance-aware; use the smallest repeat to resolve a
+noise-band result and otherwise report `inconclusive`. Make restoration and
+no-regression gates one-sided: only adverse movement beyond noise fails;
+beneficial movement passes. Establish identity from source/config/activation/
+request shape, not symmetric metric closeness.
 
-Do not label a retry as a distinct capability hypothesis merely because the
-earlier mechanism never activated. Name the concrete changed premise first —
-for example a different package/version, lower-level API, runtime image, driver
-surface, or build artifact. If none has been selected, do not require another
-remote probe of the same API/runtime pair; plan the compatibility change or a
-different mechanism instead.
-
-Do not require a duplicate benchmark merely to produce a cleaner artifact
-directory. Extra diagnostics written after measured rows completed do not
-retroactively contaminate those rows. When phase ordering proves measurement
-finished before optional diagnostics were armed, keep the valid rows, correct
-the future default, and proceed from the retained evidence.
-Require expensive sweeps to checkpoint completed rows incrementally. Boundary
-confirmation should resolve the operating regime, not every integer: stop when
-at least one intermediate point and the required repeats establish a stable
-knee within the benchmark's noise/resolution, unless the objective explicitly
-requires exact integer refinement.
-
-**Make performance gates variance-aware.** Use retained repeats or known
-benchmark noise when setting a before/after threshold. Do not make a terminal
-decision from a single result whose miss is smaller than observed run-to-run
-variation. If a directional point lands within that noise band, require only
-the smallest confirmation needed to classify it; report `inconclusive` until
-then. Avoid exact cutoffs with sub-percent margins unless the evidence shows
-the benchmark is stable at that precision.
-
-**Make restoration and no-regression gates one-sided.** A restored parent or
-control fails a performance gate only when an objective moves in the adverse
-direction beyond the variance band. An improvement larger than the band is not
-a restoration failure. Establish code-path/workload identity from source,
-configuration, activation counters, and request-shape evidence; never require a
-better metric to stay numerically close to its historical value. Apply
-ambiguity repeats only to adverse boundary misses, not to beneficial movement.
-
-**Do not relabel load as an optimization.** A plan cannot claim a performance
-win merely by changing which workload points are admitted, rejected, timed out,
-classified as overloaded, included in a sweep, or selected for reporting. A
-scheduler or admission change must improve end-to-end metrics for successfully
-completed work at the same offered-load point (or another directly comparable
-workload point); simply making a pre-existing favorable point become
-``selected`` is not progress. Measurement-selection fixes may be proposed when
-the measurement itself is wrong, but they must be labeled as measurement
-correctness work and cannot be credited as engine performance.
-
-**Scope static-inspection clauses to implementer-authored files.** When you write a "no X in the code" criterion, name the candidate-owned component or paths in scope. Phrasings like "no profiler code" or "no benchmark code" are over-broad: the workspace contains framework-provided input/helper files (`benchmark/`, `accuracy_checker/`, `nsys_profiler/`, `torch_profiler/`, `reference/`, `skills/`, and manifest command wrappers) that the implementer can't delete and that legitimately contain the very keywords you'd grep for. Prefer wordings like:
-
-- "no `<forbidden helper>` invocations in the candidate server or helper components" is precise.
-- "no benchmark-specific shortcut branch in the candidate implementation" is precise.
-- "no profiler code" and "no benchmark code" are over-broad because they match framework-owned files.
+Do not relabel load as an optimization: admission, timeout, overload, sweep, or
+selection changes count only when successfully completed work improves at the
+same/directly comparable offered load. Measurement fixes are correctness work,
+not engine speedups. Scope static-inspection clauses to implementer-authored
+paths (for example, “no benchmark-specific shortcut in candidate components”);
+never grep framework-owned benchmark/profiler/reference/skill files as though
+they were candidate code.
 
 ## No early termination
 

@@ -233,8 +233,11 @@ def test_llm_serving_prompt_snapshot(case_name: str, context: dict[str, object],
 
 def test_llm_serving_rendered_prompts_keep_required_domain_content():
     context = _CONTEXTS["full"]
-    prompts = {role: _render_prompt(DomainName.LLM_SERVING, role, context) for role in _ROLES}
-    normalized_prompts = {role: " ".join(prompt.split()) for role, prompt in prompts.items()}
+    rendered_prompts = {
+        role: _render_prompt(DomainName.LLM_SERVING, role, context) for role in _ROLES
+    }
+    prompts = {role: " ".join(prompt.split()) for role, prompt in rendered_prompts.items()}
+    normalized_prompts = prompts
 
     assert all("main.py" not in prompt for prompt in prompts.values())
     assert "pre-staged model weights" in prompts["implementer"]
@@ -353,6 +356,18 @@ def test_llm_serving_rendered_prompts_keep_required_domain_content():
     assert "worst-case paid workload count" in prompts["judge"]
     assert "maximum paid workload invocations" in prompts["single_agent"]
     assert "maximum paid workload-invocation budget" in prompts["orchestrator"]
+    assert (
+        "primary plus one conditional retry only after zero benchmark rows"
+        in prompts["orchestrator"]
+    )
+    assert "This is not a hard one-invocation limit" in prompts["implementer"]
+    assert (
+        "primary plus one conditional retry only when the first ran zero" in prompts["implementer"]
+    )
+    assert "A second accelerator controller is valid when the first ran zero" in prompts["judge"]
+    assert (
+        "primary plus one conditional retry only if the first ran zero" in prompts["single_agent"]
+    )
     assert "same candidate" in prompts["implementer"]
     assert "operating point as an already completed row" in prompts["implementer"]
     assert "Preserve already-valid measured rows" in prompts["implementer"]

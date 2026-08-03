@@ -134,99 +134,52 @@ run the full canonical benchmark or immutable accuracy checker, and report
 completed.
 {% endif %}
 
-When remote service startup or model load dominates, combine any capability
-check that needs the same initialized state, smoke, representative measurement,
-and any conditionally justified canonical sweep in one bounded controller
-invocation when safe. Persist each phase before continuing and abort inside that
-invocation as soon as a gate fails. Use zero minimum-warm replicas, one
-accelerator unless the workload requires more, a short finite idle/scaledown
-timeout, an outer command timeout, and `finally` teardown. Do not keep a paid
-accelerator warm across agent reasoning turns.
-Before launch, enumerate the maximum paid workload invocations across every
-success, ambiguity, repeat, fallback, and sweep branch and disable branches this
-round does not authorize. Never repeat the same candidate, workload, and
-operating point as a fallback: it cannot change the decision, so reuse the
-completed row. An automatic repeat needs a predeclared noise/ambiguity condition
-that can change classification; a fallback must change a named causal variable
-or operating point and persist its trigger before running.
-If self-review finds several target-hardware repairs on the unchanged
-candidate, validate compatible correctness, profiler-contract, and smoke hooks
-as adjacent phases of that same controller. Do not cold-start one accelerator
-per output artifact.
-When validating profiler observer effect, run the matched uninstrumented
-control and profiled workload as adjacent phases of one remote callable on the
-same initialized model whenever profiler state can be toggled safely. Prefer
-control first if profiler initialization may contaminate subsequent work. A
-local entrypoint that issues two `.remote()` calls still pays for two
-accelerator startups and is not container reuse. Split the pair only when a
-clean process boundary is required for valid measurement, and record why.
-For a small, reset-safe capability bisection over sub-blocks, shapes, or runtime
-options, run the variants as checkpointed point-local phases of that controller
-instead of paying one cold accelerator start per variant. Split them only when
-state contamination cannot be removed without invalidating the comparison.
-A runtime fingerprint is another controller phase—not a cheap separate probe—
-when it allocates the same accelerator or calls the same engine, model, compiler,
-or graph initializer. Separate it only when it avoids those expensive costs or
-would contaminate later measurement. Declare remote deadlines for long model
-load, compilation, and graph capture, emit phase progress checkpoints, and keep
-the outer poll alive past those deadlines. Quiet output, missing local
-writeback, elapsed-time guesswork, or wrapper CPU usage alone do not prove a
-hang.
-A deadline checked only after a synchronous operation returns is telemetry, not
-timeout enforcement. Put potentially blocking model, compiler, graph, kernel,
-or remote-runtime work behind an independent watchdog, process/container, or
-remote-function boundary that can terminate it and release the accelerator. An
-async or thread wait is insufficient if the underlying operation keeps running;
-use a disposable worker when safe in-process preemption is unavailable.
-Reuse the established benchmark runner and controller for ordinary candidate
-changes. Do not build a round-specific controller or fresh synthetic artifacts
-solely to wrap the same evaluation flow, rename phases, or expose activation
-counters. When you create or change staged control flow,
-comparison/enrichment, serialization, or an execution boundary, make that
-changed path fail closed in code. Activation counters, threshold values, local
-comparisons, and summary labels are ordinary row data: retain the full
-health/row payload and inspect it locally instead of adding remote functions or
-counter-by-counter serializers. If the established runner genuinely cannot
-express the needed workload, make one hypothesis-agnostic extension that later
-rounds can reuse rather than a controller named for the current mechanism.
-Inject or synthesize a failed
-capability/correctness/smoke result and assert that the downstream representative
-or canonical callable is not invoked while the failure artifact is retained;
-recording `issues` and continuing is not a gate. Preflight the newly changed
-success path with a fake representative row through comparison, enrichment,
-and final serialization. Remote code may read only files explicitly bundled or
-mounted there; pass local baselines as primitive inputs or compare only after
-the raw remote response is durably written. Inspect changed remote callables
-for local-workspace artifact reads before launching paid hardware.
-Match activation telemetry to its sampling time. After work drains, use
-monotonic totals, retained peaks/high-water marks, or event evidence—not a
-current-occupancy gauge for resources that correct cleanup releases. Sample an
-instantaneous gauge while work is live only when live occupancy is itself the
-invariant. Validate this before the bounded remote run so a false smoke failure
-does not force another cold start.
-For multi-point sweeps, keep those totals and peaks local to each row: reset the
-observation window before each point or serialize start/end deltas. Never pair a
-selected row with process-lifetime counters or later-row high-water marks.
-Preflight the reset/delta path before launching the expensive sweep.
-When a remote controller returns measured rows to a local wrapper, persist that
-raw response atomically before reading a baseline artifact, selecting an
-operating point, enriching a summary, or running optional analysis. Write the
-raw response and phase identity even when later local post-processing fails.
-Treat comparison and presentation artifacts as rebuildable views over the raw
-measurement, never as its only durable copy.
+## Remote-evaluation contract
 
-Bind every representative or canonical performance claim to the exact candidate
-that produced it. Before the run, retain a restorable framework/VCS checkpoint
-or a complete content manifest for behavior-affecting candidate source, build
-inputs, runtime configuration, and the built artifact/image identity when the
-platform exposes one; one primary-file hash is insufficient for a multi-file or
-multi-language candidate.
-If you change behavior or execution/build configuration after measurement, keep
-the row as historical evidence for that measured checkpoint, but do not present
-it as evidence for the new workspace state. Either nominate and preserve the
-exact measured checkpoint or measure the new state when the claim requires it.
-Report-only analysis, documentation, and derived-view changes do not invalidate
-an otherwise identified row.
+- When startup or model load dominates, combine any capability check needing the
+  same state, smoke, representative measurement, and conditional canonical
+  sweep in one fail-closed controller. Persist every phase. Use one accelerator
+  unless required, zero minimum warm replicas, finite idle/scaledown and outer
+  timeouts, `finally` teardown, and no paid resource across reasoning turns.
+- Declare the maximum paid workload invocations over every branch. Reuse a
+  completed candidate/workload/operating-point row; repeats require a
+  predeclared ambiguity that can change classification, while fallbacks change
+  and persist a named causal variable.
+- If self-review finds several target-hardware repairs, put compatible checks in
+  adjacent phases. The default is at most two bounded accelerator controllers:
+  primary plus one conditional retry only if the first ran zero benchmark rows
+  and either focused local tests cover the repaired target-only operation, or a
+  cleaned-up external failure preceded user code. Declare triggers and maximum;
+  exceeding two requires explicit cost/information justification.
+- Keep observer control/profile and reset-safe capability bisection variants as
+  adjacent checkpointed phases when state can be reset. An entrypoint that
+  issues two `.remote()` calls pays for two starts. A runtime fingerprint is
+  another controller phase when it uses the same accelerator or initializer;
+  split only for a concrete contamination or validity reason.
+- Declare deadlines and progress checkpoints for model load, compilation, graph
+  capture, and other blocking work. Quiet output alone is not a hang. A
+  post-return check or async/thread wait that leaves work alive is not timeout
+  enforcement; use a terminating watchdog, process/container, remote-function,
+  or disposable-worker boundary and release the accelerator.
+
+- Reuse the established benchmark runner and controller. Counters, thresholds,
+  summaries, profiles, and local analyses are ordinary row data, not reasons for
+  round-specific remote functions. If needed, make one hypothesis-agnostic
+  extension. When you create or change staged control flow, comparison,
+  enrichment, serialization, or an execution boundary, prove injected failure
+  retains evidence with zero downstream calls and synthetic success crosses the
+  changed path. Remote code reads only mounted/bundled files; pass baselines as
+  primitives or compare after durable local writeback.
+- Match activation telemetry to its sampling time: post-drain evidence uses
+  totals/peaks/events; live occupancy is sampled live. Keep sweep telemetry
+  local to each row with resets or deltas. Persist the raw response atomically,
+  including phase identity and failures, before baseline reads, selection,
+  enrichment, or optional analysis; derived views are rebuildable.
+- Bind performance claims to a restorable checkpoint or complete manifest of
+  behavior-affecting source, build/runtime inputs, and image/artifact identity.
+  A primary-file hash is insufficient for multi-file or multi-language work.
+  Later behavior changes leave the row valid only for its measured checkpoint;
+  report-only or derived-view changes do not invalidate it.
 
 ## Profiling step
 

@@ -1,19 +1,15 @@
 ## LLM-serving profile capture
 
-Use the benchmark's steady-state serving path when collecting profile evidence. If the profiler strategy supports only one process, run the server under the profiler and drive load with the benchmark in a second shell. Discover flags with `--help`; do not assume every benchmark accepts the same request-count or token flags.
+Capture the benchmark's steady-state production path. For a one-process
+profiler, run the server under it and drive load from another shell. Discover
+flags with `--help`; benchmark CLIs need not share token/request/rate flags.
 
-For local server-style captures, the usual shape is:
+For a local service: read objective, contract, manifest, and declared lifecycle;
+identify executable, port, and ownership without assuming filename/language;
+stop only identified stale processes; prewarm model/kernels; profile the server;
+drive a short representative declared benchmark; then stop and analyze it.
 
-1. Read the objective, candidate contract, manifest, and declared startup and
-   benchmark commands to identify the production executable, port, and process
-   ownership. Do not assume a filename, language, or launcher.
-2. Stop only stale candidate processes identified from that declared lifecycle.
-3. Pre-warm — first-time kernel compilation or model load can take minutes.
-4. Start the candidate server under the profiler.
-5. Drive load using the benchmark command{% if benchmark_command %} (`{{ benchmark_command }}`){% endif %}. Use `--help` to find a short representative workload and output flag; do not assume every benchmark accepts the same rate, request-count, or token flags.
-6. Stop the profiled server and analyze the report.
-
-For torch in-process captures, the reference harness is designed around `VibeServeModel.from_pretrained(...)` and `.generate(...)`:
+For a compatible in-process adapter, the reference torch harness is:
 
 ```
 python torch_profiler/analyze_torch_profile.py capture \
@@ -23,25 +19,19 @@ python torch_profiler/analyze_torch_profile.py capture \
   --prompt "The capital of France is"
 ```
 
-Use this mode only when the candidate retains a compatible in-process adapter
-and that adapter exercises the mechanism under review. It provides
-device-kernel-level evidence but does not cover HTTP, admission, scheduling, or
-queueing overhead, so do not extrapolate it to the full service without an
-end-to-end measurement. Do not recreate the production hot path in the adapter
-merely to satisfy this helper.
+Use it only when `VibeServeModel.from_pretrained(...)` and `.generate(...)`
+exercise the reviewed production mechanism. It captures device kernels, not
+HTTP, admission, scheduling, queueing, or service batching; do not extrapolate
+without end-to-end evidence or recreate the production hot path just for it.
 
-For Modal torch profiling, discover the candidate's declared bounded remote
-controller or profiling command from its runtime/build configuration. Do not
-require a fixed Python module, decorator, or local entrypoint, and do not retain
-a Python hot path solely to satisfy the profiler. The remote command must return
-analyzer-compatible JSON. An in-process device microprofile does **not**
-exercise HTTP, scheduler, admission, or multi-request batching unless the
-candidate explicitly implements a live-service profiling path. If the selected
-profiler no longer supports the candidate substrate or the requested
-service-level mechanism, report that capability gap instead of presenting a
-batch-1 or compatibility-adapter profile as production-path evidence.
+On Modal, discover the candidate's bounded remote controller/profile command
+from runtime/build configuration. Do not require a fixed Python module,
+decorator, or entrypoint, or retain Python solely for profiling. Return
+analyzer-compatible JSON. If the profiler cannot observe the selected substrate
+or service mechanism, report the capability gap rather than substitute a
+batch-1 or compatibility-adapter profile.
 
-Run Modal jobs for the same app serially. Do not launch a benchmark, wrapper
-capture, and direct-function fallback concurrently: they can steal the same app
-label, consume multiple GPUs, and make artifact writeback ambiguous. Monitor the
-first dispatch to completion or a definite failure before choosing a fallback.
+Run Modal jobs for the same app serially. Never launch benchmark, wrapper
+capture, and fallback concurrently: they can consume multiple GPUs, steal app
+labels, and make writeback ambiguous. Observe a definite completion/failure
+before fallback.

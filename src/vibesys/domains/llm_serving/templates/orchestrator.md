@@ -1,174 +1,103 @@
 ## Evidence-led optimization method
 
-First establish the smallest faithful, runnable serving baseline required by
-the input contract. After that, choose work from measured end-to-end evidence
-rather than from a memorized list of popular techniques.
+Establish the smallest faithful runnable baseline, then choose work from
+measured end-to-end evidence—not a catalog of popular techniques. Every
+hypothesis must name:
 
-For every proposed hypothesis:
+1. the measured critical-path cost it removes and its maximum end-to-end gain;
+2. the smallest causally complete production-path change, including coordinated
+   multi-component replacement when micro-edits cannot activate it;
+3. production-path activation evidence and falsification criteria; and
+4. the workload, fidelity, and operator invariants it preserves.
 
-1. Identify the measured workload phase or critical-path cost it removes.
-2. Bound the maximum possible end-to-end gain from that cost before investing.
-3. Choose the smallest causally complete production-path change. This may be a
-   coordinated replacement across several components; do not split it into
-   micro-edits that cannot activate or fairly test the proposed architecture.
-4. Require observable activation evidence from the production serving path.
-5. State what result would falsify the hypothesis and preserve all workload,
-   model-fidelity, and operator constraints.
+Quantify the multiplicative gap to a declared reference. While it exceeds 2x,
+do not spend a canonical round on a mechanism bounded to single-digit gain
+unless it is necessary correctness/measurement work. Prefer a bottleneck class
+with at least 20% defensible headroom and show the arithmetic. Carry a required
+structural replacement as one persistent hypothesis with bounded end-to-end
+slices even if it changes toolchain, process boundary, or most candidate code.
 
-When the objective names a measured reference target, quantify the remaining
-multiplicative gap before choosing the next round. If the candidate is still
-more than 2x from that target, do not spend a canonical round on a mechanism
-whose own measured cost or defensible upper bound can only yield a single-digit
-percentage improvement, unless it is necessary correctness or measurement
-work. Choose a bottleneck class with enough headroom to remove a material part
-of the gap (as a default, at least 20%) and put the arithmetic in `reasoning`.
-Small tuning remains appropriate as a targeted probe, but repeated local
-frontier nudges are not a substitute for a structural path to the target.
-When a calibrated ceiling shows that a hot component or control path must be
-replaced, carry that replacement as one persistent hypothesis with bounded
-end-to-end slices. Do not retreat to easier single-file edits merely because
-the replacement changes the toolchain, process boundary, or much of the
-candidate-owned implementation.
+Use headroom to rank hypotheses, not to grade implementations. Give each plan a
+forecast `expected_effect` range and a separate `minimum_acceptance_criteria`
+derived from noise, binding constraints, complexity, resource cost, and
+composability. A smaller material Pareto gain may clear that minimum; retain it
+and calibrate the optimistic forecast.
 
-Use the headroom calculation to rank hypotheses, not to grade implementations.
-For each plan, write an `expected_effect` range and a separate
-`minimum_acceptance_criteria`. Derive the latter from end-to-end benchmark
-noise, binding latency/accuracy constraints, implementation complexity,
-resource cost, and whether the change composes with the remaining path. Do not
-copy the predicted midpoint or optimistic ceiling into the acceptance gate. A
-material Pareto improvement below forecast is evidence that the model was
-optimistic; retain the improvement when it clears the independent minimum and
-recalibrate the model.
+For each shortlist item state the current metric, defensible gain range, implied
+post-change metric range, remaining target gap, and whether it is terminally
+sufficient on its own. Otherwise select it only as a necessary prerequisite or
+cheap bounded discriminator, and name the later structural requirement. Rank by
+target-relevant headroom and information gained per accelerator minute, not
+implementation ease.
 
-Make that bound decision-auditable in absolute as well as relative terms. For
-each shortlisted mechanism, state the current measured headline metric, the
-defensible end-to-end improvement range, the implied post-change metric range,
-and the gap that would still remain to the terminal target. Explicitly label
-whether the mechanism is terminally sufficient on its own. If even its
-optimistic bound cannot reach the target, select it only when it is a necessary
-critical-path prerequisite or a cheap discriminating experiment; name that
-reason, bound the experiment before expensive evaluation, and identify the
-later structural mechanism that would still be required. Rank plausible
-alternatives by target-relevant headroom and information gained per
-accelerator minute rather than by ease of implementation alone.
+For multi-objective work, terminal sufficiency requires one jointly attainable
+operating point meeting every throughput, TTFT, TPOT, latency, failure, and
+other gate. An optimistic latency bound still misses even when throughput
+crosses parity; do not combine unrelated optimistic range endpoints. Label any
+remaining miss and the required composable mechanism.
 
-For a multi-objective target, `terminally sufficient` means that one jointly
-attainable operating point in the forecast meets every simultaneous gate. Audit
-throughput, TTFT, TPOT, latency, failures, and any other declared objective
-separately against their exact targets. Do not call a mechanism terminally
-sufficient because its throughput range crosses parity while an optimistic
-latency bound still misses, and do not combine independently optimistic ends of
-ranges unless the model explains why they are jointly attainable. If any gate
-still misses, label the mechanism composable or prerequisite work and name the
-remaining structural requirement.
+At the first baseline, after material architecture change, or on a plateau,
+read `skills/serving-systems/references/tooling/performance-modeling.md` and
+refresh the analytical model. Reconcile client time with non-overlapping costs
+and residual, distinguish hardware/workload from current-architecture ceiling,
+and compute a ranged Amdahl/roofline bound with assumptions. If uncertainty
+changes the ranking, request the smallest discriminating profile.
 
-At the first valid baseline, after a material architecture change, and whenever
-the framework reports a plateau, open
-`skills/serving-systems/references/tooling/performance-modeling.md` and refresh
-the analytical performance model before proposing another optimization. In
-`reasoning`, reconcile client-observed time with non-overlapping measured cost
-centers, report the unexplained residual, distinguish the hardware/workload
-ceiling from the current-architecture ceiling, and calculate an Amdahl or
-roofline-based end-to-end bound for the proposed mechanism. Use ranges and name
-the assumptions. If uncertainty changes which hypothesis has the most
-headroom, request the smallest discriminating profile instead of guessing.
+Before a paid profile, write a decision-oriented coverage plan: list every
+ranking-relevant residual and active branch, the non-overlapping scopes/counters/
+timestamps that distinguish them, local synthetic activation, and an
+observer-effect control. Do not discover one missing scope per cold launch.
+Materially perturbed captures are qualitative, not quantitative Amdahl evidence;
+never recommend a mechanism that the same capture shows fully active.
 
-Before requesting a paid profile, write a decision-oriented coverage plan.
-Name every plausible residual whose ranking could change the next hypothesis,
-trace the active production branches, and specify the non-overlapping scopes,
-counters, or timestamps needed to distinguish them. Require local synthetic
-activation of the complete scope set before launching the accelerator; do not
-discover one omitted decision-critical scope per cold profile. State how
-observer perturbation will be bounded against an uninstrumented row. A capture
-that materially changes useful batch, cycle time, or throughput is qualitative
-diagnostic evidence, not an Amdahl calibration. Never recommend a mechanism
-that the same artifact proves is already fully active.
+Do not call the reference engine's observed score a hardware ceiling. Compute
+an independent FLOP/byte bound and use the reference only as an achievability
+check; null/unparseable evidence is missing. Before blaming host/device overlap,
+inventory hot-path synchronization frequencies. Discard phase attribution that
+synchronizes at every scope boundary or adds overlapping CPU and CUDA durations.
 
-Do not relabel a reference engine's observed score as an analytical hardware
-ceiling. Compute the independent FLOP/byte bound and then use the reference as
-an empirical achievability check. Treat `None`, `null`, or an unparseable value
-in a cited experiment as missing evidence, not as a bound. Before classifying a
-plateau as generic host/device overlap, inventory synchronization sites on the
-token path with their per-step, per-layer, and per-request frequencies. Discount
-or discard phase attribution from instrumentation that synchronizes at each
-scope boundary, and never claim complete coverage by adding overlapping CPU and
-CUDA-event durations.
+Build the roofline for the whole model decode step: all decode-touched weight
+bytes from dimensions/precision, dense projection/MLP/output FLOPs, KV reads and
+writes, and useful tokens per batch. Attention-only analysis is a kernel
+ceiling. Use attainable compute/bandwidth ranges or label hardware peak as an
+optimistic upper bound.
 
-Build the hardware/workload roofline for the whole model decode step. Reconcile
-the architecture's parameter dimensions and precision into bytes for every
-weight touched by decode, then include dense projection/MLP/output FLOPs, KV
-reads and writes, and useful tokens per batch. A roofline that counts only the
-attention kernel is a kernel ceiling, not a serving ceiling. Use an attainable
-compute/bandwidth range; if only hardware peak is available, label the result an
-optimistic upper bound and do not treat the gap to it as removable application
-overhead.
+Convert terminal throughput into step feasibility: calculate required cycle
+time at current useful-token capacity and minimum useful tokens per step at the
+credible cycle floor. Compare measured active batch and admission, graph-bucket,
+KV, and memory limits. If existing-step timing cannot reach the target with
+service margin, rank a capacity or multi-token experiment alongside kernels.
+Preserve latency gates: queued concurrency is not useful batch work. Keep the
+capacity gap explicit and retain a named roadmap item for its concrete limiter
+until measured.
+A prerequisite may precede it only for terminal latency or one bounded
+discriminator; quantify the reason, bound the detour to one decision, and name
+the capacity experiment that follows.
 
-Turn the terminal throughput target into a step-capacity feasibility check
-before ranking execution-kernel work. Calculate both the required cycle time at
-the current useful-token capacity and the minimum useful tokens per step at the
-credible cycle-time floor. Compare those values with the measured active batch,
-admission limit, graph-bucket limit, and memory-feasible capacity. If the target
-would require a cycle below the device lower bound or leave no credible margin
-for service overhead, do not assume optimizing the existing step can reach it:
-rank the smallest capacity or multi-token capability experiment alongside the
-kernel hypotheses. Preserve TTFT, TPOT, and latency constraints when testing a
-larger useful-token capacity; queued concurrency is not useful batch work.
-When this feasibility check fails, keep useful-step capacity as an explicit
-unresolved architectural requirement: report the minimum useful tokens per step
-at the credible end-to-end cycle floor, name the concrete admission, graph, KV,
-or memory limit, and retain a named roadmap item until a measured production
-path reaches that capacity. A different immediate hypothesis may precede it
-only when the hypothesis is a necessary terminal TTFT/TPOT/latency prerequisite
-or one bounded discriminating experiment. In that case, quantify the reason,
-bound the detour to one decision, and identify the capacity experiment that
-must follow if the result is supported.
+Require operator-level before/after evidence for layout, fusion, and kernel
+claims: the removed operation, frequency, bytes/launches, source path, and
+runtime activation. A paged-KV claim whose path gathers/indexes logical KV
+before dense attention is an allocator/layout experiment, not paged-attention
+compute.
 
-Do not choose a technique merely because other serving systems commonly use it.
-Consult a technical reference only after the evidence identifies the mechanism
-you need to understand.
+Put an observer-overhead invariant in telemetry plans: inventory `.item()`,
+`.tolist()`, CPU copies, and synchronization frequency inside token/layer/request
+loops; maintain totals/peaks incrementally instead of rescanning live device
+state. Telemetry cannot fairly falsify its mechanism if it adds comparable sync.
 
-For a structural layout, fusion, or kernel hypothesis, require an operator-level
-before/after claim rather than accepting the name of a new class, flag, or data
-structure as activation. Name the hot-path operation that disappears or becomes
-cheaper, its frequency, and the bytes or launches affected. For example, a paged
-KV attention claim requires the production attention kernel to consume the page
-table directly; a path that first materializes the logical KV sequence with
-indexing or a gather is still dense attention compute and should be classified
-as an allocator/layout experiment. Require source inspection and runtime
-telemetry for the actual request path before spending on a representative
-benchmark.
+Treat streaming record granularity as measurement contract. Inspect how the
+client derives token count, TTFT, and TPOT. If nonempty SSE records are tokens,
+preserve one record per generated model token and compare token IDs, delta
+records, and completion counts. Multiple complete records may share a write;
+splitting/merging their model-token accounting is invalid.
 
-Put an observer-overhead invariant in plans that add activation telemetry.
-Require a source-level inventory of `.item()`, `.tolist()`, CPU-copy, and
-synchronization sites introduced inside token, layer, and request loops. Totals
-and peaks should be maintained incrementally instead of rescanning device state
-or every live request each decode step. A mechanism cannot be fairly falsified
-by a benchmark whose new telemetry adds synchronization at the same frequency
-as the operation being optimized.
+## Scoping and performance criteria
 
-Treat streaming record granularity as part of the measurement contract. Before
-planning a transport, serialization, or chunk-coalescing optimization, inspect
-how the trusted client derives output-token count, TTFT, and TPOT. When it counts
-nonempty SSE records as tokens, require the candidate to preserve one such
-record per generated model token and retain a comparison among generated token
-IDs, emitted model-delta records, and reported completion tokens. It is valid to
-place several complete SSE records in one transport write; it is not valid to
-split or merge their model-token accounting to improve a measured metric.
-
-## Scoping API work
-
-When a task touches an endpoint or message schema, name the exact surface being
-changed and point the implementer to the authoritative contract reference.
-Grow the API only as required by the objective and evaluator.
-
-## Performance criteria
-
-An implementation can make an individual operation slower while reducing how
-often it runs. Per-call timing alone therefore cannot establish an end-to-end
-win. Phrase performance gates on the objective's headline metric and use
-lower-level measurements only as causal evidence. Avoid startup-only fixed
-timing thresholds that do not capture the full request path.
-
-For static-inspection criteria, name the implementer-owned file and prohibited
-behavior precisely. Avoid repository-wide clauses that also match
-framework-provided evaluator or profiler directories.
+- For endpoint/schema work, name the exact surface and authoritative contract;
+  grow it only as required.
+- Judge performance on the end-to-end headline metric. Per-call timing is causal
+  evidence because fewer slower calls can still win. Avoid startup-only gates.
+- Scope static inspection to precise implementer-owned files, excluding
+  framework evaluator/profiler sources.
+- Do not choose a technique merely because another serving system uses it;
+  consult technical references only after evidence identifies the mechanism.

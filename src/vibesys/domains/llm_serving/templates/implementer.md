@@ -1,75 +1,49 @@
-Use the pre-staged model weights described by the runtime environment; do not
-download model weights. Model weights are at `/model` in local environments;
-remote environments may require mounting the declared model volume instead.
+Use the pre-staged model weights from the runtime; never redownload them. Local
+weights are at `/model`; remote runs mount the declared model volume.
 
-## Toolchains
+For candidate components that use Python, use `uv` and the workspace
+environment. The serving hot path, scheduler, transport, kernels, and build need
+not remain Python; use reproducible native tooling integrated with the declared
+startup/evaluation lifecycle. Independent judge and framework gates remain
+binding.
 
-For candidate components that use Python, use `uv` for package management and
-execute their scripts through the workspace environment. This is a rule for
-Python components, not a requirement that the serving hot path, scheduler,
-transport, kernels, or build use Python. Use the selected language's native,
-reproducible build tooling for non-Python components and integrate that build
-with the declared startup and evaluation lifecycle.
+For batching, slot reuse, KV layout, masks, or scheduling, run a targeted
+concurrent mixed-length correctness probe before accepting performance. Compare
+deterministic production-path outputs with trusted unbatched/reference results,
+including a request that finishes while others remain active. Retain inputs,
+outputs, and comparison; single-request accuracy cannot prove cache/mask/position
+alignment.
 
-The independent judge and framework-owned gates apply in addition to this
-round's pass criteria. Your implementation must preserve those contracts.
+For layout, fusion, or kernel work, trace the production path to the actual
+operator before paid hardware. Record old/new operations and removed frequency,
+bytes, or launches. A class, flag, layout, or counter is not activation if the
+same expensive operation remains. A KV path that gathers/indexes logical pages
+before dense attention is not paged attention: the attention kernel itself must
+consume the page table. Fix or report this before representative benchmarking.
 
-When changing batching, request-slot reuse, KV-cache layout, attention masks,
-or scheduling, run a targeted concurrent mixed-length correctness probe before
-using performance evidence. Compare deterministic outputs against the trusted
-unbatched or reference path for prompts of different token lengths, including
-at least one request that finishes while others remain active. A single-request
-accuracy pass is not evidence that cache rows, positions, or masks stay aligned
-across a dynamic batch. Retain the probe inputs, outputs, and comparison result
-so the judge can audit the invariant without repeating an expensive run.
+Treat activation telemetry as part of the hot path. Inventory every counter and
+`.item()`, `.tolist()`, CPU copy, or synchronization inside token/layer/request
+loops with its frequency. Maintain host totals/high-water marks incrementally;
+sample synchronized gauges outside measurement or at bounded frequency and
+measure observer overhead.
 
-For a structural layout, fusion, or kernel hypothesis, trace the production
-request path to the actual attention/operator call before launching a target
-accelerator benchmark. Record the old and new hot-path operations and the
-frequency, bytes, or launches the change is meant to remove. A new class,
-backend flag, cache layout, or activation counter is not sufficient when the
-same expensive operation remains underneath it. In particular, do not call a
-KV path paged attention when it materializes the logical sequence with indexing
-or a gather before dense attention; the attention kernel itself must consume
-the page table. If static inspection shows that the claimed operation was not
-removed, fix the production path or report the hypothesis as not fairly tested
-without spending on the representative benchmark.
+Before paid profiling, write the decisions and plausible residuals it must
+resolve. Instrument all non-overlapping scopes/counters/timestamps in one pass,
+then exercise every scope locally; do not discover one missing scope at a time.
+Compare useful batch, cycle, and throughput with the retained control. A
+materially perturbed capture is qualitative only, not an end-to-end Amdahl
+bound. Reject `next_major` when its mechanism is already positive and
+fallback-free in that artifact.
 
-Treat activation telemetry as part of the hot path. Before benchmarking, audit
-every counter/gauge update added inside token, layer, or request loops and count
-device-to-host synchronization sites such as `.item()`, `.tolist()`, CPU copies,
-or explicit synchronizes. Maintain totals and high-water marks incrementally in
-host state when possible; do not rescan device tensors or live requests on every
-decode step merely to publish `/health`. If a gauge requires a synchronized
-sample, collect it outside the measured path or at a bounded low frequency and
-measure the observer overhead first.
+Before streaming/chunking work, inspect benchmark token accounting. When each
+nonempty SSE record counts as one output token, preserve exactly one model-delta
+record per generated model token. Retain per-request token IDs, nonempty records,
+and completion counts. Several complete records may share a transport write;
+splitting or merging model-token accounting is a metric artifact.
 
-Before a paid profiling launch, list the decisions the capture must support and
-audit all production branches and plausible residuals that could change those
-decisions. Add the complete set of non-overlapping scopes, counters, and
-timestamps in one instrumentation pass, then exercise every required scope with
-a local synthetic probe. Do not pay for a sequence of profiles that discovers
-one missing scope at a time. Compare the captured row with the retained
-uninstrumented operating point: if instrumentation materially changes useful
-batch, cycle time, or throughput, preserve it only as qualitative diagnostic
-evidence and do not derive an end-to-end Amdahl bound from its section totals.
-Reject any generated `next_major` recommendation whose activation is already
-positive and fallback-free in the same artifact.
+## Use references as implementation support
 
-Before changing streaming transport or chunking, read the trusted benchmark's
-token-accounting code. If it treats each nonempty SSE record as one output token,
-preserve exactly one model-delta record per generated model token. Retain a
-targeted artifact comparing generated token IDs, nonempty model-delta records,
-and reported completion tokens for each request. Coalescing several complete SSE
-records into one transport write is allowed; splitting one model token across
-records or merging multiple model tokens into one counted record is a metric
-artifact, not a performance optimization.
-
-## Use references as implementation support, not as a search policy
-
-The `serving-systems` skill provides technical references. After the active
-hypothesis identifies a concrete mechanism, open the router and the smallest
-set of references that directly cover that mechanism before editing code. Do
-not browse the library for an optimization to try merely because one is
-available. In your summary, name the references used and the specific contract
-or pitfall they clarified.
+Once evidence and the active hypothesis identify a mechanism, open the
+`serving-systems` skill router and only its directly relevant references before
+editing. Do not browse it for arbitrary ideas. Name each reference used and the
+contract or pitfall it clarified.
