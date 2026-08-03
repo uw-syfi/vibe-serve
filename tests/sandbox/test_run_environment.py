@@ -428,11 +428,10 @@ def test_modal_environment_prompt_notes_reuse_workspace_uv_cache(tmp_path):
     notes = _modal_runtime_document(tmp_path)
 
     assert "UV_CACHE_DIR=/workspace/.cache/uv" in notes
-    assert ".venv/bin/python -m pytest" in notes
-    assert "explicitly first on `PYTHONPATH`" in notes
-    assert "do not ask uv to create an overlay" in notes
-    assert "never delete or recreate `.venv`" in notes
-    assert "never broad roots" in notes
+    assert "persist outside Git checkpoints" in notes
+    assert "do not delete or recreate `.venv`" in notes
+    assert ".venv/bin/python -m ..." in notes
+    assert "excluding `.venv` and `.cache`" in notes
 
 
 def test_modal_environment_with_deepagents_uses_docker_too(tmp_path):
