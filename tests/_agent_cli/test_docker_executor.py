@@ -1,11 +1,16 @@
 from __future__ import annotations
 
 import io
+import json
 import subprocess
 
 from agentshim.executor import CallbackCommandStreamSink, CommandRequest
 
-from vibesys.agents.docker_executor import DockerCommandExecutor, DockerCommandHandle
+from vibesys.agents.docker_executor import (
+    DockerCommandExecutor,
+    DockerCommandHandle,
+    _CodexRolloutCompletion,
+)
 
 
 class _WritableStdin:
@@ -43,6 +48,19 @@ class _FakeProcess:
 
     def terminate(self) -> None:
         self.returncode = -15
+
+
+class _HungProcess(_FakeProcess):
+    def __init__(self) -> None:
+        super().__init__()
+        self.stdout = io.StringIO("")
+        self.stderr = io.StringIO("")
+
+    def wait(self, timeout: int | None = None) -> int:
+        self.wait_timeout = timeout
+        if self.returncode is None:
+            raise subprocess.TimeoutExpired(["docker", "exec"], timeout)
+        return self.returncode
 
 
 def test_docker_executor_runs_command_request_and_streams_to_sink(monkeypatch):
@@ -132,3 +150,82 @@ def test_docker_executor_repairs_workspace_ownership(monkeypatch):
             },
         )
     ]
+
+
+def test_docker_executor_recovers_stable_completed_codex_rollout(monkeypatch):
+    process = _HungProcess()
+    thread_id = "019fc654-87f2-7702-8bf2-05b6f4f006dc"
+    completion = _CodexRolloutCompletion(
+        fingerprint="2026-08-03T10:21:04.655Z",
+        message='{"hypothesis_outcome":"inconclusive"}',
+    )
+    executor = DockerCommandExecutor("container-123")
+    executor._CODEX_ROLLOUT_POLL_SECONDS = 0
+    executor._CODEX_COMPLETION_GRACE_SECONDS = 0
+
+    monkeypatch.setattr(
+        "vibesys.agents.docker_executor.subprocess.Popen",
+        lambda *args, **kwargs: process,
+    )
+    monkeypatch.setattr(
+        "vibesys.agents.docker_executor.subprocess.run",
+        lambda cmd, **kwargs: subprocess.CompletedProcess(cmd, 0, "24190\n", ""),
+    )
+    monkeypatch.setattr(executor, "_read_codex_rollout_completion", lambda _: completion)
+
+    terminated: list[str] = []
+
+    def terminate(completed_thread_id: str) -> None:
+        terminated.append(completed_thread_id)
+        process.kill()
+
+    monkeypatch.setattr(executor, "_terminate_codex_resume", terminate)
+
+    stdout: list[str] = []
+    result = executor.run(
+        CommandRequest(
+            argv=["codex", "exec", "resume", thread_id, "-", "--json"],
+            stdin="prompt",
+            cwd="/ignored",
+            env={},
+            timeout=None,
+        ),
+        CallbackCommandStreamSink(
+            on_stdout=stdout.append,
+            on_stderr=lambda _: None,
+            on_started=lambda _: None,
+        ),
+    )
+
+    events = [json.loads(line) for line in stdout]
+    assert terminated == [thread_id]
+    assert result.returncode == 0
+    assert events == [
+        {
+            "type": "item.completed",
+            "item": {
+                "id": "vibesys-codex-rollout-watchdog",
+                "type": "agent_message",
+                "text": completion.message,
+            },
+        },
+        {"type": "turn.completed"},
+    ]
+
+
+def test_codex_rollout_watchdog_requires_resumed_json_thread():
+    thread_id = "019fc654-87f2-7702-8bf2-05b6f4f006dc"
+
+    assert (
+        DockerCommandExecutor._codex_resume_thread_id(
+            ["codex", "exec", "resume", thread_id, "-", "--json"]
+        )
+        == thread_id
+    )
+    assert DockerCommandExecutor._codex_resume_thread_id(["codex", "exec", "--json"]) is None
+    assert (
+        DockerCommandExecutor._codex_resume_thread_id(
+            ["claude", "exec", "resume", thread_id, "--json"]
+        )
+        is None
+    )
