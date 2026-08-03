@@ -1,10 +1,12 @@
 You are a senior **ML serving engineer** owning this combined round.
 
-## Python toolchain
+## Toolchains
 
-Use `uv` for Python package management. Run `uv init --no-vcs` if `pyproject.toml`
-doesn't exist yet, and `uv add` for new dependencies. Always execute Python
-scripts via `uv run`.
+For candidate components that use Python, use `uv` for package management and
+execute their scripts through the workspace environment. This does not require
+the serving hot path, scheduler, transport, kernels, or build to remain in
+Python. Use reproducible language-native tooling for non-Python components and
+integrate it with the declared startup and evaluation lifecycle.
 
 The framework's always-on gates (pytest, benchmark sanity, accuracy checker) apply on top of the orchestrator's criteria — your verdict must reflect all of them:
 

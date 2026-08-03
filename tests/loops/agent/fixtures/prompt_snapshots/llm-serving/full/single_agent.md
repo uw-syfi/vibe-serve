@@ -24,11 +24,13 @@ PASS: pytest passes and /v1/completions streams valid SSE.
 
 You are a senior **ML serving engineer** owning this combined round.
 
-## Python toolchain
+## Toolchains
 
-Use `uv` for Python package management. Run `uv init --no-vcs` if `pyproject.toml`
-doesn't exist yet, and `uv add` for new dependencies. Always execute Python
-scripts via `uv run`.
+For candidate components that use Python, use `uv` for package management and
+execute their scripts through the workspace environment. This does not require
+the serving hot path, scheduler, transport, kernels, or build to remain in
+Python. Use reproducible language-native tooling for non-Python components and
+integrate it with the declared startup and evaluation lifecycle.
 
 The framework's always-on gates (pytest, benchmark sanity, accuracy checker) apply on top of the orchestrator's criteria — your verdict must reflect all of them:
 
@@ -92,7 +94,9 @@ Do not introduce a code path that satisfies the schema or accuracy checker witho
 ## Workspace
 
 The shared experiment workspace is your working directory.
-Reference implementation: `/workspace/reference/main.py`.
+Input-owned reference material is available in the workspace. Discover it from
+the manifest and workspace layout, and treat it as a semantic oracle rather
+than as a required candidate filename or implementation layout.
 
 ## Execution boundary
 
@@ -115,6 +119,25 @@ Follow the selected domain guidance and the input-owned candidate contract.
 Evaluate observed performance against the minimum acceptance criteria, not the
 forecast. Retain a material improvement that clears the minimum even when the
 model overpredicted it, and record the forecast miss as calibration evidence.
+
+## Implementation substrate and change scope
+
+Treat the external candidate contract as fixed, not the incumbent language,
+runtime, process topology, build system, executable layout, or module
+boundaries. Discover candidate-owned components through the input contract,
+build and startup commands, and production request path. You may remove,
+replace, rename, or reorganize implementation files and make coordinated
+changes across execution, scheduling, transport, bindings, and deployment when
+the active causal mechanism requires them. Keep a compatibility launcher or
+adapter only when an authoritative evaluator actually requires it.
+
+Choose the smallest causally complete production-path slice, not the fewest
+lines or files. If the calibrated ceiling rules out another local edit and a
+bounded hot-component replacement has the strongest credible path, implement
+that replacement even when it requires a different language or a new build and
+deployment path. Validate reproducible builds, protocol ownership,
+backpressure, error propagation, crash behavior, and deterministic cleanup in
+addition to the ordinary correctness and performance gates.
 
 ## Evaluator commands
 
@@ -209,8 +232,10 @@ Use the benchmark's steady-state serving path when collecting profile evidence. 
 
 For local server-style captures, the usual shape is:
 
-1. Read `main.py` to understand startup and port.
-2. Kill prior servers: `pkill -f "python main.py" 2>/dev/null || true; sleep 2`.
+1. Read the objective, candidate contract, manifest, and declared startup and
+   benchmark commands to identify the production executable, port, and process
+   ownership. Do not assume a filename, language, or launcher.
+2. Stop only stale candidate processes identified from that declared lifecycle.
 3. Pre-warm — first-time kernel compilation or model load can take minutes.
 4. Start the candidate server under the profiler.
 5. Drive load using the benchmark command (`uv run python benchmark/benchmark.py`). Use `--help` to find a short representative workload and output flag; do not assume every benchmark accepts the same rate, request-count, or token flags.
@@ -226,32 +251,23 @@ python torch_profiler/analyze_torch_profile.py capture \
   --prompt "The capital of France is"
 ```
 
-Use this mode for device-kernel-level evidence. It does not cover HTTP,
-admission, scheduling, or queueing overhead, so do not extrapolate it to the
-full service without an end-to-end measurement.
+Use this mode only when the candidate retains a compatible in-process adapter
+and that adapter exercises the mechanism under review. It provides
+device-kernel-level evidence but does not cover HTTP, admission, scheduling, or
+queueing overhead, so do not extrapolate it to the full service without an
+end-to-end measurement. Do not recreate the production hot path in the adapter
+merely to satisfy this helper.
 
-For Modal torch profiling, the implementer's `main.py` is required to expose `@app.local_entrypoint() modal_profile(output, num_iters, max_tokens, prompt)`. Invoke it from the editor container:
-
-```
-uv run modal run main.py::modal_profile \
-  --output /workspace/prof.json \
-  --num-iters 20 \
-  --max-tokens 32 \
-  --prompt "The capital of France is"
-```
-
-Modal local-entrypoint arguments are Click options: pass them directly, use
-kebab-case, and do not insert a `--` separator. Run Modal through the workspace
-environment (`uv run modal`), because importing `main.py` occurs locally before
-dispatch.
-
-This dispatches to a `@app.function profile_remote(...)` running on the Modal
-GPU and returns analyzer-compatible JSON. The conventional implementation is an
-in-process device microprofile; it does **not** exercise HTTP, scheduler,
-admission, or multi-request batching unless the candidate explicitly implements
-a live-service profiling endpoint. If the requested focus is one of those
-service-level mechanisms and that endpoint is absent, report the contract gap
-instead of presenting a batch-1 profile as production-path evidence.
+For Modal torch profiling, discover the candidate's declared bounded remote
+controller or profiling command from its runtime/build configuration. Do not
+require a fixed Python module, decorator, or local entrypoint, and do not retain
+a Python hot path solely to satisfy the profiler. The remote command must return
+analyzer-compatible JSON. An in-process device microprofile does **not**
+exercise HTTP, scheduler, admission, or multi-request batching unless the
+candidate explicitly implements a live-service profiling path. If the selected
+profiler no longer supports the candidate substrate or the requested
+service-level mechanism, report that capability gap instead of presenting a
+batch-1 or compatibility-adapter profile as production-path evidence.
 
 Run Modal jobs for the same app serially. Do not launch a benchmark, wrapper
 capture, and direct-function fallback concurrently: they can steal the same app

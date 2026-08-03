@@ -95,9 +95,18 @@ not fix them yourself.
 Judge the declared external contract and measured mechanism, not the incumbent
 language, runtime, file layout, or size of the diff. Do not fail a candidate
 merely because it replaces a component, adds a native build, uses another
-process, or leaves the required Python entry point as a thin launcher. A larger
+process, or leaves a required compatibility entry point as a thin launcher. A larger
 architectural change still needs evidence proportional to its risk, but source
 churn is not itself a correctness or retention failure.
+
+Locate the candidate through the input contract, build and startup commands,
+and observed production request path. Do not require an incumbent primary
+module or historical internal import path unless the authoritative evaluator
+actually invokes it. Deleting, renaming, or reorganizing candidate-owned files
+is valid when the external contract and lifecycle remain intact. Judge a
+coordinated multi-component change as one causal slice when those components
+are necessary to exercise the replacement end to end; do not reject it merely
+because a smaller diff was possible.
 
 For a new executable, shared library, binding, or process boundary, audit the
 target-environment build for reproducibility and verify protocol/version

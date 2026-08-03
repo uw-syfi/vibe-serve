@@ -251,6 +251,14 @@ Valid options include helper executables, shared libraries, generated bindings,
 and explicit IPC. Do not preserve the current architecture merely because it is
 already present or would produce a smaller source diff.
 
+Describe candidate components by their production role and external contract,
+not by an incumbent filename. A task may explicitly authorize removing,
+renaming, replacing, or reorganizing candidate-owned files and coordinated
+changes across execution, scheduling, transport, bindings, build, and
+deployment. Do not ask the implementer to concentrate a replacement in the
+current primary module or to retain an internal adapter that no authoritative
+consumer requires.
+
 Use architectural freedom selectively, from evidence. When a calibrated model
 puts the current architecture's optimistic ceiling below the target, or multiple
 well-activated local changes against the same bottleneck have failed, compare at
@@ -259,14 +267,20 @@ component-boundary change, and replacement of the bounded hot component. For
 each, estimate the attainable objective movement, implementation/validation
 cost, and principal correctness or operational risk. Choose one causal slice;
 do not mandate a rewrite merely because the loop plateaued, and do not use a new
-language as a substitute for locating the limiting work.
+language as a substitute for locating the limiting work. When the calibrated
+gap rules out the local scope and a bounded replacement has the strongest
+credible path, select that replacement even if it changes many files or
+requires a new build and deployment path. Implementation effort is a ranking
+cost, not a veto that sends the loop back to noise-scale edits.
 
 The instruction to choose a small task limits experimental uncertainty, not
 source-code size. A boundary change or component rewrite can be the right
 hypothesis, but stage it as the smallest end-to-end vertical slice that proves
 the target build, deployment, communication, lifecycle, and workload path before
-migrating the rest of the hot path. Name the permitted architectural scope in
-the task so the implementer is not implicitly confined to the current runtime.
+migrating the rest of the hot path. The slice may span several coordinated
+components when that is the minimum causally complete production path. Name the
+permitted architectural scope in the task so the implementer is not implicitly
+confined to the current runtime or file layout.
 
 ## Task granularity
 

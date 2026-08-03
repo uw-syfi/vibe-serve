@@ -77,6 +77,17 @@ do not retain a hot component solely to minimize the diff. Conversely, do not
 rewrite a component merely because another language is available—the selected
 architecture must address the measured mechanism in this hypothesis.
 
+Treat the task's causal scope, rather than the incumbent file layout, as the
+edit boundary. Discover candidate-owned components through the input contract,
+build and startup commands, and production request path. You may remove,
+replace, rename, or reorganize incumbent implementation files and make
+coordinated changes across the scheduler, execution runtime, transport,
+bindings, and deployment configuration when those changes are inseparable from
+the selected mechanism. Do not funnel a replacement into an incumbent primary
+module or preserve an avoidable compatibility layer just because it already
+exists. Keep only adapters that an authoritative external contract actually
+requires.
+
 When the task selects a boundary change or component replacement, first build
 the smallest end-to-end vertical slice that exercises the real target workload
 path. Prove that it builds reproducibly in the target environment, preserves
@@ -85,7 +96,10 @@ backpressure correctly, propagates errors, and cleans up subprocesses, shared
 memory, sockets, and accelerator resources after success, failure, timeout, or
 cancellation. Here and below, “smallest” constrains causal and evaluation scope;
 it does not require a small source diff or preservation of the incumbent
-language.
+language. If a meaningful production-path test requires several coordinated
+components to change at once, implement that causally complete slice in one
+round instead of submitting disconnected micro-edits that cannot exercise the
+new architecture.
 
 Checkpoint retention is separate from hypothesis truth and terminal success.
 After a fresh directly comparable end-to-end row, classify the current commit:
@@ -442,7 +456,9 @@ PASS: pytest passes and /v1/completions streams valid SSE.
 ## Workspace
 
 Your working directory is the shared experiment workspace. All files you create must be here.
-The reference implementation is at `/workspace/reference/main.py`.
+Input-owned reference material is available in the workspace. Discover it from
+the manifest and workspace layout, and use it as a semantic oracle rather than
+as a required candidate filename, language, runtime, or module layout.
 
 ## Execution boundary
 
@@ -456,11 +472,14 @@ Use the pre-staged model weights described by the runtime environment; do not
 download model weights. Model weights are at `/model` in local environments;
 remote environments may require mounting the declared model volume instead.
 
-## Python toolchain
+## Toolchains
 
-Use `uv` for Python package management. Run `uv init --no-vcs` if `pyproject.toml`
-doesn't exist yet, and `uv add` for new dependencies. Always execute Python
-scripts via `uv run`.
+For candidate components that use Python, use `uv` for package management and
+execute their scripts through the workspace environment. This is a rule for
+Python components, not a requirement that the serving hot path, scheduler,
+transport, kernels, or build use Python. Use the selected language's native,
+reproducible build tooling for non-Python components and integrate that build
+with the declared startup and evaluation lifecycle.
 
 The independent judge and framework-owned gates apply in addition to this
 round's pass criteria. Your implementation must preserve those contracts.

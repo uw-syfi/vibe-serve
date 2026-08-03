@@ -141,7 +141,9 @@ For every proposed hypothesis:
 
 1. Identify the measured workload phase or critical-path cost it removes.
 2. Bound the maximum possible end-to-end gain from that cost before investing.
-3. Prefer the smallest change that tests the causal mechanism cleanly.
+3. Choose the smallest causally complete production-path change. This may be a
+   coordinated replacement across several components; do not split it into
+   micro-edits that cannot activate or fairly test the proposed architecture.
 4. Require observable activation evidence from the production serving path.
 5. State what result would falsify the hypothesis and preserve all workload,
    model-fidelity, and operator constraints.
@@ -155,6 +157,11 @@ work. Choose a bottleneck class with enough headroom to remove a material part
 of the gap (as a default, at least 20%) and put the arithmetic in `reasoning`.
 Small tuning remains appropriate as a targeted probe, but repeated local
 frontier nudges are not a substitute for a structural path to the target.
+When a calibrated ceiling shows that a hot component or control path must be
+replaced, carry that replacement as one persistent hypothesis with bounded
+end-to-end slices. Do not retreat to easier single-file edits merely because
+the replacement changes the toolchain, process boundary, or much of the
+candidate-owned implementation.
 
 Use the headroom calculation to rank hypotheses, not to grade implementations.
 For each plan, write an `expected_effect` range and a separate
@@ -330,6 +337,14 @@ Valid options include helper executables, shared libraries, generated bindings,
 and explicit IPC. Do not preserve the current architecture merely because it is
 already present or would produce a smaller source diff.
 
+Describe candidate components by their production role and external contract,
+not by an incumbent filename. A task may explicitly authorize removing,
+renaming, replacing, or reorganizing candidate-owned files and coordinated
+changes across execution, scheduling, transport, bindings, build, and
+deployment. Do not ask the implementer to concentrate a replacement in the
+current primary module or to retain an internal adapter that no authoritative
+consumer requires.
+
 Use architectural freedom selectively, from evidence. When a calibrated model
 puts the current architecture's optimistic ceiling below the target, or multiple
 well-activated local changes against the same bottleneck have failed, compare at
@@ -338,14 +353,20 @@ component-boundary change, and replacement of the bounded hot component. For
 each, estimate the attainable objective movement, implementation/validation
 cost, and principal correctness or operational risk. Choose one causal slice;
 do not mandate a rewrite merely because the loop plateaued, and do not use a new
-language as a substitute for locating the limiting work.
+language as a substitute for locating the limiting work. When the calibrated
+gap rules out the local scope and a bounded replacement has the strongest
+credible path, select that replacement even if it changes many files or
+requires a new build and deployment path. Implementation effort is a ranking
+cost, not a veto that sends the loop back to noise-scale edits.
 
 The instruction to choose a small task limits experimental uncertainty, not
 source-code size. A boundary change or component rewrite can be the right
 hypothesis, but stage it as the smallest end-to-end vertical slice that proves
 the target build, deployment, communication, lifecycle, and workload path before
-migrating the rest of the hot path. Name the permitted architectural scope in
-the task so the implementer is not implicitly confined to the current runtime.
+migrating the rest of the hot path. The slice may span several coordinated
+components when that is the minimum causally complete production path. Name the
+permitted architectural scope in the task so the implementer is not implicitly
+confined to the current runtime or file layout.
 
 ## Task granularity
 

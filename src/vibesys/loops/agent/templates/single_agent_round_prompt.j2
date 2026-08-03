@@ -44,7 +44,9 @@ Address every item above before declaring PASS this attempt.
 
 The shared experiment workspace is your working directory.
 {% if reference_path and reference_path != "." %}
-Reference implementation: `{{ reference_path }}`.
+Input-owned reference material is available in the workspace. Discover it from
+the manifest and workspace layout, and treat it as a semantic oracle rather
+than as a required candidate filename or implementation layout.
 {% else %}
 No separate reference implementation is provided. Treat `OBJECTIVE.md` and the input-owned contract files it names as authoritative.
 {% endif %}
@@ -63,6 +65,25 @@ No separate reference implementation is provided. Treat `OBJECTIVE.md` and the i
 Evaluate observed performance against the minimum acceptance criteria, not the
 forecast. Retain a material improvement that clears the minimum even when the
 model overpredicted it, and record the forecast miss as calibration evidence.
+
+## Implementation substrate and change scope
+
+Treat the external candidate contract as fixed, not the incumbent language,
+runtime, process topology, build system, executable layout, or module
+boundaries. Discover candidate-owned components through the input contract,
+build and startup commands, and production request path. You may remove,
+replace, rename, or reorganize implementation files and make coordinated
+changes across execution, scheduling, transport, bindings, and deployment when
+the active causal mechanism requires them. Keep a compatibility launcher or
+adapter only when an authoritative evaluator actually requires it.
+
+Choose the smallest causally complete production-path slice, not the fewest
+lines or files. If the calibrated ceiling rules out another local edit and a
+bounded hot-component replacement has the strongest credible path, implement
+that replacement even when it requires a different language or a new build and
+deployment path. Validate reproducible builds, protocol ownership,
+backpressure, error propagation, crash behavior, and deterministic cleanup in
+addition to the ordinary correctness and performance gates.
 
 {% if accuracy_command or benchmark_command %}
 ## Evaluator commands

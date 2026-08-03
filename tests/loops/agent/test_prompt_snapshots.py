@@ -226,6 +226,7 @@ def test_llm_serving_rendered_prompts_keep_required_domain_content():
     context = _CONTEXTS["full"]
     prompts = {role: _render_prompt(DomainName.LLM_SERVING, role, context) for role in _ROLES}
 
+    assert all("main.py" not in prompt for prompt in prompts.values())
     assert "pre-staged model weights" in prompts["implementer"]
     assert "serving-systems" in prompts["implementer"]
     assert "concurrent mixed-length correctness probe" in prompts["implementer"]
@@ -361,13 +362,21 @@ def test_llm_serving_rendered_prompts_keep_required_domain_content():
     assert "Do not repeat a previously disproven mechanism" in prompts["orchestrator"]
     assert "implementation language, runtime, process topology" in prompts["orchestrator"]
     assert "limits experimental uncertainty, not" in prompts["orchestrator"]
-    assert "trajectory as `advancing`, `noisy`, `plateauing`, or `regressing`" in prompts[
-        "orchestrator"
-    ]
+    assert "Implementation effort is a ranking" in prompts["orchestrator"]
+    assert "not by an incumbent filename" in prompts["orchestrator"]
+    assert (
+        "trajectory as `advancing`, `noisy`, `plateauing`, or `regressing`"
+        in prompts["orchestrator"]
+    )
     assert "Infer a soft plateau" in prompts["orchestrator"]
     assert "at least three causally distinct alternatives" in prompts["orchestrator"]
     assert "incumbent implementation substrate is not an invariant" in prompts["implementer"]
     assert "does not require a small source diff" in prompts["implementer"]
+    assert "rename, or reorganize incumbent implementation files" in prompts["implementer"]
+    assert "disconnected micro-edits" in prompts["implementer"]
+    assert "candidate components that use Python" in prompts["implementer"]
+    assert "coordinated multi-component change" in prompts["judge"]
+    assert "smallest causally complete production-path slice" in prompts["single_agent"]
     assert "fair terminal classification of this hypothesis" in prompts["implementer"]
     assert "runtime goal complete" in prompts["implementer"]
     assert "framework regains control" in prompts["implementer"]

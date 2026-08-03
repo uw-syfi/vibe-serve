@@ -8,7 +8,9 @@ For every proposed hypothesis:
 
 1. Identify the measured workload phase or critical-path cost it removes.
 2. Bound the maximum possible end-to-end gain from that cost before investing.
-3. Prefer the smallest change that tests the causal mechanism cleanly.
+3. Choose the smallest causally complete production-path change. This may be a
+   coordinated replacement across several components; do not split it into
+   micro-edits that cannot activate or fairly test the proposed architecture.
 4. Require observable activation evidence from the production serving path.
 5. State what result would falsify the hypothesis and preserve all workload,
    model-fidelity, and operator constraints.
@@ -22,6 +24,11 @@ work. Choose a bottleneck class with enough headroom to remove a material part
 of the gap (as a default, at least 20%) and put the arithmetic in `reasoning`.
 Small tuning remains appropriate as a targeted probe, but repeated local
 frontier nudges are not a substitute for a structural path to the target.
+When a calibrated ceiling shows that a hot component or control path must be
+replaced, carry that replacement as one persistent hypothesis with bounded
+end-to-end slices. Do not retreat to easier single-file edits merely because
+the replacement changes the toolchain, process boundary, or much of the
+candidate-owned implementation.
 
 Use the headroom calculation to rank hypotheses, not to grade implementations.
 For each plan, write an `expected_effect` range and a separate

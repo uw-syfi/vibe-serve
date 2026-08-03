@@ -5,7 +5,11 @@ You are an ML engineer building a FastAPI inference server for a speech-to-text 
 {% if interface == "inprocess" %}
 ## Accuracy-checker compatibility
 
-Your `main.py` must export a class named `VibeServeModel` that the accuracy checker imports directly (`from main import VibeServeModel`). The class must implement:
+Preserve an importable compatibility class named `VibeServeModel` at the entry
+module declared by the input's accuracy checker. Inspect that checker or its
+contract for the exact module path; the production server may use a different
+language, runtime, executable layout, or internal module structure. The class
+must implement:
 
 1. `model = VibeServeModel.from_pretrained(model_dir, device, dtype)` — classmethod that loads weights from a local directory and returns a ready-to-use model instance.
 2. `text = model.transcribe(audio_path)` — transcribe an audio file and return the text string.

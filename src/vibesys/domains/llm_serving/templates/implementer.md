@@ -2,11 +2,14 @@ Use the pre-staged model weights described by the runtime environment; do not
 download model weights. Model weights are at `/model` in local environments;
 remote environments may require mounting the declared model volume instead.
 
-## Python toolchain
+## Toolchains
 
-Use `uv` for Python package management. Run `uv init --no-vcs` if `pyproject.toml`
-doesn't exist yet, and `uv add` for new dependencies. Always execute Python
-scripts via `uv run`.
+For candidate components that use Python, use `uv` for package management and
+execute their scripts through the workspace environment. This is a rule for
+Python components, not a requirement that the serving hot path, scheduler,
+transport, kernels, or build use Python. Use the selected language's native,
+reproducible build tooling for non-Python components and integrate that build
+with the declared startup and evaluation lifecycle.
 
 The independent judge and framework-owned gates apply in addition to this
 round's pass criteria. Your implementation must preserve those contracts.
