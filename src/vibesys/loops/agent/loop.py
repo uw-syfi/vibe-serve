@@ -2839,13 +2839,24 @@ def run_agent_loop(
                     active_hypothesis.continuation_rounds += 1
                 elif passed:
                     active_hypothesis = None
-                elif reviewed:
+                elif (
+                    reviewed
+                    and active_hypothesis.continuation_rounds
+                    < _MAX_CONTINUATION_ROUNDS_WITHOUT_DESIGN_REVIEW
+                ):
+                    # A rejected review may justify another scoped repair, but
+                    # it consumes the same bounded ownership lease as an
+                    # implementer-declared continuation. Otherwise repeated
+                    # judge failures can bypass the designer indefinitely.
                     active_hypothesis.feedback = feedback
                     active_hypothesis.next_step = (
                         implementation.next_step
                         if implementation is not None
                         else active_hypothesis.next_step
                     )
+                    active_hypothesis.continuation_rounds += 1
+                elif reviewed:
+                    active_hypothesis = None
                 elif implementation is not None and not _implementation_keeps_hypothesis_active(
                     implementation,
                     continuation_rounds=active_hypothesis.continuation_rounds,

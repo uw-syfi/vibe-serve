@@ -1667,6 +1667,48 @@ def test_repeated_continue_outcomes_return_control_to_designer(tmp_path, ref_fil
     ]
 
 
+def test_repeated_rejected_reviews_return_control_to_designer(tmp_path, ref_file):
+    runner = _make_orchestrate_runner(
+        plans=[
+            OrchestratorPlan(
+                hypothesis_id="rejected-review-lease",
+                hypothesis="the candidate needs bounded evidence repair",
+                task="repair and present the evidence",
+                pass_criteria="retain causal evidence",
+                reasoning="start one bounded review-repair lease",
+            ),
+            OrchestratorPlan(
+                hypothesis_id="review-after-rejections",
+                hypothesis="compare the repeatedly rejected work against alternatives",
+                task="choose the next bounded experiment",
+                pass_criteria="retain a reviewed direction",
+                reasoning="the review-repair lease expired",
+            ),
+        ],
+        implementer_outcomes=[HypothesisOutcome.NOMINATED] * 4,
+        judge_verdicts=["fail", "fail", "fail", "pass"],
+    )
+
+    _invoke_orchestrate(
+        tmp_path,
+        ref_file,
+        runner,
+        max_rounds=4,
+        max_retries_per_round=1,
+        judge_every=1,
+    )
+
+    assert runner.counters["orch_plan"] == 2
+    rounds_file = next((tmp_path / "exp_env").glob("*/logs/rounds.json"))
+    rounds = __import__("json").loads(rounds_file.read_text())
+    assert [round_data["hypothesis_id"] for round_data in rounds] == [
+        "rejected-review-lease",
+        "rejected-review-lease",
+        "rejected-review-lease",
+        "review-after-rejections",
+    ]
+
+
 def test_resolvable_inconclusive_result_keeps_hypothesis_active(tmp_path, ref_file):
     runner = _make_orchestrate_runner(
         plans=[
