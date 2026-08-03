@@ -14,6 +14,7 @@ from vibesys.loops.agent import issue_board
 from vibesys.loops.agent.loop import (
     _ActiveHypothesis,
     _backfill_revert_commit,
+    _candidate_evidence_is_fresh,
     _invoke_read_only_role,
     _missing_implementer_response,
     _noise_aware_dominates,
@@ -434,7 +435,7 @@ def test_frontier_candidate_forces_review_outside_sparse_cadence():
         max_rounds=20,
         judge_every=3,
         outcome=HypothesisOutcome.DISPROVEN,
-        candidate_disposition=CandidateDisposition.PARETO_FRONTIER,
+        candidate_evidence_fresh=True,
     )
 
 
@@ -444,9 +445,63 @@ def test_measured_candidate_forces_review_even_when_disposition_is_downgraded():
         max_rounds=20,
         judge_every=3,
         outcome=HypothesisOutcome.INCONCLUSIVE,
-        candidate_disposition=CandidateDisposition.PREREQUISITE,
-        candidate_evidence_present=True,
+        candidate_evidence_fresh=True,
     )
+
+
+def test_reused_candidate_evidence_does_not_bypass_sparse_review():
+    metrics = {"throughput": 6205.0, "latency": 10660.0}
+    record = _RoundRecord(
+        round_number=75,
+        commit="a" * 40,
+        perf_metric=None,
+        perf_unit=None,
+        passed=False,
+        candidate_disposition=CandidateDisposition.PREREQUISITE.value,
+        candidate_metrics=metrics,
+        candidate_evaluation_artifact="h37-round77-controller-raw.json",
+        candidate_operating_point="concurrency 512",
+    )
+    implementation = ImplementerResponse(
+        summary="Rebuilt derived reports without running a benchmark.",
+        expected_behavior="The retained raw row is unchanged.",
+        hypothesis_outcome=HypothesisOutcome.INCONCLUSIVE,
+        candidate_disposition=CandidateDisposition.PREREQUISITE,
+        candidate_metrics=metrics,
+        candidate_evaluation_artifact="h37-round77-controller-raw.json",
+        candidate_operating_point="concurrency 512",
+    )
+
+    assert not _candidate_evidence_is_fresh(implementation, [record])
+    assert not _review_due(
+        round_number=76,
+        max_rounds=200,
+        judge_every=3,
+        outcome=implementation.hypothesis_outcome,
+        candidate_evidence_fresh=False,
+    )
+
+
+def test_changed_candidate_row_is_fresh_even_when_artifact_name_is_reused():
+    record = _RoundRecord(
+        round_number=4,
+        commit="a" * 40,
+        perf_metric=None,
+        perf_unit=None,
+        passed=False,
+        candidate_metrics={"throughput": 100.0},
+        candidate_evaluation_artifact="candidate.json",
+        candidate_operating_point="load 8",
+    )
+    implementation = ImplementerResponse(
+        summary="Measured a changed row.",
+        expected_behavior="Throughput changes.",
+        candidate_metrics={"throughput": 110.0},
+        candidate_evaluation_artifact="candidate.json",
+        candidate_operating_point="load 8",
+    )
+
+    assert _candidate_evidence_is_fresh(implementation, [record])
 
 
 def test_official_evaluation_cadence_counts_reviewed_frontier_tradeoff():

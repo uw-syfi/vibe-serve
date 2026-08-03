@@ -728,23 +728,43 @@ def _review_due(
     max_rounds: int,
     judge_every: int,
     outcome: HypothesisOutcome,
-    candidate_disposition: CandidateDisposition = CandidateDisposition.UNASSESSED,
-    candidate_evidence_present: bool = False,
+    candidate_evidence_fresh: bool = False,
 ) -> bool:
     """Return whether an independent review must run for this candidate.
 
-    A fresh objective row is itself a checkpoint-retention claim.  Review it
+    A fresh objective row is itself a checkpoint-retention claim. Review it
     even when the implementer labels the checkpoint ``prerequisite`` or
     ``discard`` so a mistaken disposition cannot bypass the independent judge
-    and disappear from Pareto memory.  The judge can audit the existing raw
+    and disappear from Pareto memory. The judge can audit the existing raw
     artifact without requiring another benchmark run.
+
+    Repeating an already-recorded row is not fresh evidence and therefore does
+    not bypass sparse review cadence.
     """
     return (
         round_number == max_rounds
         or round_number % judge_every == 0
         or outcome in {HypothesisOutcome.SUPPORTED, HypothesisOutcome.NOMINATED}
-        or candidate_disposition is CandidateDisposition.PARETO_FRONTIER
-        or candidate_evidence_present
+        or candidate_evidence_fresh
+    )
+
+
+def _candidate_evidence_is_fresh(
+    implementation: ImplementerResponse,
+    records: list[_RoundRecord],
+) -> bool:
+    """Return whether an implementer reported a previously unseen objective row."""
+    if not implementation.candidate_metrics:
+        return False
+    artifact = implementation.candidate_evaluation_artifact
+    if not artifact:
+        # Missing provenance is still a new claim that needs prompt review.
+        return True
+    metrics = dict(implementation.candidate_metrics)
+    return not any(
+        (record.candidate_evaluation_artifact or record.evaluation_artifact) == artifact
+        and record.candidate_metrics == metrics
+        for record in records
     )
 
 
@@ -2229,8 +2249,9 @@ def run_agent_loop(
                             max_rounds=max_rounds,
                             judge_every=judge_every,
                             outcome=implementation.hypothesis_outcome,
-                            candidate_disposition=implementation.candidate_disposition,
-                            candidate_evidence_present=bool(implementation.candidate_metrics),
+                            candidate_evidence_fresh=_candidate_evidence_is_fresh(
+                                implementation, records
+                            ),
                         )
                         if review_started and not _implementation_keeps_hypothesis_active(
                             implementation,
