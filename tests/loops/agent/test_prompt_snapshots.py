@@ -426,6 +426,8 @@ def test_llm_serving_rendered_prompts_keep_required_domain_content():
     assert "multiplicative gap" in prompts["orchestrator"]
     assert "implied post-change metric range" in prompts["orchestrator"]
     assert "terminally sufficient on its own" in prompts["orchestrator"]
+    assert "one jointly attainable operating point" in normalized_prompts["orchestrator"]
+    assert "optimistic latency bound still misses" in normalized_prompts["orchestrator"]
     assert "information gained per" in prompts["orchestrator"]
     assert "accelerator minute" in prompts["orchestrator"]
     assert "reference engine's observed score" in prompts["orchestrator"]

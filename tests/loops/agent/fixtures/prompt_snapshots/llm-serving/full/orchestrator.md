@@ -185,6 +185,16 @@ later structural mechanism that would still be required. Rank plausible
 alternatives by target-relevant headroom and information gained per
 accelerator minute rather than by ease of implementation alone.
 
+For a multi-objective target, `terminally sufficient` means that one jointly
+attainable operating point in the forecast meets every simultaneous gate. Audit
+throughput, TTFT, TPOT, latency, failures, and any other declared objective
+separately against their exact targets. Do not call a mechanism terminally
+sufficient because its throughput range crosses parity while an optimistic
+latency bound still misses, and do not combine independently optimistic ends of
+ranges unless the model explains why they are jointly attainable. If any gate
+still misses, label the mechanism composable or prerequisite work and name the
+remaining structural requirement.
+
 At the first valid baseline, after a material architecture change, and whenever
 the framework reports a plateau, open
 `skills/serving-systems/references/tooling/performance-modeling.md` and refresh
