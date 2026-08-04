@@ -93,25 +93,26 @@ parent rows unless concrete drift or comparability evidence requires otherwise.
   checkpoint plus validation-input hashes suffice until launch.
 - Atomically persist raw rows, configuration, failures, operating point,
   point-local telemetry, and identity; retain valid rows after later failures.
+- Give each retained row a reproducible production selector. Official
+  evaluation must activate that arm; absent a selector, make it default.
 - Compare the same candidate/workload/offered load/selected row. Forecast error
   calibrates the model; the justified minimum decides causal retention; classify
   Pareto retention separately.
 - Fail closed on controller gates: save diagnostics, make no downstream paid
   calls, and release resources. Relate only same-scope/owner counters; cheaply
   test positive, zero, and mixed cases pre-target.
-- Monitor long work through externally visible progress at a reasonable cadence;
-  quiet output alone is not failure. Clean up processes, tasks, sockets, and
-  accelerators on success, error, timeout, and cancellation.
+- Keep long work observable; clean up local and target resources on every exit.
 
 {% if gate_revalidation_pending|default(false) %}
 ## Framework gate revalidation
 
-An unchanged candidate already passed independent review. The retained canonical
-evidence is `{{ gate_approved_evaluation_artifact or '(missing)' }}`{% if gate_approved_perf_metric is not none %}
+The retained evidence previously passed independent review before a framework
+gate failed: `{{ gate_approved_evaluation_artifact or '(missing)' }}`{% if gate_approved_perf_metric is not none %}
 with `{{ gate_approved_perf_metric }}{{ (' ' ~ gate_approved_perf_unit) if gate_approved_perf_unit else '' }}`{% endif %}.
-Repair only the failed framework-facing issue. Do not change candidate behavior
-or duplicate the canonical run; return null fresh canonical fields unless a new
-canonical evaluation actually ran.
+Repair only the failed gate path and do not duplicate the canonical run. A
+behavior-affecting repair invalidates stale metrics for the changed arm; retain
+an earlier row only when its measured path and mode are unchanged. Return null
+fresh canonical fields unless a new canonical evaluation actually ran.
 Resolve the evaluator-selected entrypoint and process from the failure evidence,
 then prove the repair reaches that exact path; a sibling or internal route is
 not a substitute.

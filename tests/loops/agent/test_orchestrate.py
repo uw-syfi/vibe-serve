@@ -2631,8 +2631,8 @@ def test_framework_gate_retry_preserves_judge_approved_metrics(tmp_path, ref_fil
     retry_prompt = implementer_calls[1].kwargs["system_prompt"]
     assert "Framework gate revalidation" in retry_prompt
     assert "321.5 tok/s" in retry_prompt
-    assert "Do not change candidate behavior" in retry_prompt
-    assert "or duplicate the canonical run" in retry_prompt
+    assert "behavior-affecting repair invalidates stale metrics" in retry_prompt
+    assert "do not duplicate the canonical run" in retry_prompt
 
 
 def test_loop_exhaustion_carries_to_next_round(tmp_path, ref_file):

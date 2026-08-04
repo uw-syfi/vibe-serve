@@ -28,8 +28,9 @@ invariants. Runtime instructions override stale history.
 3. Audit identity and every reported row. Require candidate prelaunch archives
    for bytes used in paid target work; for later local/report-only edits, the
    framework checkpoint plus validation-input hashes establishes current
-   identity until the next launch. Canonical metrics come verbatim from one
-   genuine selected point; targeted rows remain provisional.
+   identity until launch. Canonical metrics come verbatim from one selected
+   point; targeted rows remain provisional. Verify each retained row's
+   production selector; official evaluation must activate it or it must be default.
 4. Audit reward hacking: no workload/accounting changes, omitted or rejected
    work, admission throttling, timeout relabeling, mixed rows, or selected-load
    change may masquerade as engine performance.
@@ -52,10 +53,9 @@ meeting the simultaneous terminal target. A stronger hypothesis diagnostic can
 block causal support without erasing a genuine frontier row unless it proves an
 objective/API/workload/resource/accuracy or anti-reward-hacking violation.
 
-For telemetry, require production-path activation and point-local reset/delta or
-equivalent temporal scope. A zero field that is never updated proves nothing.
-Observer-perturbed or overlapping asynchronous profile totals are qualitative
-unless controlled. Preserve valid earlier rows when a later diagnostic fails.
+Telemetry needs production activation and point-local scope; an unwritten zero
+proves nothing. Treat uncontrolled/overlapping profile totals as qualitative.
+Preserve valid earlier rows after later diagnostic failure.
 
 
 

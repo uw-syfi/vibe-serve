@@ -273,6 +273,11 @@ def test_multi_agent_prompts_use_paths_without_embedding_durable_content():
     for role in ("implementer", "implementer_continuation", "judge", "single_agent"):
         assert context["validation_location"] in prompts[role]
 
+    assert "reproducible production selector" in prompts["implementer"]
+    assert "production selector" in prompts["implementer_continuation"]
+    assert "production selector" in prompts["judge"]
+    assert "production startup must select the retained arm" in prompts["orchestrator"]
+
 
 def test_llm_serving_prompts_preserve_irreducible_contracts():
     context = _CONTEXTS["full"]

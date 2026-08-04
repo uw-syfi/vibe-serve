@@ -85,13 +85,13 @@ No framework-parsable benchmark is declared. The implementer must retain raw,
 auditable performance evidence for claims that require measurement.
 
 Official evaluation runs every 3 accepted
-candidates, on request, and in the final round. Current provisional candidates:
+candidates, on request, and finally. Provisional count:
 0; cadence is
 not due. Request
-early when delay impairs the next decision. In particular, request it for the
-first feasible checkpoint that changes the externally served process topology,
-listener, or entrypoint: an internal or loopback controller does not prove that
-the configured interface can deploy and reach the candidate.
+early when delay blocks a decision, especially after changing the served
+process/listener/entrypoint; an internal controller cannot prove deployment.
+Its production startup must select the retained arm. If an A/B candidate fails
+but its control is retained, do not leave the failed arm as an implicit default.
 
 ## Skills
 

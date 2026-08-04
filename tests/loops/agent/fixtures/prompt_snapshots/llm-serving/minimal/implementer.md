@@ -70,15 +70,15 @@ machine-readable diff, captured before paid measurement.
   checkpoint plus validation-input hashes suffice until launch.
 - Atomically persist raw rows, configuration, failures, operating point,
   point-local telemetry, and identity; retain valid rows after later failures.
+- Give each retained row a reproducible production selector. Official
+  evaluation must activate that arm; absent a selector, make it default.
 - Compare the same candidate/workload/offered load/selected row. Forecast error
   calibrates the model; the justified minimum decides causal retention; classify
   Pareto retention separately.
 - Fail closed on controller gates: save diagnostics, make no downstream paid
   calls, and release resources. Relate only same-scope/owner counters; cheaply
   test positive, zero, and mixed cases pre-target.
-- Monitor long work through externally visible progress at a reasonable cadence;
-  quiet output alone is not failure. Clean up processes, tasks, sockets, and
-  accelerators on success, error, timeout, and cancellation.
+- Keep long work observable; clean up local and target resources on every exit.
 
 
 Official evaluation is deferred. A scoped supported/disproven result or a
