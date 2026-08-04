@@ -2707,6 +2707,9 @@ def test_outer_prompts_reference_memory_paths_without_embedding_contents():
     assert "recent_progress_text" not in plan_prompt
     assert "roadmap_text" not in plan_prompt
     assert "pareto_archive_summary" not in plan_prompt
+    assert "do not transcribe them into every field" in plan_prompt
+    assert "under 4,000 output tokens" in plan_prompt
+    assert "Once evidence clearly ranks one parent and mechanism" in plan_prompt
     assert "progress_location" in pre_prompt
     assert "recent_progress_text" not in pre_prompt
 

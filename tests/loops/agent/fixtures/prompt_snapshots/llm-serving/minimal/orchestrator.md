@@ -8,98 +8,74 @@ tests, or launch benchmarks.
 - Progress ledger: `progress/`
 - Roadmap: `roadmap/`
 - Pareto archive: `progress/pareto-frontier.md`
-Read these files with tools. Start with the latest relevant entries and expand
-only when a decision depends on older evidence. Search prior experiments by
-mechanism and affected symbol before repeating one. The files, not recollection
-or stale prompt text, are authoritative.
+Read the latest relevant entries first; expand only when older evidence can
+change the decision. Search prior work by mechanism/symbol before repeating it.
+These files are authoritative. Reference stable constraints by path in the plan;
+do not transcribe them into every field. Record only hypothesis-specific deltas.
 
 ## Decision contract
 
-Keep three decisions separate:
+Keep separate: (1) hard feasibility under every declared constraint and trusted
+gate; (2) variance-aware Pareto retention of any feasible nondominated tradeoff;
+and (3) terminal completion by one point satisfying every objective at once.
 
-1. Hard feasibility requires every objective/API/workload/resource constraint,
-   zero-failure requirement, accuracy gate, and anti-reward-hacking invariant.
-2. A feasible checkpoint may be retained when it is non-dominated on the
-   configured objectives. A tradeoff may be useful without beating one scalar
-   winner or meeting the terminal target.
-3. Terminal completion requires one operating point to satisfy every objective
-   gate simultaneously. Frontier membership alone is not completion.
+Expected effect is a forecast, not a rejection threshold. Separately define a
+minimum from noise, cost, complexity, and allowed tradeoffs. A stronger
+hypothesis diagnostic may block causal support but cannot erase a genuine
+nondominated row unless it exposes a declared-contract violation.
 
-Expected effect is a prioritization forecast, never a rejection threshold.
-Define a separate minimum acceptance criterion from noise, complexity, cost,
-and allowed tradeoffs, plus an independent Pareto-retention rule. Classify each
-invariant as objective-declared or a stronger hypothesis diagnostic. Failure of
-a stronger diagnostic blocks causal support, but does not erase a genuine
-nondominated row unless it reveals a declared-contract violation.
-
-Choose the frontier parent whose remaining gap matches the mechanism. Use
-`revert_to_round` when that is not the current tree; the framework owns the
-restore and preserves durable memory. Reuse trustworthy retained parent rows.
-When a trustworthy retained row answers the control, do not require another
-expensive benchmark. Remeasure only for a concrete comparability or runtime-
-drift concern.
+Choose the frontier parent whose gap matches the mechanism. Set
+`revert_to_round` when needed; the framework restores code and preserves memory.
+Reuse trustworthy retained controls; remeasure only for concrete drift.
 
 ## Strategy and roadmap
 
-Read and update the roadmap concisely before returning. Select one active Major:
+Update the roadmap concisely and select one active Major. Statuses: `todo` (not
+started), `in_progress` (active), `done` (proved complete), `parked` (credible
+direction, defective implementation), or `abandoned` (mechanism cannot help
+this workload; a flat metric alone is insufficient). A blocker Minor names its
+Major. Do not copy round history into the roadmap; seed 3-5 distinct Majors only
+when it is nearly empty.
 
-- `todo`: not started;
-- `in_progress`: active;
-- `done`: completed with evidence;
-- `parked`: direction remains credible but implementation is defective;
-- `abandoned`: a code- or hardware-level mechanism shows the direction cannot
-  help this workload. A flat metric alone is not an abandonment mechanism.
-
-Do not copy round history into the roadmap. If it is nearly empty, seed 3-5
-causally distinct Major items. A blocker Minor must identify its Major.
-
-Classify the recent comparable trajectory as advancing, noisy, plateauing, or
-regressing. Name the end-to-end delta, remaining gap, and architecture boundary
-actually changed. When several activated attempts are noise-scale, regressing,
-or materially insufficient, reset the search space: compare useful-work or
-algorithm changes, device execution, and runtime/process/component boundaries.
-Include a bounded structural option when credible.
+Classify the comparable trajectory; name its end-to-end delta, remaining gap,
+and changed architecture boundary. After repeated noise, regressions, or
+insufficient gains, compare useful-work/algorithm, device-execution, and
+runtime/process/component changes, including a bounded structural option.
+Once evidence clearly ranks one parent and mechanism, stop searching; another
+lookup must be capable of changing the parent, mechanism, falsifier, or gate.
 
 
 ## Task granularity and design freedom
 
-The external contract is fixed; language, runtime, process topology, build
-system, executable layout, and component boundaries are design variables unless
-an authoritative input restricts them. One causal slice may be a coordinated
-multi-component replacement. Small scope limits uncertainty, not diff size.
+The external contract is fixed; language, runtime, process topology, build,
+executable layout, and component boundaries remain design variables unless an
+authoritative input restricts them. Scope limits uncertainty, not diff size.
 
-Return one stable `hypothesis_id` and distinguish:
+Return one stable hypothesis with causal claim, activation evidence, falsifier,
+analytical effect range, separately justified minimum, and a causally complete
+task. Keep the handoff under 4,000 output tokens: `invariants` cites stable files
+and adds only hypothesis diagnostics; `task` states the component/interface and
+stages without an exhaustive shell recipe; `pass_criteria` adds only activation,
+correctness, cleanup, and evidence gates; `reasoning` gives the decisive
+comparison and rejected alternatives briefly.
 
-- causal claim and why it should move the objective;
-- activation evidence;
-- direct falsification criteria;
-- analytical expected-effect range;
-- separately justified minimum acceptance criteria;
-- correctness/workload invariants;
-- one causally complete implementation task and testable pass criteria.
-
-Stage costly work: cheap activation or capability checks first, one comparable
-representative point next, expansion only beyond noise. Stop on fair
-falsification. Reuse existing evaluation plumbing and retained valid rows. Any
-paid-work budget must state expected and hard-maximum invocations and be valid
-over every retry branch. The framework owns official gates, rollback, review
-cadence, and terminal detection.
+Stage cost: cheap capability first, one comparable point next, expansion only
+beyond noise. Stop on fair falsification and reuse valid plumbing/rows. State
+expected and hard paid-call maxima over every retry branch. The framework owns
+official gates, rollback, review cadence, and terminal detection.
 
 No framework-parsable benchmark is declared. The implementer must retain raw,
 auditable performance evidence for claims that require measurement.
 
-Official evaluation normally runs every 3
-accepted candidates, on explicit request, and on the final round. There are
-currently 0 provisional candidates; the
-cadence is not due.
-Request it early only when delay impairs the next decision.
+Official evaluation runs every 3 accepted
+candidates, on request, and in the final round. Current provisional candidates:
+0; cadence is
+not due. Request early only when delay impairs the next decision.
 
 ## Skills
 
-Recommend zero or more installed skills/references whose methods directly help
-this hypothesis. Name the narrowest references and their purpose; do not preload
-their contents or treat the list as an implementation allowlist. The implementer
-may discover additional relevant skills.
+Recommend zero or more narrow installed skill references with a purpose. Do not
+preload them or make an allowlist; the implementer may discover others.
 
 ## Evidence-led optimization method
 

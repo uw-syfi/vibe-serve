@@ -464,7 +464,10 @@ class OrchestratorPlan(BaseModel):
     )
     activation_evidence: str = Field(
         default="",
-        description="Observable evidence that the intended code path or mechanism actually ran.",
+        description=(
+            "Concise observable evidence that the intended code path or mechanism "
+            "ran; include only hypothesis-specific signals."
+        ),
     )
     falsification_criteria: str = Field(
         default="",
@@ -487,7 +490,10 @@ class OrchestratorPlan(BaseModel):
     )
     invariants: str = Field(
         default="",
-        description="Correctness and workload properties that must remain true during the experiment.",
+        description=(
+            "Hypothesis-specific invariants and diagnostics. Cite authoritative "
+            "objective/runtime paths for stable constraints instead of restating them."
+        ),
     )
     recommended_skills: list[SkillResourceSelection] = Field(
         default_factory=list,
@@ -496,9 +502,17 @@ class OrchestratorPlan(BaseModel):
             "hypothesis. Recommendations are advisory, not an allowlist or gate."
         ),
     )
-    task: str = Field(description="Well-scoped implementation work handed to the implementer.")
+    task: str = Field(
+        description=(
+            "Causally complete component/interface and staged-evaluation delta handed "
+            "to the implementer, without restating stable authoritative contracts."
+        )
+    )
     pass_criteria: str = Field(
-        description="Feature-level pass criteria for the judge. Input-declared trusted gates run separately when configured."
+        description=(
+            "Hypothesis-specific activation, correctness, cleanup, and evidence gates. "
+            "Reference stable trusted gates by path; they run separately when configured."
+        )
     )
     request_official_evaluation: bool = Field(
         default=False,
@@ -517,7 +531,7 @@ class OrchestratorPlan(BaseModel):
         ),
     )
     reasoning: str = Field(
-        description="Short explanation of the orchestrator's reasoning for this round."
+        description="Brief decisive comparison supporting this round's parent and mechanism."
     )
 
 
