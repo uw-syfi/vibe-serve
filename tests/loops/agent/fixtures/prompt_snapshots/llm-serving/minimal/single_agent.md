@@ -31,7 +31,9 @@ Prove production-path activation, then stage costly work behind a cheap
 directional gate. Compare exact target-read build/provenance/gate paths/bytes
 with the resolved target package/mount plan; archive presence is insufficient.
 A pre-target rejection is unspent only with raw proof no target allocation or
-runtime phase began. Relate only custom-gate counters with the same
+runtime phase began. Archive bytes immediately before target work; framework
+checkpoint and validation-input hashes suffice for local/report-only edits.
+Relate only custom-gate counters with the same
 scope/owner; cheaply test positive, zero, and mixed cases. Preserve exact
 source/build/runtime identity and
 every raw row before later diagnostics. Compare like-for-like workload and

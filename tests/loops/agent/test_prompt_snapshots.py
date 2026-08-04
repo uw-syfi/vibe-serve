@@ -340,8 +340,11 @@ def test_multi_agent_roles_do_not_let_continuations_mint_paid_authority():
     )
     assert "new round does not replenish paid work" in prompts["judge"]
     assert "no target allocation/runtime phase began" in prompts["judge"]
+    assert "framework checkpoint plus validation-input hashes" in prompts["judge"]
     assert "no target allocation or runtime phase began" in prompts["implementer"]
     assert "no target allocation or runtime phase began" in prompts["implementer_continuation"]
+    assert "checkpoint plus validation-input hashes" in prompts["implementer"]
+    assert "checkpoint plus validation-input hashes" in prompts["implementer_continuation"]
 
 
 def test_implementer_continuation_formats_materialized_parent_identity():

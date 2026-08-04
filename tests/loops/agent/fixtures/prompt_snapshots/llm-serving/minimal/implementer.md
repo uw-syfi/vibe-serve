@@ -66,6 +66,8 @@ machine-readable diff, captured before paid measurement.
   state. Budgets remain cumulative across hypothesis rounds/reviews/retries.
 - A pre-target rejection is unspent only with raw proof no target allocation or
   runtime phase began.
+- Archive only target-bound bytes. For local/report-only edits, framework
+  checkpoint plus validation-input hashes suffice until launch.
 - Atomically persist raw rows, configuration, failures, operating point,
   point-local telemetry, and identity; retain valid rows after later failures.
 - Compare the same candidate/workload/offered load/selected row. Forecast error
