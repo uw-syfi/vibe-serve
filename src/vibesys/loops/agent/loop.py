@@ -3260,7 +3260,8 @@ def run_agent_loop(
                     active_hypothesis.feedback = feedback
                     active_hypothesis.next_step = (
                         implementation.next_step
-                        if _implementation_requests_continuation(implementation)
+                        if implementation is not None
+                        and _implementation_requests_continuation(implementation)
                         else None
                     )
                     active_hypothesis.continuation_rounds += 1

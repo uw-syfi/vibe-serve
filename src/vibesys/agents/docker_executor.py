@@ -249,6 +249,7 @@ class DockerCommandExecutor:
         while True:
             now = time.monotonic()
             if deadline is not None and now >= deadline:
+                assert timeout is not None
                 raise subprocess.TimeoutExpired(list(cmd), timeout)
             wait_seconds = 5.0 if deadline is None else min(5.0, deadline - now)
             try:
@@ -257,6 +258,7 @@ class DockerCommandExecutor:
             except subprocess.TimeoutExpired:
                 now = time.monotonic()
                 if deadline is not None and now >= deadline:
+                    assert timeout is not None
                     raise subprocess.TimeoutExpired(list(cmd), timeout) from None
                 if codex_thread_id is None and watch_codex_rollout:
                     codex_thread_id = self._codex_started_thread_id(stdout_lines)
