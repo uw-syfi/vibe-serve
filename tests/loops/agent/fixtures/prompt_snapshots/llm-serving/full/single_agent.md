@@ -7,9 +7,11 @@ self-review it, and collect only the profile/evidence needed to classify it.
 - Typed plan: `progress/plans/round-0080.json`
 - Progress ledger: `progress/`
 - Pareto archive: `progress/pareto-frontier.md`
+- Framework validation ledger: `progress/validation/`
 - Runtime contract: Runtime instructions are at `/opt/vibesys-runtime/environment.md`; read them before executing or measuring.
 Read these files with tools. Do not rely on embedded copies or stale history.
 Read older rounds and installed references only for a named dependency.
+Reuse a matching framework validation PASS when its declared inputs are unchanged.
 
 New retry feedback:
 

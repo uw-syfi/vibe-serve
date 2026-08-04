@@ -10,6 +10,7 @@ new implementation plan.
   `{{ implementer_artifact_location|default('progress/evidence/current-implementer.json') }}`
 - Progress ledger: `{{ progress_location|default('progress.md') }}`
 - Pareto archive: `{{ pareto_archive_location|default('pareto-frontier.md') }}`
+- Framework validation ledger: `{{ validation_location|default('progress/validation/') }}`
 {% if runtime_notes %}- Runtime contract: {{ runtime_notes }}
 {% endif %}
 Read the objective, plan, runtime contract, implementer response, and referenced
@@ -47,6 +48,12 @@ proof or duplicate measurement of a trustworthy retained parent row.
    and release resources. Compatible phases should reuse initialized state.
 6. Prefer source/static review and small discriminating diagnostics. Do not
    duplicate an adequately documented long run or framework-owned official gate.
+7. Audit the recipe file named by `validation_recipe_artifact`. It may contain only
+   bounded, non-mutating local/static checks with complete determining inputs,
+   never target, deployment, benchmark, profiler, or official evaluator work. Do
+   not execute it: after PASS the framework runs or reuses the exact recipes and
+   records immutable results under the validation-ledger path. If local checks
+   are claimed as evidence, require a reproducible recipe file.
 
 Forecast error is calibration evidence, not rejection. Grade causal success
 against the independent minimum. Judge objective-level retention separately:

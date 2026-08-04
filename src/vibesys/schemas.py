@@ -23,6 +23,7 @@ schemas in without dragging in the rest of the agent runtime.
 """
 
 from enum import StrEnum
+from pathlib import PurePosixPath
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, FiniteFloat, field_validator
@@ -116,23 +117,99 @@ class SkillResourceSelection(BaseModel):
 # ===========================================================================
 
 
+class ValidationRecipe(BaseModel):
+    """A bounded, reusable local validation command proposed by an implementer.
+
+    The independent judge audits the recipe before the framework executes it.
+    Target, deployment, benchmark, profiler, and official evaluator commands
+    belong to their existing framework-owned gates instead.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(
+        min_length=1,
+        max_length=80,
+        pattern=r"^[a-z0-9][a-z0-9._-]*$",
+        description="Stable short identifier for this validation recipe.",
+    )
+    command: str = Field(
+        min_length=1,
+        max_length=4000,
+        description="Exact non-interactive command to execute from the workspace root.",
+    )
+    input_paths: list[str] = Field(
+        min_length=1,
+        max_length=64,
+        description=(
+            "Workspace-relative source, test, lock, or configuration paths that "
+            "fully determine whether a prior passing result can be reused."
+        ),
+    )
+    timeout_seconds: int = Field(
+        default=300,
+        ge=1,
+        le=1800,
+        description="Hard wall-clock timeout for this local validation command.",
+    )
+    purpose: str = Field(
+        min_length=1,
+        max_length=500,
+        description="The observable contract this command validates.",
+    )
+
+    @field_validator("command", "purpose")
+    @classmethod
+    def _strip_recipe_text(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("must contain non-whitespace text")
+        return value
+
+    @field_validator("input_paths")
+    @classmethod
+    def _validate_input_paths(cls, values: list[str]) -> list[str]:
+        normalized: list[str] = []
+        for raw in values:
+            value = raw.strip()
+            path = PurePosixPath(value)
+            if not value or path.is_absolute() or value == "." or ".." in path.parts:
+                raise ValueError(
+                    "input_paths must contain non-empty workspace-relative paths "
+                    "without parent traversal"
+                )
+            normalized.append(path.as_posix())
+        if len(set(normalized)) != len(normalized):
+            raise ValueError("input_paths must not contain duplicates")
+        return normalized
+
+
+class FrameworkValidationResult(BaseModel):
+    """Framework-owned result for one audited validation recipe."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    recipe: ValidationRecipe
+    input_digest: str
+    passed: bool
+    reused: bool = False
+    exit_code: int | None = None
+    output: str = ""
+    error: str | None = None
+
+
 class ImplementerResponse(BaseModel):
     """Structured response from the implementer agent."""
 
     summary: str = Field(description="What was implemented or changed this iteration.")
     expected_behavior: str = Field(
-        description="What behavior is expected (e.g. 'server starts on port 8000, /health returns 200')."
+        description="Observable behavior expected from the implementation."
     )
     hypothesis_outcome: HypothesisOutcome = Field(
         default=HypothesisOutcome.NOMINATED,
         description=(
-            "continue while more implementation or targeted evaluation is needed; "
-            "supported when the scoped hypothesis is complete and ready for review "
-            "without global candidate gates; "
-            "nominated when the current candidate checkpoint is ready for "
-            "independent review and global gates without implying the overall "
-            "objective is complete; "
-            "otherwise a terminal explanation of why the hypothesis did not proceed."
+            "Hypothesis lifecycle status. Use continue only for bounded unfinished "
+            "same-mechanism work; supported/nominated require review readiness."
         ),
     )
     evidence: str = Field(
@@ -141,74 +218,53 @@ class ImplementerResponse(BaseModel):
     )
     next_step: str = Field(
         default="",
-        description=(
-            "Concrete next action when continuing or repairing an implementation failure, "
-            "or when blocked/inconclusive."
-        ),
+        description=("Concrete remaining action for a nonterminal or failed outcome."),
     )
     perf_metric: FiniteFloat | None = Field(
         default=None,
-        description=(
-            "Headline metric copied from a fresh canonical evaluation artifact; "
-            "None when no canonical evaluation completed this round."
-        ),
+        description=("Fresh canonical headline metric, otherwise None."),
     )
     perf_unit: str | None = Field(
         default=None,
-        description="Unit of perf_metric; None when perf_metric is None.",
+        description="Unit of perf_metric, otherwise None.",
     )
     metrics: dict[str, FiniteFloat] = Field(
         default_factory=dict,
-        description="Objective metrics copied from the same selected evaluation row.",
+        description="Objective metrics from the same canonical row.",
     )
     evaluation_artifact: str | None = Field(
         default=None,
-        description="Workspace-relative path to the retained canonical evaluation summary.",
+        description="Workspace-relative canonical evaluation artifact.",
     )
     candidate_disposition: CandidateDisposition = Field(
         default=CandidateDisposition.UNASSESSED,
         description=(
-            "Independent retention recommendation for the current checkpoint: "
-            "pareto_frontier for a credible non-dominated performance tradeoff, "
-            "prerequisite for reusable non-performance infrastructure, discard for "
-            "a dominated or invalid candidate, or unassessed without comparable evidence."
+            "Independent checkpoint retention: frontier, prerequisite, discard, or unassessed."
         ),
     )
     candidate_metrics: dict[str, FiniteFloat] = Field(
         default_factory=dict,
-        description=(
-            "Objective values from one fresh, directly comparable end-to-end row used "
-            "only for provisional Pareto memory. Unlike metrics, this row need not be "
-            "the full canonical evaluation and never updates official tracking."
-        ),
+        description=("Objective values from one fresh comparable provisional row."),
     )
     candidate_evaluation_artifact: str | None = Field(
         default=None,
-        description=(
-            "Workspace-relative raw artifact supporting candidate_metrics; None when "
-            "the checkpoint has no comparable measured candidate evidence."
-        ),
+        description=("Workspace-relative raw artifact for candidate_metrics."),
     )
     candidate_operating_point: str = Field(
         default="",
-        description=(
-            "Concise workload/load/configuration identity for candidate_metrics so "
-            "the framework and judge can establish comparability."
-        ),
+        description=("Workload/load/configuration identity for candidate_metrics."),
     )
     candidate_retention_reason: str = Field(
         default="",
-        description=(
-            "Why the candidate belongs on the Pareto frontier, is only a reusable "
-            "prerequisite, or should be discarded."
-        ),
+        description=("Reason for the checkpoint retention recommendation."),
     )
     skill_context_updates: list[SkillResourceSelection] = Field(
         default_factory=list,
-        description=(
-            "New skill resources consulted or selected during this turn. This is "
-            "advisory context for continuation, not an implementation allowlist."
-        ),
+        description=("New advisory skill resources consulted or selected this turn."),
+    )
+    validation_recipe_artifact: str | None = Field(
+        default=None,
+        description=("Workspace-relative framework local-validation recipe JSON."),
     )
 
 

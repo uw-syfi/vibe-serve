@@ -8,6 +8,7 @@ collect kernel-level data first.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import shlex
@@ -39,6 +40,7 @@ from vibesys.sandbox.run_environment import (
 )
 from vibesys.schemas import (
     CandidateDisposition,
+    FrameworkValidationResult,
     HypothesisOutcome,
     ImplementerResponse,
     JudgeResponse,
@@ -47,6 +49,7 @@ from vibesys.schemas import (
     ProfilerSummary,
     SingleAgentRoundResponse,
     SkillResourceSelection,
+    ValidationRecipe,
     Verdict,
 )
 from vibesys.server.events import (
@@ -1315,6 +1318,9 @@ def _run_implementer(
     )
     plan_artifact = issue_board.write_plan_artifact(progress_path, round_number, plan)
     plan_artifact_location = issue_board.display_path(plan_artifact, ctx.workspace)
+    validation_location = issue_board.display_path(
+        issue_board.validation_artifact_root(progress_path), ctx.workspace
+    )
     domain_implementer = render_domain_section(
         domain_definition,
         DomainRole.IMPLEMENTER,
@@ -1341,6 +1347,7 @@ def _run_implementer(
         invariants=plan.invariants,
         progress_location=progress_location,
         pareto_archive_location=pareto_archive_location,
+        validation_location=validation_location,
         retry=retry,
         feedback=feedback,
         continuation_step=continuation_step,
@@ -1425,6 +1432,9 @@ def _run_judge(
     )
     plan_artifact_location = issue_board.display_path(plan_artifact, ctx.workspace)
     implementer_artifact_location = issue_board.display_path(implementer_artifact, ctx.workspace)
+    validation_location = issue_board.display_path(
+        issue_board.validation_artifact_root(progress_path), ctx.workspace
+    )
     judge_domain_context = _domain_render_context(ctx, modality, interface)
     # Canonical accuracy and benchmark commands are framework-owned. Hiding
     # them from the judge prevents duplicate official runs while preserving
@@ -1477,6 +1487,7 @@ def _run_judge(
         gate_approved_evaluation_artifact=gate_approved_evaluation_artifact,
         progress_location=progress_location,
         pareto_archive_location=pareto_archive_location,
+        validation_location=validation_location,
         framework_revert_applied=framework_revert_applied,
         framework_revert_round=framework_revert_round,
         framework_revert_commit=framework_revert_commit,
@@ -1565,6 +1576,9 @@ def _run_single_agent_round(
     )
     plan_artifact = issue_board.write_plan_artifact(progress_path, round_number, plan)
     plan_artifact_location = issue_board.display_path(plan_artifact, ctx.workspace)
+    validation_location = issue_board.display_path(
+        issue_board.validation_artifact_root(progress_path), ctx.workspace
+    )
     domain_single_agent = render_domain_section(
         domain_definition,
         DomainRole.SINGLE_AGENT,
@@ -1603,6 +1617,7 @@ def _run_single_agent_round(
         invariants=plan.invariants,
         progress_location=progress_location,
         pareto_archive_location=pareto_archive_location,
+        validation_location=validation_location,
         retry=retry,
         feedback=feedback,
         objective=objective,
@@ -1683,6 +1698,223 @@ def _profiler_summary_from_single_agent(
         suggestions=response.suggestions,
         perf_metric=response.perf_metric,
         perf_unit=response.perf_unit,
+    )
+
+
+def _validation_input_digest(workspace: Path, recipe: ValidationRecipe) -> str:
+    """Hash the declared workspace inputs that determine recipe reuse."""
+
+    digest = hashlib.sha256()
+    workspace_root = workspace.resolve()
+    total_files = 0
+    total_bytes = 0
+    for relative in sorted(recipe.input_paths):
+        unresolved = workspace / relative
+        if unresolved.is_symlink():
+            raise ValueError(f"validation input must not be a symlink: {relative}")
+        path = unresolved.resolve()
+        if not path.is_relative_to(workspace_root):
+            raise ValueError(f"validation input escapes workspace: {relative}")
+        if not path.exists():
+            raise ValueError(f"validation input does not exist: {relative}")
+        digest.update(relative.encode("utf-8"))
+        digest.update(b"\0dir\0" if path.is_dir() else b"\0file\0")
+        entries = [path]
+        if path.is_dir():
+            entries = sorted(candidate for candidate in path.rglob("*") if candidate.is_file())
+        for entry in entries:
+            if entry.is_symlink():
+                raise ValueError(f"validation input must not be a symlink: {relative}")
+            total_files += 1
+            total_bytes += entry.stat().st_size
+            if total_files > 4096 or total_bytes > 256 * 1024 * 1024:
+                raise ValueError("validation inputs exceed the 4096-file/256-MiB reuse-hash limit")
+            entry_relative = entry.relative_to(workspace_root).as_posix()
+            digest.update(entry_relative.encode("utf-8"))
+            digest.update(b"\0")
+            digest.update(entry.read_bytes())
+            digest.update(b"\0")
+    digest.update(recipe.command.encode("utf-8"))
+    digest.update(b"\0")
+    digest.update(str(recipe.timeout_seconds).encode("ascii"))
+    return digest.hexdigest()
+
+
+def _reusable_validation_result(
+    progress_path: Path,
+    recipe: ValidationRecipe,
+    input_digest: str,
+) -> FrameworkValidationResult | None:
+    """Return the newest matching framework PASS, if one exists."""
+
+    for artifact in reversed(issue_board.validation_result_artifact_paths(progress_path)):
+        try:
+            payload = json.loads(artifact.read_text())
+            results = payload.get("results", [])
+        except (OSError, json.JSONDecodeError, AttributeError):
+            continue
+        for raw in reversed(results):
+            try:
+                result = FrameworkValidationResult.model_validate(raw)
+            except (TypeError, ValueError):
+                continue
+            if result.passed and result.input_digest == input_digest and result.recipe == recipe:
+                return result.model_copy(update={"reused": True})
+    return None
+
+
+def _load_validation_recipes(workspace: Path, artifact: str) -> list[ValidationRecipe]:
+    """Load and validate a candidate-authored recipe file inside the workspace."""
+
+    workspace_root = workspace.resolve()
+    path = (workspace / artifact).resolve()
+    if not path.is_relative_to(workspace_root):
+        raise ValueError("validation recipe artifact escapes the workspace")
+    if not path.is_file():
+        raise ValueError(f"validation recipe artifact does not exist: {artifact}")
+    try:
+        payload = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"validation recipe artifact is not valid JSON: {exc}") from exc
+    if not isinstance(payload, dict) or payload.get("version") != 1:
+        raise ValueError("validation recipe artifact must be an object with version=1")
+    raw_recipes = payload.get("recipes")
+    if not isinstance(raw_recipes, list) or not 1 <= len(raw_recipes) <= 8:
+        raise ValueError("validation recipe artifact must contain 1-8 recipes")
+    try:
+        return [ValidationRecipe.model_validate(raw) for raw in raw_recipes]
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"validation recipe artifact has an invalid recipe: {exc}") from exc
+
+
+def _run_framework_validation_gate(
+    ctx: LoopContext,
+    *,
+    recipe_artifact: str | None,
+    round_number: int,
+    retry: int,
+    progress_path: Path,
+) -> str | None:
+    """Execute judge-audited local checks once and cache exact-input passes.
+
+    This gate intentionally excludes target, deployment, profiler, benchmark,
+    and official evaluator work. The Judge audits that boundary before a PASS
+    can reach this function. Commands must be non-mutating; any workspace write
+    fails the gate and is restored to the pre-validation checkpoint.
+    """
+
+    if recipe_artifact is None:
+        return None
+
+    try:
+        recipes = _load_validation_recipes(ctx.workspace, recipe_artifact)
+    except ValueError as exc:
+        return f"Framework local validation recipe error: {exc}."
+
+    labels = [recipe.name for recipe in recipes]
+    if len(set(labels)) != len(labels):
+        return "Framework local validation recipes contain duplicate names."
+
+    ctx.snapshot_workspace(f"round-{round_number}-retry-{retry}-framework-validation-input")
+    checkpoint = ctx.git.current_sha()
+    if checkpoint is None:
+        return "Framework local validation could not establish a workspace checkpoint."
+
+    results: list[FrameworkValidationResult] = []
+    restore_required = False
+    for recipe in recipes:
+        try:
+            input_digest = _validation_input_digest(ctx.workspace, recipe)
+        except (OSError, ValueError) as exc:
+            results.append(
+                FrameworkValidationResult(
+                    recipe=recipe,
+                    input_digest="",
+                    passed=False,
+                    error=str(exc),
+                )
+            )
+            break
+
+        reused = _reusable_validation_result(progress_path, recipe, input_digest)
+        if reused is not None:
+            results.append(reused)
+            ctx.lprint(f"[framework-validation] reused PASS: {recipe.name}")
+            continue
+
+        ctx.lprint(f"[framework-validation] running {recipe.name}: {recipe.command}")
+        try:
+            execution = ctx.judge_backend.execute(
+                recipe.command,
+                timeout=recipe.timeout_seconds,
+            )
+            output = execution.output.strip()
+            passed = execution.exit_code == 0
+            result = FrameworkValidationResult(
+                recipe=recipe,
+                input_digest=input_digest,
+                passed=passed,
+                exit_code=execution.exit_code,
+                output=output[-8000:],
+                error=None if passed else "command exited nonzero",
+            )
+        except Exception as exc:
+            result = FrameworkValidationResult(
+                recipe=recipe,
+                input_digest=input_digest,
+                passed=False,
+                error=f"command could not be executed: {exc}",
+            )
+
+        changes = ctx.git.pending_changes()
+        if changes:
+            restore_required = True
+            shown = ", ".join(changes[:8])
+            suffix = "" if len(changes) <= 8 else f", ... (+{len(changes) - 8} more)"
+            result = result.model_copy(
+                update={
+                    "passed": False,
+                    "error": (f"validation command mutated the workspace: {shown}{suffix}"),
+                }
+            )
+        results.append(result)
+        if not result.passed:
+            break
+
+    if restore_required:
+        if not ctx.git.checkout_tree(checkpoint, clean=True):
+            results[-1] = results[-1].model_copy(
+                update={
+                    "passed": False,
+                    "error": "validation mutation could not be restored",
+                }
+            )
+
+    artifact = issue_board.write_validation_result_artifact(
+        progress_path,
+        round_number,
+        retry,
+        results,
+    )
+    artifact_location = issue_board.display_path(artifact, ctx.workspace)
+    issue_board.append_framework_validation_gate(
+        progress_path,
+        round_number,
+        retry,
+        artifact=artifact_location,
+        results=results,
+    )
+    ctx.snapshot_workspace(f"round-{round_number}-retry-{retry}-framework-validation")
+
+    failed = next((result for result in results if not result.passed), None)
+    if failed is None:
+        ctx.lprint("[framework-validation] PASS")
+        return None
+    detail = failed.error or failed.output or "unknown failure"
+    ctx.lprint(f"[framework-validation] FAIL: {failed.recipe.name}: {detail}")
+    return (
+        f"Framework local validation failed for {failed.recipe.name!r}: {detail}. "
+        f"Inspect `{artifact_location}` and repair only the affected local contract."
     )
 
 
@@ -2465,6 +2697,18 @@ def run_agent_loop(
                             pareto_archive_conflict=candidate_archive_conflict,
                         )
                         if verdict.verdict == Verdict.PASS:
+                            validation_feedback = _run_framework_validation_gate(
+                                ctx,
+                                recipe_artifact=implementation.validation_recipe_artifact,
+                                round_number=round_number,
+                                retry=retry,
+                                progress_path=progress_path,
+                            )
+                            if validation_feedback is not None:
+                                feedback = validation_feedback
+                                active_hypothesis.feedback = feedback
+                                _save_active_hypothesis(active_hypothesis_path, active_hypothesis)
+                                continue
                             if (
                                 implementation.candidate_disposition
                                 is CandidateDisposition.PARETO_FRONTIER

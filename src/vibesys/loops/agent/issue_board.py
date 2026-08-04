@@ -19,6 +19,7 @@ import tempfile
 from pathlib import Path
 
 from vibesys.schemas import (
+    FrameworkValidationResult,
     ImplementerResponse,
     JudgeResponse,
     OrchestratorPlan,
@@ -114,6 +115,38 @@ def write_implementer_artifact(
         / f"round-{round_number:04d}-attempt-{retry:02d}-implementer.json"
     )
     return _write_json_atomic(path, response.model_dump(mode="json"))
+
+
+def validation_artifact_root(progress_path: Path) -> Path:
+    """Return the framework-owned validation ledger directory."""
+
+    return _structured_artifact_root(progress_path) / "validation"
+
+
+def write_validation_result_artifact(
+    progress_path: Path,
+    round_number: int,
+    retry: int,
+    results: list[FrameworkValidationResult],
+) -> Path:
+    """Persist framework-executed validation results for replay and reuse."""
+
+    path = (
+        validation_artifact_root(progress_path)
+        / f"round-{round_number:04d}-attempt-{retry:02d}.json"
+    )
+    payload = {
+        "round": round_number,
+        "attempt": retry,
+        "results": [result.model_dump(mode="json") for result in results],
+    }
+    return _write_json_atomic(path, payload)
+
+
+def validation_result_artifact_paths(progress_path: Path) -> list[Path]:
+    """Return validation result artifacts in deterministic creation order."""
+
+    return sorted(validation_artifact_root(progress_path).glob("round-*-attempt-*.json"))
 
 
 def implementer_artifact_paths(progress_path: Path, round_number: int) -> list[Path]:
@@ -553,6 +586,31 @@ def append_framework_accuracy_gate(
         f"### Output\n{output or '(no output)'}\n"
     )
     _append(progress_path, block, round_number)
+
+
+def append_framework_validation_gate(
+    progress_path: Path,
+    round_number: int,
+    retry: int,
+    *,
+    artifact: str,
+    results: list[FrameworkValidationResult],
+) -> None:
+    """Record the deterministic local validation gate in the progress ledger."""
+
+    passed = bool(results) and all(result.passed for result in results)
+    lines = [
+        f"## Round {round_number} — Framework local validation (attempt {retry})",
+        f"- **verdict**: {'pass' if passed else 'fail'}",
+        f"- **artifact**: `{artifact}`",
+    ]
+    for result in results:
+        source = "reused" if result.reused else "executed"
+        lines.append(
+            f"- **{result.recipe.name}**: {'pass' if result.passed else 'fail'} "
+            f"({source}, inputs `{result.input_digest[:12]}`)"
+        )
+    _append(progress_path, "\n".join(lines) + "\n", round_number)
 
 
 def append_framework_benchmark(

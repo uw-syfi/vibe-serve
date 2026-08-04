@@ -1,5 +1,6 @@
 """Tests for vibesys.loops.agent — orchestrator-driven build loop."""
 
+import json
 import subprocess
 from pathlib import Path
 from types import SimpleNamespace
@@ -25,6 +26,7 @@ from vibesys.loops.agent.loop import (
     _resolve_rollback_commit,
     _review_due,
     _RoundRecord,
+    _run_framework_validation_gate,
     _terminal_workspace_notice,
     run_agent_loop,
 )
@@ -40,6 +42,7 @@ from vibesys.schemas import (
     PreRoundDecision,
     ProfilerSummary,
     SkillResourceSelection,
+    ValidationRecipe,
     Verdict,
 )
 
@@ -177,6 +180,7 @@ def _make_orchestrate_runner(
     profiler_responses: list[ProfilerSummary] | None = None,
     implementer_perf_metrics: list[float | None] | None = None,
     implementer_skill_updates: list[list[SkillResourceSelection]] | None = None,
+    implementer_validation_artifacts: list[str | None] | None = None,
 ):
     """Build a MagicMock AgentRunner whose invoke() returns scripted responses.
 
@@ -192,6 +196,7 @@ def _make_orchestrate_runner(
     prof_q = list(profiler_responses or [])
     impl_perf_q = list(implementer_perf_metrics or [])
     impl_skill_q = list(implementer_skill_updates or [])
+    impl_validation_q = list(implementer_validation_artifacts or [])
     counters = {"impl": 0, "judge": 0, "orch_pre": 0, "orch_plan": 0, "prof": 0}
 
     runner = MagicMock(spec=AgentRunner)
@@ -217,6 +222,7 @@ def _make_orchestrate_runner(
             outcome = outcome_q.pop(0) if outcome_q else HypothesisOutcome.NOMINATED
             perf_metric = impl_perf_q.pop(0) if impl_perf_q else None
             skill_updates = impl_skill_q.pop(0) if impl_skill_q else []
+            validation_artifact = impl_validation_q.pop(0) if impl_validation_q else None
             return ImplementerResponse(
                 summary="Done.",
                 expected_behavior="ok",
@@ -239,6 +245,7 @@ def _make_orchestrate_runner(
                 else {},
                 evaluation_artifact="benchmark/summary.json" if perf_metric is not None else None,
                 skill_context_updates=skill_updates,
+                validation_recipe_artifact=validation_artifact,
             )
         if kind == "judge":
             idx = counters["judge"]
@@ -297,6 +304,16 @@ def _invoke_orchestrate(tmp_path, ref_file, runner, **kwargs):
 # ---------------------------------------------------------------------------
 # Response models
 # ---------------------------------------------------------------------------
+
+
+def test_validation_recipe_rejects_non_workspace_inputs():
+    with pytest.raises(ValueError, match="workspace-relative"):
+        ValidationRecipe(
+            name="focused-tests",
+            command="uv run pytest -q tests/test_server.py",
+            input_paths=["../outside.py"],
+            purpose="Exercise the local server contract.",
+        )
 
 
 def test_read_only_role_reverts_workspace_mutations_and_keeps_response():
@@ -1122,6 +1139,119 @@ def test_framework_accuracy_gate_runs_manifest_command_and_records_pass(tmp_path
     assert "verdict**: pass" in text
     assert "PASS" in text
     ctx.snapshot_workspace.assert_called_once_with("round-2-retry-1-framework-accuracy")
+
+
+def test_framework_local_validation_executes_and_reuses_exact_inputs(tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / "server.py").write_text("READY = True\n")
+    (workspace / "test_server.py").write_text("def test_ready(): assert True\n")
+    progress = workspace / "progress"
+    recipe = ValidationRecipe(
+        name="focused-tests",
+        command="uv run pytest -q test_server.py",
+        input_paths=["server.py", "test_server.py"],
+        timeout_seconds=120,
+        purpose="Exercise the focused local server contract.",
+    )
+    recipe_artifact = workspace / "validation-recipes.json"
+    recipe_artifact.write_text(
+        json.dumps({"version": 1, "recipes": [recipe.model_dump(mode="json")]})
+    )
+    ctx = MagicMock()
+    ctx.workspace = workspace
+    ctx.git.current_sha.return_value = "a" * 40
+    ctx.git.pending_changes.return_value = []
+    ctx.judge_backend.execute.return_value = SimpleNamespace(exit_code=0, output="1 passed")
+
+    feedback = _run_framework_validation_gate(
+        ctx,
+        recipe_artifact=recipe_artifact.name,
+        round_number=1,
+        retry=1,
+        progress_path=progress,
+    )
+
+    assert feedback is None
+    ctx.judge_backend.execute.assert_called_once_with(recipe.command, timeout=120)
+    first = progress / "validation" / "round-0001-attempt-01.json"
+    assert '"reused": false' in first.read_text()
+    assert "Framework local validation" in (progress / "round-0001.md").read_text()
+
+    ctx.judge_backend.execute.reset_mock()
+    feedback = _run_framework_validation_gate(
+        ctx,
+        recipe_artifact=recipe_artifact.name,
+        round_number=2,
+        retry=1,
+        progress_path=progress,
+    )
+
+    assert feedback is None
+    ctx.judge_backend.execute.assert_not_called()
+    second = progress / "validation" / "round-0002-attempt-01.json"
+    assert '"reused": true' in second.read_text()
+
+
+def test_framework_local_validation_fails_and_restores_mutation(tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / "server.py").write_text("READY = True\n")
+    progress = workspace / "progress"
+    recipe = ValidationRecipe(
+        name="focused-tests",
+        command="uv run pytest -q",
+        input_paths=["server.py"],
+        purpose="Exercise the focused local server contract.",
+    )
+    recipe_artifact = workspace / "validation-recipes.json"
+    recipe_artifact.write_text(
+        json.dumps({"version": 1, "recipes": [recipe.model_dump(mode="json")]})
+    )
+    ctx = MagicMock()
+    ctx.workspace = workspace
+    ctx.git.current_sha.return_value = "b" * 40
+    ctx.git.pending_changes.return_value = ["server.py"]
+    ctx.git.checkout_tree.return_value = True
+    ctx.judge_backend.execute.return_value = SimpleNamespace(exit_code=0, output="1 passed")
+
+    feedback = _run_framework_validation_gate(
+        ctx,
+        recipe_artifact=recipe_artifact.name,
+        round_number=3,
+        retry=1,
+        progress_path=progress,
+    )
+
+    assert "mutated the workspace" in feedback
+    ctx.git.checkout_tree.assert_called_once_with("b" * 40, clean=True)
+    artifact = progress / "validation" / "round-0003-attempt-01.json"
+    assert '"passed": false' in artifact.read_text()
+
+
+def test_loop_runs_local_validation_only_after_judge_pass(tmp_path, ref_file):
+    runner = _make_orchestrate_runner(
+        implementer_outcomes=[HypothesisOutcome.NOMINATED],
+        implementer_validation_artifacts=["validation-recipes.json"],
+        judge_verdicts=["pass"],
+    )
+
+    with patch(
+        "vibesys.loops.agent.loop._run_framework_validation_gate",
+        return_value=None,
+    ) as validation_gate:
+        _invoke_orchestrate(
+            tmp_path,
+            ref_file,
+            runner,
+            max_rounds=1,
+            judge_every=1,
+            official_eval_every=10,
+        )
+
+    validation_gate.assert_called_once()
+    assert validation_gate.call_args.kwargs["recipe_artifact"] == "validation-recipes.json"
+    assert runner.counters["judge"] == 1
 
 
 def test_framework_accuracy_gate_rejects_checker_failure(tmp_path):

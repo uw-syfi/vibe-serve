@@ -45,6 +45,7 @@ _BASE_CONTEXT: dict[str, object] = {
     "progress_location": "progress/",
     "roadmap_location": "roadmap/",
     "pareto_archive_location": "progress/pareto-frontier.md",
+    "validation_location": "progress/validation/",
     # These deliberately large values model real plans and prove role prompts
     # route durable content through paths instead of interpolating it.
     "objective": "OBJECTIVE_CONTENT_MUST_NOT_BE_EMBEDDED\n" + "objective " * 800,
@@ -113,6 +114,7 @@ def _render_prompt(domain: DomainName, role: str, context: dict[str, object]) ->
         "plan_artifact_location": context["plan_artifact_location"],
         "progress_location": context["progress_location"],
         "pareto_archive_location": context["pareto_archive_location"],
+        "validation_location": context["validation_location"],
         "runtime_notes": context["runtime_notes"],
     }
     if role == "implementer":
@@ -258,6 +260,8 @@ def test_multi_agent_prompts_use_paths_without_embedding_durable_content():
     assert context["progress_location"] in prompts["orchestrator"]
     assert context["roadmap_location"] in prompts["orchestrator"]
     assert context["pareto_archive_location"] in prompts["orchestrator"]
+    for role in ("implementer", "implementer_continuation", "judge", "single_agent"):
+        assert context["validation_location"] in prompts[role]
 
 
 def test_llm_serving_prompts_preserve_irreducible_contracts():

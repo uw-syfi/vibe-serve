@@ -7,10 +7,12 @@ self-review it, and collect only the profile/evidence needed to classify it.
 - Typed plan: `{{ plan_artifact_location|default('progress/plans/current.json') }}`
 - Progress ledger: `{{ progress_location|default('progress.md') }}`
 - Pareto archive: `{{ pareto_archive_location|default('pareto-frontier.md') }}`
+- Framework validation ledger: `{{ validation_location|default('progress/validation/') }}`
 {% if runtime_notes %}- Runtime contract: {{ runtime_notes }}
 {% endif %}
 Read these files with tools. Do not rely on embedded copies or stale history.
 Read older rounds and installed references only for a named dependency.
+Reuse a matching framework validation PASS when its declared inputs are unchanged.
 
 {% if feedback %}
 New retry feedback:
