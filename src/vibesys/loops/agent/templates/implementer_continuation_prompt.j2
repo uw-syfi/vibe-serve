@@ -82,8 +82,8 @@ Relate only custom-gate counters with the same scope/owner; cheaply test positiv
 zero, mixed cases. Preserve valid rows, workload/accounting/admission, cleanup.
 Give each retained row a production selector; official evaluation must activate
 that arm, or it must be the default.
-Return `continue` only for one bounded same-mechanism step; otherwise close
-truthfully. Reuse unchanged-input validation PASSes. New/changed local/static
+`next_step` is bounded same-mechanism work, never a framework gate; otherwise
+empty. Reuse unchanged-input validation PASSes. New/changed local/static
 checks require a conforming `validation_recipe_artifact`; exclude target,
 deployment, benchmark, profiler, and official-evaluator commands.
 

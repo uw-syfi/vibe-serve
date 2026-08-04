@@ -67,10 +67,8 @@ fresh canonical artifact; targeted evidence cannot establish an official score.
 
 ## Verdict by declared outcome
 
-- `nominated`: PASS only if current-plan success criteria and always-on checks
-  hold; this does not claim global completion.
-- `supported`: PASS only if the scoped causal claim is complete and needs no
-  further implementation or targeted evaluation.
+- `nominated`: PASS only when ready for framework gates; `next_step` empty.
+- `supported`: PASS only if complete and `next_step` empty.
 - `continue`: PASS credible incremental evidence with one justified, bounded,
   same-mechanism next step; final success criteria need not yet hold.
 - `disproven`: PASS fair activation plus direct falsification with no false win.
@@ -80,8 +78,9 @@ fresh canonical artifact; targeted evidence cannot establish an official score.
 A `next_step` that changes mechanism, requests generic exploration, or is merely
 optional must be empty so control returns to the designer. The same applies
 when it needs fresh authority or would exceed a cumulative hypothesis cap; a
-retry, review, or new round does not replenish paid work. Audit erroneous
-downgrades too: when hard invariants hold and a row is genuinely nondominated,
+retry, review, or new round does not replenish paid work. Framework gates are
+not implementer continuation work. Audit erroneous downgrades too: when hard
+invariants hold and a row is genuinely nondominated,
 require `pareto_frontier` even if the causal minimum was missed.
 
 ## Modality: text generation (causal LM)

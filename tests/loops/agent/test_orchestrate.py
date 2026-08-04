@@ -182,6 +182,7 @@ def _make_orchestrate_runner(
     implementer_perf_metrics: list[float | None] | None = None,
     implementer_skill_updates: list[list[SkillResourceSelection]] | None = None,
     implementer_validation_artifacts: list[str | None] | None = None,
+    implementer_next_steps: list[str] | None = None,
 ):
     """Build a MagicMock AgentRunner whose invoke() returns scripted responses.
 
@@ -198,6 +199,7 @@ def _make_orchestrate_runner(
     impl_perf_q = list(implementer_perf_metrics or [])
     impl_skill_q = list(implementer_skill_updates or [])
     impl_validation_q = list(implementer_validation_artifacts or [])
+    impl_next_step_q = list(implementer_next_steps or [])
     counters = {"impl": 0, "judge": 0, "orch_pre": 0, "orch_plan": 0, "prof": 0}
 
     runner = MagicMock(spec=AgentRunner)
@@ -224,12 +226,10 @@ def _make_orchestrate_runner(
             perf_metric = impl_perf_q.pop(0) if impl_perf_q else None
             skill_updates = impl_skill_q.pop(0) if impl_skill_q else []
             validation_artifact = impl_validation_q.pop(0) if impl_validation_q else None
-            return ImplementerResponse(
-                summary="Done.",
-                expected_behavior="ok",
-                hypothesis_outcome=outcome,
-                evidence="targeted evidence",
-                next_step=(
+            next_step = (
+                impl_next_step_q.pop(0)
+                if impl_next_step_q
+                else (
                     "continue experiment"
                     if outcome
                     in {
@@ -238,7 +238,14 @@ def _make_orchestrate_runner(
                         HypothesisOutcome.INCONCLUSIVE,
                     }
                     else ""
-                ),
+                )
+            )
+            return ImplementerResponse(
+                summary="Done.",
+                expected_behavior="ok",
+                hypothesis_outcome=outcome,
+                evidence="targeted evidence",
+                next_step=next_step,
                 perf_metric=perf_metric,
                 perf_unit="tok/s" if perf_metric is not None else None,
                 metrics={"aggregate_throughput": perf_metric, "p99_latency_ms": 87.0}
@@ -2392,6 +2399,50 @@ def test_role_session_policy_is_explicit_and_hypothesis_scoped(tmp_path, ref_fil
         "continue",
         "proven",
     ]
+
+
+def test_rejected_terminal_submission_cannot_schedule_framework_gate_as_next_step(
+    tmp_path, ref_file
+):
+    forbidden_step = "Run the framework-owned accuracy evaluation."
+    runner = _make_orchestrate_runner(
+        plans=[
+            OrchestratorPlan(
+                hypothesis_id="gate-ownership",
+                hypothesis="candidate is ready",
+                task="prepare candidate evidence",
+                pass_criteria="review",
+                reasoning="framework owns official gates",
+            )
+        ],
+        implementer_outcomes=[
+            HypothesisOutcome.NOMINATED,
+            HypothesisOutcome.NOMINATED,
+        ],
+        implementer_next_steps=[forbidden_step, ""],
+        judge_verdicts=["fail", "pass"],
+    )
+
+    _invoke_orchestrate(
+        tmp_path,
+        ref_file,
+        runner,
+        max_rounds=2,
+        max_retries_per_round=1,
+        judge_every=1,
+    )
+
+    implementer_calls = [
+        call
+        for call in runner.invoke.call_args_list
+        if call.kwargs.get("response_cls") is ImplementerResponse
+    ]
+    assert len(implementer_calls) == 2
+    retry_prompt = implementer_calls[1].kwargs["system_prompt"]
+    assert forbidden_step not in retry_prompt
+    assert "Current review delta" in retry_prompt
+    assert "needs work" in retry_prompt
+    assert "do not duplicate framework-owned commands" in retry_prompt
 
 
 def test_hypothesis_revert_is_applied_once_across_continuation_rounds(tmp_path, ref_file):

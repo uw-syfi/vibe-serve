@@ -101,8 +101,8 @@ Choose the evidence-supported lifecycle outcome:
 
 - `continue`: bounded unfinished work in the same causal mechanism; give one
   concrete `next_step`.
-- `supported`: the scoped claim is complete and independently reviewable.
-- `nominated`: the current checkpoint is ready for configured framework gates.
+- `supported`: the scoped claim is complete; leave `next_step` empty.
+- `nominated`: leave `next_step` empty; framework gates run after review.
 - `disproven`: activation was fair and direct evidence met the falsifier.
 - `implementation_failed`, `inconclusive`, or `blocked`: concrete implementation,
   evidence, or external conditions prevented a fair test; state the smallest
