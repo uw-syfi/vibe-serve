@@ -85,54 +85,42 @@ def test_loop_constants_and_rejects_unknown_interface():
         )
 
 
-def test_torch_profiler_requires_inprocess_boundary_and_domain_support():
+def test_torch_profiler_honors_resolved_environment_capability():
     from vibesys.loops.agent.loop import _profiler_prompt_template
 
     assert (
         _profiler_prompt_template(
             ProfilerKind.TORCH,
-            "inprocess",
             supports_torch_profiler=True,
         )
         == "profilers/torch.j2"
     )
-    assert (
+    with pytest.raises(ValueError, match="does not provide Torch profiler support"):
         _profiler_prompt_template(
             ProfilerKind.TORCH,
-            "inprocess",
             supports_torch_profiler=False,
         )
-        == "profilers/nsys.j2"
-    )
-    assert (
-        _profiler_prompt_template(
-            ProfilerKind.TORCH,
-            "service",
-            supports_torch_profiler=True,
-        )
-        == "profilers/nsys.j2"
-    )
 
 
-def test_non_torch_profilers_do_not_depend_on_interface():
+def test_non_torch_profilers_use_the_resolved_kind():
     from vibesys.loops.agent.loop import _profiler_prompt_template
 
-    assert _profiler_prompt_template(ProfilerKind.NEURON, "service") == "profilers/neuron.j2"
-    assert _profiler_prompt_template(ProfilerKind.NSYS, "service") == "profilers/nsys.j2"
+    assert _profiler_prompt_template(ProfilerKind.NEURON) == "profilers/neuron.j2"
+    assert _profiler_prompt_template(ProfilerKind.NSYS) == "profilers/nsys.j2"
 
 
 def test_standalone_profiler_none_has_no_prompt_template():
     from vibesys.loops.agent.loop import _profiler_prompt_template
 
     with pytest.raises(ValueError, match="disabled"):
-        _profiler_prompt_template(ProfilerKind.NONE, "inprocess")
+        _profiler_prompt_template(ProfilerKind.NONE)
 
 
 def test_standalone_profiler_rejects_unknown_kind():
     from vibesys.loops.agent.loop import _profiler_prompt_template
 
     with pytest.raises(TypeError, match="ProfilerKind"):
-        _profiler_prompt_template("bogus", "inprocess")
+        _profiler_prompt_template("bogus")
 
 
 def _render_implementer(interface: str, *, modality: str | None = None) -> str:
@@ -257,7 +245,6 @@ def _render_single_agent(
     effective_profiler = (
         _effective_profiler_definition(
             profiler_kind,
-            interface,
             supports_torch_profiler=supports_torch_profiler,
         )
         if profiler_kind is not ProfilerKind.NONE
@@ -293,22 +280,21 @@ def test_inprocess_single_agent_uses_torch_only_for_supporting_domain():
         "inprocess",
         supports_torch_profiler=True,
     )
-    unsupported = _render_single_agent(
-        "inprocess",
-        supports_torch_profiler=False,
-    )
     assert "torch.profiler" in supported
-    assert "torch.profiler" not in unsupported
-    assert "nsys" in unsupported
+    with pytest.raises(ValueError, match="does not provide Torch profiler support"):
+        _render_single_agent(
+            "inprocess",
+            supports_torch_profiler=False,
+        )
 
 
-def test_service_single_agent_avoids_inprocess_torch():
+def test_service_single_agent_honors_environment_resolved_torch():
     output = _render_single_agent(
         "service",
         supports_torch_profiler=True,
     )
-    assert "torch.profiler" not in output
-    assert "nsys" in output
+    assert "torch.profiler" in output
+    assert "nsys" not in output
 
 
 def test_single_agent_profiler_none_avoids_profiler_tools():

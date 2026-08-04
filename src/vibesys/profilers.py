@@ -32,7 +32,6 @@ class ProfilerDefinition:
 
     kind: ProfilerKind
     domains: frozenset[DomainName]
-    requires_inprocess: bool = False
     requires_domain_torch_support: bool = False
 
     @property
@@ -79,7 +78,6 @@ PROFILER_DEFINITIONS: dict[ProfilerKind, ProfilerDefinition] = {
         ProfilerDefinition(
             ProfilerKind.TORCH,
             frozenset({DomainName.LLM_SERVING}),
-            requires_inprocess=True,
             requires_domain_torch_support=True,
         ),
         ProfilerDefinition(ProfilerKind.NEURON, frozenset({DomainName.LLM_SERVING})),

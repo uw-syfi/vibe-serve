@@ -1040,33 +1040,34 @@ def _run_pre_round_decision(
 
 def _profiler_prompt_template(
     profiler_kind: ProfilerKind,
-    interface: str,
     *,
     supports_torch_profiler: bool = False,
 ) -> str:
-    """Pick a profiler prompt compatible with the boundary and domain."""
+    """Pick the prompt for the profiler resolved during context creation."""
     return _effective_profiler_definition(
         profiler_kind,
-        interface,
         supports_torch_profiler=supports_torch_profiler,
     ).prompt_template
 
 
 def _effective_profiler_definition(
     profiler_kind: ProfilerKind,
-    interface: str,
     *,
     supports_torch_profiler: bool = False,
 ):
-    """Return the profiler declaration compatible with this agent boundary."""
+    """Return the already-resolved profiler declaration.
+
+    Context creation resolves the requested profiler against both the domain
+    and the run environment's declared capabilities.  Do not perform a second
+    interface-based substitution here: it can replace a supported remote
+    capture path with a profiler that the environment cannot execute.
+    """
     kind = require_profiler_kind(profiler_kind)
     if kind is ProfilerKind.NONE:
         raise ValueError("No profiler prompt exists when profiling is disabled.")
     definition = profiler_definition(kind)
-    if definition.requires_inprocess and interface != "inprocess":
-        definition = profiler_definition(ProfilerKind.NSYS)
     if definition.requires_domain_torch_support and not supports_torch_profiler:
-        definition = profiler_definition(ProfilerKind.NSYS)
+        raise ValueError("The selected domain does not provide Torch profiler support.")
     return definition
 
 
@@ -1083,7 +1084,6 @@ def _run_profiler(
 ) -> ProfilerSummary | None:
     template = _profiler_prompt_template(
         ctx.profiler_kind,
-        interface,
         supports_torch_profiler=domain_definition.supports_torch_profiler,
     )
     domain_profiler = render_domain_section(
@@ -1601,7 +1601,6 @@ def _run_single_agent_round(
     effective_profiler = (
         _effective_profiler_definition(
             ctx.profiler_kind,
-            interface,
             supports_torch_profiler=domain_definition.supports_torch_profiler,
         )
         if ctx.profiler_kind is not ProfilerKind.NONE
