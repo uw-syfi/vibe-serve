@@ -1095,7 +1095,7 @@ def _run_profiler(
         modality=modality,
         domain_profiler=domain_profiler,
         runtime_notes=ctx.run_environment_view.prompt_notes,
-        env_kind=ctx.run_environment_view.env_kind,
+        profile_execution=ctx.run_environment_view.profile_execution,
         objective=objective,
         profiler_support_name=profiler_definition(ctx.profiler_kind).support_name,
         profiler_mcp_name=profiler_definition(ctx.profiler_kind).mcp_name,
@@ -1148,6 +1148,7 @@ def _domain_render_context(
         "benchmark_command": ctx.judge_benchmark_command,
         "accuracy_command": ctx.judge_accuracy_command,
         "runtime_notes": ctx.run_environment_view.prompt_notes,
+        "profile_execution": ctx.run_environment_view.profile_execution,
     }
 
 
@@ -1190,7 +1191,7 @@ def _run_orchestrator_plan(
         plateau_warning=plateau_warning,
         domain_orchestrator=domain_orchestrator,
         runtime_notes=ctx.run_environment_view.prompt_notes,
-        env_kind=ctx.run_environment_view.env_kind,
+        profile_execution=ctx.run_environment_view.profile_execution,
         framework_benchmark_enabled=framework_benchmark_enabled,
         official_eval_every=official_eval_every,
         provisional_candidates=provisional_candidates,
@@ -1350,7 +1351,7 @@ def _run_implementer(
         gate_approved_perf_unit=gate_approved_perf_unit,
         gate_approved_evaluation_artifact=gate_approved_evaluation_artifact,
         runtime_notes=ctx.run_environment_view.prompt_notes,
-        env_kind=ctx.run_environment_view.env_kind,
+        profile_execution=ctx.run_environment_view.profile_execution,
         framework_benchmark_enabled=framework_benchmark_enabled,
         official_evaluation_due=official_evaluation_due,
         official_evaluation_reason=official_evaluation_reason,
@@ -1444,7 +1445,7 @@ def _run_judge(
         domain_judge=domain_judge,
         retry=retry,
         runtime_notes=ctx.run_environment_view.prompt_notes,
-        env_kind=ctx.run_environment_view.env_kind,
+        profile_execution=ctx.run_environment_view.profile_execution,
         objective=objective,
         objective_location="OBJECTIVE.md",
         plan_artifact_location=plan_artifact_location,
@@ -1614,7 +1615,7 @@ def _run_single_agent_round(
         benchmark_command=ctx.judge_benchmark_command,
         accuracy_command=ctx.judge_accuracy_command,
         runtime_notes=ctx.run_environment_view.prompt_notes,
-        env_kind=ctx.run_environment_view.env_kind,
+        profile_execution=ctx.run_environment_view.profile_execution,
         official_evaluation_due=official_evaluation_due,
         official_evaluation_reason=official_evaluation_reason,
         framework_benchmark_enabled=framework_benchmark_enabled,
@@ -1694,18 +1695,22 @@ def _framework_command_timeout(ctx: LoopContext, timeout_seconds: int | None) ->
     return timeout_seconds + setup_timeout
 
 
+def _deployment_release_env_var(ctx: LoopContext) -> str | None:
+    return ctx.run_environment_view.deployment_release_env_var
+
+
 def _with_candidate_revision(
     command: str,
     candidate_revision: str | None,
     *,
-    release_deployment: bool = False,
+    release_deployment_env_var: str | None = None,
 ) -> str:
     """Annotate an official command with its bounded deployment-lease lifecycle."""
     environment: list[str] = []
     if candidate_revision:
         environment.append(f"VIBESYS_CANDIDATE_REVISION={shlex.quote(candidate_revision)}")
-    if release_deployment:
-        environment.append("VIBESYS_RELEASE_MODAL_DEPLOYMENT=1")
+    if release_deployment_env_var:
+        environment.append(f"{release_deployment_env_var}=1")
     if not environment:
         return command
     return f"env {' '.join(environment)} {command}"
@@ -1744,7 +1749,9 @@ def _run_framework_accuracy_gate(
     execution_command = _with_candidate_revision(
         command,
         candidate_revision,
-        release_deployment=release_deployment_after,
+        release_deployment_env_var=(
+            _deployment_release_env_var(ctx) if release_deployment_after else None
+        ),
     )
     try:
         effective_timeout = _framework_command_timeout(ctx, timeout_seconds)
@@ -1830,7 +1837,7 @@ def _run_framework_benchmark(
     execution_base = _with_candidate_revision(
         base_command,
         candidate_revision,
-        release_deployment=True,
+        release_deployment_env_var=_deployment_release_env_var(ctx),
     )
     command = (
         f"{execution_base} {shlex.quote(result_spec.json_argument)} {shlex.quote(output_path)}"

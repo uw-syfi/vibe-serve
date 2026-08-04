@@ -72,7 +72,7 @@ _NEUTRAL_CONTEXT: dict[str, object] = {
     "pass_criteria": "PASS: preserve FIFO behavior and improve the benchmark headline metric.",
     "objective": "OBJECTIVE: maximize operations per second for the queue benchmark.",
     "roadmap_text": "- major-1: todo - identify the next data-structure bottleneck.",
-    "env_kind": "local",
+    "profile_execution": "local",
 }
 
 _PRIOR_SOLUTION_TERMS = (
@@ -93,6 +93,7 @@ def _domain_context(context: dict[str, object]) -> dict[str, object]:
         "benchmark_command": context["benchmark_command"],
         "accuracy_command": context["accuracy_command"],
         "runtime_notes": context["runtime_notes"],
+        "profile_execution": context["profile_execution"],
     }
 
 
@@ -141,7 +142,7 @@ def _render_prompt_bundle(domain: DomainName, *, modality: str | None) -> dict[s
             template_dir=_TEMPLATE_DIR,
             modality=context["modality"],
             interface=context["interface"],
-            env_kind=context["env_kind"],
+            profile_execution=context["profile_execution"],
             objective=context["objective"],
             runtime_notes=context["runtime_notes"],
             task=context["task"],
@@ -161,7 +162,7 @@ def _render_prompt_bundle(domain: DomainName, *, modality: str | None) -> dict[s
             template_dir=_TEMPLATE_DIR,
             modality=context["modality"],
             interface=context["interface"],
-            env_kind=context["env_kind"],
+            profile_execution=context["profile_execution"],
             objective=context["objective"],
             runtime_notes=context["runtime_notes"],
             task=context["task"],
@@ -193,7 +194,7 @@ def _render_prompt_bundle(domain: DomainName, *, modality: str | None) -> dict[s
             roadmap_text=context["roadmap_text"],
             plateau_warning=None,
             runtime_notes=context["runtime_notes"],
-            env_kind=context["env_kind"],
+            profile_execution=context["profile_execution"],
             domain_orchestrator=_domain_section(domain, "orchestrator", context),
         ),
         "profiler_nsys": render_template(
@@ -204,7 +205,7 @@ def _render_prompt_bundle(domain: DomainName, *, modality: str | None) -> dict[s
             modality=context["modality"],
             domain_profiler=_domain_section(domain, "profiler", context),
             runtime_notes=context["runtime_notes"],
-            env_kind=context["env_kind"],
+            profile_execution=context["profile_execution"],
             objective=context["objective"],
             profiler_support_name="nsys_profiler",
             profiler_mcp_name="vibesys-nsys-profiler",
@@ -217,7 +218,7 @@ def _render_prompt_bundle(domain: DomainName, *, modality: str | None) -> dict[s
             modality=context["modality"],
             domain_profiler=_domain_section(domain, "profiler", context),
             runtime_notes=context["runtime_notes"],
-            env_kind=context["env_kind"],
+            profile_execution=context["profile_execution"],
             objective=context["objective"],
             profiler_support_name="torch_profiler",
             profiler_mcp_name="vibesys-torch-profiler",
@@ -230,7 +231,7 @@ def _render_prompt_bundle(domain: DomainName, *, modality: str | None) -> dict[s
             modality=context["modality"],
             domain_profiler=_domain_section(domain, "profiler", context),
             runtime_notes=context["runtime_notes"],
-            env_kind=context["env_kind"],
+            profile_execution=context["profile_execution"],
             objective=context["objective"],
             profiler_support_name="neuron_profiler",
             profiler_mcp_name="vibesys-neuron-profiler",

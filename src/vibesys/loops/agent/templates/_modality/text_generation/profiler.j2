@@ -1,4 +1,4 @@
-{% if env_kind is not defined %}{% set env_kind = "local" %}{% endif %}
+{% if profile_execution is not defined %}{% set profile_execution = "local" %}{% endif %}
 ## Server Type: Text Generation (Causal LM)
 
 The server exposes OpenAI-compatible text generation endpoints:
@@ -8,12 +8,12 @@ The server exposes OpenAI-compatible text generation endpoints:
 
 Key performance axes: **time-to-first-token (TTFT)**, **time-per-output-token (TPOT)**, **throughput** (tokens/s under concurrent requests). Prefill and decode are distinct phases with different bottlenecks.
 
-{% if env_kind == "modal" %}
-## Profiling workload (Modal mode)
+{% if profile_execution == "remote" %}
+## Profiling workload (remote execution)
 
-You do **not** start a server in this editor container—there is no GPU here and
-the deployed server runs on Modal. The representative workload must run on the
-remote candidate path. Discover the declared Modal application and bounded
+Do **not** start a production server in the editor when its accelerator runtime
+is remote. The representative workload must run on the remote candidate path.
+Discover the declared deployment and bounded
 profiling/controller command from the runtime notes, manifest, or candidate
 build/startup configuration; do not require a fixed Python module or local
 entrypoint. The remote function or live service should drive a steady-state mix

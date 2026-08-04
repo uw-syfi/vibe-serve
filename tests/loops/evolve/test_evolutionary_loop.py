@@ -35,7 +35,7 @@ from vibesys.loops.evolve.loop import (
     _plan_candidate,
     _recent_failure_lessons,
     _run_generation_parallel,
-    _teardown_candidate_app,
+    _teardown_candidate_deployment,
     run_evolve_loop,
 )
 from vibesys.loops.evolve.population import (
@@ -733,7 +733,7 @@ def test_programmatic_openevolve_config_rejects_vibesys_policy(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Helper units: failure lessons, WIP-seed lookup, per-candidate Modal app
+# Helper units: failure lessons, WIP-seed lookup, per-candidate deployment
 # ---------------------------------------------------------------------------
 
 
@@ -785,13 +785,14 @@ def test_latest_wip_seed_none_when_no_snapshotted_failure():
     assert _latest_wip_seed(pop) is None
 
 
-def test_candidate_runtime_notes_substitutes_per_candidate_app_name():
+def test_candidate_runtime_notes_delegates_deployment_naming_to_environment():
     base = "run-20260720-abcd1234-llama3"
     ctx = SimpleNamespace(
         run_environment_view=SimpleNamespace(
-            modal_app_name=base,
+            deployment_namespace=base,
             prompt_notes=f"Deploy to Modal app {base}; endpoint {base}-web.",
-        )
+        ),
+        run_environment=SimpleNamespace(candidate_deployment_name=candidate_modal_app_name),
     )
     notes, app = _candidate_runtime_notes(ctx, generation=3, child_idx=2)
     expected_app = candidate_modal_app_name(base, 3, 2)
@@ -806,7 +807,8 @@ def test_candidate_runtime_notes_substitutes_per_candidate_app_name():
 def test_candidate_runtime_notes_noop_without_modal_app():
     notes_in = "Local run; no Modal app."
     ctx = SimpleNamespace(
-        run_environment_view=SimpleNamespace(modal_app_name=None, prompt_notes=notes_in)
+        run_environment_view=SimpleNamespace(deployment_namespace=None, prompt_notes=notes_in),
+        run_environment=MagicMock(),
     )
     notes, app = _candidate_runtime_notes(ctx, generation=1, child_idx=1)
     assert app is None
@@ -828,25 +830,25 @@ def test_candidate_modal_app_name_suffix_and_length():
 # ---------------------------------------------------------------------------
 
 
-def test_teardown_candidate_app_delegates_to_run_environment():
-    """The loop stays backend-agnostic: it hands the app name to the run
+def test_teardown_candidate_deployment_delegates_to_run_environment():
+    """The loop stays backend-agnostic: it hands the deployment name to the run
     environment, which decides how to release it."""
     run_env = MagicMock()
     ctx = SimpleNamespace(run_environment=run_env, lprint=lambda _: None)
 
-    _teardown_candidate_app(ctx, "vibesys-run-g1c2", keep=False)
+    _teardown_candidate_deployment(ctx, "vibesys-run-g1c2", keep=False)
 
     run_env.teardown_deployment.assert_called_once_with("vibesys-run-g1c2", log=ctx.lprint)
 
 
-def test_teardown_candidate_app_noop_when_kept_or_no_app():
+def test_teardown_candidate_deployment_noop_when_kept_or_absent():
     run_env = MagicMock()
     ctx = SimpleNamespace(run_environment=run_env, lprint=lambda _: None)
 
     # Opt-out: keep the app for post-hoc inspection.
-    _teardown_candidate_app(ctx, "vibesys-run-g1c2", keep=True)
+    _teardown_candidate_deployment(ctx, "vibesys-run-g1c2", keep=True)
     # No per-candidate deployment (non-Modal env).
-    _teardown_candidate_app(ctx, None, keep=False)
+    _teardown_candidate_deployment(ctx, None, keep=False)
 
     run_env.teardown_deployment.assert_not_called()
 
@@ -960,7 +962,7 @@ def test_run_generation_parallel_bounds_concurrency_and_records_all(tmp_path, mo
         modality="text_generation",
         domain_definition=_LLM_SERVING_DOMAIN,
         pass_criteria="crit",
-        keep_modal_apps=False,
+        keep_deployments=False,
         search_policy=VibeSysSearchPolicy(),
     )
 
@@ -1019,7 +1021,7 @@ def test_run_generation_parallel_skips_parent_without_commit(tmp_path, monkeypat
         modality="text_generation",
         domain_definition=_LLM_SERVING_DOMAIN,
         pass_criteria="crit",
-        keep_modal_apps=False,
+        keep_deployments=False,
         search_policy=VibeSysSearchPolicy(),
     )
 
@@ -1053,7 +1055,7 @@ def test_evaluate_in_subcontext_skips_parent_without_commit():
         modality="text_generation",
         domain_definition=_LLM_SERVING_DOMAIN,
         pass_criteria="crit",
-        keep_modal_apps=False,
+        keep_deployments=False,
         policy_parent_id=None,
         target_island=None,
         worktree_lock=threading.Lock(),
@@ -1114,7 +1116,7 @@ def test_evaluate_in_subcontext_builds_worktree_and_evaluates(tmp_path, ref_file
             modality="text_generation",
             domain_definition=_LLM_SERVING_DOMAIN,
             pass_criteria="be faster",
-            keep_modal_apps=False,
+            keep_deployments=False,
             policy_parent_id=None,
             target_island=None,
             worktree_lock=threading.Lock(),
@@ -1134,9 +1136,8 @@ def test_evaluate_in_subcontext_builds_worktree_and_evaluates(tmp_path, ref_file
         assert not cand_ws.exists()
 
 
-def test_max_parallelism_ignored_on_non_modal_env(tmp_path, ref_file, monkeypatch):
-    """--max-parallelism > 1 on a non-Modal env logs a downgrade and runs the
-    serial path (parallel orchestrator is never entered)."""
+def test_max_parallelism_ignored_without_environment_capability(tmp_path, ref_file, monkeypatch):
+    """An environment without isolated evaluation support stays serial."""
     called = {"parallel": False}
     monkeypatch.setattr(
         evolve_loop,
@@ -1159,11 +1160,10 @@ def test_max_parallelism_ignored_on_non_modal_env(tmp_path, ref_file, monkeypatc
 
 def test_loop_tears_down_candidate_on_pass_and_fail_paths(tmp_path, ref_file):
     """Teardown fires exactly once per candidate on every exit path — the
-    bootstrap attempt plus each generation candidate, whether it passes or
     fails the judge."""
     # bootstrap passes (1 attempt), gen-1 candidate passes, gen-2 candidate fails.
     runner = _make_runner(judge_verdicts=["pass", "pass", "fail"])
-    with patch("vibesys.loops.evolve.loop._teardown_candidate_app") as teardown:
+    with patch("vibesys.loops.evolve.loop._teardown_candidate_deployment") as teardown:
         _invoke_loop(
             tmp_path,
             ref_file,

@@ -37,7 +37,7 @@ def test_kv_store_judge_prompt_mentions_resp2_not_http():
         pass_criteria="PC",
         retry=1,
         runtime_notes="",
-        env_kind="local",
+        profile_execution="local",
         objective="OBJ",
         accuracy_checker_path="accuracy_checker",
         bench_path="benchmark",

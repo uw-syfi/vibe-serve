@@ -282,7 +282,7 @@ def _render_orchestrator(domain: DomainName) -> str:
         plateau_warning=None,
         domain_orchestrator=section,
         runtime_notes="",
-        env_kind="local",
+        profile_execution="local",
     )
 
 
@@ -309,3 +309,50 @@ def test_generic_orchestrator_has_no_llm_serving_method():
     assert "Continuous batching" not in out
     assert "the optimization-floor section below" not in out
     assert "## Task granularity" in out  # base skeleton intact
+
+
+def test_llm_serving_profiler_branches_on_remote_execution_not_provider():
+    domain = resolve_domain(DomainName.LLM_SERVING)
+
+    local = render_domain_section(domain, DomainRole.PROFILER, profile_execution="local")
+    remote = render_domain_section(domain, DomainRole.PROFILER, profile_execution="remote")
+
+    assert "Run jobs for the same deployment" not in local
+    assert "bounded remote controller/profile command" not in local
+    assert "Run jobs for the same deployment" in remote
+    assert "bounded controller/profile command" in remote
+    assert "Modal" not in local
+    assert "Modal" not in remote
+
+
+def test_torch_profiler_remote_capture_is_provider_neutral():
+    common = {
+        "objective": "Measure service throughput.",
+        "profile_focus": "Find the dominant accelerator bottleneck.",
+        "runtime_notes": "Read the selected environment's runtime contract.",
+        "benchmark_command": "./benchmark",
+        "modality": "text_generation",
+        "domain_profiler": "",
+        "profiler_support_name": "torch_profiler",
+        "profiler_mcp_name": "vibesys-torch-profiler",
+    }
+
+    local = render_template(
+        "profilers/torch.j2",
+        template_dir=_TEMPLATE_DIR,
+        **common,
+        profile_execution="local",
+    )
+    remote = render_template(
+        "profilers/torch.j2",
+        template_dir=_TEMPLATE_DIR,
+        **common,
+        profile_execution="remote",
+    )
+
+    assert "### Mode A: In-process" in local
+    assert "### Remote capture (REQUIRED on this run)" not in local
+    assert "### Remote capture (REQUIRED on this run)" in remote
+    assert "representative workload must run on the remote candidate path" in remote
+    assert "Modal" not in local
+    assert "Modal" not in remote

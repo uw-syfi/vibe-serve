@@ -1136,7 +1136,6 @@ def test_framework_accuracy_gate_uses_manifest_timeout(tmp_path):
     ctx.trusted_input_changes.return_value = []
     ctx.judge_accuracy_command = "trusted-check"
     ctx.judge_backend.execute.return_value = SimpleNamespace(exit_code=0, output="PASS")
-
     feedback = _run_framework_accuracy_gate(
         ctx,
         round_number=1,
@@ -1178,6 +1177,7 @@ def test_framework_accuracy_gate_can_release_final_deployment(tmp_path):
     ctx.trusted_input_changes.return_value = []
     ctx.judge_accuracy_command = "trusted-check"
     ctx.judge_backend.execute.return_value = SimpleNamespace(exit_code=0, output="PASS")
+    ctx.run_environment_view.deployment_release_env_var = "VIBESYS_RELEASE_MODAL_DEPLOYMENT"
 
     feedback = _run_framework_accuracy_gate(
         ctx,

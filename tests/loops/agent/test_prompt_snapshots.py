@@ -68,7 +68,7 @@ _BASE_CONTEXT: dict[str, object] = {
             "purpose": "Audit sender-task lifecycle.",
         }
     ],
-    "env_kind": "local",
+    "profile_execution": "local",
 }
 
 _CONTEXTS = {
@@ -99,6 +99,7 @@ def _domain_context(context: dict[str, object]) -> dict[str, object]:
         "benchmark_command": context["benchmark_command"],
         "accuracy_command": context["accuracy_command"],
         "runtime_notes": context["runtime_notes"],
+        "profile_execution": context["profile_execution"],
     }
 
 
@@ -170,7 +171,7 @@ def _render_prompt(domain: DomainName, role: str, context: dict[str, object]) ->
             **common,
             modality=context["modality"],
             interface=context["interface"],
-            env_kind=context["env_kind"],
+            profile_execution=context["profile_execution"],
             retry=context.get("retry", 1),
             feedback=context.get("feedback"),
             reference_path=context["reference_path"],

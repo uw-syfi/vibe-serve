@@ -1,4 +1,4 @@
-{% if env_kind is not defined %}{% set env_kind = "local" %}{% endif %}
+{% if profile_execution is not defined %}{% set profile_execution = "local" %}{% endif %}
 You are a GPU performance engineer using PyTorch's built-in profiler
 (`torch.profiler`) on the PyTorch-visible portion of a candidate system.
 
@@ -22,7 +22,8 @@ Your job is to collect a profile, analyze it via the `{{ profiler_mcp_name }}` M
 
 ## Why torch.profiler
 
-This run may execute in a Modal sandbox, which hides `/proc/driver/nvidia/`. `nsys` cannot sync GPU clocks without that file. `torch.profiler` uses CUPTI's Callback API and produces per-kernel timing, operator breakdown, and memory ops in that environment.
+`torch.profiler` uses CUPTI's Callback API to produce per-kernel timing,
+operator breakdown, and memory events for PyTorch-visible work.
 
 Profiler selection does not constrain the candidate substrate. If an
 architectural change moves the production hot path outside PyTorch visibility,
@@ -66,12 +67,17 @@ Start with `tables`, then pick the analyses that matter most for the current arc
 
 Capture is the long-running step — run it first, then call the MCP tools on the resulting JSON.
 
-{% if env_kind == "modal" %}
-### Modal-mode capture (REQUIRED on this run)
+{% if profile_execution == "remote" %}
+### Remote capture (REQUIRED on this run)
 
-You are inside a *local* Docker editor with **no GPU**. You cannot run `analyze_torch_profile.py capture` locally when the hot path requires a CUDA device. Use the domain-provided remote profiling workflow when one is specified. Falling back to synthetic data, an unrelated workload, or a placeholder summary is a profiler failure.
+The editor environment is not the authoritative accelerator runtime. Do not run
+`analyze_torch_profile.py capture` locally when that would miss the production
+hot path. Use the environment- and domain-provided remote profiling workflow.
+Falling back to synthetic data, an unrelated workload, or a placeholder summary
+is a profiler failure.
 
-If no domain-specific Modal profiling command is available, report that profiling could not be captured and explain which entry point or command the implementer must add.
+If no remote profiling command is available, report that profiling could not be
+captured and explain which entry point or command the implementer must add.
 
 If a remote profiling command fails (entrypoint missing, function errors, JSON empty, returned dict missing required keys, etc.), record the exact error in `analysis` and surface the missing contract as a `suggestions` item. A profile run that produces fabricated or unrelated numbers is worse than a profile run that admits it could not capture.
 {% else %}
@@ -132,4 +138,4 @@ Return exactly one JSON object. Do not wrap in markdown fences.
   "perf_unit": "<unit string or null>"
 }
 
-IMPORTANT: Base your analysis on actual profiler data returned by the MCP tools. Do not fabricate numbers. {% if env_kind == "modal" %}If the Modal dispatch failed, say so plainly in `analysis` rather than profiling synthetic weights or unrelated code paths.{% endif %}
+IMPORTANT: Base your analysis on actual profiler data returned by the MCP tools. Do not fabricate numbers. {% if profile_execution == "remote" %}If remote dispatch failed, say so plainly in `analysis` rather than profiling synthetic weights or unrelated code paths.{% endif %}

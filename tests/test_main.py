@@ -260,15 +260,18 @@ def test_validate_evolve_rejects_nonpositive_bootstrap_attempts(tmp_path):
         cli._validate_evolve(args)
 
 
-def test_keep_modal_apps_flag_defaults_off_and_parses(tmp_path):
-    """--keep-modal-apps opts out of candidate-app teardown; off by default."""
+def test_keep_deployments_flag_and_modal_alias_default_off_and_parse(tmp_path):
+    """The generic flag and compatibility alias select the same behavior."""
     import vibesys.main as cli
 
     bundle = _write_input_bundle(tmp_path)
     parser = cli._build_evolve_parser()
 
-    assert parser.parse_args(["--input", str(bundle)]).keep_modal_apps is False
-    assert parser.parse_args(["--keep-modal-apps", "--input", str(bundle)]).keep_modal_apps is True
+    assert parser.parse_args(["--input", str(bundle)]).keep_deployments is False
+    assert (
+        parser.parse_args(["--keep-deployments", "--input", str(bundle)]).keep_deployments is True
+    )
+    assert parser.parse_args(["--keep-modal-apps", "--input", str(bundle)]).keep_deployments is True
 
 
 def test_evolve_modality_defaults_to_domain_resolution(tmp_path):
@@ -462,19 +465,19 @@ def test_validate_evolve_rejects_nonpositive_parallelism(tmp_path):
         cli._validate_evolve(args)
 
 
-def test_validate_evolve_rejects_parallelism_without_modal(tmp_path):
-    """--max-parallelism > 1 requires --modal; local backends stay serial."""
+def test_validate_evolve_defers_parallelism_support_to_environment(tmp_path):
+    """CLI validation does not hard-code one parallel-capable provider."""
     import vibesys.main as cli
 
     bundle = _write_input_bundle(tmp_path)
     parser = cli._build_evolve_parser()
 
-    # >1 without --modal is rejected...
+    # The loop reads the selected environment capability and may downgrade to
+    # serial; the CLI must not assume which providers support isolation.
     args = parser.parse_args(["--max-parallelism", "4", "--input", str(bundle)])
-    with pytest.raises(ConfigurationError):
-        cli._validate_evolve(args)
+    cli._validate_evolve(args)
 
-    # ...but >1 with --modal is accepted (torch profiler keeps --modal valid).
+    # Modal remains one supported adapter, not a special loop policy.
     args = parser.parse_args(
         ["--max-parallelism", "4", "--modal", "--profiler", "torch", "--input", str(bundle)]
     )

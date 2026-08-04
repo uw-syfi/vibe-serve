@@ -85,6 +85,7 @@ def test_docker_environment_opens_one_started_sandbox_with_agent_paths(tmp_path)
     assert backend.calls[0][0] is SandboxKind.DOCKER
     assert session.view.isolated is True
     assert session.view.cli_sandboxed is True
+    assert session.view.profile_execution == "local"
     assert session.view.paths.accuracy_command == "uv run python accuracy_checker/checker.py"
     assert session.view.paths.benchmark_command == "uv run python benchmark/benchmark.py"
     assert backend.calls[0][1]["extra_env"]["UV_CACHE_DIR"] == "/workspace/.cache/uv"
@@ -216,6 +217,10 @@ def test_modal_environment_uses_local_docker_for_editing(tmp_path):
     assert backend.calls[0][0] is SandboxKind.DOCKER
     assert backend.calls[0][1]["attach_accelerator"] is False
     assert session.view.cli_sandboxed is True
+    assert session.view.profile_execution == "remote"
+    assert session.view.deployment_namespace is not None
+    assert session.view.supports_parallel_candidate_evaluation is True
+    assert session.view.deployment_release_env_var == "VIBESYS_RELEASE_MODAL_DEPLOYMENT"
     backend.sandbox.start.assert_called_once()
 
 

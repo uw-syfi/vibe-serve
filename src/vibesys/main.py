@@ -1143,12 +1143,14 @@ def _build_evolve_parser() -> argparse.ArgumentParser:
     parser.add_argument("--frontier-bias", type=float, default=0.7)
     parser.add_argument("--bootstrap-max-attempts", type=int, default=5)
     parser.add_argument(
+        "--keep-deployments",
         "--keep-modal-apps",
+        dest="keep_deployments",
         action="store_true",
         help=(
-            "Do not tear down each candidate's Modal app after evaluation "
-            "(default: stop them so idle apps don't accumulate). Keep them for "
-            "post-hoc log inspection."
+            "Do not tear down each candidate's environment-owned deployment "
+            "after evaluation (default: release it). Keep deployments for "
+            "post-hoc inspection. --keep-modal-apps is a compatibility alias."
         ),
     )
     parser.add_argument(
@@ -1157,9 +1159,8 @@ def _build_evolve_parser() -> argparse.ArgumentParser:
         default=1,
         help=(
             "Max candidates to evaluate concurrently within a generation "
-            "(default: 1 = serial). Values >1 take effect only under --modal, "
-            "where each candidate runs in its own isolated worktree + editor "
-            "container + Modal app; local/docker backends stay serial."
+            "(default: 1 = serial). Values >1 take effect only when the selected "
+            "run environment supports isolated candidate evaluation."
         ),
     )
     parser.add_argument("--modality", default=None, choices=_MODALITIES)
@@ -1207,11 +1208,6 @@ def _validate_evolve(args: argparse.Namespace) -> None:
         _configuration_error("--bootstrap-max-attempts must be >= 1.")
     if args.max_parallelism < 1:
         _configuration_error("--max-parallelism must be >= 1.")
-    if args.max_parallelism > 1 and not args.modal:
-        _configuration_error(
-            "--max-parallelism > 1 requires --modal (parallel candidate "
-            "evaluation is Modal-only; other backends contend on one GPU)."
-        )
 
 
 def _resolve_openevolve_options(
@@ -1336,7 +1332,7 @@ def _run_evolve(args: argparse.Namespace) -> None:
         objectives=objectives,
         frontier_bias=args.frontier_bias,
         bootstrap_max_attempts=args.bootstrap_max_attempts,
-        keep_modal_apps=args.keep_modal_apps,
+        keep_deployments=args.keep_deployments,
         max_parallelism=args.max_parallelism,
         search_policy=search_policy,
         openevolve_config=openevolve_config,

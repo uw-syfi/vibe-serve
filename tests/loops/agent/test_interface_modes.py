@@ -233,7 +233,7 @@ def _render_judge(interface: str) -> str:
         pass_criteria="PC",
         retry=1,
         runtime_notes="",
-        env_kind="local",
+        profile_execution="local",
         objective="OBJ",
     )
 
@@ -268,7 +268,7 @@ def _render_single_agent(
         template_dir=_TEMPLATE_DIR,
         modality=None,
         interface=interface,
-        env_kind="local",
+        profile_execution="local",
         domain_single_agent="",
         domain_profiler="",
         task="TASK",

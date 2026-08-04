@@ -74,6 +74,7 @@ use any of these in any file without tracking which role you're in:
 | `benchmark_command` | Benchmark command declared by the input manifest, or falsy if no benchmark is attached. |
 | `accuracy_command` | Accuracy-checker command declared by the input manifest, or falsy if not attached. |
 | `runtime_notes` | Runtime-environment notes for the round. |
+| `profile_execution` | Where profiling must run to observe the production hot path: `local` or `remote`. |
 
 These are always defined (falsy when not applicable), so a plain `{% if benchmark_command %}`
 is enough — no `is defined` guard needed.

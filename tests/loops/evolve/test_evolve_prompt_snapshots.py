@@ -83,6 +83,7 @@ def _domain_context(case: _Case) -> dict[str, object]:
         "benchmark_command": case.benchmark_command,
         "accuracy_command": case.accuracy_command,
         "runtime_notes": "Runtime note: local isolated workspace.",
+        "profile_execution": "local",
     }
 
 
@@ -125,7 +126,7 @@ def _render_prompt(case: _Case, role: str) -> str:
         "modality": case.modality,
         "interface": "inprocess",
         "runtime_notes": "Runtime note: local isolated workspace.",
-        "env_kind": "local",
+        "profile_execution": "local",
         "objective": case.objective,
         "accuracy_command": case.accuracy_command,
         "benchmark_command": case.benchmark_command,

@@ -33,7 +33,7 @@ import sys
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Protocol
+from typing import Literal, Protocol
 
 from deepagents.backends.protocol import SandboxBackendProtocol
 from deepagents.backends.sandbox import BaseSandbox
@@ -75,16 +75,21 @@ class RunEnvironmentView:
     isolated: bool = False
     cli_sandboxed: bool = False
     host_device_reselect: bool = True
-    # Coarse environment label for prompt-template branching:
+    # Coarse environment label for diagnostics and adapter selection:
     # ``"local"`` | ``"docker"`` | ``"modal"``.
     env_kind: str = "local"
-    # Modal only: the per-run Modal app namespace prefix embedded in
-    # ``prompt_notes`` (``None`` for non-Modal envs).  Loops that evaluate
-    # many candidates against Modal use this to derive a *per-candidate* app
-    # name so each candidate deploys to a pristine app — otherwise all
-    # candidates share one app and the judge reads stale logs from the first
-    # (possibly broken) deploy for every later candidate.
-    modal_app_name: str | None = None
+    # Where a profiler must execute to observe the production hot path. Prompt
+    # templates branch on this capability rather than on a concrete provider.
+    profile_execution: Literal["local", "remote"] = "local"
+    # Optional namespace for environments that isolate each candidate in a
+    # named deployment. The selected environment owns the concrete naming
+    # rules; loops consume only the namespace capability.
+    deployment_namespace: str | None = None
+    supports_parallel_candidate_evaluation: bool = False
+    # Optional environment variable understood by the environment-owned
+    # evaluator wrapper when the final trusted command should release its
+    # deployment lease.
+    deployment_release_env_var: str | None = None
     # Extra wall-clock budget for environment-owned setup that wraps a trusted
     # command, such as deploying a fresh service and waiting for readiness.
     framework_setup_timeout_seconds: int = 0
@@ -139,6 +144,8 @@ class RunEnvironment(Protocol):
         """
         ...
 
+    def candidate_deployment_name(self, base_name: str, generation: int, child_idx: int) -> str: ...
+
 
 class _NoopWorkspaceRecovery:
     def repair_workspace(
@@ -153,6 +160,9 @@ class _NoopWorkspaceRecovery:
 
     def teardown_deployment(self, name: str, *, log: Callable[[str], None]) -> None:
         return
+
+    def candidate_deployment_name(self, base_name: str, generation: int, child_idx: int) -> str:
+        return base_name
 
 
 @dataclass
@@ -308,6 +318,9 @@ class DockerEnvironment:
         # The editor container is torn down by the session; nothing per-candidate.
         return
 
+    def candidate_deployment_name(self, base_name: str, generation: int, child_idx: int) -> str:
+        return base_name
+
 
 @dataclass(frozen=True)
 class ModalEnvironmentConfig:
@@ -441,7 +454,10 @@ class ModalEnvironment(_NoopWorkspaceRecovery):
                 cli_sandboxed=True,
                 host_device_reselect=False,
                 env_kind="modal",
-                modal_app_name=app_name,
+                profile_execution="remote",
+                deployment_namespace=app_name,
+                supports_parallel_candidate_evaluation=True,
+                deployment_release_env_var="VIBESYS_RELEASE_MODAL_DEPLOYMENT",
                 framework_setup_timeout_seconds=setup_timeout_seconds,
             ),
             stop_on_close=True,
@@ -539,6 +555,9 @@ class ModalEnvironment(_NoopWorkspaceRecovery):
             )
         else:
             log(f"[modal] stopped candidate app {name}")
+
+    def candidate_deployment_name(self, base_name: str, generation: int, child_idx: int) -> str:
+        return candidate_modal_app_name(base_name, generation, child_idx)
 
 
 def build_run_environment(spec: RunEnvironmentSpec) -> RunEnvironment:
