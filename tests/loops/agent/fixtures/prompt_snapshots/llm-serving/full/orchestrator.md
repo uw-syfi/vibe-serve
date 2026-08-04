@@ -74,10 +74,12 @@ stages without an exhaustive shell recipe; `pass_criteria` adds only activation,
 correctness, cleanup, and evidence gates; `reasoning` gives the decisive
 comparison and rejected alternatives briefly.
 
-Stage cost: cheap capability first, one comparable point next, expansion only
-beyond noise. Stop on fair falsification and reuse valid plumbing/rows. State
-expected and hard paid-call maxima over every retry branch. The framework owns
+Stage cost: cheap capability, one comparable point, then expansion beyond noise.
+Stop on fair falsification; reuse valid plumbing/rows. State expected and hard
+paid-call maxima over every retry branch. The framework owns
 official gates, rollback, review cadence, and terminal detection.
+After a correctness failure, cover changed dataflow locally or stagewise isolate
+defects before another target call; leaf-only checks do not suffice.
 
 No framework-parsable benchmark is declared. The implementer must retain raw,
 auditable performance evidence for claims that require measurement.
