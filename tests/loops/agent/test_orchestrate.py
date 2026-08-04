@@ -905,6 +905,20 @@ def test_progress_writes_typed_role_handoffs_atomically(tmp_path, progress_name,
     assert not list((tmp_path / artifact_root).rglob(".*.tmp*"))
 
 
+def test_persisted_implementer_attempts_define_resume_boundary(tmp_path):
+    progress = tmp_path / "progress"
+    implementation = ImplementerResponse(
+        summary="Retained the first target run.",
+        expected_behavior="A resumed round must not overwrite it.",
+    )
+    first = issue_board.write_implementer_artifact(progress, 8, 1, implementation)
+    second = issue_board.write_implementer_artifact(progress, 8, 2, implementation)
+
+    assert issue_board.implementer_artifact_paths(progress, 8) == [first, second]
+    assert issue_board.next_implementer_attempt(progress, 8) == 3
+    assert issue_board.next_implementer_attempt(progress, 9) == 1
+
+
 def test_agent_memory_paths_distinguish_files_from_directories(tmp_path):
     workspace = tmp_path / "workspace"
     directory = workspace / "progress"
@@ -1468,6 +1482,16 @@ def test_loop_judge_retry_then_pass(tmp_path, ref_file):
     assert result is True
     assert runner.counters["impl"] == 2
     assert runner.counters["judge"] == 2
+    implementer_calls = [
+        call
+        for call in runner.invoke.call_args_list
+        if call.kwargs.get("response_cls") is ImplementerResponse
+    ]
+    assert "Same-round retry boundary" not in implementer_calls[0].kwargs["system_prompt"]
+    retry_prompt = implementer_calls[1].kwargs["system_prompt"]
+    assert "Same-round retry boundary" in retry_prompt
+    assert "round-0001-attempt-01-implementer.json" in retry_prompt
+    assert "remains consumed" in retry_prompt
 
 
 def test_loop_defers_judge_until_cadence_and_always_reviews_final_round(tmp_path, ref_file):

@@ -116,6 +116,27 @@ def write_implementer_artifact(
     return _write_json_atomic(path, response.model_dump(mode="json"))
 
 
+def implementer_artifact_paths(progress_path: Path, round_number: int) -> list[Path]:
+    """Return persisted implementer attempts for one round in attempt order."""
+
+    evidence_root = _structured_artifact_root(progress_path) / "evidence"
+    pattern = f"round-{round_number:04d}-attempt-*-implementer.json"
+    return sorted(evidence_root.glob(pattern))
+
+
+def next_implementer_attempt(progress_path: Path, round_number: int) -> int:
+    """Return the next durable attempt number for an interrupted round."""
+
+    attempts: list[int] = []
+    prefix = f"round-{round_number:04d}-attempt-"
+    suffix = "-implementer.json"
+    for path in implementer_artifact_paths(progress_path, round_number):
+        attempt_text = path.name.removeprefix(prefix).removesuffix(suffix)
+        if attempt_text.isdigit():
+            attempts.append(int(attempt_text))
+    return max(attempts, default=0) + 1
+
+
 def pareto_archive_path(progress_path: Path) -> Path:
     """Return the framework-owned Pareto archive beside progress history."""
     if progress_path.suffix == ".md":

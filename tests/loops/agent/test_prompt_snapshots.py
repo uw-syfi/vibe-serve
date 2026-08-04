@@ -126,6 +126,7 @@ def _render_prompt(domain: DomainName, role: str, context: dict[str, object]) ->
             domain_implementer=_domain_section(domain, "implementer", context),
             recommended_skills=context["recommended_skills"],
             retry=context.get("retry", 1),
+            prior_attempt_artifact_locations=context.get("prior_attempt_artifact_locations", ()),
             feedback=context.get("feedback"),
             framework_benchmark_enabled=context.get("framework_benchmark_enabled", False),
             official_evaluation_due=context.get("official_evaluation_due", False),
@@ -142,6 +143,8 @@ def _render_prompt(domain: DomainName, role: str, context: dict[str, object]) ->
             current_round_location=context["current_round_location"],
             continuation_step=context["continuation_step"],
             feedback=context.get("feedback"),
+            retry=context.get("retry", 1),
+            prior_attempt_artifact_locations=context.get("prior_attempt_artifact_locations", ()),
             recommended_skills=context["recommended_skills"],
             framework_revert_applied=context.get("framework_revert_applied", False),
             gate_revalidation_pending=context.get("gate_revalidation_pending", False),
@@ -291,6 +294,20 @@ def test_implementer_continuation_is_delta_only_and_fresh_session_safe():
     assert "PLAN_TASK_CONTENT_MUST_NOT_BE_EMBEDDED" not in rendered
     assert "PASS_CRITERIA_MUST_NOT_BE_EMBEDDED" not in rendered
     assert "IMPLEMENTER_PROSE_MUST_NOT_BE_EMBEDDED" not in rendered
+
+
+def test_implementer_retry_references_prior_evidence_and_cumulative_budget():
+    context = _CONTEXTS["full"] | {
+        "retry": 2,
+        "prior_attempt_artifact_locations": (
+            "progress/evidence/round-0080-attempt-01-implementer.json",
+        ),
+    }
+    rendered = _render_prompt(DomainName.LLM_SERVING, "implementer_continuation", context)
+
+    assert "Same-round retry boundary" in rendered
+    assert context["prior_attempt_artifact_locations"][0] in rendered
+    assert "remains consumed" in rendered
 
 
 def test_judge_references_framework_evidence_without_embedding_implementer_prose():

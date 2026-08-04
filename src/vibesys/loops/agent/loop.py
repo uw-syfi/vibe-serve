@@ -1308,6 +1308,7 @@ def _run_implementer(
     framework_benchmark_enabled: bool = False,
     official_evaluation_due: bool = False,
     official_evaluation_reason: str | None = None,
+    prior_attempt_artifact_locations: tuple[str, ...] = (),
 ) -> ImplementerResponse:
     plan.recommended_skills, resolved_skills = _validate_skill_selections(
         ctx, plan.recommended_skills
@@ -1356,6 +1357,7 @@ def _run_implementer(
         official_evaluation_due=official_evaluation_due,
         official_evaluation_reason=official_evaluation_reason,
         recommended_skills=resolved_skills,
+        prior_attempt_artifact_locations=prior_attempt_artifact_locations,
     )
     response = ctx.invoke(
         kind="implementer",
@@ -2325,10 +2327,29 @@ def run_agent_loop(
                 # loop always runs; the initializer keeps ``retry`` provably
                 # bound for the post-loop round bookkeeping.
                 retry = 0
-                for retry in range(1, max_retries_per_round + 1):
+                first_retry = issue_board.next_implementer_attempt(progress_path, round_number)
+                if first_retry > max_retries_per_round:
+                    raise RuntimeError(
+                        f"Round {round_number} already persisted "
+                        f"{first_retry - 1} implementer attempts, exhausting "
+                        f"max_retries_per_round={max_retries_per_round}; refusing "
+                        "to overwrite or replay paid work."
+                    )
+                if first_retry > 1:
+                    ctx.lprint(
+                        f"[resume] round {round_number} continues at durable "
+                        f"attempt {first_retry}/{max_retries_per_round}"
+                    )
+                for retry in range(first_retry, max_retries_per_round + 1):
                     ctx.lprint(f"\n--- attempt {retry}/{max_retries_per_round} ---\n")
                     final_attempt_reviewed = False
                     if inner_loop == "multi-agent":
+                        prior_attempt_artifact_locations = tuple(
+                            issue_board.display_path(path, ctx.workspace)
+                            for path in issue_board.implementer_artifact_paths(
+                                progress_path, round_number
+                            )
+                        )
                         ctx.reselect_gpu()
                         implementation = _run_implementer(
                             ctx,
@@ -2356,6 +2377,7 @@ def run_agent_loop(
                             framework_benchmark_enabled=benchmark_result is not None,
                             official_evaluation_due=(planned_official_reason is not None),
                             official_evaluation_reason=planned_official_reason,
+                            prior_attempt_artifact_locations=prior_attempt_artifact_locations,
                         )
                         review_due = _review_due(
                             round_number=round_number,
