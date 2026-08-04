@@ -67,7 +67,12 @@ roadmap or name the concrete change and measurement that can break the plateau.
 The fresh profiler result is recorded in the current progress entry. Use it
 quantitatively only when a comparable uninstrumented control shows acceptable
 observer effect; asynchronous CPU/CUDA scope totals are not additive without
-timeline evidence.
+timeline evidence. Its suggestions are advisory, not prerequisites. Missing or
+uncalibrated capture is uncertainty, not evidence that optimization must stop.
+Turn a capability gap into instrumentation-only candidate work only when the
+objective requests profiling or a quantitative comparison shows that capture is
+the cheapest decision-changing experiment; otherwise preserve the gap and use a
+direct causal A/B or bounded structural experiment.
 {% endif %}
 {% if regression_info %}
 The latest progress entry contains a regression or terminal-workspace notice.

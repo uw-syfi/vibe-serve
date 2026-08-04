@@ -63,6 +63,11 @@ If the `{{ profiler_mcp_name }}` MCP server is attached to this round, call its 
 
 Start with `tables`, then pick the analyses that matter most for the current architecture.
 
+Suggestions are advisory. Report visibility limits rather than declaring the
+optimization loop blocked on new profiler infrastructure. When capture is
+unavailable, name the smallest missing capability and any direct end-to-end A/B
+that could still discriminate candidate mechanisms.
+
 ## Capturing a profile
 
 Capture is the long-running step — run it first, then call the MCP tools on the resulting JSON.

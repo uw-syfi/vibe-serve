@@ -358,6 +358,8 @@ def test_orchestrator_routes_profile_and_failure_details_through_progress():
     assert all(sentinel not in rendered for sentinel in sentinels.values())
     assert "fresh profiler result is recorded in the current progress entry" in rendered
     assert "observer effect" in rendered
+    assert "suggestions are advisory, not prerequisites" in rendered.lower()
+    assert "direct causal a/b or bounded structural experiment" in rendered.lower()
 
 
 def test_pre_round_prompt_is_path_only_and_skips_future_rollback_target():

@@ -354,5 +354,7 @@ def test_torch_profiler_remote_capture_is_provider_neutral():
     assert "### Remote capture (REQUIRED on this run)" not in local
     assert "### Remote capture (REQUIRED on this run)" in remote
     assert "representative workload must run on the remote candidate path" in remote
+    assert "Suggestions are advisory" in local
+    assert "Report visibility limits" in remote
     assert "Modal" not in local
     assert "Modal" not in remote

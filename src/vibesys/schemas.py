@@ -396,16 +396,25 @@ class PerfEvalResponse(BaseModel):
 
 
 class ProfilerResponse(BaseModel):
-    """Structured response from the nsys profiler agent."""
+    """Structured response from a profiler agent."""
 
     analysis: str = Field(
-        description="Detailed interpretation of the nsys profiling data — what the kernel breakdown, CPU overhead, and GPU idle gaps reveal about the implementation."
+        description=(
+            "Detailed interpretation of collected profiling data, including "
+            "visibility limits and observed CPU, accelerator, or runtime evidence."
+        )
     )
     bottlenecks: str = Field(
-        description="Top bottlenecks identified, ordered by impact. Each bottleneck should name the specific kernel or operation and its contribution to total time."
+        description=(
+            "Measured bottlenecks ordered by impact, or an explicit attribution gap "
+            "when the capture cannot observe the production mechanism."
+        )
     )
     suggestions: str = Field(
-        description="Actionable optimization suggestions tied to measured bottlenecks and their estimated end-to-end impact."
+        description=(
+            "Advisory optimization or measurement suggestions tied to measured "
+            "evidence and estimated end-to-end impact; they do not block planning."
+        )
     )
 
 
@@ -418,7 +427,12 @@ class ProfilerSummary(BaseModel):
 
     analysis: str = Field(description="Detailed interpretation of the profile data.")
     bottlenecks: str = Field(description="Ranked bottlenecks with concrete numbers.")
-    suggestions: str = Field(description="Actionable optimization suggestions tied to bottlenecks.")
+    suggestions: str = Field(
+        description=(
+            "Advisory optimization or measurement suggestions tied to bottlenecks; "
+            "they do not impose a planning prerequisite."
+        )
+    )
     perf_metric: FiniteFloat | None = Field(
         default=None,
         description="Primary performance metric collected during profiling (higher is better). None when unavailable.",
