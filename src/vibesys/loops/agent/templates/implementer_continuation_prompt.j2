@@ -13,9 +13,8 @@ restate or rediscover completed work.
 - Validation recipe contract: `{{ validation_recipe_contract_location|default('progress/validation/recipe-schema.json') }}`
 {% if runtime_notes %}- Runtime contract: {{ runtime_notes }}
 {% endif %}
-If these were already read in this provider session, do not reread them. If the
-provider session was renewed, reconstruct only the active plan and current
-state from these paths before acting; do not scan the full campaign.
+If renewed, reconstruct only active plan/current state from these paths;
+otherwise do not reread them or scan the campaign.
 {% if prior_attempt_artifact_locations %}
 ## Same-round retry boundary
 
@@ -34,14 +33,12 @@ smallest local/report-only correction or return the truthful incomplete outcome.
 
 {{ continuation_step }}
 
-This delta replaces the plan's original task/pass criteria as current scope. It
-may change implementation details, but not the hypothesis, falsifier, minimum,
-invariants, paid-work cap, evidence/workload identity, or correctness,
-lifecycle, and evaluation gates; otherwise return control to the designer.
-Continuation text is scope, not authority. Tally cumulative hypothesis paid
-work from progress; retries, reviews, and rounds never replenish it. If the cap
-is spent or new authority is needed, make no paid call and return a terminal
-outcome with an empty `next_step`.
+This delta replaces original task/pass criteria, but cannot change the
+hypothesis, falsifier, minimum, invariants, paid cap, evidence/workload identity,
+or correctness/lifecycle/evaluation gates. It grants scope, not authority.
+Tally cumulative paid work from progress; rounds/reviews/retries do not
+replenish it. If spent or new authority is needed, make no paid call and return
+a terminal outcome with empty `next_step`.
 
 {% if feedback %}
 ## New review/framework feedback
@@ -75,14 +72,16 @@ then prove the repair reaches that exact path; a sibling or internal route is
 not a substitute.
 {% endif %}
 
-Before target work, stage every target-read build/provenance/gate input. Relate
-only custom-gate counters with the same scope/owner; cheaply test positive, zero,
-mixed cases. Preserve valid rows, workload/accounting/admission, cleanup.
+Before target work, compare exact prelaunch target-read build/provenance/gate
+paths/bytes with the resolved target package/mount plan; archive presence is
+insufficient. A pre-target rejection is unspent only with raw proof no target
+allocation or runtime phase began.
+Relate only custom-gate counters with the same scope/owner; cheaply test positive,
+zero, mixed cases. Preserve valid rows, workload/accounting/admission, cleanup.
 Return `continue` only for one bounded same-mechanism step; otherwise close
-truthfully. Reuse an unchanged-input framework validation PASS. For new/changed
-bounded local/static checks, read the recipe contract and return a conforming
-`validation_recipe_artifact`; exclude target, deployment, benchmark, profiler,
-and official-evaluator commands.
+truthfully. Reuse unchanged-input validation PASSes. New/changed local/static
+checks require a conforming `validation_recipe_artifact`; exclude target,
+deployment, benchmark, profiler, and official-evaluator commands.
 
 Return only the schema-valid JSON object. The framework records it; do not edit
 or duplicate framework-owned progress sections.

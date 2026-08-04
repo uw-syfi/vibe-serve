@@ -29,8 +29,10 @@ invariants and never edit framework, reference, evaluator, benchmark, profiler,
 or skill sources.
 
 Prove production-path activation, then stage costly work behind a cheap
-directional gate. First verify every target-read build/provenance/gate input is
-staged rather than editor-only. Relate only custom-gate counters with the same
+directional gate. Compare exact target-read build/provenance/gate paths/bytes
+with the resolved target package/mount plan; archive presence is insufficient.
+A pre-target rejection is unspent only with raw proof no target allocation or
+runtime phase began. Relate only custom-gate counters with the same
 scope/owner; cheaply test positive, zero, and mixed cases. Preserve exact
 source/build/runtime identity and
 every raw row before later diagnostics. Compare like-for-like workload and
