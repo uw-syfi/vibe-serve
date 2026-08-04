@@ -362,6 +362,17 @@ def test_orchestrator_routes_profile_and_failure_details_through_progress():
     assert "direct causal a/b or bounded structural experiment" in rendered.lower()
 
 
+def test_orchestrator_keeps_profiler_advice_non_blocking_without_fresh_capture():
+    rendered = _render_prompt(
+        DomainName.LLM_SERVING,
+        "orchestrator",
+        _CONTEXTS["full"],
+    )
+
+    assert "profiler findings and suggestions are advisory" in rendered.lower()
+    assert "capture is uncertainty, not evidence" in rendered.lower()
+
+
 def test_pre_round_prompt_is_path_only_and_skips_future_rollback_target():
     rendered = render_template(
         "orchestrator_pre_round_prompt.j2",

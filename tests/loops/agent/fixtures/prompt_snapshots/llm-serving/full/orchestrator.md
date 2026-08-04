@@ -29,6 +29,13 @@ Choose the frontier parent whose gap matches the mechanism. Set
 `revert_to_round` when needed; the framework restores code and preserves memory.
 Reuse trustworthy retained controls; remeasure only for concrete drift.
 
+Profiler findings and suggestions are advisory, not prerequisites. Missing or
+uncalibrated capture is uncertainty, not evidence that optimization must stop.
+Turn a capability gap into instrumentation-only candidate work only when the
+objective requests profiling or a quantitative comparison shows that capture is
+the cheapest decision-changing experiment; otherwise preserve the gap and use a
+direct causal A/B or bounded structural experiment.
+
 ## Strategy and roadmap
 
 Update the roadmap concisely and select one active Major. Statuses: `todo` (not
