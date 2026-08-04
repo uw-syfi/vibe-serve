@@ -31,6 +31,12 @@ DOCKER_PROVIDER_ENV: dict[str, dict[str, str]] = {
 # Luna and its Max reasoning level require a newer CLI than the old 0.125 pin.
 CODEX_DOCKER_CLI_VERSION = "0.144.4"
 
+# Native implementations are valid candidate designs across domains, so the
+# editor container must be able to build and test them before paid target work.
+# Pin the toolchain for reproducible local checks instead of letting each agent
+# independently bootstrap an arbitrary Rust release.
+RUST_DOCKER_TOOLCHAIN_VERSION = "1.92.0"
+
 
 # Bash one-liners run inside the container at start() time, per provider.
 # Each list runs sequentially; a non-zero exit at any step raises RuntimeError.
@@ -76,7 +82,21 @@ _NODE_TARBALL_INSTALL = (
 )
 
 
-_MCP_PYTHON_INSTALL = [
+_RUST_TOOLCHAIN_INSTALL = (
+    "command -v cargo >/dev/null || { set -e; "
+    "curl -fsSL --retry 5 --retry-delay 5 -o /tmp/rustup-init.sh "
+    "https://sh.rustup.rs && "
+    "sh /tmp/rustup-init.sh -y --profile minimal "
+    f"--default-toolchain {RUST_DOCKER_TOOLCHAIN_VERSION} "
+    "--component rustfmt --component clippy && "
+    "ln -sf /root/.cargo/bin/* /usr/local/bin/ && "
+    "rm -f /tmp/rustup-init.sh; }"
+)
+
+
+_COMMON_DOCKER_TOOLING_INSTALL = [
+    _apt_install("curl ca-certificates", check_bin="curl"),
+    _RUST_TOOLCHAIN_INSTALL,
     _apt_install("ripgrep", check_bin="rg"),
     _apt_install("python3 python3-pip"),
     "python3 -m pip install --quiet 'mcp>=1.0'",
@@ -89,19 +109,19 @@ _DOCKER_INSTALL_COMMANDS: dict[str, list[str]] = {
         # Anthropic's installer drops the binary in /root/.local/bin —
         # symlink to /usr/local/bin so PATH doesn't need adjustment.
         "ln -sf /root/.local/bin/claude /usr/local/bin/claude",
-        *_MCP_PYTHON_INSTALL,
+        *_COMMON_DOCKER_TOOLING_INSTALL,
     ],
     "opencode": [
         _apt_install("curl ca-certificates", check_bin="curl"),
         "curl -fsSL https://opencode.ai/install | bash",
         "ln -sf /root/.opencode/bin/opencode /usr/local/bin/opencode 2>/dev/null || "
         "ln -sf /root/.local/bin/opencode /usr/local/bin/opencode",
-        *_MCP_PYTHON_INSTALL,
+        *_COMMON_DOCKER_TOOLING_INSTALL,
     ],
     "gemini": [
         _NODE_TARBALL_INSTALL,
         "npm install -g @google/gemini-cli",
-        *_MCP_PYTHON_INSTALL,
+        *_COMMON_DOCKER_TOOLING_INSTALL,
     ],
     "codex": [
         _NODE_TARBALL_INSTALL,
@@ -110,7 +130,7 @@ _DOCKER_INSTALL_COMMANDS: dict[str, list[str]] = {
         # Linux-x64 native binary as an optional dependency that
         # `npm install -g` silently skips on some npm configurations.
         f"npm install -g --include=optional @openai/codex@{CODEX_DOCKER_CLI_VERSION}",
-        *_MCP_PYTHON_INSTALL,
+        *_COMMON_DOCKER_TOOLING_INSTALL,
     ],
 }
 
