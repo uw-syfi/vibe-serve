@@ -491,9 +491,7 @@ def test_read_only_role_preserves_allowed_directory_and_reverts_candidate_edits(
 
     assert result is expected
     assert main.read_text() == "accepted candidate\n"
-    assert (
-        workspace / "progress" / "profiles" / "round-0002" / "summary.json"
-    ).is_file()
+    assert (workspace / "progress" / "profiles" / "round-0002" / "summary.json").is_file()
     assert tracker.pending_changes() == ["progress/profiles/round-0002/summary.json"]
     assert any("main.py" in line for line in logs)
 

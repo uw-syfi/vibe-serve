@@ -674,9 +674,7 @@ class OmnigentAgentRunner:
             invocation_id=invocation_id,
         )
 
-        reuse_executor = kind != "chat" and (
-            reuse_session if reuse_session is not None else True
-        )
+        reuse_executor = kind != "chat" and (reuse_session if reuse_session is not None else True)
         cache_key = f"{kind}:{session_key}" if session_key else kind
         entry = self._executors.get(cache_key) if reuse_executor else None
         if entry is None:

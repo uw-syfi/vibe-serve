@@ -252,9 +252,7 @@ def test_profiler_validation_uses_selected_environment_capabilities(tmp_path, mo
     import vibesys.main as cli
 
     bundle = _write_input_bundle(tmp_path)
-    args = cli._build_agent_parser().parse_args(
-        ["--profiler", "nsys", "--input", str(bundle)]
-    )
+    args = cli._build_agent_parser().parse_args(["--profiler", "nsys", "--input", str(bundle)])
     selected_specs = []
 
     def fake_environment(spec):

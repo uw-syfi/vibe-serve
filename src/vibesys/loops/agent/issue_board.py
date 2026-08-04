@@ -127,11 +127,7 @@ def validation_artifact_root(progress_path: Path) -> Path:
 def profiler_artifact_root(progress_path: Path, round_number: int) -> Path:
     """Return the only durable output directory writable by a Profiler turn."""
 
-    return (
-        _structured_artifact_root(progress_path)
-        / "profiles"
-        / f"round-{round_number:04d}"
-    )
+    return _structured_artifact_root(progress_path) / "profiles" / f"round-{round_number:04d}"
 
 
 def validation_recipe_schema_path(progress_path: Path) -> Path:

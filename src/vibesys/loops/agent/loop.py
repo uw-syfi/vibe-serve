@@ -956,10 +956,10 @@ def _invoke_read_only_role(
     try:
         return ctx.invoke(**invoke_kwargs)
     finally:
+
         def is_allowed(path: str) -> bool:
             return any(
-                path == allowed.rstrip("/")
-                or path.startswith(f"{allowed.rstrip('/')}/")
+                path == allowed.rstrip("/") or path.startswith(f"{allowed.rstrip('/')}/")
                 for allowed in allowed_workspace_paths
             )
 
@@ -974,9 +974,7 @@ def _invoke_read_only_role(
                     f"Cannot isolate {role}: failed to restore workspace checkpoint "
                     f"{checkpoint[:12]}"
                 )
-            remaining = [
-                path for path in ctx.git.pending_changes() if not is_allowed(path)
-            ]
+            remaining = [path for path in ctx.git.pending_changes() if not is_allowed(path)]
             if remaining:
                 raise RuntimeError(
                     f"Cannot isolate {role}: workspace is still modified after restore: "
@@ -1144,8 +1142,7 @@ Write bounded durable profile evidence only below
             kind="profiler",
             system_prompt=system_prompt,
             user_prompt=(
-                "Profile the server and return exactly one JSON object matching "
-                "the schema above."
+                "Profile the server and return exactly one JSON object matching the schema above."
             ),
             response_cls=ProfilerSummary,
             fallback_factory=lambda: ProfilerSummary(

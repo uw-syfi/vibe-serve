@@ -233,9 +233,7 @@ def _candidate_runtime_notes(
     name and encode it in their runtime notes. Environments without that
     capability return their notes unchanged.
     """
-    runtime = ctx.run_environment.candidate_runtime(
-        ctx.run_environment_view, generation, child_idx
-    )
+    runtime = ctx.run_environment.candidate_runtime(ctx.run_environment_view, generation, child_idx)
     return runtime.prompt_notes, runtime.deployment_name
 
 

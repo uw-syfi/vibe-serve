@@ -289,7 +289,10 @@ def test_llm_serving_prompts_preserve_irreducible_contracts():
     assert all("main.py" not in prompt for prompt in prompts.values())
     assert "language, runtime, process topology" in prompts["orchestrator"]
     assert "whole-decode roofline" in prompts["orchestrator"]
-    assert "completed output/token replay for later arrivals is model bypass" in prompts["orchestrator"]
+    assert (
+        "completed output/token replay for later arrivals is model bypass"
+        in prompts["orchestrator"]
+    )
     assert "Queued concurrency is not useful model work" in prompts["orchestrator"]
     assert "one logical delta record per generated model token" in prompts["orchestrator"]
     assert "ready-made model or serving-engine implementations are not" in prompts["implementer"]
@@ -340,9 +343,7 @@ def test_multi_agent_roles_do_not_let_continuations_mint_paid_authority():
     }
 
     assert "cumulative across hypothesis rounds/reviews/retries" in prompts["implementer"]
-    assert (
-        "rounds/reviews/retries do not replenish it" in (prompts["implementer_continuation"])
-    )
+    assert "rounds/reviews/retries do not replenish it" in (prompts["implementer_continuation"])
     assert "new round does not replenish paid work" in prompts["judge"]
     assert "no target allocation/runtime phase began" in prompts["judge"]
     assert "framework checkpoint plus validation-input hashes" in prompts["judge"]
