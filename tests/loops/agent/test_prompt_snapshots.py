@@ -369,12 +369,17 @@ def test_pre_round_prompt_is_path_only_and_skips_future_rollback_target():
         regression_info="REGRESSION_DETAIL_MUST_NOT_BE_EMBEDDED",
         exhaustion_info=None,
         progress_location="progress/",
+        profiler_kind="torch",
+        profile_execution="remote",
     )
 
     assert "OBJECTIVE_CONTENT_MUST_NOT_BE_EMBEDDED" not in rendered
     assert "REGRESSION_DETAIL_MUST_NOT_BE_EMBEDDED" not in rendered
     assert "OBJECTIVE.md" in rendered
     assert "This phase cannot apply rollback" in rendered
+    assert "`torch` profiling through" in rendered
+    assert "`remote` capture path" in rendered
+    assert "Do not request a different profiler" in rendered
 
 
 def test_official_evaluation_due_changes_agent_measurement_contract():
@@ -468,6 +473,8 @@ def test_pre_round_prompt_byte_budgets():
         progress_location="progress/",
         regression_info="recorded in progress",
         exhaustion_info="recorded in progress",
+        profiler_kind="torch",
+        profile_execution="remote",
     )
     native = rendered + "\n\nReturn only the JSON object."
     fallback = native + build_schema_hint(PreRoundDecision)

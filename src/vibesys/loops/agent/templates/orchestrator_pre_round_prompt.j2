@@ -7,6 +7,12 @@ latest relevant entry under `{{ progress_location|default('progress.md') }}`.
 Read older entries or a narrowly relevant installed skill only when this
 decision depends on them.
 
+The framework can run `{{ profiler_kind|default('none') }}` profiling through
+its `{{ profile_execution|default('local') }}` capture path. Request only
+evidence that path can observe. Do not request a different profiler. If the
+needed discriminator is outside its visibility, skip profiling and record that
+capability gap in your reasoning for the design call.
+
 Request profiling when current source/history cannot locate the next mechanism,
 a comparable flat/regressed result needs attribution, or one measured
 bottleneck would change hypothesis ranking. State the exact focus and smallest

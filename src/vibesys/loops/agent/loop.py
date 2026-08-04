@@ -1014,6 +1014,8 @@ def _run_pre_round_decision(
         regression_info=carry.regression_info,
         exhaustion_info=carry.exhaustion_info,
         progress_location=progress_location,
+        profiler_kind=ctx.profiler_kind.value,
+        profile_execution=ctx.run_environment_view.profile_execution,
     )
     decision = _invoke_read_only_role(
         ctx,
