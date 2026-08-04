@@ -33,9 +33,10 @@ reference only when new evidence makes it relevant; the list is not an allowlist
 
 Preserve the original hypothesis, falsifier, minimum, invariants, paid-work hard
 maximum, evidence identity, and outcome semantics from the typed plan. Use cheap
-checks before target work, retain every valid completed row, never manufacture
-performance by changing workload/accounting/admission, and clean up all work on
-every exit. Return `continue` only for one bounded same-mechanism next step;
+checks before target work and verify every target-read build/provenance/gate
+input is staged rather than editor-only. Retain every valid completed row, never
+manufacture performance by changing workload/accounting/admission, and clean up
+all work on every exit. Return `continue` only for one bounded same-mechanism next step;
 otherwise close the hypothesis with the evidence-supported terminal outcome.
 Reuse a matching framework validation PASS when declared inputs are unchanged.
 For new or changed bounded local/static checks, read the validation recipe

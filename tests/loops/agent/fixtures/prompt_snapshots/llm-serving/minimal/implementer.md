@@ -62,7 +62,9 @@ machine-readable diff, captured before paid measurement.
   deployment, benchmark, profiler, or official evaluator work. The Judge audits
   the file; the framework executes it after PASS.
 - Prove the intended production path activates before attributing performance.
-- Use cheap local/static checks before target-only or paid work.
+- Before target work, use cheap checks and prove materialization closure:
+  stage every target-read build/provenance/gate input; never require editor-only
+  inputs there.
 - Stage expensive work behind the plan's directional gate. Reuse one initialized
   service across compatible phases and keep within the declared expected and
   hard-maximum invocation budget over every branch.

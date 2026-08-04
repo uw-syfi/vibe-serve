@@ -28,11 +28,12 @@ invariants and never edit framework, reference, evaluator, benchmark, profiler,
 or skill sources.
 
 Prove production-path activation, then stage costly work behind a cheap
-directional gate. Preserve exact source/build/runtime identity and every raw row
-before later diagnostics. Compare like-for-like workload and offered load. Do
-not manufacture a gain through accounting, admission, failure, timeout, load
-selection, or mixed operating points. Clean up processes, tasks, sockets, and
-accelerators on every exit.
+directional gate. First verify every target-read build/provenance/gate input is
+staged rather than editor-only. Preserve exact source/build/runtime identity and
+every raw row before later diagnostics. Compare like-for-like workload and
+offered load. Do not manufacture a gain through accounting, admission, failure,
+timeout, load selection, or mixed operating points. Clean up processes, tasks,
+sockets, and accelerators on every exit.
 
 Evaluate the causal result against the plan's independent minimum, not its
 forecast. Classify Pareto retention separately: a feasible nondominated tradeoff
