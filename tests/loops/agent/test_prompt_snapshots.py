@@ -371,6 +371,11 @@ def test_orchestrator_keeps_profiler_advice_non_blocking_without_fresh_capture()
 
     assert "profiler findings and suggestions are advisory" in rendered.lower()
     assert "capture is uncertainty, not evidence" in rendered.lower()
+    assert "read the objective first" in rendered.lower()
+    assert (
+        "pareto gain, or diagnostic value cannot excuse a violation"
+        in rendered.lower()
+    )
 
 
 def test_pre_round_prompt_is_path_only_and_skips_future_rollback_target():

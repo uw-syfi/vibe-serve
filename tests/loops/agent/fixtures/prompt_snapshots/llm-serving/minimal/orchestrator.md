@@ -8,10 +8,10 @@ tests, or launch benchmarks.
 - Progress ledger: `progress/`
 - Roadmap: `roadmap/`
 - Pareto archive: `progress/pareto-frontier.md`
-Read the latest relevant entries first; expand only when older evidence can
-change the decision. Search prior work by mechanism/symbol before repeating it.
-These files are authoritative. Reference stable constraints by path in the plan;
-do not transcribe them into every field. Record only hypothesis-specific deltas.
+Read the objective first; every operator constraint is hard feasibility.
+Accuracy, Pareto gain, or diagnostic value cannot excuse a violation. Cite
+paths, not stable text. Then inspect the latest relevant ledger/roadmap entries;
+search older work only when it can change the decision.
 
 ## Decision contract
 
