@@ -626,16 +626,19 @@ def make_run_environment_spec(
     """
     if use_docker and use_modal:
         raise ValueError("--docker and --modal are mutually exclusive")
-    name = "modal" if use_modal else ("docker" if use_docker else "local")
-    return RunEnvironmentSpec(
-        name=name,
-        options={
-            "image": docker_image,
-            "gpu": modal_gpu,
-            "model_volume": modal_model_volume,
-            "app": modal_app,
-        },
-    )
+    if use_modal:
+        return RunEnvironmentSpec(
+            name="modal",
+            options={
+                "image": docker_image,
+                "gpu": modal_gpu,
+                "model_volume": modal_model_volume,
+                "app": modal_app,
+            },
+        )
+    if use_docker:
+        return RunEnvironmentSpec(name="docker", options={"image": docker_image})
+    return RunEnvironmentSpec()
 
 
 def _modal_app_name(workspace: Path, fallback: str) -> str:

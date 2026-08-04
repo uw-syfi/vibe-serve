@@ -13,6 +13,7 @@ from vibesys.sandbox.run_environment import (
     RunEnvironmentRequest,
     RunEnvironmentSpec,
     build_run_environment,
+    make_run_environment_spec,
 )
 
 
@@ -42,6 +43,28 @@ def _request(tmp_path: Path, backend: FakeBackend, **overrides):
     values.update(overrides)
     values["log_dir"].mkdir(exist_ok=True)
     return RunEnvironmentRequest(**values)
+
+
+def test_cli_compatibility_flags_keep_options_scoped_to_selected_environment():
+    assert make_run_environment_spec().options == {}
+    assert make_run_environment_spec(use_docker=True, docker_image="editor").options == {
+        "image": "editor"
+    }
+
+    remote = make_run_environment_spec(
+        use_modal=True,
+        docker_image="editor",
+        modal_gpu="accelerator",
+        modal_model_volume="weights",
+        modal_app="candidate",
+    )
+    assert remote.name == "modal"
+    assert remote.options == {
+        "image": "editor",
+        "gpu": "accelerator",
+        "model_volume": "weights",
+        "app": "candidate",
+    }
 
 
 def _modal_runtime_document(tmp_path: Path) -> str:

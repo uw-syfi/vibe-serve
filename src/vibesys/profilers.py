@@ -231,11 +231,18 @@ def resolve_profiler_kind(
         else None
     )
 
-    # A run environment may require its own capture path; prefer an explicit
-    # environment default over a backend profiler that cannot observe it.
-    if environment_default is ProfilerKind.TORCH:
-        candidate = ProfilerKind.TORCH
-    elif backend_profiler is not None and backend_profiler in ACTIVE_PROFILER_KINDS:
+    # Prefer the compute backend's native profiler when the selected execution
+    # environment can expose it. Otherwise use the environment's declared
+    # capture path. This is capability-based: the shared resolver must not know
+    # which profiler a concrete remote provider happens to require.
+    if (
+        backend_profiler is not None
+        and backend_profiler in ACTIVE_PROFILER_KINDS
+        and (
+            environment_supported_profiler_kinds is None
+            or backend_profiler in environment_supported_profiler_kinds
+        )
+    ):
         candidate = backend_profiler
     else:
         candidate = environment_default
