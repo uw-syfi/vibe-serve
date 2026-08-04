@@ -77,7 +77,11 @@ auditable performance evidence for claims that require measurement.
 Official evaluation runs every 3 accepted
 candidates, on request, and in the final round. Current provisional candidates:
 0; cadence is
-not due. Request early only when delay impairs the next decision.
+not due. Request
+early when delay impairs the next decision. In particular, request it for the
+first feasible checkpoint that changes the externally served process topology,
+listener, or entrypoint: an internal or loopback controller does not prove that
+the configured interface can deploy and reach the candidate.
 
 ## Skills
 

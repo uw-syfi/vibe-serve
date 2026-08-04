@@ -110,7 +110,11 @@ auditable performance evidence for claims that require measurement.
 Official evaluation runs every {{ official_eval_every|default(3) }} accepted
 candidates, on request, and in the final round. Current provisional candidates:
 {{ provisional_candidates|default(0) }}; cadence is
-{{ 'due' if official_eval_cadence_due|default(false) else 'not due' }}. Request early only when delay impairs the next decision.
+{{ 'due' if official_eval_cadence_due|default(false) else 'not due' }}. Request
+early when delay impairs the next decision. In particular, request it for the
+first feasible checkpoint that changes the externally served process topology,
+listener, or entrypoint: an internal or loopback controller does not prove that
+the configured interface can deploy and reach the candidate.
 
 ## Skills
 
