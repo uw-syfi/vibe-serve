@@ -311,6 +311,22 @@ def test_implementer_continuation_is_delta_only_and_fresh_session_safe():
     assert "PLAN_TASK_CONTENT_MUST_NOT_BE_EMBEDDED" not in rendered
     assert "PASS_CRITERIA_MUST_NOT_BE_EMBEDDED" not in rendered
     assert "IMPLEMENTER_PROSE_MUST_NOT_BE_EMBEDDED" not in rendered
+    assert "rounds never replenish it" in rendered
+    assert "empty `next_step`" in rendered
+
+
+def test_multi_agent_roles_do_not_let_continuations_mint_paid_authority():
+    context = _CONTEXTS["full"]
+    prompts = {
+        role: " ".join(_render_prompt(DomainName.LLM_SERVING, role, context).split())
+        for role in ("implementer", "implementer_continuation", "judge")
+    }
+
+    assert "new framework rounds never replenish them" in prompts["implementer"]
+    assert (
+        "retries, reviews, and rounds never replenish it" in (prompts["implementer_continuation"])
+    )
+    assert "new round does not replenish paid work" in prompts["judge"]
 
 
 def test_implementer_continuation_formats_materialized_parent_identity():
@@ -394,10 +410,7 @@ def test_orchestrator_keeps_profiler_advice_non_blocking_without_fresh_capture()
     assert "profiler findings and suggestions are advisory" in rendered.lower()
     assert "capture is uncertainty, not evidence" in rendered.lower()
     assert "read the objective first" in rendered.lower()
-    assert (
-        "pareto gain, or diagnostic value cannot excuse a violation"
-        in rendered.lower()
-    )
+    assert "pareto gain, or diagnostic value cannot excuse a violation" in rendered.lower()
 
 
 def test_pre_round_prompt_is_path_only_and_skips_future_rollback_target():

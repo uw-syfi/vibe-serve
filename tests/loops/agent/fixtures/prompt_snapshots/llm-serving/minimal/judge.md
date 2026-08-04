@@ -78,7 +78,9 @@ fresh canonical artifact; targeted evidence cannot establish an official score.
   evidence supports the classification and the blocker prevented a fair test.
 
 A `next_step` that changes mechanism, requests generic exploration, or is merely
-optional must be empty so control returns to the designer. Audit erroneous
+optional must be empty so control returns to the designer. The same applies
+when it needs fresh authority or would exceed a cumulative hypothesis cap; a
+retry, review, or new round does not replenish paid work. Audit erroneous
 downgrades too: when hard invariants hold and a row is genuinely nondominated,
 require `pareto_frontier` even if the causal minimum was missed.
 
