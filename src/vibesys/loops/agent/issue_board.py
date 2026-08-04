@@ -26,6 +26,7 @@ from vibesys.schemas import (
     PreRoundDecision,
     ProfilerSummary,
     SingleAgentRoundResponse,
+    ValidationRecipeArtifact,
 )
 
 MEMORY_LAYOUTS = ("files", "directories")
@@ -121,6 +122,21 @@ def validation_artifact_root(progress_path: Path) -> Path:
     """Return the framework-owned validation ledger directory."""
 
     return _structured_artifact_root(progress_path) / "validation"
+
+
+def validation_recipe_schema_path(progress_path: Path) -> Path:
+    """Return the framework-owned candidate recipe-schema path."""
+
+    return validation_artifact_root(progress_path) / "recipe-schema.json"
+
+
+def write_validation_recipe_schema(progress_path: Path) -> Path:
+    """Publish the authoritative recipe contract for on-demand agent reads."""
+
+    return _write_json_atomic(
+        validation_recipe_schema_path(progress_path),
+        ValidationRecipeArtifact.model_json_schema(mode="validation"),
+    )
 
 
 def write_validation_result_artifact(

@@ -10,6 +10,7 @@ restate or rediscover completed work.
 - Progress ledger: `progress/`
 - Pareto archive: `progress/pareto-frontier.md`
 - Framework validation ledger: `progress/validation/`
+- Validation recipe contract: `progress/validation/recipe-schema.json`
 - Runtime contract: Runtime instructions are at `/opt/vibesys-runtime/environment.md`; read them before executing or measuring.
 If these were already read in this provider session, do not reread them. If the
 provider session was renewed, reconstruct only the active plan and current
@@ -37,9 +38,9 @@ performance by changing workload/accounting/admission, and clean up all work on
 every exit. Return `continue` only for one bounded same-mechanism next step;
 otherwise close the hypothesis with the evidence-supported terminal outcome.
 Reuse a matching framework validation PASS when declared inputs are unchanged.
-For new or changed bounded local/static checks, return a version-1 recipe JSON
-path as `validation_recipe_artifact`; never include target, deployment, benchmark,
-profiler, or official evaluator commands.
+For new or changed bounded local/static checks, read the validation recipe
+contract and return a conforming path as `validation_recipe_artifact`; never
+include target, deployment, benchmark, profiler, or official evaluator commands.
 
 Return only the schema-valid JSON object. The framework records it; do not edit
 or duplicate framework-owned progress sections.

@@ -27,6 +27,7 @@ build, test, measure only what is needed, and report a truthful outcome.
 - Progress ledger: `progress/`
 - Pareto archive: `progress/pareto-frontier.md`
 - Framework validation ledger: `progress/validation/`
+- Validation recipe contract: `progress/validation/recipe-schema.json`
 Read the objective, plan, runtime contract, current relevant progress, and live
 Pareto archive before acting. These files override recollection and stale prior
 text. Read older rounds only for a named dependency or comparison.
@@ -54,12 +55,12 @@ machine-readable diff, captured before paid measurement.
 ## Execution and evidence
 
 - Reuse a matching framework PASS from the validation ledger when its declared
-  inputs are unchanged. For new or changed checks, write one version-1 JSON object
-  with a `recipes` list of `{name, command, input_paths, timeout_seconds, purpose}`
-  and return its path as `validation_recipe_artifact`. Include only minimal,
-  non-mutating local/static checks and every determining source/test/lock/config
-  path—never target, deployment, benchmark, profiler, or official evaluator work.
-  The Judge audits the file; the framework executes it after PASS.
+  inputs are unchanged. For new or changed checks, read the validation recipe
+  contract, write a conforming recipe artifact, and return its path as
+  `validation_recipe_artifact`. Include only minimal, non-mutating local/static
+  checks and every determining source/test/lock/config path—never target,
+  deployment, benchmark, profiler, or official evaluator work. The Judge audits
+  the file; the framework executes it after PASS.
 - Prove the intended production path activates before attributing performance.
 - Use cheap local/static checks before target-only or paid work.
 - Stage expensive work behind the plan's directional gate. Reuse one initialized

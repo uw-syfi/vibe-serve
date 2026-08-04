@@ -43,6 +43,7 @@ from vibesys.schemas import (
     ProfilerSummary,
     SkillResourceSelection,
     ValidationRecipe,
+    ValidationRecipeArtifact,
     Verdict,
 )
 
@@ -314,6 +315,34 @@ def test_validation_recipe_rejects_non_workspace_inputs():
             input_paths=["../outside.py"],
             purpose="Exercise the local server contract.",
         )
+
+
+def test_validation_recipe_artifact_rejects_invented_top_level_shape():
+    with pytest.raises(ValueError, match="recipes"):
+        ValidationRecipeArtifact.model_validate(
+            {
+                "version": 1,
+                "checks": [
+                    {
+                        "name": "focused-tests",
+                        "command": "uv run pytest -q test_server.py",
+                    }
+                ],
+            }
+        )
+
+
+def test_issue_board_publishes_authoritative_validation_recipe_schema(tmp_path):
+    progress = tmp_path / "progress"
+
+    path = issue_board.write_validation_recipe_schema(progress)
+    schema = json.loads(path.read_text())
+
+    assert path == progress / "validation" / "recipe-schema.json"
+    assert schema["properties"]["version"]["const"] == 1
+    assert schema["properties"]["recipes"]["minItems"] == 1
+    assert schema["properties"]["recipes"]["maxItems"] == 8
+    assert schema["examples"][0]["recipes"][0]["name"] == "focused-tests"
 
 
 def test_read_only_role_reverts_workspace_mutations_and_keeps_response():

@@ -46,6 +46,7 @@ _BASE_CONTEXT: dict[str, object] = {
     "roadmap_location": "roadmap/",
     "pareto_archive_location": "progress/pareto-frontier.md",
     "validation_location": "progress/validation/",
+    "validation_recipe_contract_location": "progress/validation/recipe-schema.json",
     # These deliberately large values model real plans and prove role prompts
     # route durable content through paths instead of interpolating it.
     "objective": "OBJECTIVE_CONTENT_MUST_NOT_BE_EMBEDDED\n" + "objective " * 800,
@@ -115,6 +116,7 @@ def _render_prompt(domain: DomainName, role: str, context: dict[str, object]) ->
         "progress_location": context["progress_location"],
         "pareto_archive_location": context["pareto_archive_location"],
         "validation_location": context["validation_location"],
+        "validation_recipe_contract_location": context["validation_recipe_contract_location"],
         "runtime_notes": context["runtime_notes"],
     }
     if role == "implementer":
@@ -256,6 +258,8 @@ def test_multi_agent_prompts_use_paths_without_embedding_durable_content():
         assert context["objective_location"] in prompt
     for role in ("implementer", "implementer_continuation", "judge", "single_agent"):
         assert context["plan_artifact_location"] in prompts[role]
+    for role in ("implementer", "implementer_continuation", "judge"):
+        assert context["validation_recipe_contract_location"] in prompts[role]
     assert context["implementer_artifact_location"] in prompts["judge"]
     assert context["progress_location"] in prompts["orchestrator"]
     assert context["roadmap_location"] in prompts["orchestrator"]

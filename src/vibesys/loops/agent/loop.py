@@ -50,6 +50,7 @@ from vibesys.schemas import (
     SingleAgentRoundResponse,
     SkillResourceSelection,
     ValidationRecipe,
+    ValidationRecipeArtifact,
     Verdict,
 )
 from vibesys.server.events import (
@@ -1321,6 +1322,9 @@ def _run_implementer(
     validation_location = issue_board.display_path(
         issue_board.validation_artifact_root(progress_path), ctx.workspace
     )
+    validation_recipe_contract_location = issue_board.display_path(
+        issue_board.validation_recipe_schema_path(progress_path), ctx.workspace
+    )
     domain_implementer = render_domain_section(
         domain_definition,
         DomainRole.IMPLEMENTER,
@@ -1348,6 +1352,7 @@ def _run_implementer(
         progress_location=progress_location,
         pareto_archive_location=pareto_archive_location,
         validation_location=validation_location,
+        validation_recipe_contract_location=validation_recipe_contract_location,
         retry=retry,
         feedback=feedback,
         continuation_step=continuation_step,
@@ -1435,6 +1440,9 @@ def _run_judge(
     validation_location = issue_board.display_path(
         issue_board.validation_artifact_root(progress_path), ctx.workspace
     )
+    validation_recipe_contract_location = issue_board.display_path(
+        issue_board.validation_recipe_schema_path(progress_path), ctx.workspace
+    )
     judge_domain_context = _domain_render_context(ctx, modality, interface)
     # Canonical accuracy and benchmark commands are framework-owned. Hiding
     # them from the judge prevents duplicate official runs while preserving
@@ -1488,6 +1496,7 @@ def _run_judge(
         progress_location=progress_location,
         pareto_archive_location=pareto_archive_location,
         validation_location=validation_location,
+        validation_recipe_contract_location=validation_recipe_contract_location,
         framework_revert_applied=framework_revert_applied,
         framework_revert_round=framework_revert_round,
         framework_revert_commit=framework_revert_commit,
@@ -1776,15 +1785,10 @@ def _load_validation_recipes(workspace: Path, artifact: str) -> list[ValidationR
         payload = json.loads(path.read_text())
     except (OSError, json.JSONDecodeError) as exc:
         raise ValueError(f"validation recipe artifact is not valid JSON: {exc}") from exc
-    if not isinstance(payload, dict) or payload.get("version") != 1:
-        raise ValueError("validation recipe artifact must be an object with version=1")
-    raw_recipes = payload.get("recipes")
-    if not isinstance(raw_recipes, list) or not 1 <= len(raw_recipes) <= 8:
-        raise ValueError("validation recipe artifact must contain 1-8 recipes")
     try:
-        return [ValidationRecipe.model_validate(raw) for raw in raw_recipes]
+        return ValidationRecipeArtifact.model_validate(payload).recipes
     except (TypeError, ValueError) as exc:
-        raise ValueError(f"validation recipe artifact has an invalid recipe: {exc}") from exc
+        raise ValueError(f"validation recipe artifact does not match version 1: {exc}") from exc
 
 
 def _run_framework_validation_gate(
@@ -2356,6 +2360,7 @@ def run_agent_loop(
     roadmap_path, progress_path = issue_board.resolve_paths(ctx.workspace, memory_layout)
     issue_board.ensure_progress_file(progress_path)
     issue_board.ensure_roadmap_file(roadmap_path)
+    issue_board.write_validation_recipe_schema(progress_path)
     progress_location = issue_board.display_path(progress_path, ctx.workspace)
     roadmap_location = issue_board.display_path(roadmap_path, ctx.workspace)
     pareto_archive_path = issue_board.pareto_archive_path(progress_path)

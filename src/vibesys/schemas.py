@@ -24,7 +24,7 @@ schemas in without dragging in the rest of the agent runtime.
 
 from enum import StrEnum
 from pathlib import PurePosixPath
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, FiniteFloat, field_validator
 
@@ -182,6 +182,38 @@ class ValidationRecipe(BaseModel):
         if len(set(normalized)) != len(normalized):
             raise ValueError("input_paths must not contain duplicates")
         return normalized
+
+
+class ValidationRecipeArtifact(BaseModel):
+    """Versioned candidate-authored container for local validation recipes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={
+            "examples": [
+                {
+                    "version": 1,
+                    "recipes": [
+                        {
+                            "name": "focused-tests",
+                            "command": "uv run pytest -q test_server.py",
+                            "input_paths": [
+                                "server.py",
+                                "test_server.py",
+                                "pyproject.toml",
+                                "uv.lock",
+                            ],
+                            "timeout_seconds": 300,
+                            "purpose": "Exercise the focused local server contract.",
+                        }
+                    ],
+                }
+            ]
+        },
+    )
+
+    version: Literal[1] = 1
+    recipes: list[ValidationRecipe] = Field(min_length=1, max_length=8)
 
 
 class FrameworkValidationResult(BaseModel):
