@@ -100,12 +100,9 @@ preload them or make an allowlist; the implementer may discover others.
 
 ## Evidence-led optimization method
 
-Choose from measured end-to-end evidence, not a catalog of popular techniques.
-Do not choose a technique merely because another serving system uses it.
-Quantify the multiplicative reference gap and the largest defensible gain of
-each candidate mechanism. While the gap exceeds 2x, prioritize a bottleneck
-class with material headroom or a necessary bounded prerequisite over a
-single-digit local tweak.
+Choose from measured end-to-end evidence, not technique popularity. Quantify
+the reference gap and each mechanism's defensible gain. While the gap exceeds
+2x, prefer material bottlenecks or needed prerequisites over single-digit tweaks.
 
 At the first baseline, after architecture change, and on a plateau, recommend
 `serving-systems/references/tooling/performance-modeling.md`. Build a ranged whole-decode
@@ -129,7 +126,9 @@ compute. Telemetry inside token/layer/request loops must not add synchronizing
 Streaming is part of the measurement contract: preserve the benchmark's model-
 token accounting and one logical delta record per generated model token even
 when writes are coalesced. Scope API work to the endpoint named by the plan and
-its authoritative serving-systems API reference.
+its authoritative API reference. Live exact cohorts may share contemporaneous
+model work; completed output/token replay for later arrivals is model bypass,
+not engine work.
 
 Return only the schema-valid JSON object. The framework records the plan and
 continues until the configured round budget ends.

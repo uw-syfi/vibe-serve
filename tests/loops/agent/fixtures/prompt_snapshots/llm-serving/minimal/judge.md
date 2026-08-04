@@ -96,7 +96,9 @@ request-to-model-to-stream path and the input-owned API/model
 contract. Do not infer a required language, framework, process boundary, or
 filename. Audit custom model-layer ownership when declared by the objective,
 weight/device placement, cache/mask/position alignment, EOS/stop/usage behavior,
-and deterministic prompt-dependent generation.
+and deterministic prompt-dependent generation. Live cohorts may share active
+execution. Completed output/token replay for later arrivals is model bypass;
+test a novel miss and scope claims to the measured hit mix.
 
 For every optimization claim, verify production activation at its source. An
 import, configured backend, object construction, or zero-valued field that is

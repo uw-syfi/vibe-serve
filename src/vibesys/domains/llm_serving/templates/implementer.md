@@ -1,17 +1,18 @@
 ## LLM-serving implementation invariants
 
-Trace every performance claim through the real request-to-model-to-stream path.
-Prove the intended attention, graph, batching, transport, or KV mechanism runs;
-a configured object, import, counter initialized to zero, or available backend
-is not activation. Record point-local useful batch/tokens, selected kernel/path,
-fallbacks, graph bucket, and resource limits without hot-loop synchronization.
+Trace every claim through the real request-to-model-to-stream path. Prove the
+claimed mechanism activates; configuration/import/zero counters are not
+activation. Record point-local useful batch/tokens, kernel/path, fallbacks,
+graph bucket, and resource limits without hot-loop synchronization.
 
 For candidate components that use Python, use `uv`; this is not a requirement that the serving hot path, scheduler, transport, or kernels remain Python.
 
 Keep correctness and workload shape fixed. Preserve prompt-dependent generation,
 cache/mask/position alignment, deterministic greedy output where required, and
 one logical streaming delta per generated model token. Coalescing writes is
-allowed; changing the benchmark's token-record accounting is not.
+allowed; changing token-record accounting is not. Live exact cohorts may share
+one active execution; never serve a later arrival via completed output/token
+replay without model execution.
 
 Use the existing benchmark/controller path. Extend it only when the hypothesis
 changes staged control flow or serialization, then prove injected failure makes

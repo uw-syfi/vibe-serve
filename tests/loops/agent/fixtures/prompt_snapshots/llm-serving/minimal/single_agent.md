@@ -68,8 +68,9 @@ reconstruction before attention is not paged-attention compute.
 
 Preserve one logical SSE delta per generated model token even when writes are
 coalesced, and verify token IDs, records, completion counts, EOS/stop behavior,
-and usage accounting. Splitting/merging logical token records or bypassing real
-model execution for better metrics is reward hacking.
+and usage accounting. Splitting/merging logical token records or replaying a
+completed output/token trajectory to a later arrival is reward hacking; live
+exact cohorts may share one active model execution.
 
 Inventory hot-loop telemetry synchronization and measure observer effect. A
 materially perturbed profile is qualitative and cannot establish an Amdahl
@@ -79,7 +80,7 @@ without a contract reason.
 
 As your own judge, do not let yourself cheat: reject prerecorded/constant output, evaluator-specific
 branches, weakened checks, omitted failures, or any steady-state response that
-bypasses declared model execution.
+uses completed replay instead of the request's declared model execution.
 ## LLM-serving profile capture
 
 Capture the benchmark's steady-state production path. For a one-process
