@@ -116,3 +116,77 @@ def test_git_add_all_excludes_unreadable_and_succeeds(tmp_path):
     finally:
         os.chmod(info_exclude, 0o644)
         os.chmod(secret, 0o644)
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root can read mode-000 files")
+def test_git_add_all_excludes_unreadable_when_workspace_below_repo_root(tmp_path):
+    """Experiment layout: the repo root is the experiment dir, the tracked
+    workspace lives below it. Exclusions must be rooted correctly while the
+    framework keeps them outside the sandbox-owned repository metadata."""
+    exp = tmp_path / "exp"
+    ws = exp / "workspace"
+    ws.mkdir(parents=True)
+    _git(exp, "init")
+    (ws / "code.py").write_text("print('hi')\n")
+    model = ws / "model"
+    model.mkdir()
+    secret = model / "model.safetensors"
+    secret.write_text("x")
+    os.chmod(secret, 0o000)
+
+    tracker = _make_tracker(ws)
+    try:
+        tracker._add_all()
+        staged = subprocess.run(
+            ["git", "diff", "--cached", "--name-only"],
+            cwd=exp,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.split()
+        assert "workspace/code.py" in staged
+        assert "workspace/model/model.safetensors" not in staged
+        # Recorded in framework-owned state, anchored to the repo toplevel.
+        exclude = tracker._exclude_file.read_text()
+        assert "/workspace/model/model.safetensors" in exclude
+        assert (
+            "/workspace/model/model.safetensors"
+            not in (exp / ".git" / "info" / "exclude").read_text()
+        )
+        # No spurious git dir invented inside the workspace.
+        assert not (ws / ".git").exists()
+    finally:
+        os.chmod(secret, 0o644)
+
+
+def test_agent_created_nested_repo_does_not_hijack_snapshots(tmp_path):
+    """An agent running `git init`/`uv init` inside the workspace mid-run must
+    not capture later snapshots (or fail them with dubious-ownership errors):
+    the tracker stays pinned to the repository resolved at init time."""
+    exp = tmp_path / "exp"
+    ws = exp / "workspace"
+    ws.mkdir(parents=True)
+    _git(exp, "init")
+    (ws / "code.py").write_text("v1\n")
+
+    tracker = _make_tracker(ws)
+    tracker.init(existing=False)
+
+    # Agent side effect: a nested repo appears inside the workspace.
+    _git(ws, "init")
+    (ws / "code.py").write_text("v2\n")
+    tracker.snapshot("round-1")
+
+    exp_log = subprocess.run(
+        ["git", "--git-dir", str(exp / ".git"), "log", "--oneline"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    assert "round-1" in exp_log
+    nested_log = subprocess.run(
+        ["git", "--git-dir", str(ws / ".git"), "log", "--oneline"],
+        capture_output=True,
+        text=True,
+    ).stdout
+    assert "round-1" not in nested_log

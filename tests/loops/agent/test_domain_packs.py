@@ -292,7 +292,7 @@ def test_llm_serving_provides_evidence_led_orchestrator_method():
     )
     assert "Evidence-led optimization method" in section
     assert "measured end-to-end evidence" in section
-    assert "Do not choose a technique merely because" in section
+    assert "not technique popularity" in section
     assert "performance-modeling.md" in section
     assert "current-architecture ceiling" in section
 

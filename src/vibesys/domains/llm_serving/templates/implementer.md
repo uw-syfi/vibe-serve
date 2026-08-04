@@ -5,6 +5,10 @@ claimed mechanism activates; configuration/import/zero counters are not
 activation. Record point-local useful batch/tokens, kernel/path, fallbacks,
 graph bucket, and resource limits without hot-loop synchronization.
 
+{% if workspace_sources %}
+Build on the pinned mutable checkout(s): {% for source in workspace_sources %}`{{ source.dest }}/` ({{ source.name }}){% if not loop.last %}, {% endif %}{% endfor %}. Inspect and adapt their relevant engine, scheduler, kernel, and server paths before replacing components. If a checkout cannot cover part of the objective, cite what you inspected and why the smallest necessary replacement is justified.
+{% endif %}
+
 For candidate components that use Python, use `uv`; this is not a requirement that the serving hot path, scheduler, transport, or kernels remain Python.
 
 Keep correctness and workload shape fixed. Preserve prompt-dependent generation,

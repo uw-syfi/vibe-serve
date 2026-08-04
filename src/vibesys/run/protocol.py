@@ -16,6 +16,7 @@ from pydantic import BaseModel
 
 from vibesys.agents.progress import AgentProgress
 from vibesys.constants import ComputeBackend
+from vibesys.input_manifest import WorkspaceSource
 from vibesys.profilers import ProfilerKind
 from vibesys.run.git_tracker import GitTracker
 
@@ -29,6 +30,7 @@ class LoopContext(Protocol):
     git_tracking: bool
     profiler_kind: ProfilerKind
     ref_name: str
+    workspace_sources: tuple[WorkspaceSource, ...]
 
     # -- collaborators --------------------------------------------------------
     supervisor: Any

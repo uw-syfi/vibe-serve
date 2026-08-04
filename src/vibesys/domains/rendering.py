@@ -34,8 +34,9 @@ def render_domain_section(
 
     The role file is rendered through Jinja with ``context`` — the same uniform
     variable set for every role (``modality``, ``interface``, ``reference_path``,
-    ``benchmark_command``, ``accuracy_command``, ``runtime_notes``, and
-    ``profile_execution``; built by ``_domain_render_context`` in ``loop.py``)
+    ``benchmark_command``, ``accuracy_command``, ``runtime_notes``,
+    ``profile_execution``, and ``workspace_sources``; built by
+    ``_domain_render_context`` in ``loop.py``)
     so authors can branch on the run from any file.
     ``single_agent`` falls back to ``implementer`` + ``judge`` when the
     directory has no explicit ``single_agent.md`` file. Leading and trailing

@@ -104,6 +104,7 @@ Choose from measured end-to-end evidence, not technique popularity. Quantify
 the reference gap and each mechanism's defensible gain. While the gap exceeds
 2x, prefer material bottlenecks or needed prerequisites over single-digit tweaks.
 
+
 At the first baseline, after architecture change, and on a plateau, recommend
 `serving-systems/references/tooling/performance-modeling.md`. Build a ranged whole-decode
 roofline: all decode-touched weight/KV bytes, dense projection/MLP/output FLOPs,

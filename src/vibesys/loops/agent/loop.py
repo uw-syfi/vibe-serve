@@ -1186,6 +1186,7 @@ def _domain_render_context(
         "accuracy_command": ctx.judge_accuracy_command,
         "runtime_notes": ctx.run_environment_view.prompt_notes,
         "profile_execution": ctx.run_environment_view.profile_execution,
+        "workspace_sources": ctx.workspace_sources,
     }
 
 

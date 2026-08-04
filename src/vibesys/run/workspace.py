@@ -177,7 +177,11 @@ class Workspace:
                 steps.append(CopySpec(src=seed, dest=self.root, respect_gitignore=True))
             for source in workspace_sources:
                 steps.append(GitSourceSpec(source=source))
-            if seed is not None:
+            # When the workspace is pre-populated (seed and/or git sources),
+            # the input copy must not clear existing children: copy_dir wipes
+            # the destination unless collisions are rejected, which would
+            # silently delete the just-materialized sources.
+            if seed is not None or workspace_sources:
                 steps.append(
                     CopySpec(
                         src=input_dir,
@@ -273,6 +277,16 @@ class Workspace:
         if dest.exists() or dest.is_symlink():
             raise ValueError(
                 f"workspace source destination already exists for {source.name!r}: {source.dest}"
+            )
+        # Excluded names match at any depth (copy ignores, git info/exclude,
+        # Modal uploads), so a colliding dest would be silently dropped from
+        # snapshots and sandboxes even though the clone succeeds.
+        colliding = [part for part in Path(source.dest).parts if part in self.excluded_dirs]
+        if colliding:
+            raise ValueError(
+                f"workspace source {source.name!r} dest {source.dest!r} contains excluded "
+                f"path component(s) {colliding}: files under it would be invisible to "
+                "workspace copies, git tracking, and sandbox uploads. Pick another dest."
             )
         dest.parent.mkdir(parents=True, exist_ok=True)
 

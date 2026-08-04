@@ -4,6 +4,10 @@ Choose from measured end-to-end evidence, not technique popularity. Quantify
 the reference gap and each mechanism's defensible gain. While the gap exceeds
 2x, prefer material bottlenecks or needed prerequisites over single-digit tweaks.
 
+{% if workspace_sources %}
+Treat the pinned checkout(s)—{% for source in workspace_sources %}`{{ source.dest }}/` ({{ source.name }}){% if not loop.last %}, {% endif %}{% endfor %}—as the implementation starting point. Direct the implementer to inspect and adapt their relevant paths; require concrete evidence before replacing seeded components.
+{% endif %}
+
 At the first baseline, after architecture change, and on a plateau, recommend
 `serving-systems/references/tooling/performance-modeling.md`. Build a ranged whole-decode
 roofline: all decode-touched weight/KV bytes, dense projection/MLP/output FLOPs,

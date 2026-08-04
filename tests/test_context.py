@@ -551,6 +551,7 @@ def test_candidate_context_cleans_up_when_agent_runner_construction_fails(tmp_pa
         skill_source_paths=[],
         model="mock-model",
         model_name="claude-sonnet-4-6",
+        workspace_sources=(),
     )
     parent.git.add_worktree.side_effect = lambda path, _commit: path.mkdir(parents=True)
     session = MagicMock()

@@ -651,3 +651,41 @@ def test_non_modal_teardown_deployment_is_noop(name, monkeypatch):
 
     # No deployment to stop — must be a silent no-op.
     env.teardown_deployment("vibesys-run-g1c2", log=lambda _: None)
+
+
+def test_modal_environment_prompt_notes_cover_seeded_checkouts(tmp_path):
+    """Seeded starting-point checkouts live only in the editor container, so
+    the runtime notes must tell the agent to bake them into the Modal image;
+    unseeded runs must not mention checkouts at all."""
+    from vibesys.input_manifest import WorkspaceSource
+
+    backend = FakeBackend()
+    env = build_run_environment(RunEnvironmentSpec("modal"))
+    source = WorkspaceSource(
+        name="vllm",
+        repo="https://github.com/vllm-project/vllm",
+        commit="d7de043d55d1dd629554467e23874097e1c48993",
+        dest="vllm",
+    )
+
+    seeded = env.open(
+        _request(
+            tmp_path,
+            backend,
+            agent_backend="cli",
+            cli_provider="codex",
+            workspace_sources=(source,),
+        )
+    )
+    assert "seeded starting-point" not in seeded.view.prompt_notes.lower()
+    notes = _modal_runtime_document(tmp_path)
+    assert "`vllm/`" in notes
+    assert "add_local_dir" in notes
+    assert "copy=True" in notes
+
+    unseeded_dir = tmp_path / "unseeded"
+    unseeded_dir.mkdir()
+    env.open(_request(unseeded_dir, backend, agent_backend="cli", cli_provider="codex"))
+    unseeded_notes = _modal_runtime_document(unseeded_dir)
+    assert "add_local_dir('vllm'" not in unseeded_notes
+    assert "seeded starting-point" not in unseeded_notes.lower()

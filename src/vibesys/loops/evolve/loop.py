@@ -101,6 +101,7 @@ def _domain_render_context(
             runtime_notes if runtime_notes is not None else ctx.run_environment_view.prompt_notes
         ),
         "profile_execution": ctx.run_environment_view.profile_execution,
+        "workspace_sources": ctx.workspace_sources,
     }
 
 

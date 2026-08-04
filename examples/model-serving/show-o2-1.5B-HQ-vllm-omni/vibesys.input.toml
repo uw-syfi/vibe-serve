@@ -1,0 +1,18 @@
+version = 1
+
+[agent]
+domain = "llm-serving"
+
+[accuracy]
+command = ["uv", "run", "python", "accuracy_checker/checker.py"]
+timeout_seconds = 120
+
+[benchmark]
+command = ["uv", "run", "python", "benchmark/benchmark.py"]
+timeout_seconds = 300
+
+[[workspace.sources]]
+name = "vllm-omni"
+repo = "https://github.com/vllm-project/vllm-omni"
+commit = "b9e9d236c3f78afd405119a5b686ebebeeb53984"
+dest = "vllm-omni"

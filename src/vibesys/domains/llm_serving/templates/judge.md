@@ -9,6 +9,10 @@ and deterministic prompt-dependent generation. Live cohorts may share active
 execution. Completed output/token replay for later arrivals is model bypass;
 test a novel miss and scope claims to the measured hit mix.
 
+{% if workspace_sources %}
+The pinned checkout(s)—{% for source in workspace_sources %}`{{ source.dest }}/` ({{ source.name }}){% if not loop.last %}, {% endif %}{% endfor %}—are mutable candidate code. Verify that the implementation adapted them, or supplied concrete inspection evidence justifying each replacement; include their production paths in static review.
+{% endif %}
+
 For every optimization claim, verify production activation at its source. An
 import, configured backend, object construction, or zero-valued field that is
 never updated proves nothing. Check point-local telemetry scope and observer

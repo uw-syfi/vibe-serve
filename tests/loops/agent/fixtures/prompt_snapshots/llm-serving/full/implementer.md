@@ -138,6 +138,7 @@ claimed mechanism activates; configuration/import/zero counters are not
 activation. Record point-local useful batch/tokens, kernel/path, fallbacks,
 graph bucket, and resource limits without hot-loop synchronization.
 
+
 For candidate components that use Python, use `uv`; this is not a requirement that the serving hot path, scheduler, transport, or kernels remain Python.
 
 Keep correctness and workload shape fixed. Preserve prompt-dependent generation,

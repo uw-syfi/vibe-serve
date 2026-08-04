@@ -70,6 +70,7 @@ kernel/layout work, name the removed production operator and its frequency,
 bytes, or launches; configuration alone is not activation, and dense KV
 reconstruction before attention is not paged-attention compute.
 
+
 Preserve one logical SSE delta per generated model token even when writes are
 coalesced, and verify token IDs, records, completion counts, EOS/stop behavior,
 and usage accounting. Splitting/merging logical token records or replaying a

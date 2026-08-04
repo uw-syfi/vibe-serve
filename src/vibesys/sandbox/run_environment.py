@@ -42,6 +42,7 @@ from vibesys.backends import SandboxKind
 from vibesys.backends.base import ComputeBackendImpl, SetupFn
 from vibesys.constants import DEFAULT_AGENT_BACKEND, PROJECT_ROOT
 from vibesys.domains.environment import EnvironmentBindMount
+from vibesys.input_manifest import WorkspaceSource
 from vibesys.profilers import ProfilerKind
 
 
@@ -119,6 +120,7 @@ class RunEnvironmentRequest:
     profiler_support_name: str | None = None
     git_history_root: Path | None = None
     environment_bind_mounts: tuple[EnvironmentBindMount, ...] = ()
+    workspace_sources: tuple[WorkspaceSource, ...] = ()
     log: Callable[[str], None] | None = None
     project_root: Path = PROJECT_ROOT
 
@@ -414,7 +416,7 @@ class ModalEnvironment(_NoopWorkspaceRecovery):
         app_name = _modal_app_name(request.workspace, fallback=self.config.app)
         runtime_document = request.log_dir / "runtime-environment.md"
         runtime_document.write_text(
-            _modal_runtime_notes(self.config.gpu, app_name)
+            _modal_runtime_notes(self.config.gpu, app_name, request.workspace_sources)
             + _git_history_runtime_notes(request.git_history_root)
         )
         runtime_container_path = "/opt/vibesys-runtime/environment.md"
@@ -688,7 +690,38 @@ def candidate_modal_app_name(base_app_name: str, generation: int, child_idx: int
     return f"{trimmed}{suffix}"
 
 
-def _modal_runtime_notes(gpu: str, app_name: str) -> str:
+def _seeded_checkout_modal_note(workspace_sources: tuple[WorkspaceSource, ...]) -> str:
+    """The Modal-runtime bullet for seeded starting-point checkouts, or ``""``.
+
+    Seeded checkouts share the ``reference/`` trap: they are materialized into
+    the local editor workspace only, so a deployed Modal container cannot
+    import them unless the implementer bakes them into the image.
+    """
+    if not workspace_sources:
+        return ""
+    dests = ", ".join(f"`{source.dest}/`" for source in workspace_sources)
+    plural = len(workspace_sources) > 1
+    recipes = " ".join(
+        f"`image.add_local_dir({source.dest!r}, '/root/{source.dest}', copy=True)` "
+        f"then e.g. `image.run_commands('pip install -e /root/{source.dest}')` "
+        "(or add it to `sys.path` at `@modal.enter()` time)."
+        for source in workspace_sources
+    )
+    return (
+        f"  - **The seeded starting-point checkout{'s' if plural else ''} "
+        f"({dests}) likewise exist{'' if plural else 's'} ONLY in this local "
+        "editor container — NOT inside the deployed Modal container.** The "
+        "objective expects the server to be built from this code, so bake it "
+        f"into the Modal image explicitly: {recipes} Use `copy=True` so later "
+        "`run_commands(...)` build steps can see the files. Verify the import "
+        "works via the candidate's declared Modal entrypoint before relying on "
+        "the endpoint.\n"
+    )
+
+
+def _modal_runtime_notes(
+    gpu: str, app_name: str, workspace_sources: tuple[WorkspaceSource, ...] = ()
+) -> str:
     """Render the Modal-mode runtime instructions for agent prompts.
 
     Kept task-agnostic: doesn't name specific model IDs, volume names, or
@@ -808,7 +841,8 @@ def _modal_runtime_notes(gpu: str, app_name: str) -> str:
         "the candidate's declared `modal run` entrypoint or a deploy + "
         "`/health` probe BEFORE "
         "relying on the endpoint.\n"
-        "  - Use `scaledown_window=120` on `@app.cls` so back-to-back "
+        + _seeded_checkout_modal_note(workspace_sources)
+        + "  - Use `scaledown_window=120` on `@app.cls` so back-to-back "
         "benchmark calls reuse the warm container and preserve loaded state "
         "between invocations. Note: Modal renamed `container_idle_timeout` to "
         "`scaledown_window` (Feb 2025); the old name raises a deprecation "

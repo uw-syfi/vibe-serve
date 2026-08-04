@@ -337,7 +337,7 @@ def test_bootstrap_prompt_uses_cold_start_section(tmp_path, ref_file):
     prompt = captured[0]
     assert "Bootstrap the first passing seed" in prompt
     assert "## Parent" not in prompt
-    assert "weights are at `/model`" in prompt
+    assert "LLM-serving implementation invariants" in prompt
 
 
 def test_evolve_with_preexisting_passing_seed_skips_bootstrap(tmp_path, ref_file):

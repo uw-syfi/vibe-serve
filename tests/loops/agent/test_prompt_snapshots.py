@@ -18,6 +18,7 @@ from vibesys.agents.cli_common import build_schema_hint
 from vibesys.domains.base import DomainName
 from vibesys.domains.registry import resolve_domain
 from vibesys.domains.rendering import render_domain_section
+from vibesys.input_manifest import WorkspaceSource
 from vibesys.profilers import ProfilerKind, profiler_definition
 from vibesys.prompts import render_template
 from vibesys.schemas import (
@@ -90,6 +91,20 @@ _CONTEXTS = {
         "runtime_notes": "",
         "recommended_skills": [],
     },
+    "seeded": _BASE_CONTEXT
+    | {
+        "benchmark_command": "uv run python benchmark/benchmark.py",
+        "accuracy_command": "uv run python accuracy_checker/checker.py",
+        "runtime_notes": "Runtime note: local Docker workspace with NVIDIA CUDA access.",
+        "workspace_sources": (
+            WorkspaceSource(
+                name="vllm",
+                repo="https://github.com/vllm-project/vllm",
+                commit="d7de043d55d1dd629554467e23874097e1c48993",
+                dest="vllm",
+            ),
+        ),
+    },
 }
 
 
@@ -102,6 +117,7 @@ def _domain_context(context: dict[str, object]) -> dict[str, object]:
         "accuracy_command": context["accuracy_command"],
         "runtime_notes": context["runtime_notes"],
         "profile_execution": context["profile_execution"],
+        "workspace_sources": context.get("workspace_sources", ()),
     }
 
 
@@ -317,6 +333,21 @@ def test_llm_serving_prompts_preserve_irreducible_contracts():
     assert "target-read build/provenance/gate" in prompts["single_agent"]
     assert "resolved target package/mount plan" in prompts["single_agent"]
     assert "same scope/owner" in prompts["single_agent"]
+
+
+def test_seeded_llm_serving_prompts_require_adaptation_without_fixed_filename():
+    prompts = {
+        role: _render_prompt(DomainName.LLM_SERVING, role, _CONTEXTS["seeded"])
+        for role in ("implementer", "judge", "orchestrator", "single_agent")
+    }
+
+    for prompt in prompts.values():
+        assert "`vllm/` (vllm)" in prompt
+        assert "main.py" not in prompt
+    assert "Inspect and adapt" in prompts["implementer"]
+    assert "concrete inspection evidence" in prompts["judge"]
+    assert "implementation starting point" in prompts["orchestrator"]
+    assert "Inspect and adapt" in prompts["single_agent"]
 
 
 def test_implementer_continuation_is_delta_only_and_fresh_session_safe():
