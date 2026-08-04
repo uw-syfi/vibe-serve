@@ -13,9 +13,9 @@ and measure only what is needed; report truthfully.
 - Validation recipe contract: `{{ validation_recipe_contract_location|default('progress/validation/recipe-schema.json') }}`
 {% if runtime_notes %}- Runtime contract: {{ runtime_notes }}
 {% endif %}
-Read the objective, plan, runtime contract, relevant progress, and live Pareto
-archive. They override recollection; read older rounds only for a named
-dependency or comparison.
+Read plan/current state/Pareto. Reuse unchanged objective/runtime/references
+loaded this provider session; otherwise read them. Files override memory; older
+rounds only for named dependencies/comparisons.
 {% if prior_attempt_artifact_locations %}
 
 ## Same-round retry boundary
@@ -31,8 +31,8 @@ hard maximum over all branches. Do not repeat exhausted target work; make the
 smallest local/report-only correction or return the truthful incomplete outcome.
 {% endif %}
 {% if reference_path and reference_path != '.' %}
-Input-owned reference material is available through the workspace manifest;
-treat it as a semantic oracle, not a required candidate layout.
+Input reference material is in the workspace manifest; it is a semantic oracle,
+not a required candidate layout.
 {% else %}
 No separate reference implementation is provided. Use the objective and
 input-owned contract files as the semantic authority.

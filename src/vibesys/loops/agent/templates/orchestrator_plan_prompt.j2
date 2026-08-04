@@ -78,8 +78,12 @@ timeline evidence.
 {% endif %}
 {% if regression_info %}
 The latest progress entry contains a regression or terminal-workspace notice.
-Read it before choosing the parent. Scope rollback to the rejected claim; do not
-erase credible earlier work in the same chain.
+Read it before choosing the parent. For a concrete pre-measurement defect with
+unchanged mechanism/parent, use the current plan as the base: inspect only the
+failure and affected source, carry forward unchanged causal fields, and emit a
+concise repair/activation/budget delta. Defer trajectory/roofline refresh until
+new measurement. Otherwise scope rollback to the rejected claim without erasing
+credible earlier work in the chain.
 {% endif %}
 {% if exhaustion_info %}
 The latest progress entry contains exhausted-review feedback. Read it and choose

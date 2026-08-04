@@ -28,11 +28,11 @@ and measure only what is needed; report truthfully.
 - Pareto archive: `progress/pareto-frontier.md`
 - Framework validation ledger: `progress/validation/`
 - Validation recipe contract: `progress/validation/recipe-schema.json`
-Read the objective, plan, runtime contract, relevant progress, and live Pareto
-archive. They override recollection; read older rounds only for a named
-dependency or comparison.
-Input-owned reference material is available through the workspace manifest;
-treat it as a semantic oracle, not a required candidate layout.
+Read plan/current state/Pareto. Reuse unchanged objective/runtime/references
+loaded this provider session; otherwise read them. Files override memory; older
+rounds only for named dependencies/comparisons.
+Input reference material is in the workspace manifest; it is a semantic oracle,
+not a required candidate layout.
 
 
 ## Scope and design freedom
