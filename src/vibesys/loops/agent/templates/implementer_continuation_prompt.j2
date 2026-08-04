@@ -62,6 +62,9 @@ This is gate-only revalidation of an unchanged reviewed candidate. Reuse
 `{{ gate_approved_evaluation_artifact or '(missing)' }}` and repair only the
 framework-facing failure; do not duplicate canonical measurement or change
 candidate behavior.
+Resolve the evaluator-selected entrypoint and process from the failure evidence,
+then prove the repair reaches that exact path; a sibling or internal route is
+not a substitute.
 {% endif %}
 
 Preserve the original hypothesis, falsifier, minimum, invariants, paid-work hard

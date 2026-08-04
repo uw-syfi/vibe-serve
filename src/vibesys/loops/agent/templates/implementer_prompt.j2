@@ -111,6 +111,9 @@ with `{{ gate_approved_perf_metric }}{{ (' ' ~ gate_approved_perf_unit) if gate_
 Repair only the failed framework-facing issue. Do not change candidate behavior
 or duplicate the canonical run; return null fresh canonical fields unless a new
 canonical evaluation actually ran.
+Resolve the evaluator-selected entrypoint and process from the failure evidence,
+then prove the repair reaches that exact path; a sibling or internal route is
+not a substitute.
 {% endif %}
 
 {% if official_evaluation_due|default(false) %}
