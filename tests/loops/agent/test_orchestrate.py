@@ -442,6 +442,55 @@ def test_read_only_role_preserves_allowed_roadmap_and_reverts_other_writes(tmp_p
     assert any("main.py" in line for line in logs)
 
 
+def test_read_only_role_preserves_allowed_directory_and_reverts_candidate_edits(tmp_path):
+    experiment = tmp_path / "experiment"
+    workspace = experiment / "workspace"
+    workspace.mkdir(parents=True)
+    main = workspace / "main.py"
+    main.write_text("accepted candidate\n")
+    subprocess.run(["git", "init", "-q", "-b", "main"], cwd=experiment, check=True)
+    tracker = GitTracker(workspace, log=lambda _message: None)
+    tracker.init(existing=False)
+
+    expected = ProfilerSummary(analysis="done", bottlenecks="b", suggestions="s")
+
+    def invoke(**_kwargs):
+        main.write_text("profiler instrumentation\n")
+        artifact = workspace / "progress" / "profiles" / "round-0002" / "summary.json"
+        artifact.parent.mkdir(parents=True)
+        artifact.write_text('{"captured": true}\n')
+        return expected
+
+    logs: list[str] = []
+    ctx = SimpleNamespace(
+        workspace=workspace,
+        git=tracker,
+        invoke=invoke,
+        snapshot_workspace=tracker.snapshot,
+        lprint=logs.append,
+    )
+
+    result = _invoke_read_only_role(
+        ctx,
+        role="profiler",
+        checkpoint_label="round-2-profiler-input",
+        allowed_workspace_paths=("progress/profiles/round-0002",),
+        kind="profiler",
+        system_prompt="profile",
+        user_prompt="return JSON",
+        response_cls=ProfilerSummary,
+        fallback_factory=lambda: expected,
+    )
+
+    assert result is expected
+    assert main.read_text() == "accepted candidate\n"
+    assert (
+        workspace / "progress" / "profiles" / "round-0002" / "summary.json"
+    ).is_file()
+    assert tracker.pending_changes() == ["progress/profiles/round-0002/summary.json"]
+    assert any("main.py" in line for line in logs)
+
+
 def test_pre_round_decision_accepts_booleans():
     d = PreRoundDecision(need_profile=True, profile_focus="decode kernels", reasoning="ok")
     assert d.need_profile is True
@@ -2162,9 +2211,9 @@ def test_unreviewed_terminal_outcome_returns_control_to_designer(tmp_path, ref_f
         for call in runner.invoke.call_args_list
         if call.kwargs.get("response_cls") is OrchestratorPlan
     ]
-    assert "do not require another expensive benchmark" in plan_calls[1].kwargs[
-        "system_prompt"
-    ].replace("\n", " ")
+    assert "latest progress entry contains a regression or terminal-workspace notice" in (
+        plan_calls[1].kwargs["system_prompt"].replace("\n", " ").lower()
+    )
 
 
 def test_reviewed_disproof_skips_framework_gates(tmp_path, ref_file):

@@ -26,7 +26,7 @@ from vibesys.domains.rendering import render_domain_section
 from vibesys.input_manifest import BenchmarkResult, WorkspaceSource
 from vibesys.loops.agent import issue_board
 from vibesys.loops.evolve.population import Objective
-from vibesys.loops.profiler import invoke_profiler
+from vibesys.loops.profiler import mcp_spec as profiler_mcp_spec
 from vibesys.profilers import (
     ProfilerKind,
     profiler_definition,
@@ -956,28 +956,26 @@ def _invoke_read_only_role(
     try:
         return ctx.invoke(**invoke_kwargs)
     finally:
+        def is_allowed(path: str) -> bool:
+            return any(
+                path == allowed.rstrip("/")
+                or path.startswith(f"{allowed.rstrip('/')}/")
+                for allowed in allowed_workspace_paths
+            )
+
         changes = ctx.git.pending_changes()
-        unauthorized = [path for path in changes if path not in allowed_workspace_paths]
+        unauthorized = [path for path in changes if not is_allowed(path)]
         if unauthorized:
-            preserved: dict[str, bytes | None] = {}
-            for rel_path in allowed_workspace_paths:
-                path = ctx.workspace / rel_path
-                preserved[rel_path] = path.read_bytes() if path.is_file() else None
-            if not ctx.git.checkout_tree(checkpoint, clean=True):
+            checkout_kwargs: dict[str, Any] = {"clean": True}
+            if allowed_workspace_paths:
+                checkout_kwargs["preserve_paths"] = allowed_workspace_paths
+            if not ctx.git.checkout_tree(checkpoint, **checkout_kwargs):
                 raise RuntimeError(
                     f"Cannot isolate {role}: failed to restore workspace checkpoint "
                     f"{checkpoint[:12]}"
                 )
-            for rel_path, content in preserved.items():
-                path = ctx.workspace / rel_path
-                if content is None:
-                    if path.exists() or path.is_symlink():
-                        path.unlink()
-                    continue
-                path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_bytes(content)
             remaining = [
-                path for path in ctx.git.pending_changes() if path not in allowed_workspace_paths
+                path for path in ctx.git.pending_changes() if not is_allowed(path)
             ]
             if remaining:
                 raise RuntimeError(
@@ -1107,6 +1105,10 @@ def _run_profiler(
         profiler_mcp_name=profiler_definition(ctx.profiler_kind).mcp_name,
     )
     progress_location = issue_board.display_path(progress_path, ctx.workspace)
+    profiler_artifact_path = issue_board.profiler_artifact_root(progress_path, round_number)
+    profiler_artifact_location = issue_board.display_path(
+        profiler_artifact_path, ctx.workspace
+    ).rstrip("/")
     system_prompt += f"""
 
 ## Recent campaign context
@@ -1121,12 +1123,44 @@ the most recent applicable round before considering older similarly named
 artifacts. Do not launch a duplicate expensive evaluation when retained
 current-candidate evidence already answers the focus; collect the smallest
 additional profile that closes a specific evidence gap instead.
+
+## Read-only evidence boundary
+
+Use only capture interfaces present when this turn started. Never edit or add
+candidate source, configuration, tests, locks, instrumentation, endpoints, or
+entrypoints. If the requested production path is not observable, report that
+capability mismatch; a later Implementer may add reviewed instrumentation.
+
+Write bounded durable profile evidence only below
+`{profiler_artifact_location}/`; keep large transient traces under `/tmp`.
 """
-    summary = invoke_profiler(
-        ctx,
-        system_prompt=system_prompt,
-        round_label=f"round-{round_number}-profiler",
-    )
+    spec = profiler_mcp_spec(ctx.profiler_kind)
+    try:
+        summary = _invoke_read_only_role(
+            ctx,
+            role="profiler",
+            checkpoint_label=f"round-{round_number}-profiler-input",
+            allowed_workspace_paths=(profiler_artifact_location,),
+            kind="profiler",
+            system_prompt=system_prompt,
+            user_prompt=(
+                "Profile the server and return exactly one JSON object matching "
+                "the schema above."
+            ),
+            response_cls=ProfilerSummary,
+            fallback_factory=lambda: ProfilerSummary(
+                analysis="Profiler produced no structured response.",
+                bottlenecks="n/a",
+                suggestions="Re-run profiling on the next round.",
+                perf_metric=None,
+                perf_unit=None,
+            ),
+            round_label=f"round-{round_number}-profiler",
+            mcp_servers=[spec] if spec is not None else None,
+        )
+    except Exception as exc:
+        ctx.lprint(f"[warn] profiler failed: {exc}")
+        return None
     if summary is None:
         return None
     issue_board.append_profiler_summary(progress_path, round_number, summary)
