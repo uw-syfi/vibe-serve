@@ -233,12 +233,10 @@ def _candidate_runtime_notes(
     name and encode it in their runtime notes. Environments without that
     capability return their notes unchanged.
     """
-    base = ctx.run_environment_view.deployment_namespace
-    notes = ctx.run_environment_view.prompt_notes
-    if not base:
-        return notes, None
-    candidate_name = ctx.run_environment.candidate_deployment_name(base, generation, child_idx)
-    return notes.replace(base, candidate_name), candidate_name
+    runtime = ctx.run_environment.candidate_runtime(
+        ctx.run_environment_view, generation, child_idx
+    )
+    return runtime.prompt_notes, runtime.deployment_name
 
 
 def _run_mutator(

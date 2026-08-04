@@ -96,6 +96,14 @@ class RunEnvironmentView:
 
 
 @dataclass(frozen=True)
+class CandidateRuntime:
+    """Environment-owned prompt and lifecycle identity for one candidate."""
+
+    prompt_notes: str
+    deployment_name: str | None = None
+
+
+@dataclass(frozen=True)
 class RunEnvironmentRequest:
     log_dir: Path
     workspace: Path
@@ -126,6 +134,7 @@ class RunEnvironment(Protocol):
     isolated: bool
     materialize_local_model_weights: bool
     default_profiler_kind: ProfilerKind
+    supported_profiler_kinds: frozenset[ProfilerKind] | None
     backend_image: str | None
 
     def open(self, request: RunEnvironmentRequest) -> RunEnvironmentSession: ...
@@ -136,7 +145,7 @@ class RunEnvironment(Protocol):
         self, workspace: Path, rel_path: str, *, backend: ComputeBackendImpl
     ) -> bool: ...
     def teardown_deployment(self, name: str, *, log: Callable[[str], None]) -> None:
-        """Tear down a per-evaluation deployment (e.g. a candidate's Modal app).
+        """Tear down a per-evaluation deployment such as a candidate service.
 
         Environments that dispatch each evaluation to its own named remote
         deployment implement this to release it once the evaluation is done;
@@ -144,7 +153,11 @@ class RunEnvironment(Protocol):
         """
         ...
 
-    def candidate_deployment_name(self, base_name: str, generation: int, child_idx: int) -> str: ...
+    def candidate_runtime(
+        self, view: RunEnvironmentView, generation: int, child_idx: int
+    ) -> CandidateRuntime:
+        """Return adapter-owned instructions and identity for one candidate."""
+        ...
 
 
 class _NoopWorkspaceRecovery:
@@ -161,8 +174,10 @@ class _NoopWorkspaceRecovery:
     def teardown_deployment(self, name: str, *, log: Callable[[str], None]) -> None:
         return
 
-    def candidate_deployment_name(self, base_name: str, generation: int, child_idx: int) -> str:
-        return base_name
+    def candidate_runtime(
+        self, view: RunEnvironmentView, generation: int, child_idx: int
+    ) -> CandidateRuntime:
+        return CandidateRuntime(view.prompt_notes, view.deployment_namespace)
 
 
 @dataclass
@@ -190,6 +205,7 @@ class LocalEnvironment(_NoopWorkspaceRecovery):
     isolated: bool = False
     materialize_local_model_weights: bool = True
     default_profiler_kind: ProfilerKind = ProfilerKind.NSYS
+    supported_profiler_kinds: frozenset[ProfilerKind] | None = None
     backend_image: str | None = None
 
     def open(self, request: RunEnvironmentRequest) -> RunEnvironmentSession:
@@ -224,6 +240,7 @@ class DockerEnvironment:
     isolated = True
     materialize_local_model_weights = True
     default_profiler_kind = ProfilerKind.NSYS
+    supported_profiler_kinds: frozenset[ProfilerKind] | None = None
 
     def __init__(self, config: DockerEnvironmentConfig) -> None:
         self.config = config
@@ -318,8 +335,10 @@ class DockerEnvironment:
         # The editor container is torn down by the session; nothing per-candidate.
         return
 
-    def candidate_deployment_name(self, base_name: str, generation: int, child_idx: int) -> str:
-        return base_name
+    def candidate_runtime(
+        self, view: RunEnvironmentView, generation: int, child_idx: int
+    ) -> CandidateRuntime:
+        return CandidateRuntime(view.prompt_notes, view.deployment_namespace)
 
 
 @dataclass(frozen=True)
@@ -334,6 +353,9 @@ class ModalEnvironment(_NoopWorkspaceRecovery):
     isolated = True
     materialize_local_model_weights = False
     default_profiler_kind = ProfilerKind.TORCH
+    supported_profiler_kinds: frozenset[ProfilerKind] | None = frozenset(
+        {ProfilerKind.AUTO, ProfilerKind.TORCH, ProfilerKind.NONE}
+    )
 
     def __init__(self, config: ModalEnvironmentConfig) -> None:
         self.config = config
@@ -556,8 +578,22 @@ class ModalEnvironment(_NoopWorkspaceRecovery):
         else:
             log(f"[modal] stopped candidate app {name}")
 
-    def candidate_deployment_name(self, base_name: str, generation: int, child_idx: int) -> str:
-        return candidate_modal_app_name(base_name, generation, child_idx)
+    def candidate_runtime(
+        self, view: RunEnvironmentView, generation: int, child_idx: int
+    ) -> CandidateRuntime:
+        base_name = view.deployment_namespace
+        if not base_name:
+            return CandidateRuntime(view.prompt_notes)
+        candidate_name = candidate_modal_app_name(base_name, generation, child_idx)
+        return CandidateRuntime(
+            prompt_notes=(
+                f"{view.prompt_notes} Candidate-specific namespace override: replace "
+                f"the base namespace `{base_name}` with `{candidate_name}` everywhere "
+                "the runtime contract uses it, including app, endpoint, and auxiliary "
+                "resource names. This candidate override is authoritative."
+            ),
+            deployment_name=candidate_name,
+        )
 
 
 def build_run_environment(spec: RunEnvironmentSpec) -> RunEnvironment:

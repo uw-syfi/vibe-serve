@@ -149,13 +149,13 @@ def resolve_profiler_kind(
     domain: DomainName,
     backend_profiler_kind: ProfilerKind | None,
     environment_default_profiler_kind: ProfilerKind,
+    environment_supported_profiler_kinds: frozenset[ProfilerKind] | None = None,
 ) -> ProfilerKind:
     """Resolve ``--profiler`` into the effective profiler kind.
 
     ``auto`` is intentionally domain-aware. Generic workloads pick a native CPU
     profiler when the host platform has one; LLM-serving workloads pick the
-    backend profiler unless the run environment dictates a remote-safe default
-    such as Modal's torch profiler.
+    backend profiler unless the run environment dictates another safe default.
     """
 
     requested_kind = require_profiler_kind(requested, label="requested profiler")
@@ -169,15 +169,49 @@ def resolve_profiler_kind(
                 f"Profiler {requested_kind.value!r} is not supported for domain "
                 f"{domain_name.value!r}; allowed: {allowed_values}."
             )
+        if (
+            environment_supported_profiler_kinds is not None
+            and requested_kind not in environment_supported_profiler_kinds
+        ):
+            supported_values = ", ".join(
+                sorted(kind.value for kind in environment_supported_profiler_kinds)
+            )
+            raise ValueError(
+                f"Profiler {requested_kind.value!r} is not supported by the selected "
+                f"run environment; allowed: {supported_values}."
+            )
         return requested_kind
 
     if domain_name is DomainName.GENERIC:
         system = platform.system()
         if system == "Darwin":
-            return ProfilerKind.MACOS_CPU
-        if system == "Linux":
-            return ProfilerKind.LINUX_CPU
-        return ProfilerKind.NONE
+            candidate = ProfilerKind.MACOS_CPU
+        elif system == "Linux":
+            candidate = ProfilerKind.LINUX_CPU
+        else:
+            candidate = ProfilerKind.NONE
+        if (
+            environment_supported_profiler_kinds is None
+            or candidate in environment_supported_profiler_kinds
+        ):
+            return candidate
+        # A remote or otherwise constrained environment may not expose the
+        # host-native profiler. Prefer its declared default when the domain
+        # supports it, then degrade cleanly to no profiler.
+        if (
+            environment_default_profiler_kind in allowed
+            and environment_default_profiler_kind in environment_supported_profiler_kinds
+        ):
+            return environment_default_profiler_kind
+        if ProfilerKind.NONE in environment_supported_profiler_kinds:
+            return ProfilerKind.NONE
+        supported_values = ", ".join(
+            sorted(kind.value for kind in environment_supported_profiler_kinds)
+        )
+        raise ValueError(
+            "No profiler supported by both the generic domain and selected run "
+            f"environment; environment allows: {supported_values}."
+        )
 
     # OTel requires an input bundle that provisions instrumentation and a
     # collector. Keep microservice defaults unchanged; users opt in explicitly.
@@ -197,8 +231,8 @@ def resolve_profiler_kind(
         else None
     )
 
-    # Modal runs capture on remote GPUs through torch.profiler; prefer the run
-    # environment's torch default over a local CUDA backend's nsys preference.
+    # A run environment may require its own capture path; prefer an explicit
+    # environment default over a backend profiler that cannot observe it.
     if environment_default is ProfilerKind.TORCH:
         candidate = ProfilerKind.TORCH
     elif backend_profiler is not None and backend_profiler in ACTIVE_PROFILER_KINDS:
@@ -211,6 +245,17 @@ def resolve_profiler_kind(
         raise ValueError(
             f"Resolved profiler {candidate.value!r} is not supported for domain "
             f"{domain_name.value!r}; allowed: {allowed_values}."
+        )
+    if (
+        environment_supported_profiler_kinds is not None
+        and candidate not in environment_supported_profiler_kinds
+    ):
+        supported_values = ", ".join(
+            sorted(kind.value for kind in environment_supported_profiler_kinds)
+        )
+        raise ValueError(
+            f"Resolved profiler {candidate.value!r} is not supported by the selected "
+            f"run environment; allowed: {supported_values}."
         )
     return candidate
 

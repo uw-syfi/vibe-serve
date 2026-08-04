@@ -120,6 +120,36 @@ def test_generic_auto_uses_none_when_host_has_no_native_cpu_profiler(monkeypatch
     )
 
 
+def test_generic_auto_respects_environment_profiler_capabilities(monkeypatch):
+    monkeypatch.setattr(platform, "system", lambda: "Linux")
+
+    assert (
+        resolve_profiler_kind(
+            ProfilerKind.AUTO,
+            domain=DomainName.GENERIC,
+            backend_profiler_kind=ProfilerKind.LINUX_CPU,
+            environment_default_profiler_kind=ProfilerKind.TORCH,
+            environment_supported_profiler_kinds=frozenset(
+                {ProfilerKind.AUTO, ProfilerKind.TORCH, ProfilerKind.NONE}
+            ),
+        )
+        is ProfilerKind.NONE
+    )
+
+
+def test_explicit_profiler_respects_environment_capabilities():
+    with pytest.raises(ValueError, match="selected run environment"):
+        resolve_profiler_kind(
+            ProfilerKind.NSYS,
+            domain=DomainName.LLM_SERVING,
+            backend_profiler_kind=ProfilerKind.NSYS,
+            environment_default_profiler_kind=ProfilerKind.TORCH,
+            environment_supported_profiler_kinds=frozenset(
+                {ProfilerKind.AUTO, ProfilerKind.TORCH, ProfilerKind.NONE}
+            ),
+        )
+
+
 @given(
     domain=st.sampled_from(_DOMAINS),
     requested=st.sampled_from(_REQUESTED),

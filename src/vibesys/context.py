@@ -358,6 +358,7 @@ def _assemble_run_context(
         domain=profiler_domain,
         backend_profiler_kind=getattr(backend_impl, "profiler_kind", None),
         environment_default_profiler_kind=environment.default_profiler_kind,
+        environment_supported_profiler_kinds=environment.supported_profiler_kinds,
     )
     profiler_preflight = preflight_profiler_kind(resolved_profiler_kind)
     if not profiler_preflight.usable:
@@ -573,15 +574,14 @@ def create_candidate_context(
 
     - a **git worktree** checked out at ``parent_commit`` (isolated working
       tree / index / detached HEAD; edits never touch the shared tree);
-    - a fresh **run-environment session** (its own Modal editor container);
+    - a fresh **run-environment session** (its own isolated editor sandbox);
     - its own **agent runner** (the CLI runner is not thread-safe);
     - a **no-tee ``RunLogger``** writing only to the candidate's log file — only
       the top-level run logger may own the process ``sys.stderr``.
 
-    Only Modal mode is supported for parallel evaluation (host GPU reselection
-    is a no-op there); the caller is responsible for that gating. Close the
-    returned context (or use it as a context manager) to stop the container and
-    remove the worktree.
+    The caller gates this path on the selected environment's parallel-candidate
+    capability. Close the returned context (or use it as a context manager) to
+    stop environment-owned resources and remove the worktree.
     """
     teardown_stack = ExitStack()
     try:
@@ -644,9 +644,8 @@ def _assemble_candidate_context(
         project_root=PROJECT_ROOT,
     )
 
-    # Reuse the parent's already-provisioned Modal model volume: the shared
-    # run_environment has `model_volume` set from the parent's open(), so this
-    # open() skips re-upload and ref_dir is unneeded.
+    # Reuse adapter-owned resources provisioned when the parent environment was
+    # opened. Candidate sessions do not need to rematerialize reference inputs.
     session = teardown_stack.enter_context(
         parent.run_environment.open(
             RunEnvironmentRequest(
@@ -734,7 +733,7 @@ def _assemble_candidate_context(
         teardown_stack=teardown_stack,
         run_environment_session=session,
         commands=commands,
-        device=parent.device,  # shared; Modal reselect is a no-op
+        device=parent.device,  # shared under the environment's parallel contract
         agent_runner=agent_runner,
     )
 
@@ -1040,20 +1039,6 @@ class _RunContext:
             input(f"\n[debug] {step}. Press Enter to continue...")
 
     def snapshot_workspace(self, label: str) -> None:
-        # Under --modal the implementer writes land in the ephemeral Modal
-        # workspace Volume, not the host workspace dir. Pull the latest
-        # state back to the host before snapshotting so git commits (or
-        # directory copies) actually capture the implementer's code and
-        # tests, not just ``progress.md``. The ModalSandbox's tar-and-
-        # stream download is idempotent and excludes ``.venv`` /
-        # ``__pycache__`` / mounted RO dirs — same set we already skip at
-        # run end — so this is safe to run on every snapshot.
-        if hasattr(self.implementer_backend, "_download_workspace"):
-            try:
-                self.implementer_backend._download_workspace()  # pyright: ignore[reportAttributeAccessIssue]
-            except Exception as exc:
-                self.lprint(f"[warn] modal workspace sync to host failed: {exc}")
-
         if self.git_tracking:
             self.git.snapshot(label)
         else:

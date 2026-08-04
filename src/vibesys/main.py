@@ -47,6 +47,7 @@ from vibesys.repository import (
 )
 from vibesys.sandbox.run_environment import (
     RunEnvironmentSpec,
+    build_run_environment,
     make_run_environment_spec,
 )
 from vibesys.skills import DEFAULT_SKILL_ROOTS, resolve_skill_source_dirs
@@ -67,7 +68,6 @@ _MODALITIES = (
     "kv_store",
 )
 
-_MODAL_PROFILERS = frozenset({ProfilerKind.AUTO, ProfilerKind.TORCH, ProfilerKind.NONE})
 _STUB_AGENT_DEFAULT_INPUT = PROJECT_ROOT / "examples" / "data-structures" / "queue-spsc"
 _STUB_AGENT_DEFAULT_CONFIG_TEXT = '[model]\nname = "gpt-5.5"\n'
 
@@ -431,6 +431,20 @@ def run_environment_spec_from_args(args: argparse.Namespace) -> RunEnvironmentSp
         modal_gpu=args.modal_gpu,
         modal_model_volume=args.modal_model_volume,
         modal_app=args.modal_app,
+    )
+
+
+def _validate_run_environment_profiler(args: argparse.Namespace) -> None:
+    """Validate profiler compatibility through the selected adapter contract."""
+
+    spec = run_environment_spec_from_args(args)
+    supported = build_run_environment(spec).supported_profiler_kinds
+    if supported is None or args.profiler in supported:
+        return
+    allowed = ", ".join(sorted(kind.value for kind in supported))
+    _configuration_error(
+        f"Error: run environment {spec.name!r} does not support "
+        f"--profiler={args.profiler.value}; allowed: {allowed}."
     )
 
 
@@ -900,10 +914,7 @@ def _validate_target_inputs(args: argparse.Namespace) -> None:
 
 
 def _validate_agent(args: argparse.Namespace) -> None:
-    if args.modal and args.profiler not in _MODAL_PROFILERS:
-        _configuration_error(
-            "Error: --modal only supports --profiler=torch, --profiler=auto, or --profiler=none.",
-        )
+    _validate_run_environment_profiler(args)
     if args.max_retries_per_round < 1:
         _configuration_error("Error: --max-retries-per-round must be >= 1.")
     if args.judge_every < 1:
@@ -1168,10 +1179,7 @@ def _build_evolve_parser() -> argparse.ArgumentParser:
 
 
 def _validate_evolve(args: argparse.Namespace) -> None:
-    if args.modal and args.profiler not in _MODAL_PROFILERS:
-        _configuration_error(
-            "Error: --modal only supports --profiler=torch, --profiler=auto, or --profiler=none.",
-        )
+    _validate_run_environment_profiler(args)
     _validate_target_inputs(args)
     if args.children_per_generation < 1:
         _configuration_error("--children-per-generation must be >= 1.")
@@ -1371,10 +1379,7 @@ def _build_plain_parser() -> argparse.ArgumentParser:
 
 
 def _validate_plain(args: argparse.Namespace) -> None:
-    if args.modal and args.profiler not in _MODAL_PROFILERS:
-        _configuration_error(
-            "Error: --modal only supports --profiler=torch, --profiler=auto, or --profiler=none.",
-        )
+    _validate_run_environment_profiler(args)
     _validate_target_inputs(args)
 
 

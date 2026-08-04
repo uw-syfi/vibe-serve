@@ -248,6 +248,30 @@ def test_profiler_none_is_valid_with_modal(builder_name, validator_name, tmp_pat
     assert args.input_bundle.root == bundle.resolve()
 
 
+def test_profiler_validation_uses_selected_environment_capabilities(tmp_path, monkeypatch):
+    import vibesys.main as cli
+
+    bundle = _write_input_bundle(tmp_path)
+    args = cli._build_agent_parser().parse_args(
+        ["--profiler", "nsys", "--input", str(bundle)]
+    )
+    selected_specs = []
+
+    def fake_environment(spec):
+        selected_specs.append(spec)
+        return Mock(
+            supported_profiler_kinds=frozenset(
+                {ProfilerKind.AUTO, ProfilerKind.TORCH, ProfilerKind.NONE}
+            )
+        )
+
+    monkeypatch.setattr(cli, "build_run_environment", fake_environment)
+
+    with pytest.raises(ConfigurationError, match="run environment 'local'"):
+        cli._validate_agent(args)
+    assert [spec.name for spec in selected_specs] == ["local"]
+
+
 def test_validate_evolve_rejects_nonpositive_bootstrap_attempts(tmp_path):
     """--bootstrap-max-attempts must be >= 1; 0 is a configuration error."""
     import vibesys.main as cli

@@ -51,7 +51,7 @@ from vibesys.loops.evolve.search_policy import (
 )
 from vibesys.profilers import ProfilerKind
 from vibesys.run import GitTracker
-from vibesys.sandbox.run_environment import RunEnvironmentSpec, candidate_modal_app_name
+from vibesys.sandbox.run_environment import CandidateRuntime, RunEnvironmentSpec
 from vibesys.schemas import JudgeResponse, MutatorResponse, ProfilerSummary, Verdict
 
 _LLM_SERVING_DOMAIN = resolve_domain(DomainName.LLM_SERVING)
@@ -792,37 +792,31 @@ def test_candidate_runtime_notes_delegates_deployment_naming_to_environment():
             deployment_namespace=base,
             prompt_notes=f"Deploy to Modal app {base}; endpoint {base}-web.",
         ),
-        run_environment=SimpleNamespace(candidate_deployment_name=candidate_modal_app_name),
+        run_environment=SimpleNamespace(
+            candidate_runtime=lambda view, generation, child_idx: CandidateRuntime(
+                prompt_notes="provider-owned candidate instructions",
+                deployment_name=f"candidate-{generation}-{child_idx}",
+            )
+        ),
     )
     notes, app = _candidate_runtime_notes(ctx, generation=3, child_idx=2)
-    expected_app = candidate_modal_app_name(base, 3, 2)
-    assert app == expected_app
-    # Every occurrence of the base name is swapped for the candidate app name
-    # (which itself starts with the base + suffix, so the base survives only as
-    # that prefix — there is no bare, un-suffixed occurrence left).
-    assert notes == f"Deploy to Modal app {expected_app}; endpoint {expected_app}-web."
-    assert notes.count(expected_app) == 2
+    assert app == "candidate-3-2"
+    assert notes == "provider-owned candidate instructions"
 
 
-def test_candidate_runtime_notes_noop_without_modal_app():
-    notes_in = "Local run; no Modal app."
+def test_candidate_runtime_notes_noop_without_named_deployment():
+    notes_in = "Local run; no named deployment."
     ctx = SimpleNamespace(
         run_environment_view=SimpleNamespace(deployment_namespace=None, prompt_notes=notes_in),
-        run_environment=MagicMock(),
+        run_environment=SimpleNamespace(
+            candidate_runtime=lambda view, generation, child_idx: CandidateRuntime(
+                prompt_notes=view.prompt_notes
+            )
+        ),
     )
     notes, app = _candidate_runtime_notes(ctx, generation=1, child_idx=1)
     assert app is None
     assert notes == notes_in
-
-
-def test_candidate_modal_app_name_suffix_and_length():
-    short = candidate_modal_app_name("run-abc", 2, 5)
-    assert short == "run-abc-g2c5"
-
-    long_base = "r" * 80
-    name = candidate_modal_app_name(long_base, 12, 7)
-    assert name.endswith("-g12c7")
-    assert len(name) <= 63
 
 
 # ---------------------------------------------------------------------------

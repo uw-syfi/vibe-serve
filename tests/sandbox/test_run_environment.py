@@ -224,6 +224,21 @@ def test_modal_environment_uses_local_docker_for_editing(tmp_path):
     backend.sandbox.start.assert_called_once()
 
 
+def test_modal_environment_owns_candidate_runtime_naming(tmp_path):
+    backend = FakeBackend()
+    env = build_run_environment(RunEnvironmentSpec("modal"))
+    session = env.open(_request(tmp_path, backend, agent_backend="cli", cli_provider="codex"))
+
+    runtime = env.candidate_runtime(session.view, generation=12, child_idx=7)
+
+    assert runtime.deployment_name is not None
+    assert runtime.deployment_name.endswith("-g12c7")
+    assert len(runtime.deployment_name) <= 63
+    assert session.view.deployment_namespace in runtime.prompt_notes
+    assert "Candidate-specific namespace override" in runtime.prompt_notes
+    assert runtime.deployment_name in runtime.prompt_notes
+
+
 def test_modal_environment_wraps_service_evaluators_with_remote_dispatch(tmp_path):
     backend = FakeBackend()
     env = build_run_environment(RunEnvironmentSpec("modal"))

@@ -56,6 +56,7 @@ DOMAIN_LEAK_CHECKS = (
             "EAGLE",
             "xgrammar",
             "speculative decoding",
+            "Modal",
             "modal_profile",
         ),
     ),
