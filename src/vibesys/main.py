@@ -275,10 +275,11 @@ def _add_common_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--modal-gpu",
         type=str,
-        default="H100",
+        default="H100!",
         help=(
             "Default Modal GPU spec for `@app.function` / `@app.cls` decorators "
-            "(e.g. H100, A100, L40S). Default: H100."
+            "(e.g. H100!, A100-80GB, L40S). The default `H100!` disables "
+            "Modal's automatic H100-to-H200 benchmark upgrade."
         ),
     )
     parser.add_argument(

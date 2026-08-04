@@ -312,7 +312,7 @@ class DockerEnvironment:
 @dataclass(frozen=True)
 class ModalEnvironmentConfig:
     image: str | None = None
-    gpu: str = "H100"
+    gpu: str = "H100!"
     model_volume: str | None = None
     app: str = "vibesys"
 
@@ -332,7 +332,7 @@ class ModalEnvironment(_NoopWorkspaceRecovery):
         return cls(
             ModalEnvironmentConfig(
                 image=str(options["image"]) if options.get("image") else None,
-                gpu=str(options.get("gpu") or "H100"),
+                gpu=str(options.get("gpu") or "H100!"),
                 model_volume=(
                     str(options["model_volume"]) if options.get("model_volume") else None
                 ),
@@ -556,7 +556,7 @@ def make_run_environment_spec(
     use_docker: bool = False,
     docker_image: str | None = None,
     use_modal: bool = False,
-    modal_gpu: str = "H100",
+    modal_gpu: str = "H100!",
     modal_model_volume: str | None = None,
     modal_app: str = "vibesys",
 ) -> RunEnvironmentSpec:
@@ -658,6 +658,13 @@ def _modal_runtime_notes(gpu: str, app_name: str) -> str:
         "`@modal.enter()` for model load and `@modal.method()` for "
         "inference. Define benchmark / profile entry points as "
         f"`@app.function(image=..., gpu={gpu!r}, volumes=...)`.\n"
+        f"  - **Accelerator identity is an experimental contract.** Use the "
+        f"configured Modal GPU spec `{gpu}` verbatim on every candidate, "
+        "controller, benchmark, and profiler function; do not weaken or "
+        "substitute it. Before paid measurement, record the accelerator name "
+        "from the remote runtime and fail closed if a strict spec is not "
+        "satisfied. In particular, Modal may upgrade bare `H100` requests to "
+        "H200; `H100!` requests an exact H100 for reproducible benchmarking.\n"
         "  - Treat the Modal container as the authoritative runtime. The "
         "Python, accelerator, package, compiler, and library versions in "
         "this editor container may differ and must not be used to infer "

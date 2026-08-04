@@ -13,7 +13,7 @@ image = (
 
 @app.function(
     image=image,
-    gpu="H100",
+    gpu="H100!",
     timeout=7200,
     cpu=8.0,
     memory=65536,

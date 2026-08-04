@@ -325,6 +325,19 @@ def test_modal_environment_prompt_notes_require_remote_runtime_fingerprint(tmp_p
     assert "same Modal image and hardware" in notes
 
 
+def test_modal_environment_requires_exact_default_h100_identity(tmp_path):
+    backend = FakeBackend()
+    env = build_run_environment(RunEnvironmentSpec("modal"))
+
+    env.open(_request(tmp_path, backend, agent_backend="cli", cli_provider="codex"))
+    notes = _modal_runtime_document(tmp_path)
+
+    assert "gpu='H100!'" in notes
+    assert "Accelerator identity is an experimental contract" in notes
+    assert "Modal may upgrade bare `H100` requests to H200" in notes
+    assert "fail closed" in notes
+
+
 def test_modal_environment_documents_history_and_exact_measurement_source(tmp_path):
     backend = FakeBackend()
     env = build_run_environment(RunEnvironmentSpec("modal"))
