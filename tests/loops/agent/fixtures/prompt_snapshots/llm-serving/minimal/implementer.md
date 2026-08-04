@@ -67,15 +67,15 @@ machine-readable diff, captured before paid measurement.
 - Stage paid work behind the directional gate and reuse compatible initialized
   state. Budgets are cumulative across the hypothesis; retries, reviews, and
   new framework rounds never replenish them.
-- Persist raw rows, commands/configuration, failures, operating point, point-local
-  telemetry, and source identity atomically. Never discard a valid completed row
-  because a later diagnostic fails.
-- Compare the same candidate, workload, offered load, and selected row. Forecast
-  error calibrates the model; the separately justified minimum decides causal
-  retention. Classify objective-level Pareto retention independently.
-- Fail closed on harness/controller gates: preserve the diagnostic and make zero
-  downstream paid calls. A timeout must terminate work and release resources,
-  not merely stop waiting.
+- Atomically persist raw rows, configuration, failures, operating point,
+  point-local telemetry, and source identity; retain valid rows despite later
+  diagnostic failure.
+- Compare the same candidate/workload/offered load/selected row. Forecast error
+  calibrates the model; the justified minimum decides causal retention; classify
+  Pareto retention separately.
+- Fail closed on controller gates: save the diagnostic, make zero downstream paid
+  calls, and terminate/release resources on timeout. Relate only counters with
+  the same scope/owner; cheaply test positive, zero, and mixed cases pre-target.
 - Monitor long work through externally visible progress at a reasonable cadence;
   quiet output alone is not failure. Clean up processes, tasks, sockets, and
   accelerators on success, error, timeout, and cancellation.

@@ -35,15 +35,14 @@ The survivor-task counter was not sampled after cancellation.
 
 
 
-Before target work, run cheap checks and stage every target-read
-build/provenance/gate input. Preserve valid rows and
-workload/accounting/admission; clean up every exit. Return
-`continue` only with one bounded same-mechanism next step; otherwise close
-truthfully.
-Reuse a matching framework validation PASS when declared inputs are unchanged.
-For new or changed bounded local/static checks, read the validation recipe
-contract and return a conforming path as `validation_recipe_artifact`; never
-include target, deployment, benchmark, profiler, or official evaluator commands.
+Before target work, stage every target-read build/provenance/gate input. Relate
+only custom-gate counters with the same scope/owner; cheaply test positive, zero,
+mixed cases. Preserve valid rows, workload/accounting/admission, cleanup.
+Return `continue` only for one bounded same-mechanism step; otherwise close
+truthfully. Reuse an unchanged-input framework validation PASS. For new/changed
+bounded local/static checks, read the recipe contract and return a conforming
+`validation_recipe_artifact`; exclude target, deployment, benchmark, profiler,
+and official-evaluator commands.
 
 Return only the schema-valid JSON object. The framework records it; do not edit
 or duplicate framework-owned progress sections.
