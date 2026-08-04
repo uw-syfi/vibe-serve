@@ -465,6 +465,7 @@ def append_hypothesis_continuation(
     *,
     plan: OrchestratorPlan,
     started_round: int,
+    continuation_step: str,
 ) -> None:
     block = (
         f"## Round {round_number} — Active hypothesis continuation\n"
@@ -472,7 +473,7 @@ def append_hypothesis_continuation(
         f"- **started_round**: {started_round}\n"
         "- **designer_invocation**: skipped; implementer retains ownership\n\n"
         f"### Hypothesis\n{plan.hypothesis or '(unspecified)'}\n\n"
-        f"### Current task\n{plan.task}\n"
+        f"### Current continuation delta\n{continuation_step}\n"
     )
     _append(progress_path, block, round_number)
 

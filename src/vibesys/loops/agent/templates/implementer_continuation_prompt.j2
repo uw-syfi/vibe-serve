@@ -5,7 +5,7 @@ restate or rediscover completed work.
 ## Authoritative state
 
 - Objective: `{{ objective_location|default('OBJECTIVE.md') }}`
-- Active typed plan: `{{ plan_artifact_location|default('progress/plans/current.json') }}`
+- Hypothesis contract: `{{ plan_artifact_location|default('progress/plans/current.json') }}`
 - Current round state: `{{ current_round_location|default(progress_location|default('progress.md')) }}`
 - Progress ledger: `{{ progress_location|default('progress.md') }}`
 - Pareto archive: `{{ pareto_archive_location|default('pareto-frontier.md') }}`
@@ -33,6 +33,11 @@ smallest local/report-only correction or return the truthful incomplete outcome.
 ## Required continuation delta
 
 {{ continuation_step }}
+
+This delta replaces the plan's original task/pass criteria as current scope. It
+may change implementation details, but not the hypothesis, falsifier, minimum,
+invariants, paid-work cap, evidence/workload identity, or correctness,
+lifecycle, and evaluation gates; otherwise return control to the designer.
 
 {% if feedback %}
 ## New review/framework feedback
@@ -66,9 +71,7 @@ then prove the repair reaches that exact path; a sibling or internal route is
 not a substitute.
 {% endif %}
 
-Preserve the original hypothesis, falsifier, minimum, invariants, paid-work hard
-maximum, evidence identity, and outcome semantics from the typed plan. Use cheap
-checks before target work and verify every target-read build/provenance/gate
+Use cheap checks before target work and verify every target-read build/provenance/gate
 input is staged rather than editor-only. Retain every valid completed row, never
 manufacture performance by changing workload/accounting/admission, and clean up
 all work on every exit. Return `continue` only for one bounded same-mechanism next step;

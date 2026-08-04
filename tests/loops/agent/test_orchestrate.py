@@ -1072,11 +1072,12 @@ def test_progress_replacement_preserves_operator_recovery_section(tmp_path):
         plan=OrchestratorPlan(
             hypothesis_id="transport",
             hypothesis="remove queue fanout",
-            task="recover exact source",
+            task="stale initial implementation task",
             pass_criteria="source is recoverable",
             reasoning="continue interrupted work",
         ),
         started_round=6,
+        continuation_step="recover exact source",
     )
     round_file = progress / "round-0007.md"
     with round_file.open("a") as document:
@@ -1091,17 +1092,20 @@ def test_progress_replacement_preserves_operator_recovery_section(tmp_path):
         plan=OrchestratorPlan(
             hypothesis_id="transport",
             hypothesis="remove queue fanout",
-            task="verify recovered source",
+            task="stale initial implementation task",
             pass_criteria="source is recoverable",
             reasoning="resume interrupted work",
         ),
         started_round=6,
+        continuation_step="verify recovered source",
     )
 
     text = round_file.read_text()
     assert text.count("## Round 7 — Active hypothesis continuation") == 1
+    assert "### Current continuation delta" in text
     assert "verify recovered source" in text
     assert "recover exact source" not in text
+    assert "stale initial implementation task" not in text
     assert text.count("## Operator recovery evidence") == 1
     assert "Exact measured bytes are retained" in text
 

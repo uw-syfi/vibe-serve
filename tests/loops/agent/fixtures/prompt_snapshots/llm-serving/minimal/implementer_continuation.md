@@ -5,7 +5,7 @@ restate or rediscover completed work.
 ## Authoritative state
 
 - Objective: `OBJECTIVE.md`
-- Active typed plan: `progress/plans/round-0080.json`
+- Hypothesis contract: `progress/plans/round-0080.json`
 - Current round state: `progress/round-0081.md`
 - Progress ledger: `progress/`
 - Pareto archive: `progress/pareto-frontier.md`
@@ -19,6 +19,11 @@ state from these paths before acting; do not scan the full campaign.
 
 Repair the blocked-send cancellation probe and retain its artifact.
 
+This delta replaces the plan's original task/pass criteria as current scope. It
+may change implementation details, but not the hypothesis, falsifier, minimum,
+invariants, paid-work cap, evidence/workload identity, or correctness,
+lifecycle, and evaluation gates; otherwise return control to the designer.
+
 ## New review/framework feedback
 
 The survivor-task counter was not sampled after cancellation.
@@ -26,9 +31,7 @@ The survivor-task counter was not sampled after cancellation.
 
 
 
-Preserve the original hypothesis, falsifier, minimum, invariants, paid-work hard
-maximum, evidence identity, and outcome semantics from the typed plan. Use cheap
-checks before target work and verify every target-read build/provenance/gate
+Use cheap checks before target work and verify every target-read build/provenance/gate
 input is staged rather than editor-only. Retain every valid completed row, never
 manufacture performance by changing workload/accounting/admission, and clean up
 all work on every exit. Return `continue` only for one bounded same-mechanism next step;

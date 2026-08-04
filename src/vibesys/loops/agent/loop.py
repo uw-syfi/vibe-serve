@@ -2514,6 +2514,7 @@ def run_agent_loop(
                         round_number,
                         plan=plan,
                         started_round=active_hypothesis.started_round,
+                        continuation_step=active_hypothesis.next_step or plan.task,
                     )
                     ctx.lprint(
                         f"[hypothesis] continuing {plan.hypothesis_id}; designer invocation skipped"
