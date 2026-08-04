@@ -422,6 +422,22 @@ def test_pre_round_prompt_is_path_only_and_skips_future_rollback_target():
     assert "Do not request a different profiler" in rendered
 
 
+def test_pre_round_prompt_disables_none_profiler_without_fake_capture_path():
+    rendered = render_template(
+        "orchestrator_pre_round_prompt.j2",
+        template_dir=_TEMPLATE_DIR,
+        objective_location="OBJECTIVE.md",
+        progress_location="progress/",
+        profiler_kind="none",
+        profile_execution="remote",
+    )
+
+    assert "Standalone profiling is disabled" in rendered
+    assert "need_profile=false" in rendered
+    assert "`none` profiling" not in rendered
+    assert "`remote` capture path" not in rendered
+
+
 def test_official_evaluation_due_changes_agent_measurement_contract():
     context = _CONTEXTS["full"] | {
         "official_evaluation_due": True,

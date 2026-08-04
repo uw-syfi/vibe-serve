@@ -8,13 +8,18 @@ Keep this routing decision bounded: normally inspect no more than one older
 named entry or one narrow skill reference, and only when it can change the
 yes/no answer. Do not inventory the campaign or roadmap.
 
-The framework can run `{{ profiler_kind|default('none') }}` profiling through
-its `{{ profile_execution|default('local') }}` capture path. Request only
-evidence that path can observe. Do not request a different profiler. If the
-needed discriminator is outside its visibility, skip profiling and record that
+{% if profiler_kind|default('none') == 'none' %}
+Standalone profiling is disabled. Set `need_profile=false`; record any missing
+visibility as uncertainty for the design call rather than requesting capture.
+{% else %}
+The framework can run `{{ profiler_kind }}` profiling through its
+`{{ profile_execution|default('local') }}` capture path. Request only evidence
+that path can observe. Do not request a different profiler. If the needed
+discriminator is outside its visibility, skip profiling and record that
 capability gap in your reasoning for the design call.
 Treat this declared capability as authoritative; do not audit profiler source
 or design new capture infrastructure in this phase.
+{% endif %}
 
 Request profiling when current source/history cannot locate the next mechanism,
 a comparable flat/regressed result needs attribution, or one measured
