@@ -61,6 +61,7 @@ class RunEnvironmentSpec:
 class AgentPaths:
     """Command and helper paths as agents should use them in the active environment."""
 
+    objective: str = "OBJECTIVE.md"
     accuracy_command: str | None = None
     benchmark_command: str | None = None
     profiler_support: str | None = None
@@ -111,6 +112,7 @@ class RunEnvironmentRequest:
     backend: ComputeBackendImpl
     agent_backend: str | None
     cli_provider: str | None
+    objective: str | None = None
     accuracy_command: str | None = None
     benchmark_command: str | None = None
     profiler_support_path: str | None = None
@@ -209,6 +211,7 @@ class LocalEnvironment(_NoopWorkspaceRecovery):
     backend_image: str | None = None
 
     def open(self, request: RunEnvironmentRequest) -> RunEnvironmentSession:
+        objective_document = _materialize_effective_objective(request)
         sandbox = request.backend.make_sandbox(
             SandboxKind.LOCAL,
             host_workspace=str(request.workspace),
@@ -222,6 +225,11 @@ class LocalEnvironment(_NoopWorkspaceRecovery):
             sandbox=sandbox,
             view=RunEnvironmentView(
                 paths=AgentPaths(
+                    objective=(
+                        str(objective_document)
+                        if objective_document is not None
+                        else "OBJECTIVE.md"
+                    ),
                     accuracy_command=request.accuracy_command,
                     benchmark_command=request.benchmark_command,
                     profiler_support=request.profiler_support_path,
@@ -461,6 +469,11 @@ class ModalEnvironment(_NoopWorkspaceRecovery):
             sandbox=sandbox,
             view=RunEnvironmentView(
                 paths=AgentPaths(
+                    objective=(
+                        "/opt/vibesys-runtime/objective.md"
+                        if request.objective is not None
+                        else "OBJECTIVE.md"
+                    ),
                     accuracy_command=_prefix_command(evaluator_prefix, request.accuracy_command),
                     benchmark_command=_prefix_command(evaluator_prefix, request.benchmark_command),
                     profiler_support=(
@@ -842,8 +855,25 @@ def _modal_runtime_notes(gpu: str, app_name: str) -> str:
     )
 
 
+def _materialize_effective_objective(request: RunEnvironmentRequest) -> Path | None:
+    """Persist the exact run objective outside candidate Git history.
+
+    Operator constraints are composed at the CLI boundary. Keeping the effective
+    text in the framework-owned log directory makes it survive candidate rollback
+    and resume, while isolated environments mount it read-only for every role.
+    """
+    if request.objective is None:
+        return None
+    path = request.log_dir / "effective-objective.md"
+    path.write_text(request.objective)
+    return path
+
+
 def _isolated_paths(request: RunEnvironmentRequest) -> AgentPaths:
     return AgentPaths(
+        objective=(
+            "/opt/vibesys-runtime/objective.md" if request.objective is not None else "OBJECTIVE.md"
+        ),
         accuracy_command=request.accuracy_command,
         benchmark_command=request.benchmark_command,
         profiler_support=(request.profiler_support_name if request.profiler_support_path else None),
@@ -921,6 +951,10 @@ def _container_mount_plan(
             )
 
     passthrough_paths: list[str] = []
+    objective_document = _materialize_effective_objective(request)
+    if objective_document is not None:
+        bind_mounts.append((str(objective_document), "/opt/vibesys-runtime/objective.md", True))
+        passthrough_paths.append("/opt/vibesys-runtime")
     if request.git_history_root is not None:
         bind_mounts.append((str(request.git_history_root), "/opt/vibesys-history", True))
         passthrough_paths.append("/opt/vibesys-history")

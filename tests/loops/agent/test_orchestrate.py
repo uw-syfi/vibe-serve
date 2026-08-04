@@ -1623,6 +1623,38 @@ def test_loop_round_one_no_profile_runs_one_round(tmp_path, ref_file):
     assert runner.counters["judge"] == 1
 
 
+def test_agent_roles_reference_framework_owned_effective_objective(tmp_path, ref_file):
+    effective = (
+        "Optimize the service.\n\n## Operator constraints\n\n- simultaneous exact H100/BF16\n"
+    )
+    runner = _make_orchestrate_runner(
+        plans=[
+            OrchestratorPlan(
+                task="Optimize the BF16 path",
+                pass_criteria="BF16 remains active",
+                reasoning="respect the hard precision constraint",
+            )
+        ],
+    )
+
+    _invoke_orchestrate(
+        tmp_path,
+        ref_file,
+        runner,
+        objective=effective,
+        max_rounds=1,
+    )
+
+    objective_path = next((tmp_path / "exp_env").glob("*/logs/effective-objective.md"))
+    assert objective_path.read_text() == effective
+    for call in runner.invoke.call_args_list:
+        if call.kwargs.get("kind") not in {"orchestrator", "implementer", "judge"}:
+            continue
+        prompt = call.kwargs["system_prompt"]
+        assert str(objective_path) in prompt
+        assert "simultaneous exact H100/BF16" not in prompt
+
+
 def test_implementer_skill_updates_survive_a_renewed_continuation_prompt(tmp_path, ref_file):
     skill = tmp_path / "skills" / "portable"
     reference = skill / "references" / "transport.md"

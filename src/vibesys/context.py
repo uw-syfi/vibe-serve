@@ -172,6 +172,7 @@ def create_run_context(
     workspace_seed: Path | None = None,
     workspace_sources: tuple[WorkspaceSource, ...] = (),
     evaluator_path: Path | None = None,
+    objective: str | None = None,
     existing: bool = False,
     trusted_input_baseline: str | None = None,
     debug: bool = False,
@@ -207,6 +208,7 @@ def create_run_context(
             workspace_seed=workspace_seed,
             workspace_sources=workspace_sources,
             evaluator_path=evaluator_path,
+            objective=objective,
             existing=existing,
             trusted_input_baseline=trusted_input_baseline,
             debug=debug,
@@ -251,6 +253,7 @@ def _assemble_run_context(
     workspace_seed: Path | None,
     workspace_sources: tuple[WorkspaceSource, ...],
     evaluator_path: Path | None,
+    objective: str | None,
     existing: bool,
     trusted_input_baseline: str | None,
     debug: bool,
@@ -462,6 +465,7 @@ def _assemble_run_context(
                 backend=backend_impl,
                 agent_backend=resolved_backend,
                 cli_provider=resolved_cli_provider,
+                objective=objective,
                 accuracy_command=accuracy_command,
                 benchmark_command=benchmark_command,
                 profiler_support_path=profiler_support_path,
@@ -534,6 +538,7 @@ def _assemble_run_context(
         input_path=input_path_str,
         workspace_seed_path=workspace_seed_path,
         evaluator_path=evaluator_source,
+        effective_objective=objective,
         accuracy_command=accuracy_command,
         benchmark_command=benchmark_command,
         profiler_kind=resolved_profiler_kind,
@@ -630,6 +635,7 @@ def _assemble_candidate_context(
 
     resolved_backend = agent_backend or config.agent.backend or DEFAULT_AGENT_BACKEND
     resolved_cli_provider = cli_provider or config.agent.cli_provider or "codex"
+    effective_objective = getattr(parent, "effective_objective", None)
 
     git = GitTracker(
         workspace,
@@ -655,6 +661,7 @@ def _assemble_candidate_context(
                 backend=parent.backend_impl,
                 agent_backend=resolved_backend,
                 cli_provider=resolved_cli_provider,
+                objective=effective_objective,
                 accuracy_command=parent.accuracy_command,
                 benchmark_command=parent.benchmark_command,
                 profiler_support_path=parent.profiler_support_path,
@@ -715,6 +722,7 @@ def _assemble_candidate_context(
         input_path=parent.input_path,
         workspace_seed_path=None,
         evaluator_path=parent.evaluator_path,
+        effective_objective=effective_objective,
         accuracy_command=parent.accuracy_command,
         benchmark_command=parent.benchmark_command,
         profiler_kind=parent.profiler_kind,
@@ -770,6 +778,7 @@ class _RunContext:
         input_path: str | None,
         workspace_seed_path: Path | None,
         evaluator_path: Path | None,
+        effective_objective: str | None,
         accuracy_command: str,
         benchmark_command: str,
         profiler_kind: ProfilerKind,
@@ -802,6 +811,7 @@ class _RunContext:
         self.input_path = input_path
         self.workspace_seed_path = workspace_seed_path
         self.evaluator_path = evaluator_path
+        self.effective_objective = effective_objective
         self.accuracy_command = accuracy_command
         self.benchmark_command = benchmark_command
         self.profiler_kind = profiler_kind
@@ -1076,6 +1086,11 @@ class _RunContext:
     # Canonical values live in the frozen ``RunCommands`` snapshot; these
     # properties keep existing ``ctx.judge_accuracy_command``-style call
     # sites working.
+
+    @property
+    def objective_location(self) -> str:
+        """Return the framework-owned effective objective path seen by agents."""
+        return self.run_environment_view.paths.objective
 
     @property
     def judge_accuracy_command(self) -> str | None:

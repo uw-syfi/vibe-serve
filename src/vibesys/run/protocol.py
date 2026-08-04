@@ -56,6 +56,9 @@ class LoopContext(Protocol):
 
     # -- agent-facing commands ------------------------------------------------
     @property
+    def objective_location(self) -> str: ...
+
+    @property
     def judge_accuracy_command(self) -> str | None: ...
 
     @property

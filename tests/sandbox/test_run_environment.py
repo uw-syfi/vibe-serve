@@ -92,6 +92,19 @@ def test_local_environment_opens_local_sandbox_with_host_paths(tmp_path):
     backend.sandbox.start.assert_not_called()
 
 
+def test_local_environment_materializes_effective_objective_outside_workspace(tmp_path):
+    backend = FakeBackend()
+    env = build_run_environment(RunEnvironmentSpec("local"))
+    effective = "Optimize the service.\n\n## Operator constraints\n\n- BF16 only\n"
+
+    session = env.open(_request(tmp_path, backend, objective=effective))
+
+    objective_path = Path(session.view.paths.objective)
+    assert objective_path == tmp_path / "logs" / "effective-objective.md"
+    assert objective_path.read_text() == effective
+    assert not objective_path.is_relative_to(tmp_path / "workspace")
+
+
 def test_docker_environment_opens_one_started_sandbox_with_agent_paths(tmp_path):
     backend = FakeBackend()
     env = build_run_environment(RunEnvironmentSpec("docker"))
@@ -116,6 +129,24 @@ def test_docker_environment_opens_one_started_sandbox_with_agent_paths(tmp_path)
 
     session.close()
     backend.sandbox.stop.assert_called_once()
+
+
+def test_docker_environment_mounts_effective_objective_read_only(tmp_path):
+    backend = FakeBackend()
+    env = build_run_environment(RunEnvironmentSpec("docker"))
+    effective = "Optimize.\n\n## Operator constraints\n\n- exact BF16\n"
+
+    session = env.open(_request(tmp_path, backend, objective=effective))
+
+    host_path = tmp_path / "logs" / "effective-objective.md"
+    assert host_path.read_text() == effective
+    assert (
+        str(host_path),
+        "/opt/vibesys-runtime/objective.md",
+        True,
+    ) in backend.calls[0][1]["bind_mounts"]
+    assert "/opt/vibesys-runtime" in backend.calls[0][1]["passthrough_paths"]
+    assert session.view.paths.objective == "/opt/vibesys-runtime/objective.md"
 
 
 def test_docker_environment_copies_cli_auth_from_readonly_staging(tmp_path, monkeypatch):
@@ -353,6 +384,31 @@ def test_modal_environment_prompt_references_runtime_document(tmp_path):
     )
     for term in prior_solution_terms:
         assert term.casefold() not in runtime.casefold()
+
+
+def test_modal_environment_mounts_effective_objective_read_only(tmp_path):
+    backend = FakeBackend()
+    env = build_run_environment(RunEnvironmentSpec("modal"))
+    effective = "Optimize.\n\n## Operator constraints\n\n- no quantization\n"
+
+    session = env.open(
+        _request(
+            tmp_path,
+            backend,
+            agent_backend="cli",
+            cli_provider="codex",
+            objective=effective,
+        )
+    )
+
+    host_path = tmp_path / "logs" / "effective-objective.md"
+    assert host_path.read_text() == effective
+    assert (
+        str(host_path),
+        "/opt/vibesys-runtime/objective.md",
+        True,
+    ) in backend.calls[0][1]["bind_mounts"]
+    assert session.view.paths.objective == "/opt/vibesys-runtime/objective.md"
 
 
 def test_modal_environment_prompt_notes_require_remote_runtime_fingerprint(tmp_path):
