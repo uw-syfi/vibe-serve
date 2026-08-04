@@ -42,6 +42,7 @@ func (a *Application) Properties() []api.AccuracyProperty {
 		{Name: "search_availability", Required: true},
 		{Name: "recommendation_semantics", Required: true},
 		{Name: "authentication_semantics", Required: true},
+		{Name: "sequential_differential", Required: true},
 		{Name: "reservation_optional_number", Required: true},
 		{Name: "reservation_capacity", Required: true},
 		{Name: "read_your_write", Required: true},

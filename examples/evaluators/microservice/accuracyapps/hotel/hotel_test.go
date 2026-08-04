@@ -260,7 +260,7 @@ func TestApplicationContractAndReservationNamespace(t *testing.T) {
 		t.Fatalf("policy=%+v", policy)
 	}
 	properties := application.Properties()
-	if len(properties) != 13 {
+	if len(properties) != 14 {
 		t.Fatalf("properties=%v", properties)
 	}
 	for _, property := range properties {

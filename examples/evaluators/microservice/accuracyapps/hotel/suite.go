@@ -63,6 +63,15 @@ func (a *Application) Check(
 		return err
 	}
 
+	checks, err = a.verifySequentialDifferential(ctx, c, check.Seed, check.Cases)
+	recorder.AddChecks(checks)
+	if err != nil {
+		return err
+	}
+	if err := recorder.Pass("sequential_differential"); err != nil {
+		return err
+	}
+
 	checks, err = a.verifySearchAvailability(ctx, c, check.Seed, random)
 	recorder.AddChecks(checks)
 	if err != nil {
