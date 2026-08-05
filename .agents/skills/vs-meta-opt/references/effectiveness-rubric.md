@@ -62,6 +62,7 @@ A failed candidate can be a good experiment. A strong candidate can result from 
 - Did plateaus lead to genuinely different system hypotheses?
 - Did prompts anchor the search to an incumbent implementation or environment?
 - Were reusable domain methods supplied through selectively loaded skills?
+- When independently reviewed, was VibeSys's next step competitive on evidence, impact, falsifiability, and cost?
 - Would the system policy remain sensible for another domain?
 
 ### Other
@@ -100,6 +101,7 @@ Report at least one measure from each relevant dimension:
 - Infrastructure failure and recovery rate.
 - Invalid promotion and rejection counts.
 - Hypotheses with activation and falsification evidence.
+- Counterfactual review rate, proposal-gap rate, and later independent improvement after system changes.
 
 Do not collapse these into one reward unless the tradeoffs and hard integrity constraints are explicit. A scalar can hide whether VibeSys learned efficiently or merely optimized the measurement.
 

@@ -73,6 +73,12 @@
 | --- | --- | --- | --- | --- | --- |
 | | | | | | |
 
+### Counterfactual trajectory reviews
+
+| Round/window | Trigger | Independent review artifacts | Review cost | VibeSys proposal | Comparison | Attributed failure | System response |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| | | | | | | | |
+
 ### Leakage review
 
 - [ ] Prompts contain procedures and contracts, not candidate optimizations or benchmark answers.

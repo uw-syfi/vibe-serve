@@ -1,5 +1,14 @@
 # VS Meta Opt Diagnosis and Control Levers
 
+## Contents
+
+- Attribute Before Intervening
+- Map Symptoms to Levers
+- Diagnose Counterfactual Proposal Gaps
+- Choose the Correct Change Surface
+- Protect Role Boundaries
+- Generality Gate
+
 ## Attribute Before Intervening
 
 Identify the smallest VibeSys-owned mechanism that explains the observed trajectory. Do not recommend a generic prompt change when the evidence points to evaluator semantics, missing instrumentation, session lifecycle, or candidate difficulty.
@@ -30,9 +39,24 @@ If none fits cleanly, classify the mechanism as `Other` and explain what the tax
 | Judge cost without changed dispositions | Risk-triggered cadence and narrower review input |
 | Repeated rediscovery after session renewal | Durable runtime docs, scripts, or selectively loaded skills |
 | Search anchored to incumbent structure | Neutral interfaces and explicit permission for substrate changes |
+| Independent plateau reviewers repeatedly propose stronger directions | Performance-modeling contract, role scope, evidence routing, skill selection, or search diversity |
 | Recurring uncategorized pattern | `Other`, new instrumentation, then possible taxonomy extension |
 
 Treat this table as a starting vocabulary, not a lookup that proves causality.
+
+## Diagnose Counterfactual Proposal Gaps
+
+When independent reviewers produce a materially stronger next step, do not copy the step into VibeSys. Identify why the normal loop missed or rejected it:
+
+- A missing causal, gap, or ceiling model is usually a search-policy or knowledge issue.
+- A role doing planning, implementation, evaluation, and synthesis poorly may be a coordination or context issue.
+- Missing or stale measurements may be evidence-routing, evaluation, or instrumentation issues.
+- An unavailable or undiscoverable reusable method may be a skill or knowledge issue.
+- Incumbent anchoring may arise from prompt context, parent selection, or continuation policy.
+- A rational miss under uncertainty may require no intervention.
+- A mechanism outside the taxonomy belongs in `Other` with an explanation.
+
+Change the smallest system mechanism that makes future discovery more likely, then validate on later decisions the reviewers did not answer in advance.
 
 ## Choose the Correct Change Surface
 

@@ -6,6 +6,7 @@
 - Launch and Segment the Campaign
 - Monitor with Adaptive Heartbeats
 - Check Every Completed Round
+- Run Counterfactual Reviews Selectively
 - Pause, Modify, and Resume
 - Enforce Budgets
 - Handle Failures and Finish
@@ -37,7 +38,7 @@ Treat a continuous period governed by one VibeSys commit as a campaign segment. 
 - Active meta-hypothesis, if any.
 - End checkpoint, reason, and evidence paths.
 
-Do not hot-edit the framework under a live process. Reach a durable round boundary, stop or pause, change and commit VibeSys, then resume as a new segment.
+Keep the source tree consumed by the live process stable. VS Meta Opt may develop and commit changes concurrently in a separate clean worktree. Activate them only by starting or resuming a new segment pinned to the new commit.
 
 ## Monitor with Adaptive Heartbeats
 
@@ -95,9 +96,17 @@ Trigger deeper analysis when:
 - Integrity, candidate provenance, or reward-hacking risk is uncertain.
 - A meta-intervention reaches its validation checkpoint.
 
+## Run Counterfactual Reviews Selectively
+
+When a plateau or uncertain next step makes an independent comparison valuable, follow `references/counterfactual-review.md`. Do not invoke reviewers merely because a round completed.
+
+First preserve VibeSys's next proposal. Then give fresh subagents raw artifact paths without that proposal, collect their alternatives, and compare only after independence is established. Charge their time and tokens to the run budget.
+
+Use the comparison to diagnose VibeSys. A stronger independent proposal is evidence of a possible modeling, role-scope, context, skill-routing, search-policy, incentive, knowledge, or `Other` failure—not permission to hardcode that proposal into future prompts.
+
 ## Pause, Modify, and Resume
 
-At a safe boundary:
+At a safe activation boundary, after any parallel development in a separate worktree:
 
 1. Save campaign and candidate checkpoints.
 2. Terminate or pause the VibeSys process without leaking owned resources.

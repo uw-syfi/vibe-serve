@@ -1,6 +1,6 @@
 ---
 name: vs-meta-opt
-description: Run and audit long-lived VibeSys meta-optimization campaigns that improve VibeSys as an optimizer rather than directly optimizing its bespoke candidate. Use when Codex should launch or resume VibeSys with a specified input, monitor every completed round, diagnose ineffective agent-system behavior, implement and commit VibeSys changes, compare later trajectory windows, and repeat within round, time, cost, or intervention budgets.
+description: Run and audit long-lived VibeSys meta-optimization campaigns that improve VibeSys as an optimizer rather than directly optimizing its bespoke candidate. Use when Codex should launch or resume VibeSys with a specified input, monitor every completed round, use independent counterfactual reviews when a trajectory plateaus or becomes uncertain, diagnose ineffective agent-system behavior, implement and commit VibeSys changes, compare later trajectory windows, and repeat within round, time, cost, or intervention budgets.
 ---
 
 # VS Meta Opt
@@ -19,6 +19,7 @@ Preserve a strict boundary:
 
 - Read [run-control.md](references/run-control.md) before launching, monitoring, pausing, resuming, or terminating a long-running VibeSys campaign.
 - Read [effectiveness-rubric.md](references/effectiveness-rubric.md) to audit a round, trajectory window, or multiple campaigns.
+- Read [counterfactual-review.md](references/counterfactual-review.md) before using independent subagents to assess whether VibeSys is choosing strong next steps.
 - Read [diagnosis-and-levers.md](references/diagnosis-and-levers.md) to attribute a deficiency, choose a VibeSys control lever, or check for prompt leakage.
 - Read [meta-experiments-and-commits.md](references/meta-experiments-and-commits.md) before changing VibeSys or validating whether a system change helped.
 - Use [meta-run-pr-template.md](assets/meta-run-pr-template.md) to open and maintain the required draft PR.
@@ -47,7 +48,7 @@ Start from the intended VibeSys parent on a dedicated clean branch. Open the dra
 
 Run VibeSys with the specified input and exact recorded command. Preserve the campaign checkpoint and candidate state across process restarts. Record the VibeSys commit governing each campaign segment.
 
-Do not edit VibeSys underneath a running process. Apply system changes only after reaching or creating a safe round boundary.
+Do not mutate the source tree consumed by the active process. Develop and commit changes concurrently in a separate clean worktree when useful, but treat them as inactive until a new campaign segment starts or resumes under that commit.
 
 ### 3. Monitor with adaptive heartbeats
 
@@ -70,11 +71,15 @@ Use a lightweight per-round check to answer:
 
 If the trajectory remains healthy, record a compact checkpoint and continue without proposing a change. Trigger a deeper audit when a warning recurs, the trajectory plateaus, integrity is uncertain, cost rises unexpectedly, or the current validation window ends.
 
+When the next-step quality is uncertain—especially during a plateau—consider a counterfactual trajectory review using [counterfactual-review.md](references/counterfactual-review.md). Give fresh subagents the legitimate objective and raw artifact paths, but withhold VibeSys's proposed next step until they produce independent alternatives. Do not run this panel automatically after every round.
+
 ### 5. Audit and form the next meta-hypothesis
 
 Apply [effectiveness-rubric.md](references/effectiveness-rubric.md) at round, window, and campaign timescales. Classify findings, including `Other` when nothing fits cleanly, and identify the narrowest VibeSys-owned mechanism supported by evidence.
 
-Propose one next intervention with expected meta-metric effects, likely regressions, a validation window, success criteria, and a reversion condition. If evidence is insufficient, improve instrumentation before changing behavior.
+When a counterfactual review exists, compare its proposals with VibeSys's choice using evidence fit, causal model, expected impact, falsifiability, cost, integrity, and novelty. Do not assume the subagents are right. If a stronger alternative exposes a proposal gap, explain why VibeSys missed it using the failure taxonomy before changing anything.
+
+Propose one next system intervention with expected meta-metric effects, likely regressions, a validation window, success criteria, and a reversion condition. Improve how VibeSys generates or evaluates directions; do not paste the stronger candidate proposal into an always-on prompt. If evidence is insufficient, improve instrumentation before changing behavior.
 
 ### 6. Pause, change, validate, and commit
 
@@ -104,6 +109,7 @@ Finish with the terminal official evaluation when enabled, publish final evidenc
 - Read append-only deltas and compact summaries before raw logs.
 - Keep complete logs on disk and load only evidence needed for the current decision.
 - Separate cheap heartbeat/liveness checks from expensive semantic audits.
+- Use counterfactual subagents only when their expected information value justifies their token and time budget.
 - Treat silence according to phase-specific expectations; do not call healthy long work a hang.
 - Capture bounded diagnostics before terminating a stalled process, then clean up every owned resource.
 
@@ -115,7 +121,7 @@ Finish with the terminal official evaluation when enabled, publish final evidenc
 - Do not force every finding into a closed taxonomy; use `Other` with rationale.
 - Do not infer causality from one successful round without considering opportunity, cost, and confounders.
 - Do not mix a VibeSys system intervention with candidate changes in one commit.
-- Do not modify source beneath a running VibeSys process.
+- Do not mutate the active runner's source tree; prepare changes in a separate worktree and activate them at a recorded segment boundary.
 - Do not spend the terminal reserve on a change that cannot be evaluated.
 
 ## Expected Handoff
