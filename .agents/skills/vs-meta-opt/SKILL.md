@@ -48,7 +48,7 @@ Start from the intended VibeSys parent on a dedicated clean branch. Open the dra
 
 Run VibeSys with the specified input and exact recorded command. Preserve the campaign checkpoint and candidate state across process restarts. Record the VibeSys commit governing each campaign segment.
 
-Do not mutate the source tree consumed by the active process. Develop and commit changes concurrently in a separate clean worktree when useful, but treat them as inactive until a new campaign segment starts or resumes under that commit.
+Use the simple edit path by default: finish the current round, stop or pause VibeSys, edit and commit in the same checkout, then resume. When overlapping work is worthwhile, optionally develop in a separate clean worktree while leaving the active framework checkout unchanged. Treat every framework change as inactive until a recorded campaign segment starts or resumes under its commit.
 
 ### 3. Monitor with adaptive heartbeats
 
@@ -84,6 +84,8 @@ Propose one next system intervention with expected meta-metric effects, likely r
 ### 6. Pause, change, validate, and commit
 
 Stop or pause at a durable round boundary. Keep candidate code and campaign artifacts separate from the VibeSys change. Apply the smallest intervention that tests the meta-hypothesis, run targeted checks, perform the leakage review, and make a clean rationale-bearing commit.
+
+When the intervention changes a schema for VibeSys-generated code or persisted run state, snapshot the existing state, update the canonical schema and all producers and consumers, migrate the live campaign once, validate the result, and resume using only the new representation. Commit the schema, one-way migration, and tests atomically. Do not retain parallel runtime schema implementations.
 
 Keep prompts procedural and neutral. Do not encode a candidate optimization, known bottleneck, benchmark-specific trick, prior winning implementation, or hidden evaluator behavior directly into prompts. Adding or improving modular, versioned, selectively loaded skills is allowed and must be recorded as a capability change.
 
@@ -121,7 +123,7 @@ Finish with the terminal official evaluation when enabled, publish final evidenc
 - Do not force every finding into a closed taxonomy; use `Other` with rationale.
 - Do not infer causality from one successful round without considering opportunity, cost, and confounders.
 - Do not mix a VibeSys system intervention with candidate changes in one commit.
-- Do not mutate the active runner's source tree; prepare changes in a separate worktree and activate them at a recorded segment boundary.
+- Do not mutate the active framework checkout; stop first or use an optional separate worktree. Generated code and state may be migrated at a safe boundary to one new canonical schema.
 - Do not spend the terminal reserve on a change that cannot be evaluated.
 
 ## Expected Handoff

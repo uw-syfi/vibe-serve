@@ -83,6 +83,7 @@ Before editing:
 While editing:
 
 - Keep one causal agent-system intervention per commit when it can be isolated.
+- Treat a canonical schema change, its one-way migration of existing generated state, and its migration tests as one atomic intervention rather than separate compatibility features.
 - Do not mix candidate implementation changes, benchmark outputs, or run state with VibeSys changes.
 - Include prompt snapshots when rendered prompt behavior changes.
 - Add the smallest tests that exercise the claimed system behavior and important failure case.
@@ -93,6 +94,7 @@ Before committing:
 - Run targeted validation and repository-required formatting checks.
 - Verify the worktree contains only intentional files.
 - Make the commit independently reviewable and revertible.
+- For schema changes, verify all live state migrates and ordinary runtime paths no longer implement the old schema.
 
 ## Use the Rationale Commit Template
 

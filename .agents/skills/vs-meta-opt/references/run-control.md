@@ -4,6 +4,7 @@
 
 - Establish the Run
 - Launch and Segment the Campaign
+- Edit Source and Migrate Generated Schemas
 - Monitor with Adaptive Heartbeats
 - Check Every Completed Round
 - Run Counterfactual Reviews Selectively
@@ -38,7 +39,31 @@ Treat a continuous period governed by one VibeSys commit as a campaign segment. 
 - Active meta-hypothesis, if any.
 - End checkpoint, reason, and evidence paths.
 
-Keep the source tree consumed by the live process stable. VS Meta Opt may develop and commit changes concurrently in a separate clean worktree. Activate them only by starting or resuming a new segment pinned to the new commit.
+Keep the framework checkout consumed by the live process stable. Generated candidate code and run artifacts remain normal mutable campaign state; handle schema migrations as described below.
+
+## Edit Source and Migrate Generated Schemas
+
+Use this default source-editing path:
+
+1. Let the current round reach a durable boundary.
+2. Stop or pause VibeSys and release owned resources that cannot survive the pause.
+3. Edit VibeSys in the same checkout.
+4. Run targeted tests and make the rationale-bearing commit.
+5. Resume the campaign as a new segment governed by that commit.
+
+Use a separate clean worktree only when overlapping implementation with a long round is worth the extra coordination. Leave the active checkout unchanged, prepare and commit the intervention in the second worktree, then start the next segment from that commit. Do not create a worktree merely because a source file changed.
+
+Schema changes to VibeSys-generated code, response structures, or persisted campaign state are allowed. Migrate the existing campaign instead of accumulating compatibility branches:
+
+1. Pause writers and snapshot the current generated code and state.
+2. Define one new canonical schema.
+3. Update its producers and consumers.
+4. Add a deterministic one-way migration from the existing representation.
+5. Migrate the live campaign and validate the complete result.
+6. Commit the schema, migration, fixtures, and tests as one atomic intervention.
+7. Resume only after all live state uses the new schema.
+
+Ordinary runtime readers and writers should understand only the canonical representation. A schema marker may detect that migration is required, and a migration tool may understand the old input long enough to convert it; neither is permission to retain parallel old/new runtime behavior. Fail clearly when migration is incomplete.
 
 ## Monitor with Adaptive Heartbeats
 
@@ -106,7 +131,7 @@ Use the comparison to diagnose VibeSys. A stronger independent proposal is evide
 
 ## Pause, Modify, and Resume
 
-At a safe activation boundary, after any parallel development in a separate worktree:
+At a safe activation boundary, after editing in the stopped checkout or optional parallel worktree:
 
 1. Save campaign and candidate checkpoints.
 2. Terminate or pause the VibeSys process without leaking owned resources.
@@ -117,7 +142,7 @@ At a safe activation boundary, after any parallel development in a separate work
 7. Resume the same campaign as a new segment governed by the new commit.
 8. Observe the predeclared validation window, then retain, revise, or revert.
 
-If a change alters measurement semantics, persisted state, or compatibility, do not pretend the windows are directly comparable. Migrate explicitly or start a new comparable campaign segment and record the confounder.
+If a change alters measurement semantics, do not pretend the windows are directly comparable. For generated-code or persisted-state schema changes, perform the one-way migration above. Start a new comparison window and record any remaining confounder.
 
 ## Enforce Budgets
 

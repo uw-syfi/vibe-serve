@@ -61,6 +61,14 @@
 - Candidate/system boundary:
 - Framework, prompt, skill, adapter, and artifact responsibilities:
 
+### Generated schema migration (if applicable)
+
+- Generated code or state affected:
+- Pre-migration snapshot:
+- New canonical schema:
+- One-way migration and validation:
+- Confirmation that ordinary runtime paths no longer implement the old schema:
+
 ### Intervention log
 
 | Commit | Rationale | Scope | Validation status |
