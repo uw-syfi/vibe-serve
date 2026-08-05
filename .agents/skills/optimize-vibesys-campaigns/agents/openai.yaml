@@ -1,0 +1,4 @@
+interface:
+  display_name: "Optimize VibeSys Campaigns"
+  short_description: "Design evidence-led optimization campaigns"
+  default_prompt: "Use $optimize-vibesys-campaigns to design or diagnose a VibeSys optimization campaign."
