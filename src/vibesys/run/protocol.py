@@ -16,6 +16,7 @@ from pydantic import BaseModel
 
 from vibesys.agents.progress import AgentProgress
 from vibesys.constants import ComputeBackend
+from vibesys.input_manifest import WorkspaceSource
 from vibesys.profilers import ProfilerKind
 from vibesys.run.git_tracker import GitTracker
 
@@ -29,6 +30,7 @@ class LoopContext(Protocol):
     git_tracking: bool
     profiler_kind: ProfilerKind
     ref_name: str
+    workspace_sources: tuple[WorkspaceSource, ...]
 
     # -- collaborators --------------------------------------------------------
     supervisor: Any
@@ -51,7 +53,13 @@ class LoopContext(Protocol):
     @property
     def run_log_path(self) -> Path: ...
 
+    @property
+    def skill_source_paths(self) -> list[Path]: ...
+
     # -- agent-facing commands ------------------------------------------------
+    @property
+    def objective_location(self) -> str: ...
+
     @property
     def judge_accuracy_command(self) -> str | None: ...
 

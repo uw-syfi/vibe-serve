@@ -3,8 +3,8 @@ Accuracy checker for the Llama-3-8B serving system (service-style).
 
 This checker drives a *running* OpenAI-compatible server over HTTP — it does
 NOT import the candidate's model or load any weights locally. That makes it
-work identically whether the server runs on the local host, in Docker, or on a
-remote Modal GPU: the checker only needs the server URL.
+work identically whether the server runs on the local host, in a container, or
+on a remote accelerator: the checker only needs the server URL.
 
 Because there is no local GPU reference to diff against, correctness is
 established with three reference-free gates that a real Llama-3 forward pass
@@ -32,7 +32,7 @@ thresholds; exit 1 otherwise.
 Usage (server must already be running):
 
     python checker.py --url http://localhost:8000
-    python checker.py --url https://<app>.modal.run --seed 0
+    python checker.py --url https://inference.example.com --seed 0
 """
 
 from __future__ import annotations
@@ -92,6 +92,7 @@ async def _stream_text(
 async def complete(
     client: httpx.AsyncClient,
     base_url: str,
+    model: str,
     endpoint: str,
     prompt: str,
     max_tokens: int,
@@ -101,6 +102,7 @@ async def complete(
     """Raw /v1/completions call."""
     url = base_url.rstrip("/") + endpoint
     body = {
+        "model": model,
         "prompt": prompt,
         "max_tokens": max_tokens,
         "temperature": temperature,
@@ -112,6 +114,7 @@ async def complete(
 async def chat(
     client: httpx.AsyncClient,
     base_url: str,
+    model: str,
     endpoint: str,
     messages: list[dict],
     max_tokens: int,
@@ -121,6 +124,7 @@ async def chat(
     """Chat /v1/chat/completions call."""
     url = base_url.rstrip("/") + endpoint
     body = {
+        "model": model,
         "messages": messages,
         "max_tokens": max_tokens,
         "temperature": temperature,
@@ -159,6 +163,7 @@ async def gate_sentinel_echo(
         text, err = await chat(
             client,
             args.url,
+            args.model,
             args.chat_endpoint,
             messages,
             max_tokens=16,
@@ -205,6 +210,7 @@ async def gate_known_answers(
         text, err = await chat(
             client,
             args.url,
+            args.model,
             args.chat_endpoint,
             messages,
             max_tokens=24,
@@ -245,10 +251,24 @@ async def gate_determinism(
     results: list[dict] = []
     for prompt in DETERMINISM_PROMPTS:
         out_a, err_a = await complete(
-            client, args.url, args.endpoint, prompt, args.det_max_tokens, 0.0, args.request_timeout
+            client,
+            args.url,
+            args.model,
+            args.endpoint,
+            prompt,
+            args.det_max_tokens,
+            0.0,
+            args.request_timeout,
         )
         out_b, err_b = await complete(
-            client, args.url, args.endpoint, prompt, args.det_max_tokens, 0.0, args.request_timeout
+            client,
+            args.url,
+            args.model,
+            args.endpoint,
+            prompt,
+            args.det_max_tokens,
+            0.0,
+            args.request_timeout,
         )
         err = err_a or err_b
         ok = err is None and out_a == out_b and len(out_a) > 0
@@ -332,6 +352,7 @@ async def run(args: argparse.Namespace) -> int:
 
         summary = {
             "url": args.url,
+            "model": args.model,
             "seed": args.seed,
             "sentinel_rate": s_rate,
             "known_answer_rate": k_rate,
@@ -361,6 +382,11 @@ def main() -> None:
         )
     )
     parser.add_argument("--url", default="http://localhost:8000", help="Server base URL")
+    parser.add_argument(
+        "--model",
+        default="meta-llama/Llama-3.1-8B-Instruct",
+        help="Served model name included in the OpenAI request body",
+    )
     parser.add_argument("--endpoint", default="/v1/completions", help="Completions endpoint path")
     parser.add_argument(
         "--chat-endpoint", default="/v1/chat/completions", help="Chat completions endpoint path"

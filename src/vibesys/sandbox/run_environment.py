@@ -33,7 +33,7 @@ import sys
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Protocol
+from typing import Literal, Protocol
 
 from deepagents.backends.protocol import SandboxBackendProtocol
 from deepagents.backends.sandbox import BaseSandbox
@@ -42,6 +42,7 @@ from vibesys.backends import SandboxKind
 from vibesys.backends.base import ComputeBackendImpl, SetupFn
 from vibesys.constants import DEFAULT_AGENT_BACKEND, PROJECT_ROOT
 from vibesys.domains.environment import EnvironmentBindMount
+from vibesys.input_manifest import WorkspaceSource
 from vibesys.profilers import ProfilerKind
 
 
@@ -61,6 +62,7 @@ class RunEnvironmentSpec:
 class AgentPaths:
     """Command and helper paths as agents should use them in the active environment."""
 
+    objective: str = "OBJECTIVE.md"
     accuracy_command: str | None = None
     benchmark_command: str | None = None
     profiler_support: str | None = None
@@ -74,22 +76,33 @@ class RunEnvironmentView:
     prompt_notes: str = ""
     isolated: bool = False
     cli_sandboxed: bool = False
-    # When True, ``cli_sandboxed`` refers to a Modal sandbox (rather than a
-    # local Docker container).  ``build_agent_runner`` treats Modal CLI
-    # sandboxes specially (different executor, no per-invocation
-    # workspace_arg).
-    cli_modal_sandboxed: bool = False
     host_device_reselect: bool = True
-    # Coarse environment label for prompt-template branching:
+    # Coarse environment label for diagnostics and adapter selection:
     # ``"local"`` | ``"docker"`` | ``"modal"``.
     env_kind: str = "local"
-    # Modal only: the per-run Modal app namespace prefix embedded in
-    # ``prompt_notes`` (``None`` for non-Modal envs).  Loops that evaluate
-    # many candidates against Modal use this to derive a *per-candidate* app
-    # name so each candidate deploys to a pristine app — otherwise all
-    # candidates share one app and the judge reads stale logs from the first
-    # (possibly broken) deploy for every later candidate.
-    modal_app_name: str | None = None
+    # Where a profiler must execute to observe the production hot path. Prompt
+    # templates branch on this capability rather than on a concrete provider.
+    profile_execution: Literal["local", "remote"] = "local"
+    # Optional namespace for environments that isolate each candidate in a
+    # named deployment. The selected environment owns the concrete naming
+    # rules; loops consume only the namespace capability.
+    deployment_namespace: str | None = None
+    supports_parallel_candidate_evaluation: bool = False
+    # Optional environment variable understood by the environment-owned
+    # evaluator wrapper when the final trusted command should release its
+    # deployment lease.
+    deployment_release_env_var: str | None = None
+    # Extra wall-clock budget for environment-owned setup that wraps a trusted
+    # command, such as deploying a fresh service and waiting for readiness.
+    framework_setup_timeout_seconds: int = 0
+
+
+@dataclass(frozen=True)
+class CandidateRuntime:
+    """Environment-owned prompt and lifecycle identity for one candidate."""
+
+    prompt_notes: str
+    deployment_name: str | None = None
 
 
 @dataclass(frozen=True)
@@ -100,11 +113,14 @@ class RunEnvironmentRequest:
     backend: ComputeBackendImpl
     agent_backend: str | None
     cli_provider: str | None
+    objective: str | None = None
     accuracy_command: str | None = None
     benchmark_command: str | None = None
     profiler_support_path: str | None = None
     profiler_support_name: str | None = None
+    git_history_root: Path | None = None
     environment_bind_mounts: tuple[EnvironmentBindMount, ...] = ()
+    workspace_sources: tuple[WorkspaceSource, ...] = ()
     log: Callable[[str], None] | None = None
     project_root: Path = PROJECT_ROOT
 
@@ -122,6 +138,7 @@ class RunEnvironment(Protocol):
     isolated: bool
     materialize_local_model_weights: bool
     default_profiler_kind: ProfilerKind
+    supported_profiler_kinds: frozenset[ProfilerKind] | None
     backend_image: str | None
 
     def open(self, request: RunEnvironmentRequest) -> RunEnvironmentSession: ...
@@ -132,12 +149,18 @@ class RunEnvironment(Protocol):
         self, workspace: Path, rel_path: str, *, backend: ComputeBackendImpl
     ) -> bool: ...
     def teardown_deployment(self, name: str, *, log: Callable[[str], None]) -> None:
-        """Tear down a per-evaluation deployment (e.g. a candidate's Modal app).
+        """Tear down a per-evaluation deployment such as a candidate service.
 
         Environments that dispatch each evaluation to its own named remote
         deployment implement this to release it once the evaluation is done;
         environments that run everything in-process are a no-op.
         """
+        ...
+
+    def candidate_runtime(
+        self, view: RunEnvironmentView, generation: int, child_idx: int
+    ) -> CandidateRuntime:
+        """Return adapter-owned instructions and identity for one candidate."""
         ...
 
 
@@ -154,6 +177,11 @@ class _NoopWorkspaceRecovery:
 
     def teardown_deployment(self, name: str, *, log: Callable[[str], None]) -> None:
         return
+
+    def candidate_runtime(
+        self, view: RunEnvironmentView, generation: int, child_idx: int
+    ) -> CandidateRuntime:
+        return CandidateRuntime(view.prompt_notes, view.deployment_namespace)
 
 
 @dataclass
@@ -181,9 +209,11 @@ class LocalEnvironment(_NoopWorkspaceRecovery):
     isolated: bool = False
     materialize_local_model_weights: bool = True
     default_profiler_kind: ProfilerKind = ProfilerKind.NSYS
+    supported_profiler_kinds: frozenset[ProfilerKind] | None = None
     backend_image: str | None = None
 
     def open(self, request: RunEnvironmentRequest) -> RunEnvironmentSession:
+        objective_document = _materialize_effective_objective(request)
         sandbox = request.backend.make_sandbox(
             SandboxKind.LOCAL,
             host_workspace=str(request.workspace),
@@ -197,6 +227,11 @@ class LocalEnvironment(_NoopWorkspaceRecovery):
             sandbox=sandbox,
             view=RunEnvironmentView(
                 paths=AgentPaths(
+                    objective=(
+                        str(objective_document)
+                        if objective_document is not None
+                        else "OBJECTIVE.md"
+                    ),
                     accuracy_command=request.accuracy_command,
                     benchmark_command=request.benchmark_command,
                     profiler_support=request.profiler_support_path,
@@ -215,6 +250,7 @@ class DockerEnvironment:
     isolated = True
     materialize_local_model_weights = True
     default_profiler_kind = ProfilerKind.NSYS
+    supported_profiler_kinds: frozenset[ProfilerKind] | None = None
 
     def __init__(self, config: DockerEnvironmentConfig) -> None:
         self.config = config
@@ -228,6 +264,9 @@ class DockerEnvironment:
     def open(self, request: RunEnvironmentRequest) -> RunEnvironmentSession:
         bind_mounts, docker_symlinks, passthrough = _container_mount_plan(request)
         extra_init_commands, cli_provider_env = _cli_container_setup(request)
+        cli_provider_env.setdefault("UV_CACHE_DIR", "/workspace/.cache/uv")
+        if request.git_history_root is not None:
+            cli_provider_env.setdefault("VIBESYS_GIT_HISTORY", "/opt/vibesys-history")
         bind_mounts = _dedupe_mounts(bind_mounts)
         setup_fns = _symlink_setup_fns(docker_symlinks)
 
@@ -254,6 +293,7 @@ class DockerEnvironment:
                 prompt_notes=(
                     "Commands run inside the active execution environment. "
                     "Use normal shell commands to start, stop, and test the server."
+                    + _git_history_prompt_note(request.git_history_root)
                 ),
                 isolated=True,
                 cli_sandboxed=True,
@@ -305,11 +345,16 @@ class DockerEnvironment:
         # The editor container is torn down by the session; nothing per-candidate.
         return
 
+    def candidate_runtime(
+        self, view: RunEnvironmentView, generation: int, child_idx: int
+    ) -> CandidateRuntime:
+        return CandidateRuntime(view.prompt_notes, view.deployment_namespace)
+
 
 @dataclass(frozen=True)
 class ModalEnvironmentConfig:
     image: str | None = None
-    gpu: str = "H100"
+    gpu: str = "H100!"
     model_volume: str | None = None
     app: str = "vibesys"
 
@@ -318,6 +363,9 @@ class ModalEnvironment(_NoopWorkspaceRecovery):
     isolated = True
     materialize_local_model_weights = False
     default_profiler_kind = ProfilerKind.TORCH
+    supported_profiler_kinds: frozenset[ProfilerKind] | None = frozenset(
+        {ProfilerKind.AUTO, ProfilerKind.TORCH, ProfilerKind.NONE}
+    )
 
     def __init__(self, config: ModalEnvironmentConfig) -> None:
         self.config = config
@@ -329,7 +377,7 @@ class ModalEnvironment(_NoopWorkspaceRecovery):
         return cls(
             ModalEnvironmentConfig(
                 image=str(options["image"]) if options.get("image") else None,
-                gpu=str(options.get("gpu") or "H100"),
+                gpu=str(options.get("gpu") or "H100!"),
                 model_volume=(
                     str(options["model_volume"]) if options.get("model_volume") else None
                 ),
@@ -341,9 +389,9 @@ class ModalEnvironment(_NoopWorkspaceRecovery):
         """Open the Modal-via-Docker run environment.
 
         Architecture (refactor April 2026): the agent (codex CLI) runs inside
-        a *local* Docker container that does file editing only.  GPU-bound
-        execution dispatches to Modal via ``modal run main.py::<function>``
-        calls the implementer-authored code makes; we install the Modal
+        a *local* Docker container that does file editing only. GPU-bound
+        execution dispatches to Modal via the candidate's declared ``modal run``
+        entrypoint; we install the Modal
         Python SDK and mount the host's ``~/.modal.toml`` into the container
         so those calls authenticate.
 
@@ -362,6 +410,21 @@ class ModalEnvironment(_NoopWorkspaceRecovery):
 
         bind_mounts, docker_symlinks, passthrough = _container_mount_plan(request)
         extra_init_commands, cli_provider_env = _cli_container_setup(request)
+        cli_provider_env.setdefault("UV_CACHE_DIR", "/workspace/.cache/uv")
+        if request.git_history_root is not None:
+            cli_provider_env.setdefault("VIBESYS_GIT_HISTORY", "/opt/vibesys-history")
+        app_name = _modal_app_name(request.workspace, fallback=self.config.app)
+        runtime_document = request.log_dir / "runtime-environment.md"
+        runtime_document.write_text(
+            _modal_runtime_notes(self.config.gpu, app_name, request.workspace_sources)
+            + _git_history_runtime_notes(request.git_history_root)
+        )
+        runtime_container_path = "/opt/vibesys-runtime/environment.md"
+        bind_mounts.append((str(runtime_document), runtime_container_path, True))
+        passthrough.append("/opt/vibesys-runtime")
+        evaluator_helper = request.project_root / "src/vibesys/sandbox/modal_evaluator.py"
+        evaluator_container_path = "/opt/vibesys-modal-evaluator.py"
+        bind_mounts.append((str(evaluator_helper), evaluator_container_path, True))
 
         # Mount host Modal auth so `modal run` inside the container
         # authenticates as the host user.
@@ -389,27 +452,50 @@ class ModalEnvironment(_NoopWorkspaceRecovery):
             extra_env=cli_provider_env,
             extra_init_commands=extra_init_commands,
             setup_fns=setup_fns,
+            attach_accelerator=False,
         )
         log: Callable[[str], None] = request.log or (lambda _: None)
         log(
             "[modal] starting local Docker editor; GPU work will dispatch "
-            "to Modal via `modal run main.py::<function>`"
+            "to Modal via the candidate's declared `modal run` entrypoint"
         )
         # DOCKER-kind sandboxes always implement start().
         sandbox.start()  # pyright: ignore[reportAttributeAccessIssue]
 
-        app_name = _modal_app_name(request.workspace, fallback=self.config.app)
+        setup_timeout_seconds = 600
+        evaluator_prefix = (
+            f"python {evaluator_container_path} "
+            f"--readiness-timeout-seconds {setup_timeout_seconds} --"
+        )
         return _DefaultRunEnvironmentSession(
             sandbox=sandbox,
             view=RunEnvironmentView(
-                paths=_isolated_paths(request),
-                prompt_notes=_modal_runtime_notes(self.config.gpu, app_name),
+                paths=AgentPaths(
+                    objective=(
+                        "/opt/vibesys-runtime/objective.md"
+                        if request.objective is not None
+                        else "OBJECTIVE.md"
+                    ),
+                    accuracy_command=_prefix_command(evaluator_prefix, request.accuracy_command),
+                    benchmark_command=_prefix_command(evaluator_prefix, request.benchmark_command),
+                    profiler_support=(
+                        request.profiler_support_name if request.profiler_support_path else None
+                    ),
+                ),
+                prompt_notes=(
+                    f"Runtime instructions are at `{runtime_container_path}`. Read that "
+                    "file before executing, deploying, benchmarking, or profiling; it "
+                    "contains the authoritative environment and lifecycle rules."
+                ),
                 isolated=True,
                 cli_sandboxed=True,
-                cli_modal_sandboxed=False,  # codex no longer runs inside Modal
                 host_device_reselect=False,
                 env_kind="modal",
-                modal_app_name=app_name,
+                profile_execution="remote",
+                deployment_namespace=app_name,
+                supports_parallel_candidate_evaluation=True,
+                deployment_release_env_var="VIBESYS_RELEASE_MODAL_DEPLOYMENT",
+                framework_setup_timeout_seconds=setup_timeout_seconds,
             ),
             stop_on_close=True,
         )
@@ -507,6 +593,23 @@ class ModalEnvironment(_NoopWorkspaceRecovery):
         else:
             log(f"[modal] stopped candidate app {name}")
 
+    def candidate_runtime(
+        self, view: RunEnvironmentView, generation: int, child_idx: int
+    ) -> CandidateRuntime:
+        base_name = view.deployment_namespace
+        if not base_name:
+            return CandidateRuntime(view.prompt_notes)
+        candidate_name = candidate_modal_app_name(base_name, generation, child_idx)
+        return CandidateRuntime(
+            prompt_notes=(
+                f"{view.prompt_notes} Candidate-specific namespace override: replace "
+                f"the base namespace `{base_name}` with `{candidate_name}` everywhere "
+                "the runtime contract uses it, including app, endpoint, and auxiliary "
+                "resource names. This candidate override is authoritative."
+            ),
+            deployment_name=candidate_name,
+        )
+
 
 def build_run_environment(spec: RunEnvironmentSpec) -> RunEnvironment:
     if spec.name == "local":
@@ -523,14 +626,14 @@ def make_run_environment_spec(
     use_docker: bool = False,
     docker_image: str | None = None,
     use_modal: bool = False,
-    modal_gpu: str = "H100",
+    modal_gpu: str = "H100!",
     modal_model_volume: str | None = None,
     modal_app: str = "vibesys",
 ) -> RunEnvironmentSpec:
     """Build a spec from the current CLI compatibility flags.
 
     Modal mode (April 2026 refactor) runs the agent in a *local Docker
-    container* and dispatches GPU work via ``modal run main.py::<function>``,
+    container* and dispatches GPU work via the candidate's ``modal run`` entrypoint,
     so the legacy long-lived-Modal-sandbox knobs (timeout / idle_timeout)
     no longer apply here — they live on the implementer's per-function
     ``@app.function(timeout=...)`` / ``@app.cls(container_idle_timeout=...)``
@@ -538,16 +641,19 @@ def make_run_environment_spec(
     """
     if use_docker and use_modal:
         raise ValueError("--docker and --modal are mutually exclusive")
-    name = "modal" if use_modal else ("docker" if use_docker else "local")
-    return RunEnvironmentSpec(
-        name=name,
-        options={
-            "image": docker_image,
-            "gpu": modal_gpu,
-            "model_volume": modal_model_volume,
-            "app": modal_app,
-        },
-    )
+    if use_modal:
+        return RunEnvironmentSpec(
+            name="modal",
+            options={
+                "image": docker_image,
+                "gpu": modal_gpu,
+                "model_volume": modal_model_volume,
+                "app": modal_app,
+            },
+        )
+    if use_docker:
+        return RunEnvironmentSpec(name="docker", options={"image": docker_image})
+    return RunEnvironmentSpec()
 
 
 def _modal_app_name(workspace: Path, fallback: str) -> str:
@@ -584,7 +690,38 @@ def candidate_modal_app_name(base_app_name: str, generation: int, child_idx: int
     return f"{trimmed}{suffix}"
 
 
-def _modal_runtime_notes(gpu: str, app_name: str) -> str:
+def _seeded_checkout_modal_note(workspace_sources: tuple[WorkspaceSource, ...]) -> str:
+    """The Modal-runtime bullet for seeded starting-point checkouts, or ``""``.
+
+    Seeded checkouts share the ``reference/`` trap: they are materialized into
+    the local editor workspace only, so a deployed Modal container cannot
+    import them unless the implementer bakes them into the image.
+    """
+    if not workspace_sources:
+        return ""
+    dests = ", ".join(f"`{source.dest}/`" for source in workspace_sources)
+    plural = len(workspace_sources) > 1
+    recipes = " ".join(
+        f"`image.add_local_dir({source.dest!r}, '/root/{source.dest}', copy=True)` "
+        f"then e.g. `image.run_commands('pip install -e /root/{source.dest}')` "
+        "(or add it to `sys.path` at `@modal.enter()` time)."
+        for source in workspace_sources
+    )
+    return (
+        f"  - **The seeded starting-point checkout{'s' if plural else ''} "
+        f"({dests}) likewise exist{'' if plural else 's'} ONLY in this local "
+        "editor container — NOT inside the deployed Modal container.** The "
+        "objective expects the server to be built from this code, so bake it "
+        f"into the Modal image explicitly: {recipes} Use `copy=True` so later "
+        "`run_commands(...)` build steps can see the files. Verify the import "
+        "works via the candidate's declared Modal entrypoint before relying on "
+        "the endpoint.\n"
+    )
+
+
+def _modal_runtime_notes(
+    gpu: str, app_name: str, workspace_sources: tuple[WorkspaceSource, ...] = ()
+) -> str:
     """Render the Modal-mode runtime instructions for agent prompts.
 
     Kept task-agnostic: doesn't name specific model IDs, volume names, or
@@ -625,15 +762,52 @@ def _modal_runtime_notes(gpu: str, app_name: str) -> str:
         "`@modal.enter()` for model load and `@modal.method()` for "
         "inference. Define benchmark / profile entry points as "
         f"`@app.function(image=..., gpu={gpu!r}, volumes=...)`.\n"
-        "  - To run any GPU work: `modal run main.py::<function>`. "
+        f"  - **Accelerator identity is an experimental contract.** Use the "
+        f"configured Modal GPU spec `{gpu}` verbatim on every candidate, "
+        "controller, benchmark, and profiler function; do not weaken or "
+        "substitute it. Before paid measurement, record the accelerator name "
+        "from the remote runtime and fail closed if a strict spec is not "
+        "satisfied. In particular, Modal may upgrade bare `H100` requests to "
+        "H200; `H100!` requests an exact H100 for reproducible benchmarking.\n"
+        "  - Treat the Modal container as the authoritative runtime. The "
+        "Python, accelerator, package, compiler, and library versions in "
+        "this editor container may differ and must not be used to infer "
+        "remote compatibility. When diagnosing an environment or dependency "
+        "failure, first capture the relevant runtime fingerprint from a "
+        "small function using the same Modal image and hardware as the "
+        "candidate (for example, the actual package/runtime versions and "
+        "toolchain paths named by the error). Preserve that output with the "
+        "experiment, then base compatibility changes on the remote evidence.\n"
+        "  - To run GPU work, use `uv run modal run "
+        "<candidate-modal-module>::<function>`. Discover the module from the "
+        "candidate's build/deployment path; no incumbent filename is fixed. "
         "The Modal CLI is installed and authenticated (`~/.modal.toml` "
-        "is mounted from the host).\n"
+        "is mounted from the host). Use local-entrypoint Click options "
+        "directly in kebab-case; do not insert a `--` separator. A remote "
+        "function's completion message does not mean the local entrypoint "
+        "has exited: it may still be copying returned artifacts into the "
+        "workspace. Do not interrupt the wrapper until the command exits "
+        "cleanly and every required local output exists. If writeback seems "
+        "delayed, poll that process and the expected files instead of "
+        "launching a duplicate Modal job.\n"
+        "  - Before any paid or official measurement, persist an exact snapshot "
+        "of every implementer-owned source and build input used by that runtime "
+        "beside the raw result. Record its content hash in the raw artifact. A "
+        "manifest containing only per-file hashes is not sufficient when source "
+        "may be edited later in the same turn; retain the source bytes, a source "
+        "archive, or an exact checkpoint plus a machine-readable diff. Create "
+        "this provenance artifact before launch, not retrospectively.\n"
+        "  - `.venv` and `UV_CACHE_DIR=/workspace/.cache/uv` persist outside "
+        "Git checkpoints. Reuse them; do not delete or recreate `.venv` unless "
+        "dependency metadata changed or its project interpreter cannot import a "
+        "declared runtime dependency. Run Python tools through "
+        "`.venv/bin/python -m ...`, and keep source/evidence searches scoped to "
+        "named paths while excluding `.venv` and `.cache`.\n"
         "  - Model weights are pre-staged in Modal Volumes by the "
         "framework before this round started. Read the model metadata "
         "files in your reference/input directory (typically "
-        "`reference/meta.json` for the primary model and "
-        "`reference/draft_meta.json` for any speculative-decoding draft "
-        "model when applicable) to learn the `model_id` for each. "
+        "`reference/meta.json`, plus metadata for any optional auxiliary "
+        "model declared by the input) to learn each `model_id`. "
         "The framework normalizes each `model_id` into the volume "
         "name with this exact rule (matches "
         "`vibesys/modal_model_setup.py::_volume_name_for`):\n"
@@ -664,24 +838,25 @@ def _modal_runtime_notes(gpu: str, app_name: str) -> str:
         "file into the image explicitly "
         "(`image.add_local_file('reference/meta.json', "
         "'/root/reference/meta.json')`). Verify startup with "
-        "`modal run main.py::<fn>` or a deploy + `/health` probe BEFORE "
+        "the candidate's declared `modal run` entrypoint or a deploy + "
+        "`/health` probe BEFORE "
         "relying on the endpoint.\n"
-        "  - Use `scaledown_window=120` on `@app.cls` so back-to-back "
-        "benchmark calls reuse the warm container (KV cache, CUDA graphs, "
-        "compiled grammars, etc. preserved between invocations within the "
-        "warm window). Note: Modal renamed `container_idle_timeout` to "
+        + _seeded_checkout_modal_note(workspace_sources)
+        + "  - Use `scaledown_window=120` on `@app.cls` so back-to-back "
+        "benchmark calls reuse the warm container and preserve loaded state "
+        "between invocations. Note: Modal renamed `container_idle_timeout` to "
         "`scaledown_window` (Feb 2025); the old name raises a deprecation "
         "error in current Modal SDK versions, so do NOT use it.\n"
-        "  - Do NOT run `python main.py` to start a long-lived FastAPI "
-        "server inside this container — there's no GPU here. Direct "
-        "`Server.method.remote(...)` calls or `modal run main.py::<function>` "
-        "are the testing interface.\n"
+        "  - Do NOT start a long-lived GPU server inside this editor "
+        "container; there is no GPU here. Remote method calls or the "
+        "candidate's declared `modal run` entrypoint are the testing "
+        "interface.\n"
         "\n"
         "Profiling on Modal — REQUIRED entry point:\n"
         "  Profiling must run on the Modal GPU container, NOT in this "
         "editor container. The framework's profiler agent expects the "
-        "following two symbols in `main.py` and will invoke the local "
-        "entrypoint by name; without these, the profiler agent cannot "
+        "following two symbols in the candidate's Modal module and will "
+        "invoke the declared local entrypoint; without these, it cannot "
         "capture real GPU traces and will fall back to synthetic data.\n"
         "\n"
         f"  1. `@app.function(image=..., gpu={gpu!r}, volumes=...)` "
@@ -691,11 +866,7 @@ def _modal_runtime_notes(gpu: str, app_name: str) -> str:
         "model.generate calls inside the function) in `torch.profiler."
         "profile(activities=[CPU, CUDA])`, summarizes the captured "
         "events into the JSON schema documented at "
-        "`torch_profiler/analyze_torch_profile.py` (the schema in the "
-        "module docstring: `{version, captured_at, mode, device, dtype, "
-        "num_iters, total_cuda_time_us, total_cpu_time_us, events: "
-        "[{name, category, cpu_time_us, cuda_time_us, self_cpu_time_us, "
-        "self_cuda_time_us, count}, ...]}`), and **returns the dict**.\n"
+        "`torch_profiler/analyze_torch_profile.py`, and **returns the dict**.\n"
         "  2. `@app.local_entrypoint()` called `modal_profile(output: "
         "str = '/workspace/prof.json', num_iters: int = 20, max_tokens: "
         "int = 32, prompt: str = 'The capital of France is')` — calls "
@@ -703,35 +874,10 @@ def _modal_runtime_notes(gpu: str, app_name: str) -> str:
         "JSON to `output` so the analyzer subcommands "
         "(`tables`, `kernels`, `summary`, …) can read it.\n"
         "\n"
-        "  Reference for the JSON shape: copy the `_summarize_prof` "
-        "helper from `torch_profiler/analyze_torch_profile.py`. The "
-        "minimum acceptable summarizer is:\n"
-        "      from torch.autograd import DeviceType\n"
-        "      def _summarize(prof, num_iters):\n"
-        "          totals = prof.key_averages()\n"
-        "          events, total_cuda, total_cpu = [], 0.0, 0.0\n"
-        "          for ev in totals:\n"
-        "              cuda_us = float(getattr(ev, 'device_time_total', 0.0) or 0.0)\n"
-        "              cpu_us = float(getattr(ev, 'cpu_time_total', 0.0) or 0.0)\n"
-        "              self_cuda = float(getattr(ev, 'self_device_time_total', 0.0) or 0.0)\n"
-        "              self_cpu = float(getattr(ev, 'self_cpu_time_total', 0.0) or 0.0)\n"
-        "              name = ev.key\n"
-        "              if ev.device_type == DeviceType.CUDA or 'cuda' in name.lower() or (cuda_us > 0 and cpu_us < cuda_us / 4):\n"
-        "                  cat = 'kernel'\n"
-        "              elif name.startswith('aten::') or name.startswith('torch::'):\n"
-        "                  cat = 'operator'\n"
-        "              elif any(t in name.lower() for t in ('memcpy', 'memset', 'malloc', 'free')):\n"
-        "                  cat = 'memory'\n"
-        "              else:\n"
-        "                  cat = 'cpu'\n"
-        "              events.append({'name': name, 'category': cat,\n"
-        "                  'cpu_time_us': cpu_us, 'cuda_time_us': cuda_us,\n"
-        "                  'self_cpu_time_us': self_cpu, 'self_cuda_time_us': self_cuda,\n"
-        "                  'count': int(ev.count)})\n"
-        "              total_cuda += self_cuda; total_cpu += self_cpu\n"
-        "          return {'version': 1, 'total_cuda_time_us': total_cuda,\n"
-        "              'total_cpu_time_us': total_cpu, 'num_events': len(events),\n"
-        "              'events': events, 'num_iters': num_iters}\n"
+        "  Read the module docstring and `_summarize_prof` helper in "
+        "`torch_profiler/analyze_torch_profile.py` for the authoritative JSON "
+        "shape and implementation. That source is mounted in the workspace; "
+        "do not reconstruct the schema from prompt prose.\n"
         "  Wrap your representative workload (a torch.profiler.schedule "
         "with wait/warmup/active is recommended; otherwise profile "
         "inside a plain `with torch.profiler.profile(...) as prof:` "
@@ -743,12 +889,35 @@ def _modal_runtime_notes(gpu: str, app_name: str) -> str:
     )
 
 
+def _materialize_effective_objective(request: RunEnvironmentRequest) -> Path | None:
+    """Persist the exact run objective outside candidate Git history.
+
+    Operator constraints are composed at the CLI boundary. Keeping the effective
+    text in the framework-owned log directory makes it survive candidate rollback
+    and resume, while isolated environments mount it read-only for every role.
+    """
+    if request.objective is None:
+        return None
+    path = request.log_dir / "effective-objective.md"
+    path.write_text(request.objective)
+    return path
+
+
 def _isolated_paths(request: RunEnvironmentRequest) -> AgentPaths:
     return AgentPaths(
+        objective=(
+            "/opt/vibesys-runtime/objective.md" if request.objective is not None else "OBJECTIVE.md"
+        ),
         accuracy_command=request.accuracy_command,
         benchmark_command=request.benchmark_command,
         profiler_support=(request.profiler_support_name if request.profiler_support_path else None),
     )
+
+
+def _prefix_command(prefix: str, command: str | None) -> str | None:
+    if not command:
+        return None
+    return f"{prefix} {command}"
 
 
 def _docker_workspace_run(
@@ -816,6 +985,13 @@ def _container_mount_plan(
             )
 
     passthrough_paths: list[str] = []
+    objective_document = _materialize_effective_objective(request)
+    if objective_document is not None:
+        bind_mounts.append((str(objective_document), "/opt/vibesys-runtime/objective.md", True))
+        passthrough_paths.append("/opt/vibesys-runtime")
+    if request.git_history_root is not None:
+        bind_mounts.append((str(request.git_history_root), "/opt/vibesys-history", True))
+        passthrough_paths.append("/opt/vibesys-history")
     for mount in request.environment_bind_mounts:
         resolved = mount.host_path.resolve()
         host_path = _find_mount_root(resolved)
@@ -850,6 +1026,39 @@ def _container_mount_plan(
         bind_mounts.append((str(request.project_root), "/opt/vibesys", True))
 
     return bind_mounts, symlinks, passthrough_paths
+
+
+def _git_history_prompt_note(history_root: Path | None) -> str:
+    if history_root is None:
+        return ""
+    return (
+        " Framework-owned Git history is mounted read-only at "
+        "`/opt/vibesys-history`; inspect it with `git -c "
+        "safe.directory=/opt/vibesys-history -C /opt/vibesys-history log --oneline`. "
+        "Before a paid or official measurement, retain the exact measured source "
+        "bytes, archive, or checkpoint plus diff beside the raw result; hashes "
+        "without recoverable source are insufficient provenance."
+    )
+
+
+def _git_history_runtime_notes(history_root: Path | None) -> str:
+    if history_root is None:
+        return ""
+    return (
+        "\nCheckpoint history:\n"
+        "  - The framework-owned experiment repository is mounted read-only at "
+        "`/opt/vibesys-history`; `/workspace` alone may not contain discoverable "
+        "`.git` metadata. Inspect history with `git -c "
+        "safe.directory=/opt/vibesys-history -C /opt/vibesys-history log --oneline` "
+        "and list a checkpoint with `git -c "
+        "safe.directory=/opt/vibesys-history -C /opt/vibesys-history ls-tree -r "
+        "--name-only <commit>`. Retrieve exact bytes with the corresponding "
+        "`git ... show <commit>:<tree-path>` command. Do not run `git checkout`, "
+        "`git switch`, or `git reset` in the candidate workspace. Request a "
+        "round rollback through the structured plan; the framework restores "
+        "that source tree while preserving Git HEAD, roadmap/progress/Pareto "
+        "memory, `.venv`, and caches.\n"
+    )
 
 
 def _cli_container_setup(

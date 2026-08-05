@@ -51,7 +51,7 @@ Start with `tables`, then pick the analyses that matter most. If `graph_replays`
 
 Capture is a long-running shell step — do it before calling the MCP tools.
 
-1. Read `main.py` and the benchmark `--help` output to understand how the candidate is exercised{% if benchmark_command is defined and benchmark_command %}: `{{ benchmark_command }} --help`{% endif %}.
+1. Read the objective, candidate contract, manifest, build/startup commands, and benchmark `--help` output to understand which implementation and process the workload exercises{% if benchmark_command is defined and benchmark_command %}: `{{ benchmark_command }} --help`{% endif %}. Do not assume a filename, language, or launcher.
 2. Stop any stale candidate processes from previous attempts.
 3. Pre-warm if the domain context or benchmark recommends it.
 4. Profile under the benchmark load. Example:
@@ -62,6 +62,8 @@ Capture is a long-running shell step — do it before calling the MCP tools.
    Use any domain-specific capture recipe above when one is provided{% if benchmark_command is defined and benchmark_command %}, otherwise discover a short representative command from `{{ benchmark_command }} --help`{% endif %}.
 5. Stop any background candidate process you started.
 6. Call `export` (or any analysis tool — they auto-export) to produce the SQLite file.
+
+{% include "profilers/_observer_effect.j2" %}
 
 ## Performance metric — use the OBJECTIVE's named headline field, exactly
 

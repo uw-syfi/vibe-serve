@@ -3,18 +3,21 @@
 from __future__ import annotations
 
 import tomllib
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 import yaml
 
 from vibesys.constants import PROJECT_ROOT, ComputeBackend
 from vibesys.domains.base import DomainName
+from vibesys.schemas import SkillResourceSelection
 
 DEFAULT_SKILL_ROOTS: tuple[Path, ...] = (Path("resources/skills"),)
 SIDECAR_NAME = ".vibesys.toml"
 _FRONTMATTER_DELIMITER = "---"
+_MATERIALIZATION_EXCLUDED_NAMES = frozenset({".git", "repos", "__pycache__"})
 
 # Files every ``references/platforms/<backend>/`` directory must provide.
 # ``floor.md`` is the per-backend optimization floor, which is genuinely
@@ -92,6 +95,29 @@ class SkillMetadata:
     def supports_domain(self, domain: DomainName) -> bool:
         """True when this skill should be loaded for *domain*."""
         return self.domains is None or domain in self.domains
+
+
+@dataclass(frozen=True)
+class SkillCatalogEntry:
+    """One installed skill addressable by an agent-visible skill name."""
+
+    name: str
+    source_dir: Path
+
+    @property
+    def router_path(self) -> str:
+        """Workspace-relative path to this skill's router."""
+        return f"{self.name}/SKILL.md"
+
+
+@dataclass(frozen=True)
+class ResolvedSkillSelection:
+    """Validated, agent-visible paths for one advisory skill selection."""
+
+    skill: str
+    router_path: str
+    resource_paths: tuple[str, ...]
+    purpose: str
 
 
 def _metadata_error(path: Path, message: str) -> SkillMetadataError:
@@ -284,6 +310,119 @@ def coerce_skill_root(raw: str | Path, *, project_root: Path = PROJECT_ROOT) -> 
     if not path.is_dir():
         raise ValueError(f"--skills-dir path is not a directory: {raw}")
     return path
+
+
+def build_skill_catalog(skill_dirs: Iterable[str | Path]) -> dict[str, SkillCatalogEntry]:
+    """Build the catalog matching agent skill materialization semantics.
+
+    Each input may be one skill directory or a parent containing several
+    skills. Duplicate names use the last source, matching ``materialize_skills``.
+    A skill's frontmatter name must match its materialized directory name so an
+    outer-loop recommendation cannot resolve differently across providers.
+    """
+
+    catalog: dict[str, SkillCatalogEntry] = {}
+    for raw_root in skill_dirs:
+        root = Path(raw_root).expanduser().resolve()
+        if not root.is_dir():
+            raise _metadata_error(root, "skill catalog root is not a directory")
+        for skill_dir in discover_skill_dirs(root):
+            source_dir = skill_dir.resolve()
+            frontmatter = load_skill_frontmatter(source_dir)
+            raw_name = frontmatter.get("name")
+            if not isinstance(raw_name, str) or not raw_name.strip():
+                raise _metadata_error(source_dir / "SKILL.md", "`name` must be a string")
+            name = raw_name.strip()
+            if name != source_dir.name:
+                raise _metadata_error(
+                    source_dir / "SKILL.md",
+                    f"frontmatter name {name!r} must match directory name {source_dir.name!r}",
+                )
+            catalog[name] = SkillCatalogEntry(name=name, source_dir=source_dir)
+    return catalog
+
+
+def _resolve_skill_resource(
+    entry: SkillCatalogEntry,
+    raw_resource: str,
+) -> tuple[str | None, str | None]:
+    """Resolve one skill-relative file to its agent-visible path and diagnostic."""
+
+    resource = raw_resource.strip()
+    if not resource:
+        return None, "resource path must be a non-empty string"
+    if "\\" in resource:
+        return None, "resource path must use POSIX separators"
+
+    relative = PurePosixPath(resource)
+    if relative.is_absolute() or not relative.parts or ".." in relative.parts:
+        return None, "resource path must be relative and stay within the skill"
+    if any(part in _MATERIALIZATION_EXCLUDED_NAMES for part in relative.parts):
+        return None, "resource path is excluded from agent skill materialization"
+
+    source_root = entry.source_dir.resolve()
+    lexical_path = entry.source_dir.joinpath(*relative.parts)
+    try:
+        resolved_path = lexical_path.resolve(strict=True)
+        resolved_path.relative_to(source_root)
+    except FileNotFoundError:
+        return None, "resource file does not exist"
+    except (OSError, RuntimeError, ValueError):
+        return None, "resource path escapes the skill root"
+    if not resolved_path.is_file():
+        return None, "resource path must identify a file"
+
+    workspace_path = PurePosixPath(entry.name, *relative.parts).as_posix()
+    return workspace_path, None
+
+
+def resolve_skill_selections(
+    selections: Sequence[SkillResourceSelection],
+    catalog: dict[str, SkillCatalogEntry],
+) -> tuple[list[ResolvedSkillSelection], list[str]]:
+    """Validate advisory skill selections without turning them into gates.
+
+    Unknown skills and unsafe or missing resources are omitted and returned as
+    diagnostics. Valid resources survive alongside an invalid sibling. Repeated
+    selections for one skill are merged in first-seen order to keep continuation
+    prompts compact and deterministic.
+    """
+
+    merged: dict[str, tuple[str, list[str]]] = {}
+    diagnostics: list[str] = []
+    for index, selection in enumerate(selections, start=1):
+        skill = selection.skill.strip()
+        entry = catalog.get(skill)
+        if entry is None:
+            diagnostics.append(f"selection #{index}: unknown installed skill {skill!r}")
+            continue
+
+        if skill not in merged:
+            merged[skill] = (selection.purpose.strip(), [])
+        purpose, resources = merged[skill]
+        for raw_resource in selection.resource_paths:
+            workspace_path, error = _resolve_skill_resource(entry, raw_resource)
+            if error is not None:
+                diagnostics.append(
+                    f"selection #{index} skill {skill!r} resource {raw_resource!r}: {error}"
+                )
+                continue
+            assert workspace_path is not None
+            if workspace_path == entry.router_path or workspace_path in resources:
+                continue
+            resources.append(workspace_path)
+        merged[skill] = (purpose, resources)
+
+    resolved = [
+        ResolvedSkillSelection(
+            skill=skill,
+            router_path=catalog[skill].router_path,
+            resource_paths=tuple(resources),
+            purpose=purpose,
+        )
+        for skill, (purpose, resources) in merged.items()
+    ]
+    return resolved, diagnostics
 
 
 def effective_skill_metadata(skill_dir: Path, rules: list[SkillRule]) -> SkillMetadata:

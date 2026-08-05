@@ -172,6 +172,7 @@ def create_run_context(
     workspace_seed: Path | None = None,
     workspace_sources: tuple[WorkspaceSource, ...] = (),
     evaluator_path: Path | None = None,
+    objective: str | None = None,
     existing: bool = False,
     trusted_input_baseline: str | None = None,
     debug: bool = False,
@@ -207,6 +208,7 @@ def create_run_context(
             workspace_seed=workspace_seed,
             workspace_sources=workspace_sources,
             evaluator_path=evaluator_path,
+            objective=objective,
             existing=existing,
             trusted_input_baseline=trusted_input_baseline,
             debug=debug,
@@ -251,6 +253,7 @@ def _assemble_run_context(
     workspace_seed: Path | None,
     workspace_sources: tuple[WorkspaceSource, ...],
     evaluator_path: Path | None,
+    objective: str | None,
     existing: bool,
     trusted_input_baseline: str | None,
     debug: bool,
@@ -267,6 +270,27 @@ def _assemble_run_context(
     repo_visibility: RepositoryVisibility,
 ) -> "_RunContext":
     config = as_config(config)
+    if git_tracking:
+        # A non-stripped nested ``.git`` makes ``git add -A`` record the
+        # checkout as a bare gitlink: round snapshots stop seeing edits inside
+        # it and deliverable repos end up with a broken pointer instead of the
+        # seeded code. Provenance is preserved in ``_vibesys_sources.json``.
+        for source in workspace_sources:
+            if not source.strip_git:
+                raise ConfigurationError(
+                    ConfigurationDiagnostic(
+                        code="workspace_source_untrackable",
+                        stage="workspace_setup",
+                        message=(
+                            f"workspace source {source.name!r} sets strip_git=false, but "
+                            "this run tracks the workspace with git: the nested .git at "
+                            f"{source.dest!r} would be recorded as an empty gitlink, so "
+                            "round snapshots and deliverable repos would silently lose "
+                            "the checkout's contents. Remove strip_git=false (upstream "
+                            "repo and commit stay recorded in _vibesys_sources.json)."
+                        ),
+                    )
+                )
     run_environment_spec = run_environment or make_run_environment_spec()
     environment = build_run_environment(run_environment_spec)
 
@@ -344,7 +368,10 @@ def _assemble_run_context(
     resolved_backend = agent_backend or config.agent.backend or DEFAULT_AGENT_BACKEND
     resolved_cli_provider = cli_provider or config.agent.cli_provider or "codex"
 
-    model = build_model(config)
+    # CLI providers construct and configure their own agent process. Building
+    # the LangChain model here is both unused and incorrect for CLI-only knobs
+    # such as Codex reasoning effort, which the generic OpenAI adapter rejects.
+    model = None if resolved_backend == "cli" else build_model(config)
     model_name = config.model.name
 
     input_path_str = _coerce_dir_path(input_path, "--input")
@@ -355,6 +382,7 @@ def _assemble_run_context(
         domain=profiler_domain,
         backend_profiler_kind=getattr(backend_impl, "profiler_kind", None),
         environment_default_profiler_kind=environment.default_profiler_kind,
+        environment_supported_profiler_kinds=environment.supported_profiler_kinds,
     )
     profiler_preflight = preflight_profiler_kind(resolved_profiler_kind)
     if not profiler_preflight.usable:
@@ -455,14 +483,17 @@ def _assemble_run_context(
             RunEnvironmentRequest(
                 log_dir=log_dir,
                 workspace=workspace_files.root,
+                workspace_sources=workspace_sources,
                 ref_dir=ref_dir,
                 backend=backend_impl,
                 agent_backend=resolved_backend,
                 cli_provider=resolved_cli_provider,
+                objective=objective,
                 accuracy_command=accuracy_command,
                 benchmark_command=benchmark_command,
                 profiler_support_path=profiler_support_path,
                 profiler_support_name=profiler_support_name,
+                git_history_root=git.history_root,
                 environment_bind_mounts=environment_patch.bind_mounts,
                 log=logger.lprint,
                 project_root=PROJECT_ROOT,
@@ -513,8 +544,7 @@ def _assemble_run_context(
         model=model,
         model_name=model_name,
         run_log_file=logger.writer,
-        use_docker=(session.view.cli_sandboxed and not session.view.cli_modal_sandboxed),
-        use_modal=session.view.cli_modal_sandboxed,
+        use_docker=session.view.cli_sandboxed,
         log_dir=log_dir,
     )
 
@@ -531,7 +561,9 @@ def _assemble_run_context(
         model_name=model_name,
         input_path=input_path_str,
         workspace_seed_path=workspace_seed_path,
+        workspace_sources=workspace_sources,
         evaluator_path=evaluator_source,
+        effective_objective=objective,
         accuracy_command=accuracy_command,
         benchmark_command=benchmark_command,
         profiler_kind=resolved_profiler_kind,
@@ -572,15 +604,14 @@ def create_candidate_context(
 
     - a **git worktree** checked out at ``parent_commit`` (isolated working
       tree / index / detached HEAD; edits never touch the shared tree);
-    - a fresh **run-environment session** (its own Modal editor container);
+    - a fresh **run-environment session** (its own isolated editor sandbox);
     - its own **agent runner** (the CLI runner is not thread-safe);
     - a **no-tee ``RunLogger``** writing only to the candidate's log file — only
       the top-level run logger may own the process ``sys.stderr``.
 
-    Only Modal mode is supported for parallel evaluation (host GPU reselection
-    is a no-op there); the caller is responsible for that gating. Close the
-    returned context (or use it as a context manager) to stop the container and
-    remove the worktree.
+    The caller gates this path on the selected environment's parallel-candidate
+    capability. Close the returned context (or use it as a context manager) to
+    stop environment-owned resources and remove the worktree.
     """
     teardown_stack = ExitStack()
     try:
@@ -629,6 +660,7 @@ def _assemble_candidate_context(
 
     resolved_backend = agent_backend or config.agent.backend or DEFAULT_AGENT_BACKEND
     resolved_cli_provider = cli_provider or config.agent.cli_provider or "codex"
+    effective_objective = getattr(parent, "effective_objective", None)
 
     git = GitTracker(
         workspace,
@@ -644,22 +676,24 @@ def _assemble_candidate_context(
         compute_backend=parent.backend,
     )
 
-    # Reuse the parent's already-provisioned Modal model volume: the shared
-    # run_environment has `model_volume` set from the parent's open(), so this
-    # open() skips re-upload and ref_dir is unneeded.
+    # Reuse adapter-owned resources provisioned when the parent environment was
+    # opened. Candidate sessions do not need to rematerialize reference inputs.
     session = teardown_stack.enter_context(
         parent.run_environment.open(
             RunEnvironmentRequest(
                 log_dir=log_dir,
                 workspace=workspace,
+                workspace_sources=parent.workspace_sources,
                 ref_dir=None,
                 backend=parent.backend_impl,
                 agent_backend=resolved_backend,
                 cli_provider=resolved_cli_provider,
+                objective=effective_objective,
                 accuracy_command=parent.accuracy_command,
                 benchmark_command=parent.benchmark_command,
                 profiler_support_path=parent.profiler_support_path,
                 profiler_support_name=parent.profiler_support_name,
+                git_history_root=parent.git.history_root,
                 environment_bind_mounts=parent.environment_patch.bind_mounts,
                 log=logger.lprint,
                 project_root=PROJECT_ROOT,
@@ -691,8 +725,7 @@ def _assemble_candidate_context(
         model=parent.model,
         model_name=parent.model_name,
         run_log_file=logger.writer,
-        use_docker=(session.view.cli_sandboxed and not session.view.cli_modal_sandboxed),
-        use_modal=session.view.cli_modal_sandboxed,
+        use_docker=session.view.cli_sandboxed,
         log_dir=log_dir,
     )
 
@@ -716,7 +749,9 @@ def _assemble_candidate_context(
         model_name=parent.model_name,
         input_path=parent.input_path,
         workspace_seed_path=None,
+        workspace_sources=parent.workspace_sources,
         evaluator_path=parent.evaluator_path,
+        effective_objective=effective_objective,
         accuracy_command=parent.accuracy_command,
         benchmark_command=parent.benchmark_command,
         profiler_kind=parent.profiler_kind,
@@ -735,7 +770,7 @@ def _assemble_candidate_context(
         teardown_stack=teardown_stack,
         run_environment_session=session,
         commands=commands,
-        device=parent.device,  # shared; Modal reselect is a no-op
+        device=parent.device,  # shared under the environment's parallel contract
         agent_runner=agent_runner,
     )
 
@@ -771,7 +806,9 @@ class _RunContext:
         model_name: str,
         input_path: str | None,
         workspace_seed_path: Path | None,
+        workspace_sources: tuple[WorkspaceSource, ...],
         evaluator_path: Path | None,
+        effective_objective: str | None,
         accuracy_command: str,
         benchmark_command: str,
         profiler_kind: ProfilerKind,
@@ -803,7 +840,9 @@ class _RunContext:
         self.model_name = model_name
         self.input_path = input_path
         self.workspace_seed_path = workspace_seed_path
+        self.workspace_sources = workspace_sources
         self.evaluator_path = evaluator_path
+        self.effective_objective = effective_objective
         self.accuracy_command = accuracy_command
         self.benchmark_command = benchmark_command
         self.profiler_kind = profiler_kind
@@ -1041,20 +1080,6 @@ class _RunContext:
             input(f"\n[debug] {step}. Press Enter to continue...")
 
     def snapshot_workspace(self, label: str) -> None:
-        # Under --modal the implementer writes land in the ephemeral Modal
-        # workspace Volume, not the host workspace dir. Pull the latest
-        # state back to the host before snapshotting so git commits (or
-        # directory copies) actually capture the implementer's code and
-        # tests, not just ``progress.md``. The ModalSandbox's tar-and-
-        # stream download is idempotent and excludes ``.venv`` /
-        # ``__pycache__`` / mounted RO dirs — same set we already skip at
-        # run end — so this is safe to run on every snapshot.
-        if hasattr(self.implementer_backend, "_download_workspace"):
-            try:
-                self.implementer_backend._download_workspace()  # pyright: ignore[reportAttributeAccessIssue]
-            except Exception as exc:
-                self.lprint(f"[warn] modal workspace sync to host failed: {exc}")
-
         if self.git_tracking:
             self.git.snapshot(label)
         else:
@@ -1092,6 +1117,11 @@ class _RunContext:
     # Canonical values live in the frozen ``RunCommands`` snapshot; these
     # properties keep existing ``ctx.judge_accuracy_command``-style call
     # sites working.
+
+    @property
+    def objective_location(self) -> str:
+        """Return the framework-owned effective objective path seen by agents."""
+        return self.run_environment_view.paths.objective
 
     @property
     def judge_accuracy_command(self) -> str | None:

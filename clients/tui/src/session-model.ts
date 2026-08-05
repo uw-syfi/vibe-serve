@@ -400,12 +400,18 @@ function eventToConversationEntry(event: RunEvent): ConversationEntry | null {
     };
   }
   if (data?.kind === 'round_finished') {
+    const tone =
+      data.judge_verdict === 'pass'
+        ? ('success' as const)
+        : data.judge_verdict === 'fail'
+          ? ('failure' as const)
+          : ('normal' as const);
     return {
       id,
       kind: 'result',
       content: `${data.attempts} attempt(s)`,
       label: `${event.round_label ?? 'Round'} · ${data.judge_verdict.toUpperCase()}`,
-      tone: data.judge_verdict === 'pass' ? 'success' : 'failure',
+      tone,
       ...agentKind,
       ...roundFields,
     };

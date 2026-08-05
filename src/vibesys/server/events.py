@@ -196,7 +196,7 @@ class BenchmarkResultData(BaseModel):
 class RoundFinishedData(BaseModel):
     kind: Literal["round_finished"] = "round_finished"
     attempts: int
-    judge_verdict: Literal["pass", "fail"]
+    judge_verdict: Literal["pass", "fail", "skipped"]
     perf_metric: FiniteFloat | None = None
     perf_unit: str | None = None
 

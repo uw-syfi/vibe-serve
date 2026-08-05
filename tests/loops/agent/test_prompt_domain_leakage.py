@@ -15,6 +15,7 @@ import pytest
 from vibesys.domains.base import DomainName
 from vibesys.domains.registry import resolve_domain
 from vibesys.domains.rendering import render_domain_section
+from vibesys.loops.agent import issue_board
 from vibesys.profilers import ProfilerKind
 from vibesys.prompts import render_template
 
@@ -55,6 +56,7 @@ DOMAIN_LEAK_CHECKS = (
             "EAGLE",
             "xgrammar",
             "speculative decoding",
+            "Modal",
             "modal_profile",
         ),
     ),
@@ -71,8 +73,17 @@ _NEUTRAL_CONTEXT: dict[str, object] = {
     "pass_criteria": "PASS: preserve FIFO behavior and improve the benchmark headline metric.",
     "objective": "OBJECTIVE: maximize operations per second for the queue benchmark.",
     "roadmap_text": "- major-1: todo - identify the next data-structure bottleneck.",
-    "env_kind": "local",
+    "profile_execution": "local",
 }
+
+_PRIOR_SOLUTION_TERMS = (
+    "EAGLE3",
+    "speculative decoding",
+    "CUDA graphs",
+    "FlashAttention",
+    "continuous batching",
+    "paged attention",
+)
 
 
 def _domain_context(context: dict[str, object]) -> dict[str, object]:
@@ -83,7 +94,17 @@ def _domain_context(context: dict[str, object]) -> dict[str, object]:
         "benchmark_command": context["benchmark_command"],
         "accuracy_command": context["accuracy_command"],
         "runtime_notes": context["runtime_notes"],
+        "profile_execution": context["profile_execution"],
     }
+
+
+def test_fresh_roadmap_scaffold_does_not_seed_solution_ideas(tmp_path: Path) -> None:
+    roadmap = tmp_path / "roadmap"
+    issue_board.ensure_roadmap_file(roadmap)
+
+    text = (roadmap / "index.md").read_text()
+    for term in _PRIOR_SOLUTION_TERMS:
+        assert term.casefold() not in text.casefold()
 
 
 def _domain_section(domain: DomainName, role: str, context: dict[str, object]) -> str:
@@ -122,7 +143,7 @@ def _render_prompt_bundle(domain: DomainName, *, modality: str | None) -> dict[s
             template_dir=_TEMPLATE_DIR,
             modality=context["modality"],
             interface=context["interface"],
-            env_kind=context["env_kind"],
+            profile_execution=context["profile_execution"],
             objective=context["objective"],
             runtime_notes=context["runtime_notes"],
             task=context["task"],
@@ -142,7 +163,7 @@ def _render_prompt_bundle(domain: DomainName, *, modality: str | None) -> dict[s
             template_dir=_TEMPLATE_DIR,
             modality=context["modality"],
             interface=context["interface"],
-            env_kind=context["env_kind"],
+            profile_execution=context["profile_execution"],
             objective=context["objective"],
             runtime_notes=context["runtime_notes"],
             task=context["task"],
@@ -174,7 +195,7 @@ def _render_prompt_bundle(domain: DomainName, *, modality: str | None) -> dict[s
             roadmap_text=context["roadmap_text"],
             plateau_warning=None,
             runtime_notes=context["runtime_notes"],
-            env_kind=context["env_kind"],
+            profile_execution=context["profile_execution"],
             domain_orchestrator=_domain_section(domain, "orchestrator", context),
         ),
         "profiler_nsys": render_template(
@@ -185,7 +206,7 @@ def _render_prompt_bundle(domain: DomainName, *, modality: str | None) -> dict[s
             modality=context["modality"],
             domain_profiler=_domain_section(domain, "profiler", context),
             runtime_notes=context["runtime_notes"],
-            env_kind=context["env_kind"],
+            profile_execution=context["profile_execution"],
             objective=context["objective"],
             profiler_support_name="nsys_profiler",
             profiler_mcp_name="vibesys-nsys-profiler",
@@ -198,7 +219,7 @@ def _render_prompt_bundle(domain: DomainName, *, modality: str | None) -> dict[s
             modality=context["modality"],
             domain_profiler=_domain_section(domain, "profiler", context),
             runtime_notes=context["runtime_notes"],
-            env_kind=context["env_kind"],
+            profile_execution=context["profile_execution"],
             objective=context["objective"],
             profiler_support_name="torch_profiler",
             profiler_mcp_name="vibesys-torch-profiler",
@@ -211,7 +232,7 @@ def _render_prompt_bundle(domain: DomainName, *, modality: str | None) -> dict[s
             modality=context["modality"],
             domain_profiler=_domain_section(domain, "profiler", context),
             runtime_notes=context["runtime_notes"],
-            env_kind=context["env_kind"],
+            profile_execution=context["profile_execution"],
             objective=context["objective"],
             profiler_support_name="neuron_profiler",
             profiler_mcp_name="vibesys-neuron-profiler",
@@ -237,3 +258,19 @@ def test_domain_specific_keywords_do_not_leak_to_vetted_domains(
     assert not failures, (
         f"{leak_check.source_domain} knowledge leaked into vetted prompts:\n" + "\n".join(failures)
     )
+
+
+def test_profiler_prompts_calibrate_observer_effects():
+    prompts = _render_prompt_bundle(DomainName.LLM_SERVING, modality="text_generation")
+
+    for prompt_name in (
+        "single_agent_nsys",
+        "single_agent_torch",
+        "profiler_nsys",
+        "profiler_torch",
+        "profiler_neuron",
+    ):
+        rendered = prompts[prompt_name]
+        assert "observer_effect_fraction" in rendered
+        assert "differ by more than 10%" in rendered
+        assert "must not be converted into exclusive phase shares" in rendered

@@ -33,6 +33,73 @@ FEATURES = FeatureRegistry(
 `example_feature` is a non-product sample flag used to exercise feature flag
 plumbing and tests. Remove it when the first real VibeSys feature flag exists.
 
+## Current Flags
+
+| Flag | Default | Effect |
+| --- | --- | --- |
+| `example_feature` | `false` | Sample flag; exercises the plumbing only. |
+| `omnigent_agent_backend` | `false` | Runs the `cli` agent backend through Omnigent's in-process executor instead of agentshim. |
+
+### `omnigent_agent_backend`
+
+Opt-in and unproven — see [`docs/omnigent-evaluation.md`](../../docs/omnigent-evaluation.md)
+for why the evaluation landed on "retain agentshim as the default". With the
+flag off, nothing under `vibesys/agents/omnigent/` is imported and the
+agentshim path is unchanged.
+
+Enabling it requires the optional extra. Contributors already have it —
+`uv sync --dev` pulls `vibesys[omnigent]` — but an end-user install needs:
+
+```bash
+uv sync --extra omnigent
+```
+
+```toml
+[feature_flags]
+omnigent_agent_backend = true
+```
+
+Constraints, each of which raises `OmnigentUnavailableError` naming the remedy
+rather than silently falling back to agentshim:
+
+- Only the `claude` and `codex` providers are supported. Omnigent 0.6.0 ships
+  no Gemini harness, and its `opencode-native` executor is a bridge for
+  Omnigent's own web UI (it takes no `cwd`/`model`), so neither can run a
+  headless VibeSys turn.
+- `--docker` is rejected. The container launcher is still a prototype under
+  `experiments/omnigent-docker-spike/`.
+- Per-invocation MCP server injection is rejected; Omnigent wires MCP through
+  its own agent spec, which this integration does not construct.
+- Extra host resource grants are rejected. The agentshim path declares these
+  through `vs_sandbox`; this integration confines the agent to its workspace
+  and nothing else, so it cannot honour them.
+
+Sandboxing differs between the two backends. The agentshim path wraps the agent
+in a `vs_sandbox` host sandbox; the Omnigent path expresses the same intent in
+Omnigent's vocabulary — an `OSEnvSpec` whose sandbox grants write access to the
+workspace only, with the backend chosen per platform (bubblewrap on Linux,
+Seatbelt on macOS) and never set to `none`. The two mechanisms have **not** been
+proven equivalent, which is one more reason the flag is off by default.
+
+Confining the agent is not the same as equipping it. Omnigent routes file and
+shell access through `sys_os_read` / `sys_os_write` / `sys_os_edit` /
+`sys_os_shell` MCP tools that the caller must build and dispatch, so the runner
+does that too — without it the agent starts sandboxed and toolless. Reaching
+that seam requires assigning Omnigent's private `_tool_executor` attribute,
+which is the most upgrade-fragile line in the integration.
+
+Requires the platform sandbox backend — `bwrap` on Linux
+(`apt install bubblewrap`) or `sandbox-exec` on macOS. Omnigent resolves it when
+the agent's OS environment is created; if it is missing, the flag raises
+`OmnigentUnavailableError` naming the remedy rather than running the agent
+unconfined. GitHub's runners do not ship `bwrap`, so the tests that build a real
+OS environment skip there under the repo's existing
+`VIBESYS_REQUIRE_SANDBOX_TESTS` convention.
+
+A live end-to-end probe lives at
+`experiments/omnigent-agent-backend/live_turn.py`; both supported providers pass
+it.
+
 ## Config
 
 `src/vibesys/config.py` parses `[feature_flags]` from `agent.toml` with

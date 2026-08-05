@@ -65,11 +65,17 @@ _original_sigint = signal.getsignal(signal.SIGINT)
 
 
 def _sigint_handler(signum: int, frame: FrameType | None) -> None:
-    """Ensure cleanup runs then re-raise the interrupt."""
+    """Re-raise the interrupt and let normal unwinding precede cleanup.
+
+    Container cleanup is registered with ``atexit``. Removing the editor
+    container here races with caller ``finally`` blocks that still need to run
+    inside it, notably VibeSys' bind-mount ownership repair. Restoring the
+    prior handler and re-raising first lets those blocks finish; process exit
+    then invokes ``_cleanup_containers`` without leaking the container.
+    """
     # Restore original handler FIRST to prevent recursive re-entry
-    # if another SIGINT arrives during cleanup.
+    # while the interrupt unwinds through caller cleanup.
     signal.signal(signal.SIGINT, _original_sigint)
-    _cleanup_containers()
     if callable(_original_sigint):
         _original_sigint(signum, frame)
     else:
@@ -508,8 +514,14 @@ class DockerSandbox(BaseSandbox):
                 )
                 self._log_cmd(cmd, result)
                 if cmd[1] == "rm":
-                    removed = result.returncode == 0 or "No such container" in (
-                        result.stderr or ""
+                    stderr = result.stderr or ""
+                    removed = (
+                        result.returncode == 0
+                        or "No such container" in stderr
+                        or (
+                            "removal of container" in stderr
+                            and "is already in progress" in stderr
+                        )
                     )
                     if not removed:
                         cleanup_error = RuntimeError(

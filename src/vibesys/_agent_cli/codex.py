@@ -33,6 +33,8 @@ def _shell_path_config_args(env: dict[str, str]) -> list[str]:
 class CodexCodingAgent(CLICodingAgent[CodexGenerationSession]):
     """Coding agent implementation using the Codex CLI tool."""
 
+    supports_native_output_schema = True
+
     def __init__(
         self,
         model: str | None = None,
@@ -60,6 +62,20 @@ class CodexCodingAgent(CLICodingAgent[CodexGenerationSession]):
         # layer (verified via codex-rs/core/src/config_loader/README.md).
         self.base_config_args = _shell_path_config_args(self.env)
         self.extra_config_args: list[str] = []
+        self.output_schema_path: str | None = None
+
+    def set_reasoning_effort(self, effort: str) -> None:
+        """Apply a per-agent Codex reasoning effort to fresh and resumed turns."""
+        self.base_config_args.extend(["--config", f"model_reasoning_effort={_toml_str(effort)}"])
+
+    def set_output_schema_path(self, path: str | None) -> None:
+        """Apply a native final-response schema to the next Codex turn."""
+        self.output_schema_path = path
+
+    def _append_output_schema(self, cmd: list[str]) -> None:
+        path = getattr(self, "output_schema_path", None)
+        if path:
+            cmd.extend(["--output-schema", path])
 
     @property
     def codex_path(self) -> str:
@@ -85,6 +101,7 @@ class CodexCodingAgent(CLICodingAgent[CodexGenerationSession]):
             cmd.extend(self.base_config_args)
         if self.extra_config_args:
             cmd.extend(self.extra_config_args)
+        self._append_output_schema(cmd)
         return cmd
 
     def _get_resume_command(self, prompt: str, session_id: str) -> list[str]:
@@ -109,6 +126,7 @@ class CodexCodingAgent(CLICodingAgent[CodexGenerationSession]):
             cmd.extend(self.base_config_args)
         if self.extra_config_args:
             cmd.extend(self.extra_config_args)
+        self._append_output_schema(cmd)
         return cmd
 
     def _create_session(

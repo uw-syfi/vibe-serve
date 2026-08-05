@@ -61,10 +61,40 @@ def test_init_uses_containing_experiment_repo_without_nesting(tmp_path):
     tracker.init(existing=False)
 
     assert not (workspace / ".git").exists()
+    assert tracker.history_root == experiment.resolve()
     assert _git_stdout(workspace, "show", "--format=", "--name-only").strip().splitlines() == [
         "workspace/.gitignore",
         "workspace/main.py",
     ]
+
+
+def test_snapshot_stays_bound_when_agent_creates_nested_repo(tmp_path):
+    experiment = tmp_path / "experiment"
+    workspace = experiment / "workspace"
+    workspace.mkdir(parents=True)
+    (workspace / "main.py").write_text("VALUE = 1\n")
+    subprocess.run(["git", "init", "-q", "-b", "main"], cwd=experiment, check=True)
+
+    tracker = _make_tracker(workspace)
+    tracker.init(existing=False)
+    initial_sha = tracker.current_sha()
+    assert tracker._exclude_pattern("secret.bin") == "/workspace/secret.bin"
+    assert tracker._exclude_pattern("workspace/secret.bin") == "/workspace/secret.bin"
+
+    # Reproduce an isolated/root agent running plain `uv init`: a new `.git`
+    # appears below the already-selected experiment repository.
+    subprocess.run(["git", "init", "-q"], cwd=workspace, check=True)
+    (workspace / "main.py").write_text("VALUE = 2\n")
+    tracker.snapshot("round 1")
+
+    assert tracker.current_sha() != initial_sha
+    assert _git_stdout(experiment, "log", "-1", "--format=%s").strip() == "round 1"
+    nested_head = subprocess.run(
+        ["git", "rev-parse", "--verify", "HEAD"],
+        cwd=workspace,
+        capture_output=True,
+    )
+    assert nested_head.returncode != 0
 
 
 def test_init_existing_requires_repo(ws):
@@ -100,17 +130,44 @@ def test_current_sha_matches_head_and_is_none_without_repo(ws):
     assert tracker.current_sha() == _git_stdout(ws, "rev-parse", "HEAD").strip()
 
 
+def test_pending_changes_reports_tracked_and_untracked_paths(ws):
+    tracker = _make_tracker(ws)
+    tracker.init(existing=False)
+
+    (ws / "main.py").write_text("VALUE = 2\n")
+    (ws / "new.txt").write_text("new\n")
+
+    assert tracker.pending_changes() == ["main.py", "new.txt"]
+
+
+def test_pending_changes_are_relative_to_nested_workspace(tmp_path):
+    experiment = tmp_path / "experiment"
+    workspace = experiment / "workspace"
+    workspace.mkdir(parents=True)
+    subprocess.run(["git", "init", "-q", "-b", "main"], cwd=experiment, check=True)
+    (workspace / "main.py").write_text("VALUE = 1\n")
+    tracker = _make_tracker(workspace)
+    tracker.init(existing=False)
+
+    (workspace / "main.py").write_text("VALUE = 2\n")
+    (workspace / "new.txt").write_text("new\n")
+
+    assert tracker.pending_changes() == ["main.py", "new.txt"]
+
+
 def test_checkout_tree_restores_snapshot_without_moving_head(ws):
     tracker = _make_tracker(ws)
     tracker.init(existing=False)
     first = tracker.current_sha()
 
     (ws / "main.py").write_text("VALUE = 2\n")
+    (ws / "later.py").write_text("ONLY_IN_LATER_SNAPSHOT = True\n")
     tracker.snapshot("round 1")
     second = tracker.current_sha()
 
     assert tracker.checkout_tree(first) is True
     assert (ws / "main.py").read_text() == "VALUE = 1\n"
+    assert not (ws / "later.py").exists()
     # HEAD stays put so the next commit lands as a new child commit.
     assert tracker.current_sha() == second
 
@@ -125,13 +182,61 @@ def test_checkout_tree_clean_removes_untracked_files(ws):
     assert not (ws / "leftover.txt").exists()
 
 
+def test_checkout_tree_clean_keeps_ignored_runtime_assets(ws):
+    tracker = GitTracker(
+        ws,
+        log=lambda _msg: None,
+        excluded_dirs={".git", ".venv", ".cache"},
+    )
+    tracker.init(existing=False)
+    first = tracker.current_sha()
+    assert first is not None
+
+    environment = ws / ".venv" / "bin" / "python"
+    environment.parent.mkdir(parents=True)
+    environment.write_text("persistent interpreter\n")
+    cache_entry = ws / ".cache" / "uv" / "wheel"
+    cache_entry.parent.mkdir(parents=True)
+    cache_entry.write_text("persistent package cache\n")
+    (ws / "scratch.txt").write_text("remove me\n")
+
+    assert tracker.checkout_tree(first, clean=True) is True
+    assert environment.read_text() == "persistent interpreter\n"
+    assert cache_entry.read_text() == "persistent package cache\n"
+    assert not (ws / "scratch.txt").exists()
+
+
+def test_checkout_tree_preserves_framework_memory_while_removing_later_code(ws):
+    tracker = _make_tracker(ws)
+    tracker.init(existing=False)
+    first = tracker.current_sha()
+
+    (ws / "later.py").write_text("ONLY_IN_LATER_SNAPSHOT = True\n")
+    progress = ws / "progress"
+    progress.mkdir()
+    (progress / "round-0002.md").write_text("# Round 2\n")
+    tracker.snapshot("round 2")
+    second = tracker.current_sha()
+    (progress / "round-0003.md").write_text("# Round 3 in progress\n")
+
+    assert tracker.checkout_tree(
+        first,
+        clean=True,
+        preserve_paths=("progress",),
+    )
+    assert not (ws / "later.py").exists()
+    assert (progress / "round-0002.md").read_text() == "# Round 2\n"
+    assert (progress / "round-0003.md").read_text() == "# Round 3 in progress\n"
+    assert tracker.current_sha() == second
+
+
 def test_checkout_tree_returns_false_and_logs_on_bad_sha(ws):
     logs: list[str] = []
     tracker = _make_tracker(ws, logs)
     tracker.init(existing=False)
 
     assert tracker.checkout_tree("0000000000000000000000000000000000000000") is False
-    assert any("git checkout 00000000 failed" in line for line in logs)
+    assert any("git tree restore 00000000 failed" in line for line in logs)
 
 
 def test_trusted_input_changes_reports_committed_and_pending_edits(ws):

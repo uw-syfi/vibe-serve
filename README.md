@@ -43,19 +43,28 @@ multimodal inference, and Apple Silicon deployment.
 
 The framework factors the work along two axes:
 
-- **Outer loop** — a search policy operating over a git-recorded history of validated checkpoints. It picks the next optimization, dispatches one concrete task to the inner loop, and updates persistent planning state (issues, long-term memory file, commit graph). 
-- **Inner loop** — three role-specialized coding-agent invocations on a shared workspace:
-  - *Implementer* writes/edits the candidate serving system.
-  - *Accuracy Judge* runs the user-supplied checker against the reference and inspects diffs/runtime behavior for reward-hacking patterns; only correct candidates exit the inner loop.
-  - *Performance Evaluator* profiles the implementation (Nsight Systems, PyTorch profiler) and feeds bottleneck hints back to the policy.
+- **Outer loop** — a fresh designer selects one falsifiable causal hypothesis
+  from git history, profiling evidence, and durable roadmap/progress memory, then
+  hands it off until it is proven, disproven, or otherwise terminated.
+- **Inner loop** — a hypothesis-scoped implementer session edits the candidate,
+  chooses targeted experiments and parameter ranges, and reports whether to
+  continue or nominate the result.
+- **Independent judge** — a fresh, read-only reviewer checks the implementation,
+  activation evidence, invariants, and reward-hacking risks at a sparse cadence.
+  After a PASS, the framework—not an agent—runs and records the canonical
+  accuracy and benchmark commands.
+- **Performance evaluator** — profiles the implementation (Nsight Systems,
+  PyTorch profiler) and feeds bottleneck hints into future design decisions.
 - **Skills library** — Agent Skills entries distilled from existing serving engines and research literature (continuous batching, paged-KV, FlashInfer/FlashAttention, MLX, hybrid-cache management, …). New model families, hardware platforms, and optimization techniques are added by writing a skill, not by modifying the framework.
 - **Execution environment** — an isolated workspace that mounts the user-provided artifacts read-only (so the Implementer cannot edit the checker or reference) and exposes the target hardware (local CUDA, Modal, Docker, or Apple Silicon) plus profilers.
 
-Each candidate is a git commit; the outer loop only advances on Judge-validated implementations, so incorrect candidates can never derail subsequent rounds.
+Each round is recorded in git and a framework-owned audit. Provisional rounds
+remain explicitly unreviewed; only judge-approved candidates receive official
+accuracy and performance results.
 
 ## Installation
 
-Requires Python 3.11+.
+Requires Python 3.12+.
 
 ```bash
 uv sync
@@ -173,6 +182,16 @@ backend = "cli"               # "cli" (codex/claude/gemini/opencode) or "deepage
 cli_provider = "codex"        # which coding-agent harness to drive
 # cli_timeout = 1800          # per-invocation timeout (seconds)
 
+# Optional role-specific CLI models. Other roles, including the independent
+# judge, continue to use [model].name and [thinking].level.
+[agent.outer]
+model = "gpt-5.6-sol"         # orchestrator pre-round and planning calls
+reasoning_effort = "xhigh"
+
+[agent.inner]
+model = "gpt-5.6-luna"        # implementer calls
+reasoning_effort = "xhigh"
+
 [repository]
 owner = "vibesys-playground"  # any GitHub user/org; enables pre-launch repository setup
 visibility = "private"        # private, public, or internal
@@ -186,6 +205,11 @@ visibility = "private"        # private, public, or internal
 
 Provider credentials live in `.env` — see `.env.example`. The CLI flags `--agent-backend` / `--cli-provider` / `--backend` override these.
 
+Optional `[feature_flags]` entries are documented in
+[`src/vibesys/FEATURE_FLAGS.md`](src/vibesys/FEATURE_FLAGS.md). All flags default
+to off; `omnigent_agent_backend` swaps the `cli` backend from agentshim to
+Omnigent and additionally needs `uv sync --extra omnigent` on Python 3.12+.
+
 The config is validated against a typed schema on load (`vibesys/config.py`): unknown sections or keys, unknown providers/backends, and missing required fields are rejected with an error rather than silently ignored.
 
 ## Skills library
@@ -198,12 +222,14 @@ Every run creates `exp_env/<timestamp>-<name>/`:
 
 ```
 exp_env/<run>/
-├── workspace/                # the unified, git-tracked workspace (each round = one commit)
+├── workspace/                # unified, git-tracked candidate workspace
+│   ├── roadmap.md            # or roadmap/index.md
+│   └── progress.md           # or progress/round-NNNN.md
 ├── logs/
 │   ├── run-*.log             # top-level run log
 │   ├── run-*-roundNNN.log    # per-round agent log (agent loop)
-│   ├── progress.md           # long-term memory file the Orchestrator reads/edits
 │   ├── rounds.json           # per-round audit
+│   ├── active_hypothesis.json # resumable implementer handoff, while active
 │   ├── state.json            # cursor (plain loop)
 │   ├── issues.json           # IssueBoard (plain loop)
 │   ├── population.json       # Individual list (evolve loop)
@@ -277,9 +303,17 @@ resources/                        # framework-owned assets exposed to agent runs
 └── skills/                       # Agent Skills library
 ```
 
-- **agent**: pre-round → profiler → orchestrator plan → implementer/judge
-  retry up to `--max-retries-per-round` (default 3).  Always exhausts
-  `--max-rounds`; supports `revert_to_round` mid-loop.
+- **agent**: a fresh orchestrator defines a causal hypothesis; an implementer
+  keeps a hypothesis-scoped session across rounds; an independent fresh judge
+  reviews nominated candidates, every `--judge-every` rounds (default 3), and
+  the final round. Framework-owned accuracy/benchmark gates run every
+  `--official-eval-every` accepted candidates (default 3), when the
+  orchestrator requests them, and on the final round. Other accepted candidates
+  remain provisional working checkpoints. Official Modal gates reuse a healthy
+  deployment only for the exact candidate commit, then explicitly stop it after
+  the final gate; candidate services must also scale to zero after a short idle
+  timeout as the crash backstop. Use `--memory-layout directories` for
+  `roadmap/index.md` plus one `progress/round-NNNN.md` file per round.
 - **plain**: drain `IssueBoard` (one impl + one judge per issue, BLOCK
   after `--max-attempts-per-issue`) → `perf_eval` (may file new issues).
   Early-exits when queue is empty and `perf_eval` files nothing.

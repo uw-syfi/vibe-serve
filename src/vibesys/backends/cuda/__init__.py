@@ -76,6 +76,7 @@ class CudaBackend:
         extra_init_commands: list[str] | None = None,
         setup_fns: list[SetupFn] | None = None,
         modal_options: ModalOptions | None = None,
+        attach_accelerator: bool = True,
     ) -> SandboxBackendProtocol:
         """Construct a sandbox configured for CUDA execution."""
         bind_mounts = bind_mounts or []
@@ -85,10 +86,14 @@ class CudaBackend:
         setup_fns = setup_fns or []
 
         # Pick a GPU lazily on first sandbox creation (modal manages its own).
-        if kind is not SandboxKind.MODAL and self.selected_device is None:
+        if attach_accelerator and kind is not SandboxKind.MODAL and self.selected_device is None:
             self.selected_device = self._pick_device()
 
-        env = self._build_env(extra_env, kind)
+        env = self._build_env(
+            extra_env,
+            kind,
+            attach_accelerator=attach_accelerator,
+        )
 
         if kind is SandboxKind.LOCAL:
             # LocalShellBackend (deepagents) has no setup_fns concept; for the
@@ -104,7 +109,7 @@ class CudaBackend:
             sandbox = DockerSandbox(
                 host_workspace=host_workspace,
                 image=self.image,
-                gpus=self._docker_gpu_spec(),
+                gpus=self._docker_gpu_spec() if attach_accelerator else None,
                 bind_mounts=bind_mounts,
                 passthrough_paths=passthrough_paths,
                 env=env,
@@ -214,7 +219,13 @@ class CudaBackend:
         self._save_gpu_metadata(gpu)
         return gpu
 
-    def _build_env(self, extra: dict[str, str], kind: SandboxKind) -> dict[str, str]:
+    def _build_env(
+        self,
+        extra: dict[str, str],
+        kind: SandboxKind,
+        *,
+        attach_accelerator: bool = True,
+    ) -> dict[str, str]:
         """Build env vars to set inside the sandbox.
 
         Composition order (last write wins):
@@ -228,7 +239,7 @@ class CudaBackend:
         env: dict[str, str] = {}
         if kind is not SandboxKind.MODAL:
             env.update(self._pytorch_index_env())
-        if self.selected_device is not None:
+        if attach_accelerator and self.selected_device is not None:
             if kind is SandboxKind.DOCKER:
                 env["CUDA_VISIBLE_DEVICES"] = "0"
             else:

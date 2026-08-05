@@ -4,6 +4,7 @@ Every Pydantic model the framework uses to constrain an LLM's JSON
 output lives here, organized by purpose:
 
   - Enums:                Verdict, PerfTrend
+  - Skill routing:        SkillResourceSelection
   - Implementer / Judge:  ImplementerResponse, JudgeResponse
                           IssueImplementerResponse, IssueJudgeResponse
                           (the "Issue*" variants are the plain loop's
@@ -22,9 +23,10 @@ schemas in without dragging in the rest of the agent runtime.
 """
 
 from enum import StrEnum
-from typing import Any
+from pathlib import PurePosixPath
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field, FiniteFloat
+from pydantic import BaseModel, ConfigDict, Field, FiniteFloat, field_validator
 
 # ===========================================================================
 # Enums
@@ -36,10 +38,78 @@ class Verdict(StrEnum):
     FAIL = "fail"
 
 
+class HypothesisOutcome(StrEnum):
+    """Implementer-owned status for the active experimental hypothesis.
+
+    ``SUPPORTED`` and ``NOMINATED`` are deliberately distinct from
+    ``PROVEN``: an implementer may submit evidence for independent review,
+    but only the judge can establish that the scoped hypothesis held.
+    ``NOMINATED`` additionally asks the framework to run its global gates for
+    the current candidate checkpoint. It does not imply that the overall
+    objective or terminal target has been achieved.
+    """
+
+    CONTINUE = "continue"
+    SUPPORTED = "supported"
+    NOMINATED = "nominated"
+    DISPROVEN = "disproven"
+    IMPLEMENTATION_FAILED = "implementation_failed"
+    INCONCLUSIVE = "inconclusive"
+    BLOCKED = "blocked"
+
+
+class CandidateDisposition(StrEnum):
+    """How a measured candidate should be retained independently of its hypothesis.
+
+    Hypothesis truth and checkpoint utility are different questions. A causal
+    forecast can be disproven while its implementation still establishes a
+    useful throughput/latency tradeoff. These values keep that distinction
+    explicit without promoting provisional evidence to an official result.
+    """
+
+    UNASSESSED = "unassessed"
+    DISCARD = "discard"
+    PREREQUISITE = "prerequisite"
+    PARETO_FRONTIER = "pareto_frontier"
+
+
 class PerfTrend(StrEnum):
     IMPROVED = "improved"
     REGRESSED = "regressed"
     MIXED = "mixed"
+
+
+class SkillResourceSelection(BaseModel):
+    """Advisory selection of resources from one installed agent skill.
+
+    The outer loop can recommend these resources, while implementation and
+    review agents remain free to select different installed skills.  Paths are
+    relative to the named skill root and are resolved by the framework before
+    they are shown to another agent.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    skill: str = Field(min_length=1, description="Exact installed skill name.")
+    resource_paths: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Optional files relative to the skill root. An empty list selects "
+            "the skill router without preselecting a resource."
+        ),
+    )
+    purpose: str = Field(
+        min_length=1,
+        description="Short reason these resources may help with the current work.",
+    )
+
+    @field_validator("skill", "purpose")
+    @classmethod
+    def _strip_required_text(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("must contain non-whitespace text")
+        return value
 
 
 # ===========================================================================
@@ -47,12 +117,186 @@ class PerfTrend(StrEnum):
 # ===========================================================================
 
 
+class ValidationRecipe(BaseModel):
+    """A bounded, reusable local validation command proposed by an implementer.
+
+    The independent judge audits the recipe before the framework executes it.
+    Target, deployment, benchmark, profiler, and official evaluator commands
+    belong to their existing framework-owned gates instead.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(
+        min_length=1,
+        max_length=80,
+        pattern=r"^[a-z0-9][a-z0-9._-]*$",
+        description="Stable short identifier for this validation recipe.",
+    )
+    command: str = Field(
+        min_length=1,
+        max_length=4000,
+        description="Exact non-interactive command to execute from the workspace root.",
+    )
+    input_paths: list[str] = Field(
+        min_length=1,
+        max_length=64,
+        description=(
+            "Workspace-relative source, test, lock, or configuration paths that "
+            "fully determine whether a prior passing result can be reused."
+        ),
+    )
+    timeout_seconds: int = Field(
+        default=300,
+        ge=1,
+        le=1800,
+        description="Hard wall-clock timeout for this local validation command.",
+    )
+    purpose: str = Field(
+        min_length=1,
+        max_length=500,
+        description="The observable contract this command validates.",
+    )
+
+    @field_validator("command", "purpose")
+    @classmethod
+    def _strip_recipe_text(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("must contain non-whitespace text")
+        return value
+
+    @field_validator("input_paths")
+    @classmethod
+    def _validate_input_paths(cls, values: list[str]) -> list[str]:
+        normalized: list[str] = []
+        for raw in values:
+            value = raw.strip()
+            path = PurePosixPath(value)
+            if not value or path.is_absolute() or value == "." or ".." in path.parts:
+                raise ValueError(
+                    "input_paths must contain non-empty workspace-relative paths "
+                    "without parent traversal"
+                )
+            normalized.append(path.as_posix())
+        if len(set(normalized)) != len(normalized):
+            raise ValueError("input_paths must not contain duplicates")
+        return normalized
+
+
+class ValidationRecipeArtifact(BaseModel):
+    """Versioned candidate-authored container for local validation recipes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={
+            "examples": [
+                {
+                    "version": 1,
+                    "recipes": [
+                        {
+                            "name": "focused-tests",
+                            "command": "uv run pytest -q test_server.py",
+                            "input_paths": [
+                                "server.py",
+                                "test_server.py",
+                                "pyproject.toml",
+                                "uv.lock",
+                            ],
+                            "timeout_seconds": 300,
+                            "purpose": "Exercise the focused local server contract.",
+                        }
+                    ],
+                }
+            ]
+        },
+    )
+
+    version: Literal[1] = 1
+    recipes: list[ValidationRecipe] = Field(min_length=1, max_length=8)
+
+
+class FrameworkValidationResult(BaseModel):
+    """Framework-owned result for one audited validation recipe."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    recipe: ValidationRecipe
+    input_digest: str
+    passed: bool
+    reused: bool = False
+    exit_code: int | None = None
+    output: str = ""
+    error: str | None = None
+
+
 class ImplementerResponse(BaseModel):
     """Structured response from the implementer agent."""
 
     summary: str = Field(description="What was implemented or changed this iteration.")
     expected_behavior: str = Field(
-        description="What behavior is expected (e.g. 'server starts on port 8000, /health returns 200')."
+        description="Observable behavior expected from the implementation."
+    )
+    hypothesis_outcome: HypothesisOutcome = Field(
+        default=HypothesisOutcome.NOMINATED,
+        description=(
+            "Hypothesis lifecycle status. Use continue only for bounded unfinished "
+            "same-mechanism work; supported/nominated require review readiness."
+        ),
+    )
+    evidence: str = Field(
+        default="",
+        description="Observed evidence supporting the reported hypothesis outcome.",
+    )
+    next_step: str = Field(
+        default="",
+        description=("Concrete remaining action for a nonterminal or failed outcome."),
+    )
+    perf_metric: FiniteFloat | None = Field(
+        default=None,
+        description=("Fresh canonical headline metric, otherwise None."),
+    )
+    perf_unit: str | None = Field(
+        default=None,
+        description="Unit of perf_metric, otherwise None.",
+    )
+    metrics: dict[str, FiniteFloat] = Field(
+        default_factory=dict,
+        description="Objective metrics from the same canonical row.",
+    )
+    evaluation_artifact: str | None = Field(
+        default=None,
+        description="Workspace-relative canonical evaluation artifact.",
+    )
+    candidate_disposition: CandidateDisposition = Field(
+        default=CandidateDisposition.UNASSESSED,
+        description=(
+            "Independent checkpoint retention: frontier, prerequisite, discard, or unassessed."
+        ),
+    )
+    candidate_metrics: dict[str, FiniteFloat] = Field(
+        default_factory=dict,
+        description=("Objective values from one fresh comparable provisional row."),
+    )
+    candidate_evaluation_artifact: str | None = Field(
+        default=None,
+        description=("Workspace-relative raw artifact for candidate_metrics."),
+    )
+    candidate_operating_point: str = Field(
+        default="",
+        description=("Workload/load/configuration identity for candidate_metrics."),
+    )
+    candidate_retention_reason: str = Field(
+        default="",
+        description=("Reason for the checkpoint retention recommendation."),
+    )
+    skill_context_updates: list[SkillResourceSelection] = Field(
+        default_factory=list,
+        description=("New advisory skill resources consulted or selected this turn."),
+    )
+    validation_recipe_artifact: str | None = Field(
+        default=None,
+        description=("Workspace-relative framework local-validation recipe JSON."),
     )
 
 
@@ -66,6 +310,13 @@ class JudgeResponse(BaseModel):
         description="Specific actionable feedback for the implementer. Empty string if passing."
     )
     verdict: Verdict = Field(description="PASS if all criteria are met, FAIL otherwise.")
+    skills_used: list[SkillResourceSelection] = Field(
+        default_factory=list,
+        description=(
+            "Skill resources independently selected for this review; observational "
+            "only and never inherited by the implementer."
+        ),
+    )
 
 
 # ===========================================================================
@@ -145,16 +396,25 @@ class PerfEvalResponse(BaseModel):
 
 
 class ProfilerResponse(BaseModel):
-    """Structured response from the nsys profiler agent."""
+    """Structured response from a profiler agent."""
 
     analysis: str = Field(
-        description="Detailed interpretation of the nsys profiling data — what the kernel breakdown, CPU overhead, and GPU idle gaps reveal about the implementation."
+        description=(
+            "Detailed interpretation of collected profiling data, including "
+            "visibility limits and observed CPU, accelerator, or runtime evidence."
+        )
     )
     bottlenecks: str = Field(
-        description="Top bottlenecks identified, ordered by impact. Each bottleneck should name the specific kernel or operation and its contribution to total time."
+        description=(
+            "Measured bottlenecks ordered by impact, or an explicit attribution gap "
+            "when the capture cannot observe the production mechanism."
+        )
     )
     suggestions: str = Field(
-        description="Actionable optimization suggestions for the implementer, tied to specific bottlenecks. E.g. 'Fuse the 12 RMSNorm kernel launches into a single FlashInfer call' or 'Enable CUDA graphs to eliminate 6ms of CPU launch overhead'."
+        description=(
+            "Advisory optimization or measurement suggestions tied to measured "
+            "evidence and estimated end-to-end impact; they do not block planning."
+        )
     )
 
 
@@ -167,7 +427,12 @@ class ProfilerSummary(BaseModel):
 
     analysis: str = Field(description="Detailed interpretation of the profile data.")
     bottlenecks: str = Field(description="Ranked bottlenecks with concrete numbers.")
-    suggestions: str = Field(description="Actionable optimization suggestions tied to bottlenecks.")
+    suggestions: str = Field(
+        description=(
+            "Advisory optimization or measurement suggestions tied to bottlenecks; "
+            "they do not impose a planning prerequisite."
+        )
+    )
     perf_metric: FiniteFloat | None = Field(
         default=None,
         description="Primary performance metric collected during profiling (higher is better). None when unavailable.",
@@ -288,16 +553,87 @@ class OrchestratorPlan(BaseModel):
     orchestrator.
     """
 
-    task: str = Field(description="Well-scoped task description handed to the implementer.")
+    hypothesis_id: str = Field(
+        default="",
+        description=(
+            "Stable short identifier for the hypothesis. Reuse it across rounds while "
+            "the same implementer investigation remains active."
+        ),
+    )
+    hypothesis: str = Field(
+        default="",
+        description="Causal, falsifiable claim explaining why the proposed change should help.",
+    )
+    activation_evidence: str = Field(
+        default="",
+        description=(
+            "Concise observable evidence that the intended code path or mechanism "
+            "ran; include only hypothesis-specific signals."
+        ),
+    )
+    falsification_criteria: str = Field(
+        default="",
+        description="Evidence that would disprove the causal hypothesis for this workload.",
+    )
+    expected_effect: str = Field(
+        default="",
+        description=(
+            "Analytical forecast range used to prioritize and later calibrate the "
+            "hypothesis; this is not an acceptance threshold."
+        ),
+    )
+    minimum_acceptance_criteria: str = Field(
+        default="",
+        description=(
+            "Minimum observed end-to-end benefit and allowed tradeoffs that justify "
+            "retaining the change, derived separately from forecast uncertainty, "
+            "benchmark noise, and implementation cost."
+        ),
+    )
+    invariants: str = Field(
+        default="",
+        description=(
+            "Hypothesis-specific invariants and diagnostics. Cite authoritative "
+            "objective/runtime paths for stable constraints instead of restating them."
+        ),
+    )
+    recommended_skills: list[SkillResourceSelection] = Field(
+        default_factory=list,
+        description=(
+            "Zero or more installed skill resources that may help implement this "
+            "hypothesis. Recommendations are advisory, not an allowlist or gate."
+        ),
+    )
+    task: str = Field(
+        description=(
+            "Causally complete component/interface and staged-evaluation delta handed "
+            "to the implementer, without restating stable authoritative contracts."
+        )
+    )
     pass_criteria: str = Field(
-        description="Feature-level pass criteria for the judge. The framework always runs the accuracy checker and benchmark sanity in addition."
+        description=(
+            "Hypothesis-specific activation, correctness, cleanup, and evidence gates. "
+            "Reference stable trusted gates by path; they run separately when configured."
+        )
+    )
+    request_official_evaluation: bool = Field(
+        default=False,
+        description=(
+            "Run the framework-owned canonical evaluation after this hypothesis "
+            "passes independent review, even when the normal sparse-evaluation "
+            "cadence is not yet due."
+        ),
     )
     revert_to_round: int | None = Field(
         default=None,
-        description="Optional round number to roll back the workspace to (via git checkout of that round's commit) before the implementer runs.",
+        description=(
+            "Optional round number whose candidate tree the framework should "
+            "materialize before the implementer runs. The framework preserves "
+            "durable experiment memory and does not move Git HEAD."
+        ),
     )
     reasoning: str = Field(
-        description="Short explanation of the orchestrator's reasoning for this round."
+        description="Brief decisive comparison supporting this round's parent and mechanism."
     )
 
 
@@ -341,6 +677,30 @@ class SingleAgentRoundResponse(BaseModel):
     perf_unit: str | None = Field(
         default=None,
         description="Unit/field name for perf_metric (e.g. 'median_tok_per_sec'). None when perf_metric is None.",
+    )
+    candidate_disposition: CandidateDisposition = Field(
+        default=CandidateDisposition.UNASSESSED,
+        description="Independent provisional checkpoint-retention recommendation.",
+    )
+    candidate_metrics: dict[str, FiniteFloat] = Field(
+        default_factory=dict,
+        description="Objective values from one fresh directly comparable end-to-end row.",
+    )
+    candidate_evaluation_artifact: str | None = Field(
+        default=None,
+        description="Workspace-relative raw artifact supporting candidate_metrics.",
+    )
+    candidate_operating_point: str = Field(
+        default="",
+        description="Workload/load/configuration identity for candidate_metrics.",
+    )
+    candidate_retention_reason: str = Field(
+        default="",
+        description="Reason for retaining or discarding the candidate checkpoint.",
+    )
+    skill_context_updates: list[SkillResourceSelection] = Field(
+        default_factory=list,
+        description="New skill resources consulted or selected during this turn.",
     )
 
 

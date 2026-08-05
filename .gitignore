@@ -255,6 +255,9 @@ examples/kv-store/benchmark/ycsb-*.tar.gz
 baseline_eval_*/
 sandbox-*/
 
+# Codex agent scratch (harnesses, raw measurement output) — kept local
+.codex/
+
 # TypeScript client build/install output
 node_modules/
 clients/tui/dist/

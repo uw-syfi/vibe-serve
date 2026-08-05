@@ -182,6 +182,26 @@ class TestDeepAgentsRunner:
         assert "response_format" not in mock_create.call_args.kwargs
         assert mock_run.call_args.args[1] == "what happened?"
 
+    def test_deepagents_runner_sessions_are_explicit_and_role_scoped(self):
+        runner = DeepAgentsRunner(
+            model="m",
+            backends={},
+            skills=[],
+            model_name="m",
+            run_log_file=None,
+        )
+
+        first = runner._session(kind="implementer", reuse_session=True, session_key="hypothesis:a")
+        continued = runner._session(
+            kind="implementer", reuse_session=True, session_key="hypothesis:a"
+        )
+        other_role = runner._session(kind="judge", reuse_session=True, session_key="hypothesis:a")
+        fresh = runner._session(kind="implementer", reuse_session=False, session_key="hypothesis:a")
+
+        assert continued is first
+        assert other_role is not first
+        assert fresh is not first
+
 
 # ---------------------------------------------------------------------------
 # Helpers for CLI runner tests
@@ -208,6 +228,8 @@ def _make_fake_agent_class(
     from types import SimpleNamespace
 
     class FakeAgent:
+        supports_native_output_schema = False
+
         def __init__(self, model=None, event_handler=None):
             self.model = model
             self.event_handler = event_handler
@@ -217,7 +239,15 @@ def _make_fake_agent_class(
             self.uninstall_calls: list[dict] = []
             self.event_log: list[str] = []
             self._last_session: SimpleNamespace | None = None
+            self.reasoning_effort: str | None = None
+            self.output_schema_paths: list[str | None] = []
             captured.append(self)
+
+        def set_reasoning_effort(self, effort):
+            self.reasoning_effort = effort
+
+        def set_output_schema_path(self, path):
+            self.output_schema_paths.append(path)
 
         def install_mcp_servers(self, workspace, servers):
             self.install_calls.append({"workspace": workspace, "servers": list(servers)})
@@ -294,6 +324,194 @@ class TestCliAgentRunner:
         assert result.verdict == Verdict.PASS
         assert len(captured) == 1
         assert captured[0].generate_calls[0]["cwd"] == str(workspace)
+
+    def test_cli_runner_obeys_explicit_session_policy(self, monkeypatch, tmp_path):
+        captured: list = []
+        fake_cls = _make_fake_agent_class(
+            generate_returns='{"analysis": "ok", "feedback": "", "verdict": "pass"}',
+            captured=captured,
+        )
+        monkeypatch.setitem(
+            __import__(
+                "vibesys.agents.cli_runner",
+                fromlist=["_PROVIDER_CLASSES"],
+            )._PROVIDER_CLASSES,
+            "codex",
+            fake_cls,
+        )
+        runner = CliAgentRunner(provider="codex", model="m", run_log_file=None)
+        workspace = tmp_path / "ws"
+        workspace.mkdir()
+
+        def invoke(*, session_key: str, reuse_session: bool) -> None:
+            runner.invoke(
+                kind="judge",
+                workspace=workspace,
+                system_prompt="sys",
+                user_prompt="usr",
+                response_cls=JudgeResponse,
+                fallback_factory=_judge_fallback,
+                round_label="review",
+                reuse_session=reuse_session,
+                session_key=session_key,
+            )
+
+        invoke(session_key="hypothesis:a", reuse_session=True)
+        invoke(session_key="hypothesis:a", reuse_session=True)
+        assert len(captured) == 1
+        invoke(session_key="hypothesis:b", reuse_session=True)
+        assert len(captured) == 2
+        invoke(session_key="hypothesis:a", reuse_session=False)
+        assert len(captured) == 3
+
+    def test_codex_persistent_session_renews_before_third_turn(self, monkeypatch, tmp_path):
+        captured: list = []
+        fake_cls = _make_fake_agent_class(
+            generate_returns='{"analysis": "ok", "feedback": "", "verdict": "pass"}',
+            captured=captured,
+        )
+        original_generate = fake_cls.generate
+
+        def generate(self, *args, **kwargs):
+            if getattr(self, "session_id", None) is None:
+                self.session_id = f"thread-{len(self.generate_calls) + 1}"
+            session_ids.append(self.session_id)
+            return original_generate(self, *args, **kwargs)
+
+        fake_cls.generate = generate
+        monkeypatch.setitem(
+            __import__(
+                "vibesys.agents.cli_runner",
+                fromlist=["_PROVIDER_CLASSES"],
+            )._PROVIDER_CLASSES,
+            "codex",
+            fake_cls,
+        )
+        runner = CliAgentRunner(provider="codex", model="m", run_log_file=None)
+        workspace = tmp_path / "ws"
+        workspace.mkdir()
+        session_ids: list[str] = []
+
+        for _ in range(3):
+            runner.invoke(
+                kind="judge",
+                workspace=workspace,
+                system_prompt="sys",
+                user_prompt="usr",
+                response_cls=JudgeResponse,
+                fallback_factory=_judge_fallback,
+                round_label="review",
+                reuse_session=True,
+                session_key="hypothesis:a",
+            )
+
+        assert len(captured) == 1
+        assert session_ids == ["thread-1", "thread-1", "thread-3"]
+
+    @pytest.mark.parametrize(
+        "session_state",
+        [
+            {
+                "final_usage": {"input_tokens": 10_000_000},
+                "duration_ms": 1,
+            },
+            {
+                "final_usage": {"input_tokens": 1},
+                "duration_ms": 600_000,
+            },
+        ],
+    )
+    def test_codex_persistent_session_renews_after_heavy_turn(
+        self, monkeypatch, tmp_path, session_state
+    ):
+        captured: list = []
+        fake_cls = _make_fake_agent_class(
+            generate_returns='{"analysis": "ok", "feedback": "", "verdict": "pass"}',
+            captured=captured,
+            session_state=session_state,
+        )
+        original_generate = fake_cls.generate
+
+        def generate(self, *args, **kwargs):
+            if getattr(self, "session_id", None) is None:
+                self.session_id = f"thread-{len(self.generate_calls) + 1}"
+            session_ids.append(self.session_id)
+            return original_generate(self, *args, **kwargs)
+
+        fake_cls.generate = generate
+        monkeypatch.setitem(
+            __import__(
+                "vibesys.agents.cli_runner",
+                fromlist=["_PROVIDER_CLASSES"],
+            )._PROVIDER_CLASSES,
+            "codex",
+            fake_cls,
+        )
+        runner = CliAgentRunner(provider="codex", model="m", run_log_file=None)
+        workspace = tmp_path / "ws"
+        workspace.mkdir()
+        session_ids: list[str] = []
+
+        for _ in range(2):
+            runner.invoke(
+                kind="judge",
+                workspace=workspace,
+                system_prompt="sys",
+                user_prompt="usr",
+                response_cls=JudgeResponse,
+                fallback_factory=_judge_fallback,
+                round_label="review",
+                reuse_session=True,
+                session_key="hypothesis:a",
+            )
+
+        assert session_ids == ["thread-1", "thread-2"]
+
+    def test_cli_runner_selects_models_and_effort_by_loop_role(self, monkeypatch, tmp_path):
+        captured: list = []
+        fake_cls = _make_fake_agent_class(
+            generate_returns='{"analysis": "ok", "feedback": "", "verdict": "pass"}',
+            captured=captured,
+        )
+        monkeypatch.setitem(
+            __import__(
+                "vibesys.agents.cli_runner",
+                fromlist=["_PROVIDER_CLASSES"],
+            )._PROVIDER_CLASSES,
+            "codex",
+            fake_cls,
+        )
+        runner = CliAgentRunner(
+            provider="codex",
+            model="gpt-5.6-sol",
+            model_name="gpt-5.6-sol",
+            default_reasoning_effort="high",
+            role_models={"implementer": "gpt-5.6-luna"},
+            role_reasoning_efforts={
+                "orchestrator": "xhigh",
+                "implementer": "xhigh",
+            },
+        )
+        workspace = tmp_path / "ws"
+        workspace.mkdir()
+
+        for kind in ("orchestrator", "implementer", "judge"):
+            runner.invoke(
+                kind=kind,
+                workspace=workspace,
+                system_prompt="sys",
+                user_prompt="usr",
+                response_cls=JudgeResponse,
+                fallback_factory=_judge_fallback,
+                round_label=kind,
+            )
+
+        assert [agent.model for agent in captured] == [
+            "gpt-5.6-sol",
+            "gpt-5.6-luna",
+            "gpt-5.6-sol",
+        ]
+        assert [agent.reasoning_effort for agent in captured] == ["xhigh", "xhigh", "high"]
 
     @pytest.mark.parametrize("provider", ["claude", "gemini", "codex", "opencode"])
     def test_host_resource_declarations_apply_to_every_local_cli_provider(
@@ -697,6 +915,79 @@ class TestCliAgentRunner:
         assert "JudgeResponse" in prompt
         assert prompt.startswith("THE-SYSTEM-PROMPT")
 
+    def test_codex_uses_native_schema_without_prompt_duplication(self, monkeypatch, tmp_path):
+        captured: list = []
+        fake_cls = _make_fake_agent_class(
+            generate_returns='{"analysis": "ok", "feedback": "", "verdict": "pass"}',
+            captured=captured,
+        )
+        fake_cls.supports_native_output_schema = True
+        monkeypatch.setitem(
+            __import__(
+                "vibesys.agents.cli_runner",
+                fromlist=["_PROVIDER_CLASSES"],
+            )._PROVIDER_CLASSES,
+            "codex",
+            fake_cls,
+        )
+        workspace = tmp_path / "ws"
+        workspace.mkdir()
+        runner = CliAgentRunner(provider="codex", model="m", run_log_file=None)
+
+        runner.invoke(
+            kind="judge",
+            workspace=workspace,
+            system_prompt="THE-SYSTEM-PROMPT",
+            user_prompt="usr",
+            response_cls=JudgeResponse,
+            fallback_factory=_judge_fallback,
+            round_label="judge #1",
+        )
+
+        agent = captured[0]
+        relative = agent.output_schema_paths[-1]
+        assert relative is not None
+        assert relative.startswith(".cache/vibesys/response-schemas/")
+        assert (workspace / relative).is_file()
+        assert "Schema for JudgeResponse" not in agent.generate_calls[0]["prompt"]
+
+    def test_codex_schema_materialization_failure_uses_prompt_fallback(self, monkeypatch, tmp_path):
+        captured: list = []
+        fake_cls = _make_fake_agent_class(
+            generate_returns='{"analysis": "ok", "feedback": "", "verdict": "pass"}',
+            captured=captured,
+        )
+        fake_cls.supports_native_output_schema = True
+        runner_module = __import__(
+            "vibesys.agents.cli_runner",
+            fromlist=["_PROVIDER_CLASSES"],
+        )
+        monkeypatch.setitem(runner_module._PROVIDER_CLASSES, "codex", fake_cls)
+        monkeypatch.setattr(
+            runner_module,
+            "materialize_native_output_schema",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(ValueError("unsupported")),
+        )
+        workspace = tmp_path / "ws"
+        workspace.mkdir()
+        log = StringIO()
+        runner = CliAgentRunner(provider="codex", model="m", run_log_file=log)
+
+        result = runner.invoke(
+            kind="judge",
+            workspace=workspace,
+            system_prompt="THE-SYSTEM-PROMPT",
+            user_prompt="usr",
+            response_cls=JudgeResponse,
+            fallback_factory=_judge_fallback,
+            round_label="judge #1",
+        )
+
+        assert result.verdict == Verdict.PASS
+        assert captured[0].output_schema_paths == [None]
+        assert "Schema for JudgeResponse" in captured[0].generate_calls[0]["prompt"]
+        assert "using prompt fallback" in log.getvalue()
+
     def test_cli_runner_chat_returns_plain_text_in_a_fresh_session_per_turn(
         self, monkeypatch, tmp_path
     ):
@@ -1097,6 +1388,13 @@ class TestCliAgentRunner:
         from vibesys.agents.docker_executor import DockerCommandExecutor
 
         captured: list = []
+        ownership_repairs: list[tuple[str, int, int]] = []
+
+        monkeypatch.setattr(
+            DockerCommandExecutor,
+            "repair_workspace_ownership",
+            lambda self, *, uid, gid: ownership_repairs.append((self.container_id, uid, gid)),
+        )
 
         class FakeAgent:
             def __init__(self, model=None, event_handler=None, executor=None):
@@ -1171,6 +1469,10 @@ class TestCliAgentRunner:
 
         assert len(captured) == 1
         assert captured[0].executor.container_id == "container-two"
+        assert [container_id for container_id, _, _ in ownership_repairs] == [
+            "container-one",
+            "container-two",
+        ]
 
     def test_cli_runner_invokes_install_then_generate_then_uninstall(self, monkeypatch, tmp_path):
         """The mcp_servers kwarg triggers a strict install → generate → uninstall sandwich."""
@@ -1412,48 +1714,6 @@ class TestBuildAgentRunner:
         assert isinstance(runner, CliAgentRunner)
         assert runner._docker_sandboxes is mock_backends
 
-    def test_build_agent_runner_cli_modal_returns_cli_runner(self):
-        """cli backend + --modal should wire modal_sandboxes."""
-        from unittest.mock import MagicMock
-
-        mock_backends = {
-            "implementer": MagicMock(),
-            "judge": MagicMock(),
-            "perf_eval": MagicMock(),
-        }
-        runner = build_agent_runner(
-            _agent_config(),
-            agent_backend="cli",
-            cli_provider="codex",
-            backends=mock_backends,
-            skills=[],
-            skill_source_dirs=[],
-            model=None,
-            model_name="m",
-            run_log_file=None,
-            use_docker=False,
-            use_modal=True,
-        )
-        assert isinstance(runner, CliAgentRunner)
-        assert runner._modal_sandboxes is mock_backends
-        assert runner._docker_sandboxes is None
-
-    def test_build_agent_runner_rejects_unsupported_modal_provider(self):
-        with pytest.raises(SystemExit, match="not yet supported with --modal"):
-            build_agent_runner(
-                _agent_config(),
-                agent_backend="cli",
-                cli_provider="nonexistent",
-                backends={},
-                skills=[],
-                skill_source_dirs=[],
-                model=None,
-                model_name="m",
-                run_log_file=None,
-                use_docker=False,
-                use_modal=True,
-            )
-
     def test_build_agent_runner_rejects_unsupported_docker_provider(self):
         with pytest.raises(SystemExit, match="not yet supported with --docker"):
             build_agent_runner(
@@ -1523,6 +1783,26 @@ class TestBuildAgentRunner:
             model_name="gpt-5.4",
         )
         assert runner._model_name == runner._model == "gpt-5.4"
+
+    def test_cli_backend_carries_outer_and_inner_role_configuration(self):
+        config = _agent_config(
+            backend="cli",
+            cli_provider="codex",
+            outer={"model": "gpt-5.6-sol", "reasoning_effort": "xhigh"},
+            inner={"model": "gpt-5.6-luna", "reasoning_effort": "xhigh"},
+        )
+        config.thinking.level = "high"
+        runner = self._cli_runner(config, model_name="gpt-5.6-sol")
+
+        assert runner._default_reasoning_effort == "high"
+        assert runner._role_models == {
+            "orchestrator": "gpt-5.6-sol",
+            "implementer": "gpt-5.6-luna",
+        }
+        assert runner._role_reasoning_efforts == {
+            "orchestrator": "xhigh",
+            "implementer": "xhigh",
+        }
 
 
 class TestAgentLoggerEventHandler:

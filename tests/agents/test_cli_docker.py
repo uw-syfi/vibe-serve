@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from vibesys.agents import cli_docker
 from vibesys.agents.cli_docker import DockerAuthPath
 
@@ -88,3 +90,25 @@ def test_provider_auth_imports_exclude_bulk_runtime_roots():
             Path.home() / ".config" / "opencode",
         }
     )
+
+
+def test_codex_container_installs_luna_capable_cli_version():
+    commands = cli_docker.docker_init_commands("codex")
+
+    assert (
+        f"npm install -g --include=optional @openai/codex@{cli_docker.CODEX_DOCKER_CLI_VERSION}"
+    ) in commands
+    assert cli_docker.CODEX_DOCKER_CLI_VERSION == "0.144.4"
+
+
+@pytest.mark.parametrize("provider", ["claude", "gemini", "codex", "opencode"])
+def test_editor_container_installs_pinned_rust_toolchain(provider: str):
+    commands = cli_docker.docker_init_commands(provider)
+    rust_install = next(command for command in commands if "rustup-init.sh" in command)
+
+    assert "command -v cargo" in rust_install
+    assert f"--default-toolchain {cli_docker.RUST_DOCKER_TOOLCHAIN_VERSION}" in rust_install
+    assert "--profile minimal" in rust_install
+    assert "--component rustfmt --component clippy" in rust_install
+    assert "ln -sf /root/.cargo/bin/* /usr/local/bin/" in rust_install
+    assert cli_docker.RUST_DOCKER_TOOLCHAIN_VERSION == "1.92.0"

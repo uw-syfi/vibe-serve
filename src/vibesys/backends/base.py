@@ -77,11 +77,16 @@ class ComputeBackendImpl(Protocol):
         extra_init_commands: list[str],
         setup_fns: list[SetupFn] | None = None,
         modal_options: ModalOptions | None = None,
+        attach_accelerator: bool = True,
     ) -> SandboxBackendProtocol:
         """Construct (do not start) a sandbox configured for this backend.
 
         ``setup_fns`` are invoked by the sandbox at the end of every
         ``start()`` — initial and restart alike.
+
+        ``attach_accelerator=False`` creates a CPU-only control-plane sandbox
+        while preserving the target backend's image and tooling. Remote
+        dispatch environments use this for local editor containers.
         """
         ...
 

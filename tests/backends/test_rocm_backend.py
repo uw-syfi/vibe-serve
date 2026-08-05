@@ -63,6 +63,20 @@ class TestRocmSandbox:
         assert sb._devices == ["/dev/kfd", "/dev/dri/renderD128"]
         assert sb._gpus is None
 
+    def test_docker_can_skip_accelerator_for_control_plane(self, tmp_path):
+        impl = _make_backend(tmp_path)
+        workspace = tmp_path / "ws"
+        workspace.mkdir()
+
+        sb = impl.make_sandbox(
+            SandboxKind.DOCKER,
+            host_workspace=str(workspace),
+            log_path=None,
+            attach_accelerator=False,
+        )
+
+        assert sb._devices == []
+
     def test_docker_adds_device_groups(self, tmp_path):
         """/dev/kfd and /dev/dri/* are group-owned; without these the container
         user cannot open them and every HIP call fails at runtime."""

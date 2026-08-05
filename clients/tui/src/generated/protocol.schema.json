@@ -843,7 +843,8 @@
         "judge_verdict": {
           "enum": [
             "pass",
-            "fail"
+            "fail",
+            "skipped"
           ],
           "title": "Judge Verdict",
           "type": "string"

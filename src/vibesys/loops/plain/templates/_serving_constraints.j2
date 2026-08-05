@@ -11,9 +11,12 @@ Build a production-ready FastAPI inference server that serves **the specific mod
 
 **GPU and dtype**: {{ device_dtype }}
 
-**Environment**: Initialize the project with `uv init` and add dependencies via `uv add`. Always use `uv run` to execute scripts and tests.
+**Environment**: Initialize the project with `uv init --no-vcs` and add dependencies via `uv add`. Always use `uv run` to execute scripts and tests.
 
-**VibeServeModel interface**: `main.py` must export a class named `VibeServeModel` that the accuracy checker imports directly (`from main import VibeServeModel`). The class must implement:
+**VibeServeModel interface**: Inspect the accuracy checker and preserve the entry
+module it imports. That module must export a class named `VibeServeModel`; the
+production server may use a different language or runtime behind this adapter.
+The class must implement:
 
 1. `model = VibeServeModel.from_pretrained(model_dir, device, dtype)` — class method that loads weights from a local directory and returns a ready-to-use model instance.
 2. `output_ids = model.generate(input_ids, max_new_tokens=N)` — greedy generation that returns a tensor of shape `(1, prompt_len + generated_len)` (same convention as HuggingFace `model.generate()`).

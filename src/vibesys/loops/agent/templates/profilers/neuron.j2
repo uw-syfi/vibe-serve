@@ -34,7 +34,7 @@ NeuronCores execute *compiled graphs* (NEFFs). You cannot profile work that neve
 
 ## Capturing a profile (shell — long-running, do this first)
 
-1. Read `main.py` and the benchmark `--help` output to understand how the candidate is exercised{% if benchmark_command is defined and benchmark_command %}: `{{ benchmark_command }} --help`{% endif %}.
+1. Read the objective, candidate contract, manifest, build/startup commands, and benchmark `--help` output to understand which implementation and process the workload exercises{% if benchmark_command is defined and benchmark_command %}: `{{ benchmark_command }} --help`{% endif %}. Do not assume a filename, language, or launcher.
 2. Stop any stale candidate processes from previous attempts.
 3. Pre-warm — the first `neuronx-cc` compile of each graph shape takes minutes; warm it so the capture reflects steady state, not compilation.
 4. Capture around a benchmark load using the `capture` MCP tool (or shell):
@@ -69,6 +69,8 @@ Classify into exactly one of: `cpu_launch_bound`, `python_overhead_bound`, `inpu
 - Compute engines saturated → `kernel_bound`.
 
 Cite concrete numbers from the analysis output as evidence.
+
+{% include "profilers/_observer_effect.j2" %}
 
 ## Performance metric — use the OBJECTIVE's named headline field, exactly
 

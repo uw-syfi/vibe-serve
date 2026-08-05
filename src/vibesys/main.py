@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import subprocess
 import sys
@@ -46,6 +47,7 @@ from vibesys.repository import (
 )
 from vibesys.sandbox.run_environment import (
     RunEnvironmentSpec,
+    build_run_environment,
     make_run_environment_spec,
 )
 from vibesys.skills import DEFAULT_SKILL_ROOTS, resolve_skill_source_dirs
@@ -66,7 +68,6 @@ _MODALITIES = (
     "kv_store",
 )
 
-_MODAL_PROFILERS = frozenset({ProfilerKind.AUTO, ProfilerKind.TORCH, ProfilerKind.NONE})
 _STUB_AGENT_DEFAULT_INPUT = PROJECT_ROOT / "examples" / "data-structures" / "queue-spsc"
 _STUB_AGENT_DEFAULT_CONFIG_TEXT = '[model]\nname = "gpt-5.5"\n'
 
@@ -274,10 +275,11 @@ def _add_common_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--modal-gpu",
         type=str,
-        default="H100",
+        default="H100!",
         help=(
             "Default Modal GPU spec for `@app.function` / `@app.cls` decorators "
-            "(e.g. H100, A100, L40S). Default: H100."
+            "(e.g. H100!, A100-80GB, L40S). The default `H100!` disables "
+            "Modal's automatic H100-to-H200 benchmark upgrade."
         ),
     )
     parser.add_argument(
@@ -429,6 +431,20 @@ def run_environment_spec_from_args(args: argparse.Namespace) -> RunEnvironmentSp
         modal_gpu=args.modal_gpu,
         modal_model_volume=args.modal_model_volume,
         modal_app=args.modal_app,
+    )
+
+
+def _validate_run_environment_profiler(args: argparse.Namespace) -> None:
+    """Validate profiler compatibility through the selected adapter contract."""
+
+    spec = run_environment_spec_from_args(args)
+    supported = build_run_environment(spec).supported_profiler_kinds
+    if supported is None or args.profiler in supported:
+        return
+    allowed = ", ".join(sorted(kind.value for kind in supported))
+    _configuration_error(
+        f"Error: run environment {spec.name!r} does not support "
+        f"--profiler={args.profiler.value}; allowed: {allowed}."
     )
 
 
@@ -746,6 +762,15 @@ def _load_objective(bundle: InputBundle) -> str:
     return bundle.objective
 
 
+def _with_operator_constraints(objective: str, constraints: list[str]) -> str:
+    """Add run-specific invariants without mutating the input bundle."""
+    normalized = [constraint.strip() for constraint in constraints if constraint.strip()]
+    if not normalized:
+        return objective
+    lines = "\n".join(f"- {constraint}" for constraint in normalized)
+    return f"{objective.rstrip()}\n\n## Operator constraints\n\n{lines}\n"
+
+
 # ===========================================================================
 # agent loop  (--outer-loop agent)
 # ===========================================================================
@@ -765,6 +790,12 @@ def _detect_resume_round(exp_dir: Path) -> int:
 
 def _prune_rounds_state(exp_dir: Path, keep_up_to: int) -> None:
     """Trim rounds.json to entries with round < ``keep_up_to``."""
+    # An explicit rewind invalidates continuation state from the discarded
+    # rounds. The next run must ask the designer for a fresh hypothesis.
+    active_hypothesis = exp_dir / "logs" / "active_hypothesis.json"
+    if active_hypothesis.exists():
+        active_hypothesis.unlink()
+
     rounds_json = exp_dir / "logs" / "rounds.json"
     if not rounds_json.exists():
         return
@@ -783,6 +814,46 @@ def _build_agent_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--max-rounds", type=int, default=24)
     parser.add_argument("--max-retries-per-round", type=int, default=3)
+    parser.add_argument(
+        "--constraint",
+        action="append",
+        default=[],
+        metavar="TEXT",
+        help=(
+            "Add a run-specific invariant to every agent's workload objective. "
+            "Repeat the flag for multiple constraints."
+        ),
+    )
+    parser.add_argument(
+        "--judge-every",
+        type=int,
+        default=3,
+        metavar="N",
+        help=(
+            "In the multi-agent loop, run independent review every N rounds; "
+            "nominated candidates and the final round are always reviewed (default: 3)."
+        ),
+    )
+    parser.add_argument(
+        "--official-eval-every",
+        type=int,
+        default=3,
+        metavar="N",
+        help=(
+            "Run configured framework-owned accuracy/benchmark gates every N "
+            "accepted candidate checkpoints; orchestrator requests and the final "
+            "round run them immediately (default: 3)."
+        ),
+    )
+    parser.add_argument(
+        "--memory-layout",
+        choices=["files", "directories"],
+        default="files",
+        help=(
+            "Store roadmap/progress as roadmap.md + progress.md (files), or as "
+            "roadmap/index.md + progress/round-NNNN.md (directories)."
+        ),
+    )
     parser.add_argument(
         "--stub-agent",
         action="store_true",
@@ -843,12 +914,13 @@ def _validate_target_inputs(args: argparse.Namespace) -> None:
 
 
 def _validate_agent(args: argparse.Namespace) -> None:
-    if args.modal and args.profiler not in _MODAL_PROFILERS:
-        _configuration_error(
-            "Error: --modal only supports --profiler=torch, --profiler=auto, or --profiler=none.",
-        )
+    _validate_run_environment_profiler(args)
     if args.max_retries_per_round < 1:
         _configuration_error("Error: --max-retries-per-round must be >= 1.")
+    if args.judge_every < 1:
+        _configuration_error("Error: --judge-every must be >= 1.")
+    if args.official_eval_every < 1:
+        _configuration_error("Error: --official-eval-every must be >= 1.")
     if args.trusted_input_baseline is not None and args.resume is None:
         _configuration_error(
             "Error: --trusted-input-baseline requires --resume.",
@@ -863,7 +935,7 @@ def _run_agent(args: argparse.Namespace) -> None:
     config, skills, backend = load_config_and_skills(args, domain=bundle.domain)
     from vibesys.loops.agent.loop import run_agent_loop
 
-    objective = _load_objective(bundle)
+    objective = _with_operator_constraints(_load_objective(bundle), args.constraint)
 
     existing = False
     exp_name = args.exp_name
@@ -913,8 +985,13 @@ def _run_agent(args: argparse.Namespace) -> None:
         accuracy_timeout_seconds=bundle.manifest.accuracy.timeout_seconds,
         benchmark_timeout_seconds=bundle.manifest.benchmark.timeout_seconds,
         objective=objective,
+        objectives=_load_objectives_toml(bundle.root),
+        pareto_relative_noise=_load_pareto_relative_noise_toml(bundle.root),
         max_rounds=args.max_rounds,
         max_retries_per_round=args.max_retries_per_round,
+        judge_every=args.judge_every,
+        official_eval_every=args.official_eval_every,
+        memory_layout=args.memory_layout,
         start_round=start_round,
         existing=existing,
         trusted_input_baseline=args.trusted_input_baseline,
@@ -964,7 +1041,7 @@ def _parse_cli_objective(spec: str):
 
 
 def _load_objectives_toml(input_path: Path) -> list[Objective]:
-    """Read ``objectives.toml`` from the input bundle if present."""
+    """Read loop-independent Pareto axes from an input bundle when present."""
     from vibesys.loops.evolve.population import Objective
 
     path = input_path / "objectives.toml"
@@ -983,6 +1060,32 @@ def _load_objectives_toml(input_path: Path) -> list[Objective]:
             )
         objectives.append(Objective(name=name, direction=direction))
     return objectives
+
+
+def _load_pareto_relative_noise_toml(input_path: Path) -> float:
+    """Read the agent loop's variance-aware dominance margin.
+
+    Exact Pareto dominance remains the default. Inputs with measured benchmark
+    variation can opt into a relative margin under ``[pareto]`` without
+    imposing one domain's noise level on every optimization workload.
+    """
+    path = input_path / "objectives.toml"
+    if not path.exists():
+        return 0.0
+    data = tomllib.loads(path.read_text())
+    raw_value = (data.get("pareto") or {}).get("relative_noise", 0.0)
+    if isinstance(raw_value, bool):
+        raise ValueError(f"Malformed pareto.relative_noise in {path}: {raw_value!r}")
+    try:
+        value = float(raw_value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"Malformed pareto.relative_noise in {path}: {raw_value!r}") from exc
+    if not math.isfinite(value) or not 0 <= value < 1:
+        raise ValueError(
+            f"Malformed pareto.relative_noise in {path}: expected a finite value "
+            f"in [0, 1), got {raw_value!r}"
+        )
+    return value
 
 
 def _resolve_objectives(args: argparse.Namespace) -> list[Objective]:
@@ -1051,12 +1154,14 @@ def _build_evolve_parser() -> argparse.ArgumentParser:
     parser.add_argument("--frontier-bias", type=float, default=0.7)
     parser.add_argument("--bootstrap-max-attempts", type=int, default=5)
     parser.add_argument(
+        "--keep-deployments",
         "--keep-modal-apps",
+        dest="keep_deployments",
         action="store_true",
         help=(
-            "Do not tear down each candidate's Modal app after evaluation "
-            "(default: stop them so idle apps don't accumulate). Keep them for "
-            "post-hoc log inspection."
+            "Do not tear down each candidate's environment-owned deployment "
+            "after evaluation (default: release it). Keep deployments for "
+            "post-hoc inspection. --keep-modal-apps is a compatibility alias."
         ),
     )
     parser.add_argument(
@@ -1065,9 +1170,8 @@ def _build_evolve_parser() -> argparse.ArgumentParser:
         default=1,
         help=(
             "Max candidates to evaluate concurrently within a generation "
-            "(default: 1 = serial). Values >1 take effect only under --modal, "
-            "where each candidate runs in its own isolated worktree + editor "
-            "container + Modal app; local/docker backends stay serial."
+            "(default: 1 = serial). Values >1 take effect only when the selected "
+            "run environment supports isolated candidate evaluation."
         ),
     )
     parser.add_argument("--modality", default=None, choices=_MODALITIES)
@@ -1075,10 +1179,7 @@ def _build_evolve_parser() -> argparse.ArgumentParser:
 
 
 def _validate_evolve(args: argparse.Namespace) -> None:
-    if args.modal and args.profiler not in _MODAL_PROFILERS:
-        _configuration_error(
-            "Error: --modal only supports --profiler=torch, --profiler=auto, or --profiler=none.",
-        )
+    _validate_run_environment_profiler(args)
     _validate_target_inputs(args)
     if args.children_per_generation < 1:
         _configuration_error("--children-per-generation must be >= 1.")
@@ -1115,11 +1216,6 @@ def _validate_evolve(args: argparse.Namespace) -> None:
         _configuration_error("--bootstrap-max-attempts must be >= 1.")
     if args.max_parallelism < 1:
         _configuration_error("--max-parallelism must be >= 1.")
-    if args.max_parallelism > 1 and not args.modal:
-        _configuration_error(
-            "--max-parallelism > 1 requires --modal (parallel candidate "
-            "evaluation is Modal-only; other backends contend on one GPU)."
-        )
 
 
 def _resolve_openevolve_options(
@@ -1244,7 +1340,7 @@ def _run_evolve(args: argparse.Namespace) -> None:
         objectives=objectives,
         frontier_bias=args.frontier_bias,
         bootstrap_max_attempts=args.bootstrap_max_attempts,
-        keep_modal_apps=args.keep_modal_apps,
+        keep_deployments=args.keep_deployments,
         max_parallelism=args.max_parallelism,
         search_policy=search_policy,
         openevolve_config=openevolve_config,
@@ -1283,10 +1379,7 @@ def _build_plain_parser() -> argparse.ArgumentParser:
 
 
 def _validate_plain(args: argparse.Namespace) -> None:
-    if args.modal and args.profiler not in _MODAL_PROFILERS:
-        _configuration_error(
-            "Error: --modal only supports --profiler=torch, --profiler=auto, or --profiler=none.",
-        )
+    _validate_run_environment_profiler(args)
     _validate_target_inputs(args)
 
 

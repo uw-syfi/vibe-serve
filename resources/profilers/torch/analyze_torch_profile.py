@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Torch profiler analysis toolkit — subcommand-based.
 
-This is the Modal-friendly counterpart to analyze_nsys.py.  Unlike nsys,
+This is the in-process counterpart to analyze_nsys.py. Unlike nsys,
 ``torch.profiler`` uses CUPTI's Callback API and does **not** need access
-to ``/proc/driver/nvidia/`` to sync GPU clocks — so it works inside
-Modal's sandbox isolation.
+to ``/proc/driver/nvidia/`` to sync GPU clocks, so it works in execution
+environments that do not expose host driver instrumentation.
 
 Usage:
     # Capture a profile by loading VibeServeModel from main.py and

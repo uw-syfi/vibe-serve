@@ -1,47 +1,32 @@
-## Optimization priority (read before choosing the next task)
+## Evidence-led optimization method
 
-Serving systems have a well-established **optimization floor**: the techniques every production LLM server ships with, because each addresses a fundamental cost source the workload cannot avoid. Before proposing any workload-specific optimization (speculative decoding, prompt/prefix caching, grammar-constrained decoding fast paths, schema minimization, etc.), confirm the floor is in place unless a specific item is **absolutely incompatible** with the objective.
+Choose from measured end-to-end evidence, not technique popularity. Quantify
+the reference gap and each mechanism's defensible gain. While the gap exceeds
+2x, prefer material bottlenecks or needed prerequisites over single-digit tweaks.
 
-**The floor is hardware-specific.** Read `references/platforms/<backend>/floor.md` in the `serving-systems` skill — exactly one platform directory is present, the one this run targets. Do not assume the NVIDIA floor: eliminating KV padding is correct on `cuda` and inverted on `trainium` (where `neuronx-cc` needs static shapes), and graph capture does not exist on `metal` at all. Proposing a task that is right for another backend wastes the round and contradicts what the implementer is told.
+The optimization floor is hardware-specific. Read
+`references/platforms/<backend>/floor.md` before selecting a mechanism. On
+`cuda` and `rocm`, check continuous batching, fused attention, and graph capture;
+on `trainium`, `metal`, and `cpu`, follow that platform's floor instead. Skip a
+floor item only for a stated objective incompatibility, not because another
+profiled cost is currently larger.
 
-On `cuda` and `rocm` the floor is:
+{% if workspace_sources %}
+Treat the pinned checkout(s)—{% for source in workspace_sources %}`{{ source.dest }}/` ({{ source.name }}){% if not loop.last %}, {% endif %}{% endfor %}—as the implementation starting point. Direct the implementer to inspect and adapt relevant paths; require concrete evidence before replacing seeded components.
+{% endif %}
 
-1. **Continuous batching** — contract at `references/algorithms/continuous-batching.md`, implementation in your platform directory.
-2. **Fused attention kernel** — FlashInfer / FlashAttention on `cuda`, AITER / Composable Kernel on `rocm`.
-3. **Graph capture** — CUDA graphs on `cuda`, HIP graphs on `rocm`.
+At the first baseline, after an architecture change, and on a plateau, use
+`serving-systems/references/tooling/performance-modeling.md` to build a ranged
+whole-decode roofline and reconcile the current-architecture ceiling with
+end-to-end wall time and an observer-controlled profile. Translate terminal throughput into required step
+time and useful active batch; Queued concurrency is not useful model work.
 
-On `trainium` and `metal` the floor is genuinely different in both content and ordering; `floor.md` for that backend is authoritative.
+Require production-path activation tied to the claimed removed operation,
+frequency, bytes/launches, or boundary. Telemetry in token/layer/request loops
+must not add synchronization or large rescans. A KV-layout change that still
+reconstructs dense logical KV before attention is not paged-attention compute.
 
-**Only after the floor is present and verified** (profiler-confirmed kernel count drops, fused-attention calls visible, graph replay counters non-zero where the backend has capture) should you spend rounds on workload-specific optimizations like speculative decoding, grammar-based fast paths, or prompt / prefix caching.
-
-Exceptions that let you skip a floor item:
-
-- **Continuous batching**: skip when the benchmark / objective is single-batch by contract.
-- **Fused attention kernel**: never skip — every backend has one. What differs is which library.
-- **Graph capture**: not applicable on backends without it (`metal`, `cpu`; `trainium` compiles ahead of time instead). Where it does apply, skip only when decode shapes are genuinely unbucketable (very rare — even speculative-decoding tree depths and chunked-prefill chunk sizes are ≤ 16 buckets).
-
-If you skip a floor item, cite the specific incompatibility in your `reasoning`. Do NOT skip because "the current profile shows something else is the dominant cost" — the floor items *become* the dominant cost in turn once other work lands, and cycling between "revert this, try that" over exotic optimizations without the floor in place is a common failure mode of this loop.
-
-## LLM-serving task examples
-
-Good round-sized tasks for this domain include:
-- "Build a self-contained FastAPI server for the reference model."
-- "Add continuous batching to the decode loop."
-- "Replace manual attention with the platform's fused attention kernel (FlashInfer batched decode on `cuda`)."
-- "Add graph capture/replay for the decode path (where the backend supports it)."
-- "Fix the 8 ms launch overhead shown in `linear_layer_N` (top kernel in the last profile)."
-
-## Scoping API work
-
-When your task touches HTTP endpoint or message-schema work, name the specific endpoint(s) and point the implementer at the authoritative skill file — typically `skills/serving-systems/tooling/openai-api/SKILL.md` (per-modality OpenAI-compatible contracts). You can start with a single endpoint (e.g. "`POST /v1/completions` only, streaming SSE") and grow the surface as the roadmap progresses.
-
-## LLM-serving performance criteria
-
-This matters whenever a round adds a path that *trades per-call work for fewer calls* (speculative decoding, xgrammar jump-forward, batched extend, prefix caching, prompt caching, larger CUDA-graph buckets). A wider or heavier kernel can win on the headline metric while losing on per-call latency — that's the entire point of the technique. Pass criteria like *"verify_replay_ms < decode_replay_ms"* or *"graph replay ≤ X ms"* can't see those wins and will silently kill correct implementations. Phrase the gate on the headline metric instead, and tell the implementer to wire any runtime fallback the same way: *"after N steady requests, if the new path's headline metric trails the existing baseline path's by more than M%, fall back"*. Avoid asking for a startup-only gate that uses a fixed per-call time threshold — it can't see acceptance/forced-token/host-side effects and will give the wrong answer.
-
-For static-inspection criteria, prefer wordings like:
-
-- "no `torch.profiler.profile(...)` invocations in `main.py` or any module the implementer added"
-- "no per-token `torch.cat` against the KV cache in `main.py`'s decode path"
-
-Avoid broad clauses like "no profiler/Nsight code"; those trip on framework-provided profiler directories.
+Streaming is part of the measurement contract: preserve model-token accounting
+and one logical delta record per generated model token even when writes are
+coalesced. Live exact cohorts may share contemporaneous model work; completed
+output/token replay for later arrivals is model bypass, not engine work.

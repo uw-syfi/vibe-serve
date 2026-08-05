@@ -20,7 +20,7 @@ Docker command routing and per-invocation MCP install/uninstall. Each
 from __future__ import annotations
 
 import json
-import shutil
+import os
 from collections.abc import Callable, Iterable
 from datetime import UTC, datetime
 from pathlib import Path
@@ -42,10 +42,15 @@ from vibesys.agent_runner import (
     parse_typed_response_text,
 )
 from vibesys.agents.callbacks import AgentLogger
+from vibesys.agents.cli_common import (
+    agent_label,
+    build_schema_hint,
+    materialize_native_output_schema,
+    materialize_skills,
+)
 from vibesys.agents.host_resource_declarations import declare_agent_host_resources
 from vibesys.agents.progress import AgentProgress
 from vibesys.constants import ComputeBackend
-from vibesys.skills import foreign_platform_names, is_platforms_parent
 from vs_sandbox import HostResource, build_host_sandbox
 
 T = TypeVar("T", bound=BaseModel)
@@ -70,10 +75,13 @@ _PROVIDER_CLASSES: dict[str, _ProviderFactory] = {
     "opencode": OpencodeCodingAgent,
 }
 
-
-def _agent_label(kind: str) -> str:
-    """Convert ``"perf_eval"`` to ``"Perf Eval"``, etc."""
-    return kind.replace("_", " ").title()
+# Codex provider threads retain useful implementation context, but long
+# tool-heavy systems turns can approach the provider context limit even when
+# the durable workspace contains everything needed to continue.  Keep one
+# adjacent continuation, then start a fresh provider thread on the third turn.
+_MAX_CODEX_SESSION_TURNS = 2
+_MAX_CODEX_SESSION_INPUT_TOKENS = 10_000_000
+_MAX_CODEX_SESSION_DURATION_MS = 600_000
 
 
 def _is_missing_codex_rollout(exc: RuntimeError) -> bool:
@@ -82,130 +90,18 @@ def _is_missing_codex_rollout(exc: RuntimeError) -> bool:
     return "thread/resume failed" in message and "no rollout found" in message
 
 
-# Per-provider CLI skill-discovery paths, matching upstream
-# vibesys-skills install.sh conventions. Each CLI tool auto-loads
-# skills from a flat directory of `<skill-name>/SKILL.md`.
-_CLI_SKILL_DIRS: tuple[str, ...] = (
-    ".claude/skills",
-    ".agents/skills",
-    ".gemini/skills",
-    ".cursor/skills",
-    ".opencode/skills",
-)
-
-
-def _discover_skill_dirs(root: Path) -> list[Path]:
-    """Return all skill directories reachable under *root*.
-
-    A "skill directory" is any directory containing a ``SKILL.md`` file.
-    This accepts both flat layouts (``.agents/skills/<name>/SKILL.md``) and
-    the tier-organized layout from vibesys-skills
-    (``skills/<tier>/<name>/SKILL.md``).
-    """
-    if (root / "SKILL.md").is_file():
-        return [root]
-    return [p.parent for p in root.rglob("SKILL.md")]
-
-
-def _platform_prune_ignore(
-    compute_backend: ComputeBackend | None,
-) -> Callable[[str, list[str]], set[str]]:
-    """Build a ``copytree`` ignore callable that prunes foreign platform dirs.
-
-    Skills may carry a ``references/platforms/<backend>/`` tree with one
-    directory per :class:`~vibesys.constants.ComputeBackend`. Only the
-    selected backend's directory is materialized; the rest are dropped so an
-    agent cannot read (and act on) another platform's guidance. Applying one
-    platform's optimization floor to another produces wrong work — eliminating
-    KV padding is correct on ``cuda`` and inverted on ``trainium`` — so this
-    is a correctness guard, not just a context-size saving.
-
-    Pruning is keyed on the *parent* path ending in ``references/platforms``
-    rather than on directory name, so an unrelated directory that happens to
-    be called e.g. ``cpu`` is never dropped.
-    """
-    skip_names = {".git", "repos", "__pycache__"}
-    foreign = foreign_platform_names(compute_backend)
-
-    def _ignore(src_dir: str, names: list[str]) -> set[str]:
-        ignored = {n for n in names if n in skip_names}
-        if foreign and is_platforms_parent(src_dir):
-            ignored |= {n for n in names if n in foreign}
-        return ignored
-
-    return _ignore
-
-
-def _materialize_skills(
-    workspace: Path,
-    skill_dirs: list[Path],
-    compute_backend: ComputeBackend | None = None,
-    log_file: TextIO | None = None,
-) -> None:
-    """Copy each skill directory into the per-CLI skill-discovery paths.
-
-    Walks each ``skill_dirs`` entry for ``SKILL.md`` files and flattens each
-    parent directory into every path under ``_CLI_SKILL_DIRS`` (one per CLI
-    convention: ``.claude/skills``, ``.agents/skills``, ``.gemini/skills``,
-    ``.cursor/skills``, ``.opencode/skills``). This makes the skills visible
-    to whichever CLI provider ends up running in the workspace without the
-    caller having to know which one was picked.
-
-    When ``compute_backend`` is set, ``references/platforms/<other>/`` trees
-    are pruned so only the selected backend's guidance reaches the agent —
-    see :func:`_platform_prune_ignore`.
-
-    Existing destinations are replaced so skill edits are picked up across
-    iterations. Errors are logged but never raised — the loop should still
-    make progress even if a skill fails to materialize.
-    """
-    if not skill_dirs:
-        return
-
-    # Collect every skill dir across all source roots, de-duplicated by name
-    # (last writer wins — matches the prior single-source behaviour when the
-    # same skill name appears in multiple roots).
-    discovered: dict[str, Path] = {}
-    for src in skill_dirs:
-        for skill_dir in _discover_skill_dirs(src):
-            discovered[skill_dir.name] = skill_dir
-
-    if not discovered:
-        return
-
-    skip_ignore = _platform_prune_ignore(compute_backend)
-
-    for target_rel in _CLI_SKILL_DIRS:
-        target_root = workspace / target_rel
-        target_root.mkdir(parents=True, exist_ok=True)
-        for name, src_skill in discovered.items():
-            dest = target_root / name
-            try:
-                if dest.exists() or dest.is_symlink():
-                    if dest.is_dir() and not dest.is_symlink():
-                        shutil.rmtree(dest)
-                    else:
-                        dest.unlink()
-                shutil.copytree(src_skill, dest, symlinks=True, ignore=skip_ignore)
-            except OSError as exc:
-                if log_file is not None:
-                    log_and_print(
-                        f"[skills] failed to materialize {src_skill} -> "
-                        f"{dest}: {type(exc).__name__}: {exc}",
-                        log_file,
-                    )
-
-
-def _build_schema_hint(response_cls: type[BaseModel]) -> str:
-    """Render a short instruction telling the CLI tool what JSON to emit."""
-    schema = json.dumps(response_cls.model_json_schema(), indent=2)
-    return (
-        "\n\n--\n"
-        "Return EXACTLY one JSON object that conforms to the schema below. "
-        "Do not wrap it in markdown fences. Do not include any extra prose "
-        "before or after the JSON object.\n\n"
-        f"Schema for {response_cls.__name__}:\n{schema}\n"
-    )
+def _heavy_codex_turn_reason(agent: CodingAgent) -> str | None:
+    """Explain why the previous Codex turn is too heavy to resume efficiently."""
+    session = getattr(agent, "_last_session", None)
+    usage = getattr(session, "final_usage", None) or {}
+    input_tokens = int(usage.get("input_tokens", 0) or 0)
+    duration_ms = int(getattr(session, "duration_ms", 0) or 0)
+    reasons: list[str] = []
+    if input_tokens >= _MAX_CODEX_SESSION_INPUT_TOKENS:
+        reasons.append(f"{input_tokens} input tokens")
+    if duration_ms >= _MAX_CODEX_SESSION_DURATION_MS:
+        reasons.append(f"{duration_ms} ms duration")
+    return " and ".join(reasons) or None
 
 
 class CliAgentRunner:
@@ -224,29 +120,28 @@ class CliAgentRunner:
         timeout: int | None = None,
         run_log_file: TextIO | None = None,
         docker_sandboxes: dict[str, Any] | None = None,
-        modal_sandboxes: dict[str, Any] | None = None,
         host_resources: Iterable[HostResource] = (),
         log_dir: Path | None = None,
+        default_reasoning_effort: str | None = None,
+        role_models: dict[str, str] | None = None,
+        role_reasoning_efforts: dict[str, str] | None = None,
     ):
         if provider not in _PROVIDER_CLASSES:
             raise SystemExit(
                 f"unknown cli provider {provider!r}; expected one of: {sorted(_PROVIDER_CLASSES)}"
             )
-        if docker_sandboxes is not None and modal_sandboxes is not None:
-            raise SystemExit(
-                "internal error: cli runner got both docker_sandboxes and "
-                "modal_sandboxes — exactly one should be set"
-            )
         self._provider = provider
         self._provider_cls = _PROVIDER_CLASSES[provider]
         self._model = model
+        self._default_reasoning_effort = default_reasoning_effort
+        self._role_models = dict(role_models or {})
+        self._role_reasoning_efforts = dict(role_reasoning_efforts or {})
         self._skills: list[Path] = list(skills or [])
         self._compute_backend = compute_backend
         self._model_name = model_name
         self._timeout = timeout
         self._run_log_file = run_log_file
         self._docker_sandboxes = docker_sandboxes
-        self._modal_sandboxes = modal_sandboxes
         # Additional resource intent is provider-independent. The declaration
         # policy combines it with provider defaults only on the local CLI path.
         self._host_resources = tuple(host_resources)
@@ -260,6 +155,7 @@ class CliAgentRunner:
         # the exception: its history is carried explicitly in each prompt, so
         # it must not depend on provider-side session state.
         self._agents: dict[str, CodingAgent] = {}
+        self._session_turn_counts: dict[str, int] = {}
 
     def invoke(
         self,
@@ -276,8 +172,25 @@ class CliAgentRunner:
         progress: AgentProgress | None = None,
         mcp_servers: list[MCPServerSpec] | None = None,
         tools: list[BaseTool] | None = None,  # noqa: ARG002 — deepagents-only injection point; cli uses mcp_servers
+        reuse_session: bool | None = None,
+        session_key: str | None = None,
     ) -> T:
-        schema_hint = _build_schema_hint(response_cls)
+        native_schema_path: str | None = None
+        native_schema_supported = bool(
+            getattr(self._provider_cls, "supports_native_output_schema", False)
+            and callable(getattr(self._provider_cls, "set_output_schema_path", None))
+        )
+        if native_schema_supported:
+            try:
+                native_schema_path = materialize_native_output_schema(workspace, response_cls)
+            except (OSError, TypeError, ValueError) as exc:
+                log_and_print(
+                    f"[structured-output] native schema unavailable for "
+                    f"{response_cls.__name__}; using prompt fallback: "
+                    f"{type(exc).__name__}: {exc}",
+                    self._run_log_file,
+                )
+        schema_hint = "" if native_schema_path else build_schema_hint(response_cls)
         combined_prompt = f"{system_prompt}\n\n{user_prompt}{schema_hint}"
         text = self._generate(
             kind=kind,
@@ -288,8 +201,11 @@ class CliAgentRunner:
             invocation_id=invocation_id,
             progress=progress,
             mcp_servers=mcp_servers,
+            reuse_session=reuse_session,
+            session_key=session_key,
+            output_schema_path=native_schema_path,
         )
-        label = _agent_label(kind)
+        label = agent_label(kind)
         parsed = parse_typed_response_text(text, response_cls)
         if parsed is None:
             log_and_print(
@@ -328,6 +244,8 @@ class CliAgentRunner:
         progress: AgentProgress | None = None,
         mcp_servers: list[MCPServerSpec] | None = None,
         tools: list[BaseTool] | None = None,  # noqa: ARG002 — deepagents-only
+        reuse_session: bool | None = None,
+        session_key: str | None = None,
     ) -> str:
         """Run a conversational CLI agent without requesting structured JSON."""
         text = self._generate(
@@ -339,8 +257,11 @@ class CliAgentRunner:
             invocation_id=invocation_id,
             progress=progress,
             mcp_servers=mcp_servers,
+            reuse_session=reuse_session,
+            session_key=session_key,
+            output_schema_path=None,
         )
-        label = _agent_label(kind)
+        label = agent_label(kind)
         if text:
             log_and_print(f"\n=== {label} ROUND OUTPUT ===", self._run_log_file)
             log_markdown_and_print(text, self._run_log_file)
@@ -363,10 +284,20 @@ class CliAgentRunner:
         invocation_id: str | None,
         progress: AgentProgress | None,
         mcp_servers: list[MCPServerSpec] | None,
+        reuse_session: bool | None,
+        session_key: str | None,
+        output_schema_path: str | None,
     ) -> str:
         """Run one CLI generation with shared setup, logging, and cleanup."""
-        label = _agent_label(kind)
-        _materialize_skills(
+        label = agent_label(kind)
+        selected_model = self._role_models.get(kind, self._model)
+        configured_reasoning_effort = self._role_reasoning_efforts.get(
+            kind, self._default_reasoning_effort
+        )
+        selected_reasoning_effort = (
+            configured_reasoning_effort if self._provider == "codex" else None
+        )
+        materialize_skills(
             workspace,
             self._skills,
             compute_backend=self._compute_backend,
@@ -375,7 +306,7 @@ class CliAgentRunner:
 
         logger = AgentLogger(
             log_file=self._run_log_file,
-            model_name=self._model_name,
+            model_name=selected_model or self._model_name,
             agent_label=label,
             progress=progress,
             agent_kind=kind,
@@ -388,60 +319,37 @@ class CliAgentRunner:
         #    its multi-turn history in the prompt, and provider session IDs can
         #    become unavailable when a sandbox or process changes, so every
         #    chat turn deliberately starts a fresh CLI session.
-        reuse_agent = kind != "chat"
-        agent = self._agents.get(kind) if reuse_agent else None
+        reuse_agent = kind != "chat" and (reuse_session if reuse_session is not None else True)
+        role_key = f"{kind}:{selected_model}:{selected_reasoning_effort}"
+        cache_key = f"{role_key}:{session_key}" if session_key else role_key
+        agent = self._agents.get(cache_key) if reuse_agent else None
         if agent is not None:
             # Update the event handler for this invocation's logger.
             agent.event_handler = logger
             # Sandbox may have been restarted with a new container (e.g.
-            # reselect_gpu rebuilt it for a different --gpus device, or the
-            # Modal sandbox was recreated after a fallback restart); refresh
+            # reselect_gpu rebuilt it for a different --gpus device); refresh
             # the runner so the next exec targets the live container.
             if self._docker_sandboxes is not None:
                 # Dynamic poke: only the docker path constructs agents with a
                 # DockerCommandExecutor, which carries container_id.
                 executor = getattr(agent, "executor", None)
                 executor.container_id = self._docker_sandboxes[kind]._container_id  # pyright: ignore[reportOptionalMemberAccess]
-            # ModalCommandExecutor reads ``_modal_sandbox._sandbox`` on every
-            # ``run()``, so a fallback-triggered sandbox restart is picked up
-            # automatically — no per-invocation refresh needed here.
         elif self._docker_sandboxes is not None:
             from vibesys.agents.docker_executor import DockerCommandExecutor
 
             sandbox = self._docker_sandboxes[kind]
             executor = DockerCommandExecutor(sandbox._container_id)
             agent = self._provider_cls(
-                model=self._model,
+                model=selected_model,
                 event_handler=logger,
                 executor=executor,
             )
+            self._configure_reasoning_effort(agent, selected_reasoning_effort)
             if reuse_agent:
-                self._agents[kind] = agent
-        elif self._modal_sandboxes is not None:
-            from vibesys.agents.modal_executor import ModalCommandExecutor
-
-            sandbox = self._modal_sandboxes[kind]
-            executor = ModalCommandExecutor(sandbox)
-            agent = self._provider_cls(
-                model=self._model,
-                event_handler=logger,
-                executor=executor,
-            )
-            if self._provider == "codex" and hasattr(agent, "base_config_args"):
-                # Codex-only attribute, guarded by the hasattr check above.
-                codex_agent = cast(CodexCodingAgent, agent)
-                codex_agent.base_config_args.extend(
-                    [
-                        "--config",
-                        'cli_auth_credentials_store="file"',
-                        "--config",
-                        'forced_login_method="chatgpt"',
-                    ]
-                )
-            if reuse_agent:
-                self._agents[kind] = agent
+                self._agents[cache_key] = agent
         else:
-            agent = self._provider_cls(model=self._model, event_handler=logger)
+            agent = self._provider_cls(model=selected_model, event_handler=logger)
+            self._configure_reasoning_effort(agent, selected_reasoning_effort)
             # Host execution path: confine the agent to its workspace at the OS
             # level so it cannot read or modify sibling runs or unrelated host
             # files (issue #149). Container executors above are already
@@ -459,12 +367,38 @@ class CliAgentRunner:
                 log=lambda msg: log_and_print(msg, self._run_log_file),
             )
             if reuse_agent:
-                self._agents[kind] = agent
+                self._agents[cache_key] = agent
+
+        renewal_reason: str | None = None
+        if self._provider == "codex" and reuse_agent:
+            if self._session_turn_counts.get(cache_key, 0) >= _MAX_CODEX_SESSION_TURNS:
+                renewal_reason = f"{_MAX_CODEX_SESSION_TURNS} successful turns"
+            else:
+                renewal_reason = _heavy_codex_turn_reason(agent)
+        if renewal_reason is not None:
+            log_and_print(
+                f"[{label}] renewing Codex thread after {renewal_reason}; durable workspace "
+                "state remains authoritative.",
+                self._run_log_file,
+            )
+            cast(CodexCodingAgent, agent).session_id = None
+            self._session_turn_counts[cache_key] = 0
+
+        # Set this on every turn, including plain-text turns, so a reused
+        # provider session cannot retain the previous response contract.
+        schema_setter = getattr(agent, "set_output_schema_path", None)
+        if callable(schema_setter):
+            schema_setter(output_schema_path)
+        elif output_schema_path is not None:
+            raise RuntimeError(
+                f"{type(agent).__name__} advertised native output schemas "
+                "without implementing set_output_schema_path()"
+            )
 
         # Layer GPU env vars on top of the captured interactive env so the
         # spawned subprocess inherits CUDA_VISIBLE_DEVICES. Containerised
         # modes bake env vars into the container at start(), so skip here.
-        _in_container = bool(self._docker_sandboxes or self._modal_sandboxes)
+        _in_container = bool(self._docker_sandboxes)
         if env and not _in_container:
             agent.env = {**agent.env, **env}
         workspace_arg = None if _in_container else str(workspace)
@@ -480,7 +414,9 @@ class CliAgentRunner:
             self._run_log_file,
         )
         log_and_print(
-            f"backend: cli, provider: {self._provider}, model: {self._model_name}, "
+            f"backend: cli, provider: {self._provider}, "
+            f"model: {selected_model or self._model_name}, "
+            f"reasoning_effort: {selected_reasoning_effort or 'provider_default'}, "
             f"cwd: {workspace}",
             self._run_log_file,
         )
@@ -519,11 +455,16 @@ class CliAgentRunner:
                     self._run_log_file,
                 )
                 cast(CodexCodingAgent, agent).session_id = None
+                self._session_turn_counts[cache_key] = 0
                 text = agent.generate(
                     combined_prompt,
                     cwd=workspace_arg,
                     timeout=self._timeout,
                     silent=True,
+                )
+            if reuse_agent:
+                self._session_turn_counts[cache_key] = (
+                    self._session_turn_counts.get(cache_key, 0) + 1
                 )
         except BaseException as exc:
             agent_error = exc
@@ -535,21 +476,61 @@ class CliAgentRunner:
                 log_and_print(f"{type(exc).__name__}: {exc}", self._run_log_file)
             raise
         finally:
+            cleanup_error: Exception | None = None
             if mcp_servers:
                 try:
                     agent.uninstall_mcp_servers(workspace, mcp_servers)
                 except Exception as cleanup_exc:
-                    if agent_error is None:
-                        raise
-                    log_and_print(
-                        f"[{label}] MCP config cleanup failed while preserving the "
-                        f"original agent error: {cleanup_exc}",
-                        self._run_log_file,
-                    )
-            self._write_usage_record(kind=kind, round_label=round_label, agent=agent)
+                    cleanup_error = cleanup_exc
+                    if agent_error is not None:
+                        log_and_print(
+                            f"[{label}] MCP config cleanup failed while preserving the "
+                            f"original agent error: {cleanup_exc}",
+                            self._run_log_file,
+                        )
+            if self._docker_sandboxes is not None:
+                try:
+                    executor = agent.executor
+                    executor.repair_workspace_ownership(uid=os.getuid(), gid=os.getgid())
+                except Exception as cleanup_exc:
+                    if cleanup_error is None:
+                        cleanup_error = cleanup_exc
+                    else:
+                        log_and_print(
+                            f"[{label}] workspace ownership repair also failed: {cleanup_exc}",
+                            self._run_log_file,
+                        )
+                    if agent_error is not None:
+                        log_and_print(
+                            f"[{label}] workspace ownership repair failed while preserving "
+                            f"the original agent error: {cleanup_exc}",
+                            self._run_log_file,
+                        )
+            self._write_usage_record(
+                kind=kind,
+                round_label=round_label,
+                agent=agent,
+                model_name=selected_model or self._model_name,
+                reasoning_effort=selected_reasoning_effort,
+            )
+            if agent_error is None and cleanup_error is not None:
+                raise cleanup_error
         return text
 
-    def _write_usage_record(self, *, kind: str, round_label: str, agent: Any) -> None:
+    def _configure_reasoning_effort(self, agent: CodingAgent, reasoning_effort: str | None) -> None:
+        """Apply provider-specific reasoning controls to a newly built CLI agent."""
+        if self._provider == "codex" and reasoning_effort is not None:
+            cast(CodexCodingAgent, agent).set_reasoning_effort(reasoning_effort)
+
+    def _write_usage_record(
+        self,
+        *,
+        kind: str,
+        round_label: str,
+        agent: Any,
+        model_name: str | None,
+        reasoning_effort: str | None,
+    ) -> None:
         """Append one JSONL record to ``<log_dir>/usage.jsonl`` for this call.
 
         Reads ``agent._last_session`` (stashed by
@@ -571,7 +552,8 @@ class CliAgentRunner:
             "kind": kind,
             "round_label": round_label,
             "provider": self._provider,
-            "model": self._model_name,
+            "model": model_name,
+            "reasoning_effort": reasoning_effort,
             "input_tokens": usage.get("input_tokens", 0),
             "cache_creation_input_tokens": usage.get("cache_creation_input_tokens", 0),
             "cache_read_input_tokens": usage.get("cache_read_input_tokens", 0),

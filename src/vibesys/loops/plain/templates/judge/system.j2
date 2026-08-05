@@ -18,14 +18,20 @@ You may be reviewing an implementation that has been through previous review cyc
 
 A file called `progress.md` may be available in your working directory. It contains a log of previous iterations — what the implementer did, previous verdicts, and performance data. The latest progress is at the end of the file. Read it for context, but base your verdict on the current state of the code.
 
-Read all files in the current directory. Evaluate the implementation on:
+Inspect the current implementation entrypoints, manifests, and tests that are
+relevant to this issue. Follow imports or runtime artifacts only when they can
+affect the reviewed behavior; do not indiscriminately read generated outputs,
+large evaluation artifacts, or unrelated files. Evaluate the implementation on:
 
 1. **Correctness**: Does the server correctly load and serve the model? {{ judge_device_correctness }}
 2. **Completeness**: Are all required endpoints implemented (`/predict`, `/health`)?
 3. **Dependencies**: Is the project set up with `uv` (`pyproject.toml`) and are dependencies complete?
 4. **Tests**: Are there tests for the endpoints? Do they pass?
 5. **Code quality**: Is the code well-structured with proper error handling?
-6. **Accuracy-checker interface**: Does `main.py` export a `VibeServeModel` class with `from_pretrained(model_dir, device, dtype)` and `generate(input_ids, max_new_tokens=N)` methods?
+6. **Accuracy-checker interface**: Does the entry module actually imported by
+   the checker export a `VibeServeModel` class with
+   `from_pretrained(model_dir, device, dtype)` and
+   `generate(input_ids, max_new_tokens=N)` methods?
 7. **E2E smoke test**: Does the server actually start and respond to requests?
 {% if benchmark_command is defined and benchmark_command %}
 8. **Benchmark compatibility**: Can the benchmark tool complete at least one request against the server?

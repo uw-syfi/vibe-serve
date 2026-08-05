@@ -73,7 +73,9 @@ class LocalBackend:
         extra_init_commands: list[str] | None = None,
         setup_fns: list[SetupFn] | None = None,
         modal_options: ModalOptions | None = None,
+        attach_accelerator: bool = True,
     ) -> SandboxBackendProtocol:
+        del attach_accelerator
         bind_mounts = list(bind_mounts or [])
         passthrough_paths = list(passthrough_paths or [])
         extra_env = dict(extra_env or {})

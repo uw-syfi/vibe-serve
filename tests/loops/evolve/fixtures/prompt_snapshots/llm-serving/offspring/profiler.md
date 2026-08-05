@@ -41,18 +41,16 @@ done
 
 ## LLM-serving profile capture
 
-Use the benchmark's steady-state serving path when collecting profile evidence. If the profiler strategy supports only one process, run the server under the profiler and drive load with the benchmark in a second shell. Discover flags with `--help`; do not assume every benchmark accepts the same request-count or token flags.
+Capture the benchmark's steady-state production path. For a one-process
+profiler, run the server under it and drive load from another shell. Discover
+flags with `--help`; benchmark CLIs need not share token/request/rate flags.
 
-For local server-style captures, the usual shape is:
+For a local service: read objective, contract, manifest, and declared lifecycle;
+identify executable, port, and ownership without assuming filename/language;
+stop only identified stale processes; prewarm model/kernels; profile the server;
+drive a short representative declared benchmark; then stop and analyze it.
 
-1. Read `main.py` to understand startup and port.
-2. Kill prior servers: `pkill -f "python main.py" 2>/dev/null || true; sleep 2`.
-3. Pre-warm — first-time kernel compilation or model load can take minutes.
-4. Start the candidate server under the profiler.
-5. Drive load using the benchmark command (`uv run python benchmark/benchmark.py`). Use `--help` to find a short representative workload and output flag; do not assume every benchmark accepts the same rate, request-count, or token flags.
-6. Stop the profiled server and analyze the report.
-
-For torch in-process captures, the reference harness is designed around `VibeServeModel.from_pretrained(...)` and `.generate(...)`:
+For a compatible in-process adapter, the reference torch harness is:
 
 ```
 python torch_profiler/analyze_torch_profile.py capture \
@@ -62,19 +60,10 @@ python torch_profiler/analyze_torch_profile.py capture \
   --prompt "The capital of France is"
 ```
 
-Use this mode for kernel-level optimization (fused norm/rope/attention, CUDA graphs, dtypes). It does not cover HTTP, batching, or queueing overhead.
-
-For Modal torch profiling, the implementer's `main.py` is required to expose `@app.local_entrypoint() modal_profile(output, num_iters, max_tokens, prompt)`. Invoke it from the editor container:
-
-```
-modal run main.py::modal_profile -- \
-  --output /workspace/prof.json \
-  --num-iters 20 \
-  --max-tokens 32 \
-  --prompt "The capital of France is"
-```
-
-This dispatches to a `@app.function profile_remote(...)` running on the Modal GPU, which wraps the same workload the benchmark exercises in `torch.profiler` and returns the analyzer-compatible JSON.
+Use it only when `VibeServeModel.from_pretrained(...)` and `.generate(...)`
+exercise the reviewed production mechanism. It captures device kernels, not
+HTTP, admission, scheduling, queueing, or service batching; do not extrapolate
+without end-to-end evidence or recreate the production hot path just for it.
 
 
 ## Analysis toolkit — `vibesys-nsys-profiler` MCP tools OR shell
@@ -100,7 +89,7 @@ Start with `tables`, then pick the analyses that matter most. If `graph_replays`
 
 Capture is a long-running shell step — do it before calling the MCP tools.
 
-1. Read `main.py` and the benchmark `--help` output to understand how the candidate is exercised: `uv run python benchmark/benchmark.py --help`.
+1. Read the objective, candidate contract, manifest, build/startup commands, and benchmark `--help` output to understand which implementation and process the workload exercises: `uv run python benchmark/benchmark.py --help`. Do not assume a filename, language, or launcher.
 2. Stop any stale candidate processes from previous attempts.
 3. Pre-warm if the domain context or benchmark recommends it.
 4. Profile under the benchmark load. Example:
@@ -111,6 +100,31 @@ Capture is a long-running shell step — do it before calling the MCP tools.
    Use any domain-specific capture recipe above when one is provided, otherwise discover a short representative command from `uv run python benchmark/benchmark.py --help`.
 5. Stop any background candidate process you started.
 6. Call `export` (or any analysis tool — they auto-export) to produce the SQLite file.
+
+## Observer-effect calibration
+
+Compare the profiled run with the most recent uninstrumented result for the
+same candidate, workload shape, and operating point. Prefer a recent retained
+point; run one targeted uninstrumented control only when no comparable result
+exists. Do not duplicate a full canonical sweep merely to calibrate a profile.
+
+Report the two headline values and their relative difference in `analysis` as
+`profiled_metric`, `control_metric`, and `observer_effect_fraction`. Classify
+phase attribution as follows:
+
+- `usable`: the values differ by at most 10%, and the capture method does not
+  add synchronization or otherwise change the critical path;
+- `perturbed`: they differ by more than 10%, or the capture method serializes,
+  reschedules, or changes the measured path;
+- `uncalibrated`: no comparable control is available.
+
+For `perturbed` or `uncalibrated` captures, profiler events may establish path
+activation, operation ordering, graph coverage, fallback, or the presence of a
+cost center. They must not be converted into exclusive phase shares, removable
+milliseconds, Amdahl ceilings, or a ranking of optimization hypotheses. Say so
+explicitly in `analysis`, `bottlenecks`, and `suggestions`. Accumulated CPU and
+CUDA times from overlapping asynchronous scopes are not additive end-to-end
+time even when observer overhead is small.
 
 ## Performance metric — use the OBJECTIVE's named headline field, exactly
 

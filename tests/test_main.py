@@ -18,12 +18,14 @@ from vibesys.main import (
     _extract_loop_selection,
     _infer_resume_input,
     _load_objectives_toml,
+    _load_pareto_relative_noise_toml,
     _parse_cli_objective,
     _prepare_stub_agent_smoke_defaults,
     _prune_rounds_state,
     _render_configuration_error,
     _resolve_run_dir,
     _validate_target_inputs,
+    _with_operator_constraints,
     load_config_and_skills,
     main,
     parse_cli_invocation,
@@ -246,6 +248,28 @@ def test_profiler_none_is_valid_with_modal(builder_name, validator_name, tmp_pat
     assert args.input_bundle.root == bundle.resolve()
 
 
+def test_profiler_validation_uses_selected_environment_capabilities(tmp_path, monkeypatch):
+    import vibesys.main as cli
+
+    bundle = _write_input_bundle(tmp_path)
+    args = cli._build_agent_parser().parse_args(["--profiler", "nsys", "--input", str(bundle)])
+    selected_specs = []
+
+    def fake_environment(spec):
+        selected_specs.append(spec)
+        return Mock(
+            supported_profiler_kinds=frozenset(
+                {ProfilerKind.AUTO, ProfilerKind.TORCH, ProfilerKind.NONE}
+            )
+        )
+
+    monkeypatch.setattr(cli, "build_run_environment", fake_environment)
+
+    with pytest.raises(ConfigurationError, match="run environment 'local'"):
+        cli._validate_agent(args)
+    assert [spec.name for spec in selected_specs] == ["local"]
+
+
 def test_validate_evolve_rejects_nonpositive_bootstrap_attempts(tmp_path):
     """--bootstrap-max-attempts must be >= 1; 0 is a configuration error."""
     import vibesys.main as cli
@@ -258,15 +282,18 @@ def test_validate_evolve_rejects_nonpositive_bootstrap_attempts(tmp_path):
         cli._validate_evolve(args)
 
 
-def test_keep_modal_apps_flag_defaults_off_and_parses(tmp_path):
-    """--keep-modal-apps opts out of candidate-app teardown; off by default."""
+def test_keep_deployments_flag_and_modal_alias_default_off_and_parse(tmp_path):
+    """The generic flag and compatibility alias select the same behavior."""
     import vibesys.main as cli
 
     bundle = _write_input_bundle(tmp_path)
     parser = cli._build_evolve_parser()
 
-    assert parser.parse_args(["--input", str(bundle)]).keep_modal_apps is False
-    assert parser.parse_args(["--keep-modal-apps", "--input", str(bundle)]).keep_modal_apps is True
+    assert parser.parse_args(["--input", str(bundle)]).keep_deployments is False
+    assert (
+        parser.parse_args(["--keep-deployments", "--input", str(bundle)]).keep_deployments is True
+    )
+    assert parser.parse_args(["--keep-modal-apps", "--input", str(bundle)]).keep_deployments is True
 
 
 def test_evolve_modality_defaults_to_domain_resolution(tmp_path):
@@ -460,19 +487,19 @@ def test_validate_evolve_rejects_nonpositive_parallelism(tmp_path):
         cli._validate_evolve(args)
 
 
-def test_validate_evolve_rejects_parallelism_without_modal(tmp_path):
-    """--max-parallelism > 1 requires --modal; local backends stay serial."""
+def test_validate_evolve_defers_parallelism_support_to_environment(tmp_path):
+    """CLI validation does not hard-code one parallel-capable provider."""
     import vibesys.main as cli
 
     bundle = _write_input_bundle(tmp_path)
     parser = cli._build_evolve_parser()
 
-    # >1 without --modal is rejected...
+    # The loop reads the selected environment capability and may downgrade to
+    # serial; the CLI must not assume which providers support isolation.
     args = parser.parse_args(["--max-parallelism", "4", "--input", str(bundle)])
-    with pytest.raises(ConfigurationError):
-        cli._validate_evolve(args)
+    cli._validate_evolve(args)
 
-    # ...but >1 with --modal is accepted (torch profiler keeps --modal valid).
+    # Modal remains one supported adapter, not a special loop policy.
     args = parser.parse_args(
         ["--max-parallelism", "4", "--modal", "--profiler", "torch", "--input", str(bundle)]
     )
@@ -620,6 +647,44 @@ def test_trusted_input_baseline_requires_resume(tmp_path):
         _validate_agent(args)
 
     assert "--trusted-input-baseline requires --resume" in exc.value.diagnostic.message
+
+
+def test_validate_agent_rejects_nonpositive_judge_cadence(tmp_path):
+    from vibesys.main import _build_agent_parser, _validate_agent
+
+    bundle = _write_input_bundle(tmp_path)
+    args = _build_agent_parser().parse_args(["--input", str(bundle), "--judge-every", "0"])
+
+    with pytest.raises(ConfigurationError) as exc:
+        _validate_agent(args)
+
+    assert "--judge-every must be >= 1" in exc.value.diagnostic.message
+
+
+def test_validate_agent_rejects_nonpositive_official_evaluation_cadence(tmp_path):
+    from vibesys.main import _build_agent_parser, _validate_agent
+
+    bundle = _write_input_bundle(tmp_path)
+    args = _build_agent_parser().parse_args(["--input", str(bundle), "--official-eval-every", "0"])
+
+    with pytest.raises(ConfigurationError) as exc:
+        _validate_agent(args)
+
+    assert "--official-eval-every must be >= 1" in exc.value.diagnostic.message
+
+
+def test_agent_operator_constraints_are_repeatable_and_do_not_mutate_objective():
+    from vibesys.main import _build_agent_parser
+
+    args = _build_agent_parser().parse_args(
+        ["--constraint", "No quantization.", "--constraint", "  One H100 only.  "]
+    )
+    objective = "Maximize throughput.\n"
+
+    effective = _with_operator_constraints(objective, args.constraint)
+
+    assert objective == "Maximize throughput.\n"
+    assert effective.endswith("## Operator constraints\n\n- No quantization.\n- One H100 only.\n")
 
 
 def test_stub_agent_smoke_defaults_supply_input_and_unique_exp_name():
@@ -1044,12 +1109,15 @@ def test_resume_round_counts_round_entries_and_prunes_later_rounds(tmp_path):
     rounds_json = tmp_path / "run" / "logs" / "rounds.json"
     rounds_json.parent.mkdir(parents=True)
     rounds_json.write_text('[{"round": 1}, {"round": 2}, {"round": 3}]')
+    active_hypothesis = rounds_json.parent / "active_hypothesis.json"
+    active_hypothesis.write_text('{"started_round": 3}')
 
     assert _detect_resume_round(tmp_path / "run") == 4
 
     _prune_rounds_state(tmp_path / "run", keep_up_to=3)
 
     assert rounds_json.read_text() == '[\n  {\n    "round": 1\n  },\n  {\n    "round": 2\n  }\n]'
+    assert not active_hypothesis.exists()
 
 
 @pytest.mark.parametrize(
@@ -1078,6 +1146,22 @@ direction = "avg"
 
     with pytest.raises(ValueError, match="Malformed entry"):
         _load_objectives_toml(tmp_path)
+
+
+def test_load_pareto_relative_noise_toml_is_opt_in(tmp_path):
+    assert _load_pareto_relative_noise_toml(tmp_path) == 0.0
+
+    (tmp_path / "objectives.toml").write_text("[pareto]\nrelative_noise = 0.03\n")
+
+    assert _load_pareto_relative_noise_toml(tmp_path) == 0.03
+
+
+@pytest.mark.parametrize("value", ["true", "-0.1", "1.0", '"noisy"'])
+def test_load_pareto_relative_noise_toml_rejects_invalid_values(tmp_path, value):
+    (tmp_path / "objectives.toml").write_text(f"[pareto]\nrelative_noise = {value}\n")
+
+    with pytest.raises(ValueError, match="pareto.relative_noise"):
+        _load_pareto_relative_noise_toml(tmp_path)
 
 
 def test_control_socket_from_argv_handles_empty_equals_and_space_form():

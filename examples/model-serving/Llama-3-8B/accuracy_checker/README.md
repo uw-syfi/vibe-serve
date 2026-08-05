@@ -2,11 +2,11 @@ Accuracy checker for Llama-3-8B (service-style).
 
 The checker drives a **running** OpenAI-compatible server over HTTP — it does
 not import the candidate's model or load weights locally, so it works the same
-against a local, Docker, or remote Modal server. Point it at the server URL:
+against a local, containerized, or remote server. Point it at the server URL:
 
 ```
 python checker.py --url http://localhost:8000
-python checker.py --url https://<app>.modal.run --seed 0
+python checker.py --url https://inference.example.com --seed 0
 ```
 
 Because there is no local GPU reference to diff against, correctness is

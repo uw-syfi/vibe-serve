@@ -1,0 +1,4 @@
+interface:
+  display_name: "VS Meta Opt"
+  short_description: "Run and improve the VibeSys optimizer"
+  default_prompt: "Use $vs-meta-opt to run and monitor VibeSys, improve the optimization system, and validate each change within the run budget."

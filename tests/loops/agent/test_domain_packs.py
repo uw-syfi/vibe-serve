@@ -121,7 +121,7 @@ def test_render_llm_serving_has_content():
     # leading/trailing blank lines are stripped — base template owns spacing
     assert impl == impl.strip("\n")
     # the body keeps its own ## sub-headings (not treated as role delimiters)
-    assert "## Required:" in impl
+    assert "## Use references as implementation support" in impl
 
 
 def test_render_microservices_has_content():
@@ -164,8 +164,8 @@ def test_role_file_keeps_markdown_headings(tmp_path: Path):
     assert judge == "JUDGE-BODY"
 
 
-def test_render_role_branches_on_context():
-    """A role file rendered with benchmark_command set should reference it."""
+def test_llm_serving_judge_does_not_duplicate_framework_benchmark():
+    """The LLM judge audits evidence instead of rerunning a trusted gate."""
     d = resolve_domain(DomainName.LLM_SERVING)
     with_bench = render_domain_section(
         d, DomainRole.JUDGE, modality="text_generation", benchmark_command="./BENCHX"
@@ -173,8 +173,10 @@ def test_render_role_branches_on_context():
     without_bench = render_domain_section(
         d, DomainRole.JUDGE, modality="text_generation", benchmark_command=None
     )
-    assert "./BENCHX" in with_bench
+    assert "./BENCHX" not in with_bench
     assert "./BENCHX" not in without_bench
+    assert "audit the implementer's retained performance evidence" in with_bench
+    assert "audit the implementer's retained performance evidence" in without_bench
 
 
 def test_render_role_branches_on_interface(tmp_path: Path):
@@ -280,29 +282,79 @@ def _render_orchestrator(domain: DomainName) -> str:
         plateau_warning=None,
         domain_orchestrator=section,
         runtime_notes="",
-        env_kind="local",
+        profile_execution="local",
     )
 
 
-def test_llm_serving_provides_orchestrator_optimization_floor():
+def test_llm_serving_provides_evidence_led_orchestrator_method():
     section = render_domain_section(
         resolve_domain(DomainName.LLM_SERVING), DomainRole.ORCHESTRATOR, modality="text_generation"
     )
-    assert "Optimization priority" in section
-    assert "Continuous batching" in section
+    assert "Evidence-led optimization method" in section
+    assert "measured end-to-end evidence" in section
+    assert "not technique popularity" in section
+    assert "performance-modeling.md" in section
+    assert "current-architecture ceiling" in section
 
 
-def test_llm_serving_orchestrator_floor_injected_into_plan():
+def test_llm_serving_method_is_injected_into_plan():
     out = _render_orchestrator(DomainName.LLM_SERVING)
-    assert "Optimization priority" in out
-    # the line-39 back-reference resolves when a floor is provided
-    assert "the optimization-floor section below" in out
+    assert "Evidence-led optimization method" in out
+    assert "measured end-to-end evidence" in out
 
 
-def test_generic_orchestrator_has_no_llm_floor():
+def test_generic_orchestrator_has_no_llm_serving_method():
     out = _render_orchestrator(DomainName.GENERIC)
-    # the prescriptive LLM floor is gone, and its back-reference collapses
-    assert "Optimization priority" not in out
+    assert "Evidence-led optimization method" not in out
     assert "Continuous batching" not in out
     assert "the optimization-floor section below" not in out
     assert "## Task granularity" in out  # base skeleton intact
+
+
+def test_llm_serving_profiler_branches_on_remote_execution_not_provider():
+    domain = resolve_domain(DomainName.LLM_SERVING)
+
+    local = render_domain_section(domain, DomainRole.PROFILER, profile_execution="local")
+    remote = render_domain_section(domain, DomainRole.PROFILER, profile_execution="remote")
+
+    assert "Run jobs for the same deployment" not in local
+    assert "bounded remote controller/profile command" not in local
+    assert "Run jobs for the same deployment" in remote
+    assert "bounded controller/profile command" in remote
+    assert "Modal" not in local
+    assert "Modal" not in remote
+
+
+def test_torch_profiler_remote_capture_is_provider_neutral():
+    common = {
+        "objective": "Measure service throughput.",
+        "profile_focus": "Find the dominant accelerator bottleneck.",
+        "runtime_notes": "Read the selected environment's runtime contract.",
+        "benchmark_command": "./benchmark",
+        "modality": "text_generation",
+        "domain_profiler": "",
+        "profiler_support_name": "torch_profiler",
+        "profiler_mcp_name": "vibesys-torch-profiler",
+    }
+
+    local = render_template(
+        "profilers/torch.j2",
+        template_dir=_TEMPLATE_DIR,
+        **common,
+        profile_execution="local",
+    )
+    remote = render_template(
+        "profilers/torch.j2",
+        template_dir=_TEMPLATE_DIR,
+        **common,
+        profile_execution="remote",
+    )
+
+    assert "### Mode A: In-process" in local
+    assert "### Remote capture (REQUIRED on this run)" not in local
+    assert "### Remote capture (REQUIRED on this run)" in remote
+    assert "representative workload must run on the remote candidate path" in remote
+    assert "Suggestions are advisory" in local
+    assert "Report visibility limits" in remote
+    assert "Modal" not in local
+    assert "Modal" not in remote

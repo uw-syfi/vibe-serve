@@ -39,6 +39,24 @@ launcher. For installed npm users, the same launcher is exposed as `vs` and
 `vibesys`.
 Use `./vs --outer-loop <kind> --help` for loop-specific flags.
 
+### Agent-loop review and memory policy
+
+| Flag | Default | Behavior |
+| --- | ---: | --- |
+| `--judge-every N` | `3` | Run an independent judge every Nth round. A candidate explicitly nominated by the implementer and the final round are always reviewed immediately. Canonical accuracy and benchmark commands run only after a judge PASS. |
+| `--official-eval-every N` | `3` | Run configured framework-owned accuracy and benchmark gates every N accepted candidate checkpoints. Intermediate checkpoints remain provisional; orchestrator requests and the final round force immediate official evaluation. Retries, continuing hypotheses, and profiler-only rounds do not advance this cadence. Modal gates reuse one healthy deployment for the exact candidate commit, explicitly stop it after the final gate, and rely on zero minimum-warm replicas plus a short finite scaledown window as the crash backstop. Unchanged retries reuse a prior accuracy PASS when only a later gate failed. |
+| `--memory-layout` | `files` | `files` keeps `roadmap.md` and `progress.md`. `directories` uses `roadmap/index.md` and one `progress/round-NNNN.md` audit file per round; fresh orchestrators receive a bounded recent window and can inspect older files on demand. Existing runs retain their current layout when resumed. |
+| `--constraint TEXT` | none | Add an operator-supplied workload invariant to every agent's objective without changing the input bundle. The framework materializes the effective objective outside candidate Git history and mounts it read-only in isolated environments, so rollback cannot erase it. Repeat for multiple constraints and repeat the same flags when resuming. |
+
+Designer and judge invocations start with clean model sessions. The implementer
+session is keyed by the designer's stable `hypothesis_id`, so targeted
+experiments and debugging context persist while the causal claim is unchanged.
+The designer is not called again while that hypothesis is active. A round
+reported as `continue` is provisional when review is not due: neither the judge
+nor framework-owned official gates run that round. These independent-judge
+cadence rules apply to the default `multi-agent` inner loop; `single-agent` is
+retained as an ablation mode.
+
 ### Evolve search policies
 
 `--search-policy vibesys` (the default) uses VibeSys's scalar softmax or Pareto

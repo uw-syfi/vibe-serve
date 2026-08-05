@@ -64,9 +64,20 @@ class StubAgentRunner:
         progress: AgentProgress | None = None,
         mcp_servers: list[MCPServerSpec] | None = None,
         tools: list[BaseTool] | None = None,
+        reuse_session: bool | None = None,
+        session_key: str | None = None,
     ) -> str:
         """Return a deterministic conversational answer for TUI smoke tests."""
-        del workspace, system_prompt, env, progress, mcp_servers, tools
+        del (
+            workspace,
+            system_prompt,
+            env,
+            progress,
+            mcp_servers,
+            tools,
+            reuse_session,
+            session_key,
+        )
         from vibesys.render.sink import output_sink
 
         output_sink().agent_output(

@@ -7,6 +7,7 @@ plain Markdown snapshots so reviewers can inspect exactly what each role sees.
 from __future__ import annotations
 
 import difflib
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -82,6 +83,7 @@ def _domain_context(case: _Case) -> dict[str, object]:
         "benchmark_command": case.benchmark_command,
         "accuracy_command": case.accuracy_command,
         "runtime_notes": "Runtime note: local isolated workspace.",
+        "profile_execution": "local",
     }
 
 
@@ -124,7 +126,7 @@ def _render_prompt(case: _Case, role: str) -> str:
         "modality": case.modality,
         "interface": "inprocess",
         "runtime_notes": "Runtime note: local isolated workspace.",
-        "env_kind": "local",
+        "profile_execution": "local",
         "objective": case.objective,
         "accuracy_command": case.accuracy_command,
         "benchmark_command": case.benchmark_command,
@@ -171,6 +173,9 @@ def _snapshot_path(case: _Case, role: str) -> Path:
 
 def _assert_matches_snapshot(case: _Case, role: str, rendered: str) -> None:
     snapshot = _snapshot_path(case, role)
+    if os.environ.get("UPDATE_PROMPT_SNAPSHOTS") == "1":
+        snapshot.write_text(rendered)
+        return
     expected = snapshot.read_text()
     if rendered == expected:
         return

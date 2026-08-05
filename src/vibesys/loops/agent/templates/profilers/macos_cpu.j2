@@ -11,6 +11,9 @@ Benchmark command: {{ benchmark_command }}
 {{ domain_profiler }}
 
 {% endif %}
+
+{% include "profilers/_observer_effect.j2" %}
+
 Return exactly one JSON object matching the requested ProfilerSummary schema. Keep the
 analysis bounded: summarize the most important hot paths and diagnostics rather than
 embedding the raw report.

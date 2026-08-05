@@ -73,6 +73,8 @@ class CodingAgent(ABC):
     """Abstract base class for coding agents."""
 
     event_handler: Any | None = None
+    supports_native_output_schema = False
+    """Whether this provider accepts a per-turn JSON Schema file."""
 
     # Declared (not assigned) here: every concrete provider sets these in its
     # ``__init__``.  ``env`` is the subprocess environment the CLI is spawned
@@ -228,6 +230,15 @@ class CodingAgent(ABC):
         support MCP. Subclasses override to write the appropriate config
         file under *workspace*, or (in Codex's case) to stash runtime
         ``--config`` flags on the instance.
+        """
+        return None
+
+    def set_output_schema_path(self, path: str | None) -> None:
+        """Set the workspace-relative schema path for the next generation.
+
+        Providers without a native structured-output facility deliberately do
+        nothing here. Their runners retain the portable prompt-level schema
+        instruction instead.
         """
         return None
 

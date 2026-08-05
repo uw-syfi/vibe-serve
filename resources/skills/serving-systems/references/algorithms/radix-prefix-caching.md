@@ -17,6 +17,33 @@ Match granularity matters:
 | Token-level | Maximum hit rate | More bookkeeping | SGLang RadixAttention |
 | Block-level (`block_size`) | Simpler, aligns with paged layout | Misses partial-block overlap | vLLM APC, TRT-LLM KV reuse |
 
+## Diagnose cached-output divergence
+
+Separate cache corruption from batch-shape-sensitive greedy numerics before
+rewriting KV storage:
+
+1. Run cached and uncached requests with the same physical batch composition,
+   graph bucket, cache length, positions, and attention backend.
+2. Run two uncached copies at the differing serial/concurrent batch shapes.
+3. Locate the first divergent token; record the top-1/top-2 logit margin there,
+   plus cache-length, position, page-table, and live-KV hashes before decode.
+
+Interpret the matrix:
+
+| Matched-shape cache A/B | Uncached shape A/B | Likely cause |
+|:--|:--|:--|
+| diverges | matches | cache key, KV layout, length, position, or synchronization defect |
+| matches | diverges | BF16 kernel / graph-bucket numerical sensitivity near an argmax tie |
+| diverges | diverges | mixed failure; isolate the first divergent decode input before changing storage |
+
+Do not infer cache corruption solely because a serial fresh request and a
+concurrent cached request produce different greedy text: physical batch shape
+can change BF16 reduction order and flip an argmax with a small logit margin.
+Likewise, do not “repair” the cache by copying padded pages or changing its
+representation unless matched-shape KV/hash evidence identifies a layout or
+stale-byte mismatch. Keep cache-equivalence checks distinct from any stronger
+product policy that demands batch-invariant output.
+
 ## Hierarchical tiers (HiCache / offload)
 
 **Applies to: `cuda`, `rocm`.** This section assumes a discrete device pool

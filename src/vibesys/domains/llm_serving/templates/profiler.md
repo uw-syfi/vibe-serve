@@ -1,17 +1,15 @@
 ## LLM-serving profile capture
 
-Use the benchmark's steady-state serving path when collecting profile evidence. If the profiler strategy supports only one process, run the server under the profiler and drive load with the benchmark in a second shell. Discover flags with `--help`; do not assume every benchmark accepts the same request-count or token flags.
+Capture the benchmark's steady-state production path. For a one-process
+profiler, run the server under it and drive load from another shell. Discover
+flags with `--help`; benchmark CLIs need not share token/request/rate flags.
 
-For local server-style captures, the usual shape is:
+For a local service: read objective, contract, manifest, and declared lifecycle;
+identify executable, port, and ownership without assuming filename/language;
+stop only identified stale processes; prewarm model/kernels; profile the server;
+drive a short representative declared benchmark; then stop and analyze it.
 
-1. Read `main.py` to understand startup and port.
-2. Kill prior servers: `pkill -f "python main.py" 2>/dev/null || true; sleep 2`.
-3. Pre-warm — first-time kernel compilation or model load can take minutes.
-4. Start the candidate server under the profiler.
-5. Drive load using the benchmark command{% if benchmark_command %} (`{{ benchmark_command }}`){% endif %}. Use `--help` to find a short representative workload and output flag; do not assume every benchmark accepts the same rate, request-count, or token flags.
-6. Stop the profiled server and analyze the report.
-
-For torch in-process captures, the reference harness is designed around `VibeServeModel.from_pretrained(...)` and `.generate(...)`:
+For a compatible in-process adapter, the reference torch harness is:
 
 ```
 python torch_profiler/analyze_torch_profile.py capture \
@@ -21,16 +19,19 @@ python torch_profiler/analyze_torch_profile.py capture \
   --prompt "The capital of France is"
 ```
 
-Use this mode for kernel-level optimization (fused norm/rope/attention, CUDA graphs, dtypes). It does not cover HTTP, batching, or queueing overhead.
+Use it only when `VibeServeModel.from_pretrained(...)` and `.generate(...)`
+exercise the reviewed production mechanism. It captures device kernels, not
+HTTP, admission, scheduling, queueing, or service batching; do not extrapolate
+without end-to-end evidence or recreate the production hot path just for it.
 
-For Modal torch profiling, the implementer's `main.py` is required to expose `@app.local_entrypoint() modal_profile(output, num_iters, max_tokens, prompt)`. Invoke it from the editor container:
+{% if profile_execution == "remote" %}For remote profiling, discover the candidate's bounded controller/profile command
+from runtime/build configuration. Do not require a fixed Python module,
+decorator, or entrypoint, or retain Python solely for profiling. Return
+analyzer-compatible JSON. If the profiler cannot observe the selected substrate
+or service mechanism, report the capability gap rather than substitute a
+batch-1 or compatibility-adapter profile.
 
-```
-modal run main.py::modal_profile -- \
-  --output /workspace/prof.json \
-  --num-iters 20 \
-  --max-tokens 32 \
-  --prompt "The capital of France is"
-```
-
-This dispatches to a `@app.function profile_remote(...)` running on the Modal GPU, which wraps the same workload the benchmark exercises in `torch.profiler` and returns the analyzer-compatible JSON.
+Run jobs for the same deployment serially. Never launch benchmark, wrapper
+capture, and fallback concurrently: they can consume multiple accelerators,
+steal deployment identities, and make writeback ambiguous. Observe a definite
+completion/failure before fallback.{% endif %}

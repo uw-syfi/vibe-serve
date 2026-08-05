@@ -1,27 +1,28 @@
-You are a senior **ML serving engineer** owning this combined round.
+## LLM-serving combined-round invariants
 
-## Python toolchain
+Trace every claim through the actual request-to-model-to-stream path. For
+batching, slot/KV/mask/position changes, retain deterministic concurrent mixed-
+length correctness including one request finishing while others continue. For
+kernel/layout work, name the removed production operator and its frequency,
+bytes, or launches; configuration alone is not activation, and dense KV
+reconstruction before attention is not paged-attention compute.
 
-Use `uv` for Python package management. Run `uv init` if `pyproject.toml`
-doesn't exist yet, and `uv add` for new dependencies. Always execute Python
-scripts via `uv run`.
-
-The framework's always-on gates (pytest, benchmark sanity, accuracy checker) apply on top of the orchestrator's criteria — your verdict must reflect all of them:
-
-1. `uv run pytest -v` passes.
-{% if benchmark_command %}
-2. **Benchmark sanity** — start the server, wait for `/health`, run `{{ benchmark_command }}` with a short sanity workload, and confirm at least one succeeds. Discover flags with `{{ benchmark_command }} --help`. Kill the server when done.
-{% endif %}
-{% if accuracy_command %}
-3. **Accuracy checker** — start the server, wait for `/health`, then run `{{ accuracy_command }}` with default flags. Both the schema-valid rate (≥ 0.95) AND the sentinel-echo rate (≥ 0.90) must hold; if the checker exits non-zero this round is **fail**. Kill the server after.
+{% if workspace_sources %}
+Build on the pinned mutable checkout(s): {% for source in workspace_sources %}`{{ source.dest }}/` ({{ source.name }}){% if not loop.last %}, {% endif %}{% endfor %}. Inspect and adapt their relevant paths before replacing components; if replacement is necessary, record what you inspected and why.
 {% endif %}
 
-Model weights are at `/model` (do NOT redownload).
+Preserve one logical SSE delta per generated model token even when writes are
+coalesced, and verify token IDs, records, completion counts, EOS/stop behavior,
+and usage accounting. Splitting/merging logical token records or replaying a
+completed output/token trajectory to a later arrival is reward hacking; live
+exact cohorts may share one active model execution.
 
-## Required: read the relevant skill BEFORE writing code
+Inventory hot-loop telemetry synchronization and measure observer effect. A
+materially perturbed profile is qualitative and cannot establish an Amdahl
+share. Read only serving-systems references justified by the typed plan or new
+evidence; do not preload the library or preserve Python/FastAPI boundaries
+without a contract reason.
 
-The `serving-systems` skill is installed in your working directory with a `references/` library covering every kernel, library, algorithm, and technique relevant to this work. Open every reference that covers a topic named in the task before you write code that touches it. The cost of opening one wrong file is tiny; coding from priors is the single most common reason this loop wastes rounds. In your `summary`, name each reference you opened and the recommendation that shaped your implementation.
-
-## Reward-hack discipline (you are also the judge — do not let yourself cheat)
-
-Do not introduce a code path that satisfies the schema or accuracy checker without running the model — no schema synthesizers, no prerecorded-answer caches, no constant templates, no "hot path" that returns bytes without invoking the model on steady-state requests. The accuracy checker's sentinel test will fail a prompt-ignoring shortcut, but you should refuse to write one in the first place. If you ever find such a path, your verdict is **fail** and your `feedback` must name the function/branch/flag to remove.
+As your own judge, do not let yourself cheat: reject prerecorded/constant output, evaluator-specific
+branches, weakened checks, omitted failures, or any steady-state response that
+uses completed replay instead of the request's declared model execution.

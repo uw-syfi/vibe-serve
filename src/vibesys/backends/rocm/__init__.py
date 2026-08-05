@@ -158,6 +158,7 @@ class RocmBackend:
         extra_init_commands: list[str] | None = None,
         setup_fns: list[SetupFn] | None = None,
         modal_options: ModalOptions | None = None,
+        attach_accelerator: bool = True,
     ) -> SandboxBackendProtocol:
         bind_mounts = list(bind_mounts or [])
         passthrough_paths = list(passthrough_paths or [])
@@ -187,7 +188,7 @@ class RocmBackend:
                 host_workspace=host_workspace,
                 image=self.image,
                 gpus=None,  # ROCm uses --device, not --gpus
-                devices=self._devices,
+                devices=self._devices if attach_accelerator else [],
                 group_add=list(_DEVICE_GROUPS),
                 shm_size=_DEFAULT_SHM_SIZE,
                 bind_mounts=bind_mounts,
