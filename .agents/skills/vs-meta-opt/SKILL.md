@@ -1,13 +1,13 @@
 ---
 name: vs-meta-opt
-description: Audit how effectively VibeSys conducts optimization campaigns and propose evidence-backed improvements to its agent roles, prompts, skills, search policy, evaluation, sessions, evidence flow, and framework lifecycle. Use when reviewing recent rounds, explaining slow or stalled convergence, separating candidate failures from agent-system failures, diagnosing cost, context, coordination, or evaluation waste, or preparing and validating a rationale-bearing VibeSys system change.
+description: Run and audit long-lived VibeSys meta-optimization campaigns that improve VibeSys as an optimizer rather than directly optimizing its bespoke candidate. Use when Codex should launch or resume VibeSys with a specified input, monitor every completed round, diagnose ineffective agent-system behavior, implement and commit VibeSys changes, compare later trajectory windows, and repeat within round, time, cost, or intervention budgets.
 ---
 
 # VS Meta Opt
 
 ## Purpose
 
-Judge and improve the optimizer, not the bespoke system it produces. Determine whether VibeSys used the evidence and opportunities available at the time effectively, identify the limiting agent-system mechanism, and propose a testable change to VibeSys.
+Operate a feedback loop that judges and improves the optimizer, not the bespoke system it produces. Run VibeSys, observe whether its search is effective, change VibeSys when evidence supports a meta-hypothesis, resume the campaign under the new version, and determine whether the trajectory improved.
 
 Preserve a strict boundary:
 
@@ -17,103 +17,95 @@ Preserve a strict boundary:
 
 ## Read Only What Is Relevant
 
-- Read [effectiveness-rubric.md](references/effectiveness-rubric.md) to audit rounds, a trajectory window, or multiple campaigns.
+- Read [run-control.md](references/run-control.md) before launching, monitoring, pausing, resuming, or terminating a long-running VibeSys campaign.
+- Read [effectiveness-rubric.md](references/effectiveness-rubric.md) to audit a round, trajectory window, or multiple campaigns.
 - Read [diagnosis-and-levers.md](references/diagnosis-and-levers.md) to attribute a deficiency, choose a VibeSys control lever, or check for prompt leakage.
 - Read [meta-experiments-and-commits.md](references/meta-experiments-and-commits.md) before changing VibeSys or validating whether a system change helped.
-- Use [meta-run-pr-template.md](assets/meta-run-pr-template.md) to open and maintain the required draft PR for each bounded meta-optimization run.
+- Use [meta-run-pr-template.md](assets/meta-run-pr-template.md) to open and maintain the required draft PR.
 
-Read campaign state, history, prompts, diffs, logs, profiles, timings, costs, and evaluations from artifact paths. Do not embed durable history or raw evidence into agent prompts.
+Read campaign state, history, prompts, diffs, logs, profiles, timings, costs, and evaluations from artifact paths. Read deltas after the initial inspection; do not repeatedly inject durable history or unchanged output into context.
 
-## Audit Workflow
+## Run Contract
 
-### 1. Open the run draft PR
+Before starting, record in the draft PR:
 
-Treat one run as one bounded meta-optimization campaign that may test multiple sequential meta-hypotheses over one or more audit windows. It is not one candidate round, hypothesis, or commit. Start from the intended VibeSys parent on a dedicated clean branch and immediately open one draft PR using [meta-run-pr-template.md](assets/meta-run-pr-template.md).
+- Exact VibeSys command, specified input paths and revisions, environment, and initial VibeSys commit.
+- Campaign identity, initial checkpoint, and correctness/evaluation contract.
+- Maximum rounds, wall-clock time, accelerator time or cost, agent budget when applicable, and meta-interventions.
+- A terminal reserve for final official evaluation, evidence publication, and cleanup.
+- Initial trusted frontier and available effectiveness measurements.
 
-Use the PR description as the living effectiveness ledger. Update it after the initial audit, every intervention commit, each validation checkpoint, and the final retain, revise, revert, or inconclusive decision. Link artifacts rather than pasting raw logs.
+Treat one VS Meta Opt run as one bounded meta-optimization campaign. It owns one branch and one draft PR, but may contain multiple VibeSys process segments, sequential meta-hypotheses, clean commits, validations, and explicit reverts.
 
-### 2. Define the audit boundary
+## Control Loop
 
-Record:
+### 1. Open the draft PR
 
-- Campaign, round range, objective, and environment.
-- VibeSys commit and versions of prompts, skills, evaluators, and policy.
-- Trusted candidate frontier at the start and end.
-- Available phase timing, token, cost, failure, and evaluation artifacts.
-- Important missing instrumentation.
+Start from the intended VibeSys parent on a dedicated clean branch. Open the draft PR before changing behavior and initialize [meta-run-pr-template.md](assets/meta-run-pr-template.md). Use its description as the living effectiveness ledger.
 
-Do not compare windows governed by different objectives or measurement semantics without identifying the confounder.
+### 2. Launch or resume VibeSys
 
-### 3. Reconstruct the trajectory
+Run VibeSys with the specified input and exact recorded command. Preserve the campaign checkpoint and candidate state across process restarts. Record the VibeSys commit governing each campaign segment.
 
-Build a concise chronology from raw artifacts rather than role self-reports. For each round, recover:
+Do not edit VibeSys underneath a running process. Apply system changes only after reaching or creating a safe round boundary.
 
-- The evidence available before the decision.
-- The chosen hypothesis and expected information.
-- Candidate and VibeSys changes, kept distinct.
-- Focused and official evidence actually produced.
-- Disposition, cost, elapsed time, and next decision.
+### 3. Monitor with adaptive heartbeats
 
-Treat observations, agent claims, and auditor inferences as separate fields.
+Choose the next sleep interval from the current phase, expected duration, progress signal, failure risk, and budget. Check sooner during startup, near a deadline, or after a warning; sleep longer during healthy work that is expected to take time. Avoid busy polling.
 
-### 4. Judge at three timescales
+After each sleep, inspect only new status, events, summaries, or a bounded log tail. If nothing changed and the process is healthy, do not rerun semantic analysis or reinsert unchanged output.
 
-- **Round:** Was the decision reasonable given evidence available then, regardless of outcome?
-- **Window:** Did recent rounds form a coherent learning trajectory with timely pivots and little duplicated work?
-- **Campaign/system:** Does the pattern recur strongly enough across workloads or environments to justify reusable VibeSys policy?
+Perform at least one trajectory check after every completed VibeSys round. Between round completions, use heartbeats only to verify liveness, phase progress, deadlines, and resource safety.
 
-Avoid outcome and hindsight bias. A regression may decisively falsify a plausible path; a lucky improvement may conceal an inefficient process.
+### 4. Check the trajectory after every round
 
-### 5. Classify effectiveness
+Use a lightweight per-round check to answer:
 
-Use the rubric categories:
+- Did the round produce valid new evidence or frontier progress?
+- Did the next decision respond to the evidence available?
+- Is VibeSys repeating a known failure, tuning within noise, or losing context?
+- Did evaluation, coordination, or infrastructure consume disproportionate work?
+- Are correctness, provenance, and reward-hacking defenses intact?
+- Does enough budget remain for the current path or another meta-experiment?
 
-- Outcome effectiveness.
-- Learning effectiveness.
-- Operational efficiency.
-- Coordination quality.
-- Evidence integrity.
-- Search quality and generality.
-- **Other:** Record material findings that do not fit cleanly. Explain why existing categories are inadequate rather than force-fitting them.
+If the trajectory remains healthy, record a compact checkpoint and continue without proposing a change. Trigger a deeper audit when a warning recurs, the trajectory plateaus, integrity is uncertain, cost rises unexpectedly, or the current validation window ends.
 
-Use quantitative measurements where available and concrete artifact paths everywhere. Scores may summarize evidence, but never replace findings.
+### 5. Audit and form the next meta-hypothesis
 
-### 6. Attribute the limiting system mechanism
+Apply [effectiveness-rubric.md](references/effectiveness-rubric.md) at round, window, and campaign timescales. Classify findings, including `Other` when nothing fits cleanly, and identify the narrowest VibeSys-owned mechanism supported by evidence.
 
-Distinguish candidate, implementation, activation, evaluation, infrastructure, coordination, context, search-policy, incentive, knowledge, and `Other` failures. Identify the narrowest VibeSys-owned mechanism supported by evidence.
+Propose one next intervention with expected meta-metric effects, likely regressions, a validation window, success criteria, and a reversion condition. If evidence is insufficient, improve instrumentation before changing behavior.
 
-If the evidence cannot distinguish candidate difficulty from agent-system weakness, recommend instrumentation or a discriminating meta-experiment rather than a speculative fix.
+### 6. Pause, change, validate, and commit
 
-### 7. Propose the next meta-level hypothesis
+Stop or pause at a durable round boundary. Keep candidate code and campaign artifacts separate from the VibeSys change. Apply the smallest intervention that tests the meta-hypothesis, run targeted checks, perform the leakage review, and make a clean rationale-bearing commit.
 
-State:
+Keep prompts procedural and neutral. Do not encode a candidate optimization, known bottleneck, benchmark-specific trick, prior winning implementation, or hidden evaluator behavior directly into prompts. Adding or improving modular, versioned, selectively loaded skills is allowed and must be recorded as a capability change.
 
-- The observed VibeSys behavior and artifact evidence.
-- The causal agent-system mechanism.
-- The smallest prompt, skill, policy, role, framework, or instrumentation intervention that tests it.
-- Expected effects on frontier velocity, learning yield, time, cost, or integrity.
-- Likely regressions and cross-domain risks.
-- Validation window, success criteria, and reversion condition.
+Update the PR intervention log and remaining budget immediately.
 
-Test meta-hypotheses sequentially within the run. Prefer one causal system change per experiment and one independently understandable commit per intervention. Keep campaign-local adjustments separate from reusable framework policy.
+### 7. Resume and measure the effect
 
-### 8. Enforce the no-leakage boundary
+Resume the same campaign from the recorded checkpoint under the new VibeSys commit. Record the new segment boundary. Observe the predeclared number of rounds or other validation condition before attributing an effect, unless correctness, safety, or decisive contrary evidence requires stopping early.
 
-Keep prompts procedural and neutral. Prompts may define roles, decision procedures, evidence requirements, interfaces, constraints, and how to discover relevant skills. Do not encode a candidate optimization, known bottleneck, benchmark-specific trick, prior winning implementation, or hidden evaluator behavior directly into prompts.
+Use framework-owned evidence to retain, revise, or explicitly revert the intervention. Do not certify it merely because its author expected it to work.
 
-Adding or improving skills available to VibeSys is allowed. Keep skills modular, versioned, selectively loaded, and distinguish their contribution from orchestration changes. Pass skill names or paths; do not paste their contents into prompts.
+### 8. Repeat within budget
 
-### 9. Land a clean, rationale-bearing commit
+Continue monitoring, per-round trajectory checks, meta-hypotheses, commits, and validation until the budget reaches its terminal reserve or another stopping condition fires. Do not begin an intervention without enough remaining budget to evaluate it.
 
-Before modifying VibeSys, read [meta-experiments-and-commits.md](references/meta-experiments-and-commits.md). Keep the worktree clean, separate agent-system changes from candidate code and campaign artifacts, validate the narrow behavior, and create a reviewable commit for each intervention using the required rationale template.
+Finish with the terminal official evaluation when enabled, publish final evidence, terminate owned processes and remote resources, update the PR disposition, and leave the worktree clean.
 
-Record every resulting commit hash and disposition in the run PR so later audits know exactly which VibeSys behavior governed each round.
+## Token-Efficient Monitoring Rules
 
-### 10. Validate independently
-
-Do not certify an intervention because its author expects it to work. Predeclare meta-metrics and compare later framework-owned evidence against the prior window or another suitable control. Separate improved candidate luck from improved VibeSys behavior.
-
-Retain, revise, or revert the system change based on the predeclared evidence. Promote it to general policy only when its scope and transferability justify that conclusion. Keep the draft PR description current; mark it ready only when the intervention is justified and reviewable. If no change is justified, record that result and close the draft rather than merging an empty intervention.
+- Let the agent choose sleep intervals contextually; do not impose one global cadence.
+- Never skip the trajectory check after a completed round.
+- Track the last event or log cursor, round, phase, progress time, VibeSys commit, remaining budget, and next wake reason.
+- Read append-only deltas and compact summaries before raw logs.
+- Keep complete logs on disk and load only evidence needed for the current decision.
+- Separate cheap heartbeat/liveness checks from expensive semantic audits.
+- Treat silence according to phase-specific expectations; do not call healthy long work a hang.
+- Capture bounded diagnostics before terminating a stalled process, then clean up every owned resource.
 
 ## Guardrails
 
@@ -123,17 +115,16 @@ Retain, revise, or revert the system change based on the predeclared evidence. P
 - Do not force every finding into a closed taxonomy; use `Other` with rationale.
 - Do not infer causality from one successful round without considering opportunity, cost, and confounders.
 - Do not mix a VibeSys system intervention with candidate changes in one commit.
-- Do not let agent prose override immutable framework evidence.
-- Do not turn an auditor recommendation into policy without a validation and reversion plan.
+- Do not modify source beneath a running VibeSys process.
+- Do not spend the terminal reserve on a change that cannot be evaluated.
 
 ## Expected Handoff
 
 Return:
 
-1. Audit boundary and evidence paths.
-2. Effectiveness findings by category, including `Other` when applicable.
-3. Limiting VibeSys mechanism and confidence.
-4. The next meta-level intervention with owner and leakage assessment.
-5. Expected meta-metric effects, validation window, and reversion condition.
-6. Current run commit log and the next clean commit plan using the required rationale template.
-7. Missing evidence and unresolved confounders.
+1. Run command, input, campaign checkpoint, active VibeSys commit, and evidence paths.
+2. Per-round and window effectiveness findings, including `Other` when applicable.
+3. Current phase, last progress, next wake reason, and remaining budgets.
+4. Limiting VibeSys mechanism and the next intervention with leakage assessment.
+5. Commit and campaign-segment log with validation dispositions.
+6. Final effectiveness assessment, terminal evaluation, cleanup status, and unresolved confounders.

@@ -4,11 +4,26 @@
 
 - VS Meta Opt run:
 - VibeSys parent commit:
+- Specified input paths and revisions:
+- Exact launch/resume command:
 - Campaign and round window:
 - Objective and environment:
 - Prompt, skill, evaluator, and policy versions:
 - Evidence index paths:
 - Missing instrumentation:
+
+### Run control
+
+- Maximum rounds:
+- Maximum wall-clock time:
+- Maximum accelerator time or cost:
+- Maximum agent turns or inference budget:
+- Maximum meta-interventions:
+- Terminal evaluation and cleanup reserve:
+- Current remaining budgets:
+- Last completed round and current phase:
+- Last progress time and event/log cursor:
+- Next wake reason and interval:
 
 ### Baseline effectiveness
 
@@ -51,6 +66,12 @@
 | Commit | Rationale | Scope | Validation status |
 | --- | --- | --- | --- |
 | | | | |
+
+### Campaign segments
+
+| Segment | VibeSys commit | Checkpoint and rounds | Input and command | Active meta-hypothesis | End reason and evidence |
+| --- | --- | --- | --- | --- | --- |
+| | | | | | |
 
 ### Leakage review
 
