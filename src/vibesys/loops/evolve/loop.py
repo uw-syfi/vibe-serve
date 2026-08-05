@@ -10,17 +10,18 @@ every offspring:
   4. Run the *Mutator* agent (an LLM acting as the mutation operator) to
      edit code in place.
   5. Run the *Judge* on the result.
-  6. If pass, profile to obtain ``perf_metric``. Commit the workspace and
+  6. If the judge passes, run the framework-owned accuracy command.
+  7. If both pass, profile to obtain ``perf_metric``. Commit the workspace and
      record an Individual. Else: discard the dirty tree, record a failed
-     Individual carrying the judge feedback so future mutators can learn.
+     Individual carrying failure feedback so future mutators can learn.
 
 Before the generation loop, a dedicated *bootstrap* phase
-(``_bootstrap_seed``) runs implementer → judge iterations until the first
-judge-passing implementation exists, recorded as a generation-0 seed. So
-the generation loop always starts from a passing parent and never
-cold-starts. The bootstrap phase owns the from-scratch / fix-forward
-repair logic; on ``--resume`` it is skipped when a passing individual is
-already present.
+(``_bootstrap_seed``) runs implementer → judge → accuracy iterations until
+the first framework-verified implementation exists, recorded as a
+generation-0 seed. So the generation loop always starts from a passing
+parent and never cold-starts. The bootstrap phase owns the from-scratch /
+fix-forward repair logic; on ``--resume`` it is skipped when a passing
+individual is already present.
 
 The loop intentionally does NOT have an early-stop signal — generations
 run for the full ``max_generations`` budget. Termination decisions are
@@ -59,6 +60,7 @@ from vibesys.loops.evolve.search_policy import (
     SearchSelection,
     VibeSysSearchPolicy,
 )
+from vibesys.loops.gates import run_accuracy_gate
 from vibesys.loops.profiler import invoke_profiler
 from vibesys.profilers import ProfilerKind, profiler_definition
 from vibesys.run import LoopContext, RepositoryVisibility
@@ -439,6 +441,22 @@ class _CandidateOutcome:
     target_island: int | None = None
 
 
+def _run_framework_accuracy_gate(
+    ctx: LoopContext,
+    *,
+    generation: int,
+    child_idx: int,
+    timeout_seconds: int | None = None,
+) -> str | None:
+    """Run the immutable accuracy command and return retry feedback on failure."""
+    result = run_accuracy_gate(
+        ctx,
+        process_id=f"evolve-accuracy-{generation}-{child_idx}",
+        timeout_seconds=timeout_seconds,
+    )
+    return result.feedback
+
+
 def _evaluate_candidate(
     ctx: LoopContext,
     *,
@@ -455,8 +473,9 @@ def _evaluate_candidate(
     policy_parent_id: str | None = None,
     target_island: int | None = None,
     isolated_deployment: bool = False,
+    accuracy_timeout_seconds: int | None = None,
 ) -> _CandidateOutcome:
-    """Mutate → judge → (profile → commit) one candidate on ``ctx``.
+    """Mutate → judge → accuracy gate → (profile → commit) one candidate on ``ctx``.
 
     Assumes ``ctx``'s workspace is already materialized at the parent commit
     (serial: the caller checked the shared tree out; parallel: the candidate's
@@ -524,7 +543,25 @@ def _evaluate_candidate(
                 target_island=target_island,
             )
 
-        # 3. Profile the offspring to get its fitness.
+        # 3. Framework-owned accuracy gate. The LLM judge cannot waive this.
+        accuracy_feedback = _run_framework_accuracy_gate(
+            ctx,
+            generation=generation,
+            child_idx=child_idx,
+            timeout_seconds=accuracy_timeout_seconds,
+        )
+        if accuracy_feedback is not None:
+            return _CandidateOutcome(
+                passed=False,
+                parent_id=parent.id,
+                inspiration_ids=inspiration_ids,
+                summary=mutator.summary,
+                feedback=accuracy_feedback,
+                policy_parent_id=policy_parent_id,
+                target_island=target_island,
+            )
+
+        # 4. Profile the offspring to get its fitness.
         ctx.reselect_gpu()
         summary = _run_profiler(
             ctx,
@@ -537,7 +574,7 @@ def _evaluate_candidate(
             runtime_notes=cand_notes,
         )
 
-        # 4. Commit the offspring's tree so it can serve as a future parent.
+        # 5. Commit the offspring's tree so it can serve as a future parent.
         ctx.snapshot_workspace(f"gen-{generation}-child-{child_idx}")
         return _CandidateOutcome(
             passed=True,
@@ -674,6 +711,7 @@ def _run_generation_serial(
     pass_criteria: str,
     keep_deployments: bool,
     search_policy: SearchPolicy,
+    accuracy_timeout_seconds: int | None = None,
 ) -> None:
     """Evaluate a generation's candidates one at a time on the shared context."""
     for child_idx in range(1, children_per_generation + 1):
@@ -718,6 +756,7 @@ def _run_generation_serial(
                 keep_deployments=keep_deployments,
                 policy_parent_id=plan.policy_parent_id,
                 target_island=plan.target_island,
+                accuracy_timeout_seconds=accuracy_timeout_seconds,
             )
             _record_outcome(
                 ctx,
@@ -753,6 +792,7 @@ def _evaluate_in_subcontext(
     policy_parent_id: str | None,
     target_island: int | None,
     worktree_lock: threading.Lock,
+    accuracy_timeout_seconds: int | None = None,
 ) -> _CandidateOutcome:
     """Run one candidate in its own isolated sub-context (worker thread).
 
@@ -810,6 +850,7 @@ def _evaluate_in_subcontext(
             policy_parent_id=policy_parent_id,
             target_island=target_island,
             isolated_deployment=True,
+            accuracy_timeout_seconds=accuracy_timeout_seconds,
         )
     except Exception as exc:
         parent_ctx.lprint(f"[warn] candidate {label} evaluation raised: {exc}")
@@ -850,6 +891,7 @@ def _run_generation_parallel(
     pass_criteria: str,
     keep_deployments: bool,
     search_policy: SearchPolicy,
+    accuracy_timeout_seconds: int | None = None,
 ) -> None:
     """Evaluate a generation's candidates concurrently in isolated sub-contexts.
 
@@ -915,6 +957,7 @@ def _run_generation_parallel(
                 policy_parent_id=plan.policy_parent_id,
                 target_island=plan.target_island,
                 worktree_lock=worktree_lock,
+                accuracy_timeout_seconds=accuracy_timeout_seconds,
             ): child_idx
             for (child_idx, plan) in plans
         }
@@ -953,8 +996,9 @@ def _bootstrap_seed(
     population_path: Path,
     search_policy: SearchPolicy,
     keep_deployments: bool = False,
+    accuracy_timeout_seconds: int | None = None,
 ) -> Individual | None:
-    """Iterate implementer → judge until a first *passing* seed exists.
+    """Iterate implementer → judge → accuracy until a first passing seed exists.
 
     Runs BEFORE the generation loop so the search never cold-starts. Attempt 1
     writes a server from scratch; later attempts repair-forward the most-recent
@@ -1034,7 +1078,17 @@ def _bootstrap_seed(
                 runtime_notes=cand_notes,
             )
 
-            if verdict.verdict != Verdict.PASS:
+            if verdict.verdict == Verdict.PASS:
+                failure_feedback = _run_framework_accuracy_gate(
+                    ctx,
+                    generation=0,
+                    child_idx=attempt,
+                    timeout_seconds=accuracy_timeout_seconds,
+                )
+            else:
+                failure_feedback = verdict.feedback
+
+            if failure_feedback is not None:
                 # Snapshot the failed tree so the next attempt repairs it in place.
                 # Only tag a WIP repair-seed when the snapshot actually committed new
                 # work (the tree changed); an unedited tree is nothing to fix-forward.
@@ -1057,17 +1111,17 @@ def _bootstrap_seed(
                     perf_unit=None,
                     passed=False,
                     summary=mutator.summary,
-                    feedback=verdict.feedback,
+                    feedback=failure_feedback,
                 )
                 population.add(failed)
                 population.save(population_path)
                 ctx.lprint(
                     f"[bootstrap {attempt}] FAILED — feedback: "
-                    f"{(verdict.feedback or '').splitlines()[0][:120] if verdict.feedback else ''}"
+                    f"{failure_feedback.splitlines()[0][:120] if failure_feedback else ''}"
                 )
                 continue
 
-            # 3. PASS → profile, snapshot, and record the generation-0 seed.
+            # 4. Both gates passed → profile and record the generation-0 seed.
             ctx.reselect_gpu()
             summary = _run_profiler(
                 ctx,
@@ -1178,6 +1232,7 @@ def run_evolve_loop(
     workspace_seed: Path | None = None,
     workspace_sources: tuple[WorkspaceSource, ...] = (),
     evaluator_path: Path | None = None,
+    accuracy_timeout_seconds: int | None = None,
     max_generations: int = 8,
     children_per_generation: int = 2,
     k_top_inspirations: int = 2,
@@ -1301,6 +1356,7 @@ def run_evolve_loop(
                 population_path=population_path,
                 search_policy=policy,
                 keep_deployments=keep_deployments,
+                accuracy_timeout_seconds=accuracy_timeout_seconds,
             )
             if seed_individual is None:
                 ctx.lprint(
@@ -1354,6 +1410,7 @@ def run_evolve_loop(
                     pass_criteria=pass_criteria,
                     keep_deployments=keep_deployments,
                     search_policy=policy,
+                    accuracy_timeout_seconds=accuracy_timeout_seconds,
                 )
             else:
                 _run_generation_serial(
@@ -1375,6 +1432,7 @@ def run_evolve_loop(
                     pass_criteria=pass_criteria,
                     keep_deployments=keep_deployments,
                     search_policy=policy,
+                    accuracy_timeout_seconds=accuracy_timeout_seconds,
                 )
 
             policy.finish_generation(generation)

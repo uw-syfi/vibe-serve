@@ -1320,6 +1320,7 @@ def _run_evolve(args: argparse.Namespace) -> None:
         workspace_seed=bundle.workspace_seed_path,
         workspace_sources=bundle.workspace_sources,
         evaluator_path=bundle.evaluator_path,
+        accuracy_timeout_seconds=bundle.manifest.accuracy.timeout_seconds,
         objective=objective,
         max_generations=args.max_generations,
         children_per_generation=args.children_per_generation,

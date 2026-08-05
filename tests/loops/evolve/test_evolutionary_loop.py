@@ -155,6 +155,11 @@ def _make_runner(
 
 def _invoke_loop(tmp_path, ref_file, runner, **kwargs):
     """Shared plumbing — patch context globals, run the loop, return result."""
+    accuracy_gate_feedbacks = kwargs.pop("_accuracy_gate_feedbacks", None)
+    accuracy_gate = MagicMock(return_value=None)
+    if accuracy_gate_feedbacks is not None:
+        accuracy_gate.side_effect = list(accuracy_gate_feedbacks)
+    runner.accuracy_gate = accuracy_gate
     defaults = dict(
         config={"model": {"name": "claude-sonnet-4-6"}},
         exp_name="test-evolve",
@@ -173,6 +178,10 @@ def _invoke_loop(tmp_path, ref_file, runner, **kwargs):
         patch("vibesys.backends.cuda.LocalShellBackend"),
         patch("vibesys.context.build_agent_runner", return_value=runner),
         patch("vibesys.context.PROJECT_ROOT", tmp_path),
+        patch(
+            "vibesys.loops.evolve.loop._run_framework_accuracy_gate",
+            accuracy_gate,
+        ),
     ):
         return run_evolve_loop(**defaults)
 
@@ -322,6 +331,40 @@ def test_bootstrap_succeeds_after_repair(tmp_path, ref_file):
     assert seed.commit and seed.commit != failed.commit
 
 
+def test_bootstrap_repairs_after_framework_accuracy_failure(tmp_path, ref_file):
+    """An LLM-approved seed still fails when the trusted oracle rejects it.
+
+    The failed seed is never profiled, its oracle feedback is retained for the
+    repair attempt, and the configured timeout reaches the framework gate.
+    """
+    failure = "Framework accuracy gate failed.\nstatus endpoint diverged"
+    runner = _make_runner(mutator_writes=True)
+    result = _invoke_loop(
+        tmp_path,
+        ref_file,
+        runner,
+        _accuracy_gate_feedbacks=[failure, None],
+        accuracy_timeout_seconds=37,
+        bootstrap_max_attempts=2,
+        max_generations=0,
+    )
+
+    assert result is True
+    assert runner.counters["judge"] == 2
+    assert runner.counters["profiler"] == 1
+    assert runner.accuracy_gate.call_count == 2
+    assert [call.kwargs["timeout_seconds"] for call in runner.accuracy_gate.call_args_list] == [
+        37,
+        37,
+    ]
+
+    failed, seed = _load_population(tmp_path).all
+    assert failed.passed is False
+    assert failed.feedback == failure
+    assert failed.commit
+    assert seed.passed is True
+
+
 def test_bootstrap_prompt_uses_cold_start_section(tmp_path, ref_file):
     """The bootstrap attempt sees the cold-start branch of the mutator prompt
     (no parent block)."""
@@ -427,6 +470,33 @@ def test_failed_child_excluded_from_future_parent_pool(tmp_path, ref_file):
     # The gen-2 child must descend from the seed, NOT from the failed g1
     # (which has no commit and can't be selected).
     assert g2.parent_id == seed.id
+
+
+def test_accuracy_rejected_child_is_not_profiled_or_selected(tmp_path, ref_file):
+    """The framework oracle can overrule an LLM PASS for an offspring."""
+    failure = "Framework accuracy gate failed.\nbooking response diverged"
+    runner = _make_runner()
+    result = _invoke_loop(
+        tmp_path,
+        ref_file,
+        runner,
+        _accuracy_gate_feedbacks=[None, failure, None],
+        max_generations=2,
+        children_per_generation=1,
+    )
+
+    assert result is True
+    assert runner.counters["judge"] == 3
+    assert runner.counters["profiler"] == 2
+    assert runner.accuracy_gate.call_count == 3
+
+    seed, rejected, accepted = _load_population(tmp_path).all
+    assert rejected.passed is False
+    assert rejected.commit is None
+    assert rejected.perf_metric is None
+    assert rejected.feedback == failure
+    assert accepted.passed is True
+    assert accepted.parent_id == seed.id
 
 
 # ---------------------------------------------------------------------------
@@ -1071,6 +1141,7 @@ def test_evaluate_in_subcontext_builds_worktree_and_evaluates(tmp_path, ref_file
         patch("vibesys.backends.cuda.LocalShellBackend"),
         patch("vibesys.context.build_agent_runner", return_value=runner),
         patch("vibesys.context.PROJECT_ROOT", tmp_path),
+        patch("vibesys.loops.evolve.loop._run_framework_accuracy_gate", return_value=None),
         create_run_context(
             config={"model": {"name": "claude-sonnet-4-6"}},
             exp_name="test-parallel-subctx",

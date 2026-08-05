@@ -26,6 +26,7 @@ from vibesys.domains.rendering import render_domain_section
 from vibesys.input_manifest import BenchmarkResult, WorkspaceSource
 from vibesys.loops.agent import issue_board
 from vibesys.loops.evolve.population import Objective
+from vibesys.loops.gates import run_accuracy_gate
 from vibesys.loops.profiler import mcp_spec as profiler_mcp_spec
 from vibesys.profilers import (
     ProfilerKind,
@@ -1998,74 +1999,35 @@ def _run_framework_accuracy_gate(
     release_deployment_after: bool = False,
 ) -> str | None:
     """Run the immutable manifest accuracy command after an agent reports PASS."""
-    changed = ctx.trusted_input_changes()
     command = ctx.judge_accuracy_command
-    if changed:
-        feedback = "Evaluator-owned files were modified: " + ", ".join(changed)
-        issue_board.append_framework_accuracy_gate(
-            progress_path,
-            round_number,
-            retry,
-            command=command or "(not configured)",
-            passed=False,
-            output=feedback,
+    execution_command = None
+    if command:
+        execution_command = _with_candidate_revision(
+            command,
+            candidate_revision,
+            release_deployment_env_var=(
+                _deployment_release_env_var(ctx) if release_deployment_after else None
+            ),
         )
-        ctx.snapshot_workspace(f"round-{round_number}-retry-{retry}-framework-accuracy")
-        ctx.lprint(f"[framework-accuracy] FAIL: {feedback}")
-        return feedback
-    if not command:
-        return None
-
-    ctx.lprint(f"[framework-accuracy] running: {command}")
-    execution_command = _with_candidate_revision(
-        command,
-        candidate_revision,
-        release_deployment_env_var=(
-            _deployment_release_env_var(ctx) if release_deployment_after else None
-        ),
+    result = run_accuracy_gate(
+        ctx,
+        process_id=f"accuracy-{round_number}-{retry}",
+        timeout_seconds=_framework_command_timeout(ctx, timeout_seconds),
+        execution_command=execution_command,
     )
-    try:
-        effective_timeout = _framework_command_timeout(ctx, timeout_seconds)
-        if effective_timeout is None:
-            result = ctx.judge_backend.execute(execution_command)
-        else:
-            result = ctx.judge_backend.execute(execution_command, timeout=effective_timeout)
-        output = result.output.strip()
-        passed = result.exit_code == 0
-        _publish_subprocess_output(
-            ctx,
-            process_id=f"accuracy-{round_number}-{retry}",
-            process_kind="accuracy_checker",
-            content=result.output,
-        )
-    except Exception as exc:
-        output = f"accuracy command could not be executed: {exc}"
-        passed = False
-
-    changed_after_execution = ctx.trusted_input_changes()
-    if changed_after_execution:
-        mutation = "Evaluator-owned files changed during accuracy execution: " + ", ".join(
-            changed_after_execution
-        )
-        output = f"{output}\n{mutation}".strip()
-        passed = False
+    if result.passed and not result.executed:
+        return None
 
     issue_board.append_framework_accuracy_gate(
         progress_path,
         round_number,
         retry,
-        command=command,
-        passed=passed,
-        output=output[-8000:],
+        command=result.command or "(not configured)",
+        passed=result.passed,
+        output=result.output[-8000:],
     )
     ctx.snapshot_workspace(f"round-{round_number}-retry-{retry}-framework-accuracy")
-    if passed:
-        ctx.lprint("[framework-accuracy] PASS")
-        return None
-
-    feedback = f"Framework accuracy gate failed.\n{output[-4000:]}"
-    ctx.lprint(f"[framework-accuracy] FAIL: {output[-1000:]}")
-    return feedback
+    return result.feedback
 
 
 _FRAMEWORK_BENCHMARK_MARKER = "__VIBESYS_FRAMEWORK_BENCHMARK_JSON__"
