@@ -137,7 +137,7 @@ At a safe activation boundary, after editing in the stopped checkout or optional
 2. Terminate or pause the VibeSys process without leaking owned resources.
 3. Record the ending segment and exact framework commit.
 4. Form one VibeSys-level hypothesis from the audit evidence.
-5. Implement and test one causal intervention.
+5. Implement and test one causal intervention as a coherent, project-conventional design rather than a minimal patch.
 6. Commit it with the rationale template and update the draft PR.
 7. Resume the same campaign as a new segment governed by the new commit.
 8. Observe the predeclared validation window, then retain, revise, or revert.

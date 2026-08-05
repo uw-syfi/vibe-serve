@@ -11,7 +11,7 @@
 
 ## Attribute Before Intervening
 
-Identify the smallest VibeSys-owned mechanism that explains the observed trajectory. Do not recommend a generic prompt change when the evidence points to evaluator semantics, missing instrumentation, session lifecycle, or candidate difficulty.
+Identify the earliest VibeSys-owned causal mechanism that explains the observed trajectory. Do not recommend a generic prompt change when the evidence points to evaluator semantics, missing instrumentation, session lifecycle, or candidate difficulty.
 
 Ask:
 
@@ -56,7 +56,7 @@ When independent reviewers produce a materially stronger next step, do not copy 
 - A rational miss under uncertainty may require no intervention.
 - A mechanism outside the taxonomy belongs in `Other` with an explanation.
 
-Change the smallest system mechanism that makes future discovery more likely, then validate on later decisions the reviewers did not answer in advance.
+Change the owning system mechanism with a coherent design that makes future discovery more likely, then validate on later decisions the reviewers did not answer in advance.
 
 ## Choose the Correct Change Surface
 

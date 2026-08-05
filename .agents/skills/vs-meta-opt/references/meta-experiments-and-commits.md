@@ -77,6 +77,7 @@ Reject direct prompt leakage. A skill addition or improvement is allowed when it
 Before editing:
 
 - Start from the intended VibeSys parent with a clean worktree.
+- Read repository instructions and nearby implementations that establish the relevant conventions and ownership boundaries.
 - Preserve unrelated user changes and campaign artifacts.
 - Record the parent commit in the meta-experiment.
 
@@ -85,12 +86,17 @@ While editing:
 - Keep one causal agent-system intervention per commit when it can be isolated.
 - Treat a canonical schema change, its one-way migration of existing generated state, and its migration tests as one atomic intervention rather than separate compatibility features.
 - Do not mix candidate implementation changes, benchmark outputs, or run state with VibeSys changes.
+- Scope the intervention by one causal responsibility, not by the fewest files or lines.
+- Reuse or extend an existing abstraction when it owns the behavior; introduce one when it creates a genuine ownership boundary, improves data flow, or removes meaningful duplication.
+- Refactor adjacent code when needed for an ergonomic, maintainable implementation, but leave unrelated cleanup out of the commit.
+- Reject benchmark-specific branches, scattered special cases, and compatibility shims used to avoid a proper design.
 - Include prompt snapshots when rendered prompt behavior changes.
-- Add the smallest tests that exercise the claimed system behavior and important failure case.
+- Add focused tests sufficient to cover the claimed behavior, important failure cases, and any new abstraction boundary.
 
 Before committing:
 
 - Review the complete diff for scope and leakage.
+- Confirm the result follows project conventions and reads as a natural extension of the architecture rather than a patch around it.
 - Run targeted validation and repository-required formatting checks.
 - Verify the worktree contains only intentional files.
 - Make the commit independently reviewable and revertible.
@@ -111,6 +117,10 @@ Evidence:
 
 Rationale:
 <Causal mechanism and why this intervention is appropriate.>
+
+Design:
+<Project conventions followed; abstractions reused, extended, introduced, or
+refactored; and why the resulting structure is ergonomic and maintainable.>
 
 Expected effect:
 <Predeclared meta-metrics and direction.>

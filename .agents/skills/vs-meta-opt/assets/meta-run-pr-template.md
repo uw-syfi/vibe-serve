@@ -60,6 +60,10 @@
 - Change surface and owner:
 - Candidate/system boundary:
 - Framework, prompt, skill, adapter, and artifact responsibilities:
+- Project conventions followed:
+- Existing abstractions reused or extended:
+- New abstraction or adjacent refactor and its justification:
+- Special-case or compatibility paths intentionally avoided:
 
 ### Generated schema migration (if applicable)
 

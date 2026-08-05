@@ -83,7 +83,11 @@ Propose one next system intervention with expected meta-metric effects, likely r
 
 ### 6. Pause, change, validate, and commit
 
-Stop or pause at a durable round boundary. Keep candidate code and campaign artifacts separate from the VibeSys change. Apply the smallest intervention that tests the meta-hypothesis, run targeted checks, perform the leakage review, and make a clean rationale-bearing commit.
+Stop or pause at a durable round boundary. Keep candidate code and campaign artifacts separate from the VibeSys change. Implement the narrowest coherent design that fully addresses the meta-hypothesis; scope by causal responsibility, not line count.
+
+Follow repository conventions and architecture boundaries. Reuse or extend existing abstractions when they own the behavior, and introduce or refactor abstractions when that materially improves ownership, data flow, reuse, testability, or ergonomics. Include adjacent cleanup required for a natural design, but exclude unrelated refactoring. Reject one-off conditionals, compatibility shims, and other patchwork used only to minimize the diff.
+
+Run targeted checks, perform the leakage review, and make a clean rationale-bearing commit.
 
 When the intervention changes a schema for VibeSys-generated code or persisted run state, snapshot the existing state, update the canonical schema and all producers and consumers, migrate the live campaign once, validate the result, and resume using only the new representation. Commit the schema, one-way migration, and tests atomically. Do not retain parallel runtime schema implementations.
 
@@ -123,6 +127,7 @@ Finish with the terminal official evaluation when enabled, publish final evidenc
 - Do not force every finding into a closed taxonomy; use `Other` with rationale.
 - Do not infer causality from one successful round without considering opportunity, cost, and confounders.
 - Do not mix a VibeSys system intervention with candidate changes in one commit.
+- Do not optimize for the fewest changed lines at the expense of an ergonomic, project-conventional design.
 - Do not mutate the active framework checkout; stop first or use an optional separate worktree. Generated code and state may be migrated at a safe boundary to one new canonical schema.
 - Do not spend the terminal reserve on a change that cannot be evaluated.
 
