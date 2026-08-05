@@ -1,4 +1,0 @@
-interface:
-  display_name: "Audit VibeSys Effectiveness"
-  short_description: "Audit and improve VibeSys optimization"
-  default_prompt: "Use $audit-vibesys-effectiveness to audit a VibeSys campaign and propose one evidence-backed system improvement."

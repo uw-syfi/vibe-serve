@@ -1,9 +1,9 @@
 ---
-name: audit-vibesys-effectiveness
+name: vs-meta-opt
 description: Audit how effectively VibeSys conducts optimization campaigns and propose evidence-backed improvements to its agent roles, prompts, skills, search policy, evaluation, sessions, evidence flow, and framework lifecycle. Use when reviewing recent rounds, explaining slow or stalled convergence, separating candidate failures from agent-system failures, diagnosing cost, context, coordination, or evaluation waste, or preparing and validating a rationale-bearing VibeSys system change.
 ---
 
-# Audit VibeSys Effectiveness
+# VS Meta Opt
 
 ## Purpose
 
@@ -28,7 +28,7 @@ Read campaign state, history, prompts, diffs, logs, profiles, timings, costs, an
 
 ### 1. Open the run draft PR
 
-Treat one run as one bounded meta-hypothesis over an audit window, not as one candidate round. Start from the intended VibeSys parent on a dedicated clean branch and immediately open a draft PR using [meta-run-pr-template.md](assets/meta-run-pr-template.md).
+Treat one run as one bounded meta-optimization campaign that may test multiple sequential meta-hypotheses over one or more audit windows. It is not one candidate round, hypothesis, or commit. Start from the intended VibeSys parent on a dedicated clean branch and immediately open one draft PR using [meta-run-pr-template.md](assets/meta-run-pr-template.md).
 
 Use the PR description as the living effectiveness ledger. Update it after the initial audit, every intervention commit, each validation checkpoint, and the final retain, revise, revert, or inconclusive decision. Link artifacts rather than pasting raw logs.
 
@@ -84,7 +84,7 @@ Distinguish candidate, implementation, activation, evaluation, infrastructure, c
 
 If the evidence cannot distinguish candidate difficulty from agent-system weakness, recommend instrumentation or a discriminating meta-experiment rather than a speculative fix.
 
-### 7. Propose one meta-level hypothesis
+### 7. Propose the next meta-level hypothesis
 
 State:
 
@@ -95,7 +95,7 @@ State:
 - Likely regressions and cross-domain risks.
 - Validation window, success criteria, and reversion condition.
 
-Prefer one causal system change per experiment. Keep campaign-local adjustments separate from reusable framework policy.
+Test meta-hypotheses sequentially within the run. Prefer one causal system change per experiment and one independently understandable commit per intervention. Keep campaign-local adjustments separate from reusable framework policy.
 
 ### 8. Enforce the no-leakage boundary
 
@@ -105,9 +105,9 @@ Adding or improving skills available to VibeSys is allowed. Keep skills modular,
 
 ### 9. Land a clean, rationale-bearing commit
 
-Before modifying VibeSys, read [meta-experiments-and-commits.md](references/meta-experiments-and-commits.md). Keep the worktree clean, separate agent-system changes from candidate code and campaign artifacts, validate the narrow behavior, and create one reviewable commit using the required rationale template.
+Before modifying VibeSys, read [meta-experiments-and-commits.md](references/meta-experiments-and-commits.md). Keep the worktree clean, separate agent-system changes from candidate code and campaign artifacts, validate the narrow behavior, and create a reviewable commit for each intervention using the required rationale template.
 
-Record the resulting commit hash in the meta-experiment so later audits know exactly which VibeSys behavior governed each round.
+Record every resulting commit hash and disposition in the run PR so later audits know exactly which VibeSys behavior governed each round.
 
 ### 10. Validate independently
 
@@ -133,7 +133,7 @@ Return:
 1. Audit boundary and evidence paths.
 2. Effectiveness findings by category, including `Other` when applicable.
 3. Limiting VibeSys mechanism and confidence.
-4. One meta-level intervention with owner and leakage assessment.
+4. The next meta-level intervention with owner and leakage assessment.
 5. Expected meta-metric effects, validation window, and reversion condition.
-6. Clean commit plan or commit hash using the required rationale template.
+6. Current run commit log and the next clean commit plan using the required rationale template.
 7. Missing evidence and unresolved confounders.

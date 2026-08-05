@@ -2,7 +2,7 @@
 
 ### Audit scope
 
-- Meta-run:
+- VS Meta Opt run:
 - VibeSys parent commit:
 - Campaign and round window:
 - Objective and environment:

@@ -1,4 +1,4 @@
-# Effectiveness Rubric for VibeSys
+# VS Meta Opt Effectiveness Rubric
 
 ## Contents
 

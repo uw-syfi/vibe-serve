@@ -1,4 +1,4 @@
-# Meta-Experiments and Clean Commits
+# VS Meta Opt Runs and Clean Commits
 
 ## Contents
 
@@ -12,16 +12,16 @@
 
 ## Keep One Draft PR Per Run
 
-Define a meta-optimization run as one bounded VibeSys system hypothesis evaluated over a named audit window. Do not open a PR for every candidate round. At the start of each run:
+Define a meta-optimization run as one bounded campaign that may evaluate multiple sequential VibeSys system hypotheses over one or more named audit windows. Do not open a PR for every candidate round, hypothesis, or commit. At the start of each run:
 
 1. Create a dedicated branch from the recorded VibeSys parent.
 2. Open a draft PR using `assets/meta-run-pr-template.md` before modifying behavior.
 3. Fill the audit scope and baseline effectiveness from artifact paths.
 4. Keep the PR description current as the run's concise effectiveness ledger.
 
-Update the description after each intervention commit and validation checkpoint. Track measurements, confounders, and disposition changes without replacing prior observations silently. Raw logs and campaign history remain in artifacts; the PR links them.
+Update the description after each hypothesis, intervention commit, revert, and validation checkpoint. Track measurements, confounders, and disposition changes without replacing prior observations silently. Raw logs and campaign history remain in artifacts; the PR links them.
 
-At the end, mark the PR ready only when the change is validated enough for review. Close the draft with a recorded `No change`, `Revert`, or `Inconclusive` disposition when there is no intervention worth merging.
+At the end, mark the PR ready only when its retained set of changes is validated enough for review. Preserve failed experiments with explicit revert commits and ledger entries instead of rewriting the trajectory. Close the draft with a recorded `No change`, `Revert`, or `Inconclusive` disposition when there is no intervention worth merging.
 
 ## Define the Meta-Hypothesis
 

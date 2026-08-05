@@ -1,4 +1,4 @@
-# Diagnose VibeSys and Select Control Levers
+# VS Meta Opt Diagnosis and Control Levers
 
 ## Attribute Before Intervening
 

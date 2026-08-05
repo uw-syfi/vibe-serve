@@ -1,0 +1,4 @@
+interface:
+  display_name: "VS Meta Opt"
+  short_description: "Audit and improve the VibeSys optimizer"
+  default_prompt: "Use $vs-meta-opt to audit a VibeSys campaign and propose evidence-backed improvements to the optimization system."
