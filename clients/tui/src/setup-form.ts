@@ -45,7 +45,12 @@ export function createSetupForm(renderer: CliRenderer, defaults: SetupDefaults):
   const entries = [
     createField(renderer, 'Input bundle', defaults.input_path, 'examples/<input>'),
     createField(renderer, 'Experiment name', defaults.experiment_name, 'experiment name'),
-    createField(renderer, 'Repository owner', defaults.repository_owner ?? '', 'local-only if empty'),
+    createField(
+      renderer,
+      'Repository owner',
+      defaults.repository_owner ?? '',
+      'local-only if empty',
+    ),
     createField(renderer, 'Repository name', defaults.repository_name, 'repository name'),
     createField(renderer, 'Visibility', defaults.visibility, 'private | public | internal'),
   ];
