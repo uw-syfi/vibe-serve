@@ -65,14 +65,14 @@ accuracy and performance results.
 ## Installation
 
 Requires Python 3.12+ and [uv](https://docs.astral.sh/uv/). Headless runs only
-need these Python prerequisites. The interactive `./vs` launcher additionally
-needs Node.js 20+, pnpm 11, and Bun; the launcher builds the TUI automatically
-when its generated client is missing. A CLI-backed run also needs the selected
-coding-agent CLI installed and authenticated separately (for example, Codex
-with `codex login`).
+need these Python prerequisites; `uv run` bootstraps the project environment
+automatically. The interactive `./vs` launcher additionally needs Node.js 20+,
+Bun, and pnpm 11 (or Corepack); the launcher installs frontend dependencies and
+builds the TUI automatically when its generated client is missing. npm is not
+required. A CLI-backed run also needs the selected coding-agent CLI installed
+and authenticated separately (for example, Codex with `codex login`).
 
 ```bash
-uv sync
 cp .env.example .env       # provider keys for API-backed/deepagents runs
 cp agent.toml.example agent.toml
 
