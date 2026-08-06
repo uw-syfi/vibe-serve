@@ -151,9 +151,8 @@ def build_agent_runner(
             if use_docker:
                 raise OmnigentUnavailableError(
                     "feature flag 'omnigent_agent_backend' is not supported with "
-                    "--docker; the Omnigent container launcher is still a "
-                    "prototype under experiments/omnigent-docker-spike/. Drop "
-                    "--docker or disable the flag."
+                    "--docker; this integration has no container-launcher "
+                    "support. Drop --docker or disable the flag."
                 )
             extra_resources = tuple(host_resources)
             if extra_resources:

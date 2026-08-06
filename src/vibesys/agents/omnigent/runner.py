@@ -466,7 +466,7 @@ class OmnigentAgentRunner:
         confinement.
 
         This is Omnigent's confinement, not ``vs_sandbox``'s. The two have not
-        been proven equivalent; see docs/omnigent-evaluation.md.
+        been proven equivalent.
         """
         try:
             from omnigent.inner.datamodel import OSEnvSandboxSpec, OSEnvSpec

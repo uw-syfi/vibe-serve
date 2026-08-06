@@ -42,10 +42,10 @@ plumbing and tests. Remove it when the first real VibeSys feature flag exists.
 
 ### `omnigent_agent_backend`
 
-Opt-in and unproven — see [`docs/omnigent-evaluation.md`](../../docs/omnigent-evaluation.md)
-for why the evaluation landed on "retain agentshim as the default". With the
-flag off, nothing under `vibesys/agents/omnigent/` is imported and the
-agentshim path is unchanged.
+Opt-in and unproven. The flag is off by default because the integration uses a
+fast-moving alpha dependency, supports only two providers, and has not proven
+equivalence with the default sandbox path. With the flag off, nothing under
+`vibesys/agents/omnigent/` is imported and the agentshim path is unchanged.
 
 Enabling it requires the optional extra. Contributors already have it —
 `uv sync --dev` pulls `vibesys[omnigent]` — but an end-user install needs:
@@ -66,8 +66,7 @@ rather than silently falling back to agentshim:
   no Gemini harness, and its `opencode-native` executor is a bridge for
   Omnigent's own web UI (it takes no `cwd`/`model`), so neither can run a
   headless VibeSys turn.
-- `--docker` is rejected. The container launcher is still a prototype under
-  `experiments/omnigent-docker-spike/`.
+- `--docker` is rejected; this integration has no container-launcher support.
 - Per-invocation MCP server injection is rejected; Omnigent wires MCP through
   its own agent spec, which this integration does not construct.
 - Extra host resource grants are rejected. The agentshim path declares these
@@ -96,9 +95,9 @@ unconfined. GitHub's runners do not ship `bwrap`, so the tests that build a real
 OS environment skip there under the repo's existing
 `VIBESYS_REQUIRE_SANDBOX_TESTS` convention.
 
-A live end-to-end probe lives at
-`experiments/omnigent-agent-backend/live_turn.py`; both supported providers pass
-it.
+The automated tests cover provider wiring, sandbox construction, tool dispatch,
+event handling, and teardown. Credentialed live CLI validation is intentionally
+outside the repository's test suite.
 
 ## Config
 

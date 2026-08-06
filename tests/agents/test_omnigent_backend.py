@@ -699,11 +699,10 @@ class TestWorkspaceConfinement:
 class TestTurnPathWithFakeExecutor:
     """Covers invoke / invoke_text / _generate / close without bwrap or creds.
 
-    The live probe in ``experiments/omnigent-agent-backend/`` exercises these
-    against real CLIs, but it needs credentials and a sandbox backend, so CI
-    cannot run it. Injecting a fake executor covers the same control flow —
-    logging, parsing, fallback, usage records, executor reuse, and teardown —
-    on any host.
+    Credentialed live CLI validation is outside the repository's test suite.
+    Injecting a fake executor covers the relevant control flow — logging,
+    parsing, fallback, usage records, executor reuse, and teardown — on any
+    host.
     """
 
     @staticmethod
