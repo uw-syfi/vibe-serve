@@ -64,27 +64,37 @@ accuracy and performance results.
 
 ## Installation
 
-Requires Python 3.12+ and [uv](https://docs.astral.sh/uv/). Headless runs only
-need these Python prerequisites; `uv run` bootstraps the project environment
-automatically. The interactive `./vs` launcher additionally needs Node.js 20+,
-Bun, and pnpm 11 (or Corepack); the launcher installs frontend dependencies and
-builds the TUI automatically when its generated client is missing. npm is not
-required. A CLI-backed run also needs the selected coding-agent CLI installed
-and authenticated separately (for example, Codex with `codex login`).
+1. Install Python 3.12+ and [uv](https://docs.astral.sh/uv/).
+2. From the repository root, create the local configuration files:
 
 ```bash
 cp .env.example .env       # provider keys for API-backed/deepagents runs
 cp agent.toml.example agent.toml
+```
 
-# Check the install and one representative input bundle without starting an agent.
+3. Check the installation:
+
+```bash
 ./vs --headless --help >/dev/null
 ./vs validate examples/data-structures/queue-spsc
 ```
 
-For CLI-backed runs, authenticate the selected coding-agent CLI instead of
-putting its credentials in `.env`. The `.env` file is loaded automatically when
-VibeSys reads `agent.toml` and is only needed for providers that use API
-credentials directly or for gated model downloads.
+`uv run` creates the Python environment automatically. You do not need to run
+`uv sync` first.
+
+To use the interactive TUI, install Node.js 20+, Bun, and pnpm 11 (or enable
+Corepack). Run `./vs`; it installs the frontend dependencies and builds the TUI
+when needed. npm is not required.
+
+For CLI-backed runs, install and authenticate the selected coding-agent CLI,
+such as Codex:
+
+```bash
+codex login
+```
+
+Use `.env` for API-backed providers and gated model downloads. CLI credentials
+are managed by the selected CLI.
 
 ## Quickstart
 
