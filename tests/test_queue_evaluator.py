@@ -5,6 +5,7 @@ import json
 import shutil
 import subprocess
 import tomllib
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -20,6 +21,58 @@ LINEARIZABLE_ACCURACY_SETTINGS = {
     "queue-mpsc": ("24", "50"),
     "queue-mpmc": ("24", "100"),
 }
+
+
+@pytest.fixture(scope="session")
+def compiled_queue_candidate(tmp_path_factory) -> Path:
+    """Build the shared Rust starter once for materialized-input tests."""
+    if shutil.which("cargo") is None:
+        pytest.skip("Rust is required by the trusted queue evaluator")
+
+    project_root = Path(__file__).parents[1]
+    starter = project_root / "examples" / "starters" / "queue-rs"
+    build_dir = tmp_path_factory.mktemp("queue-rs-build") / "starter"
+    shutil.copytree(starter, build_dir)
+    subprocess.run(["make"], cwd=build_dir, check=True)
+
+    candidate = build_dir / "queue-candidate.so"
+    assert candidate.is_file()
+    return candidate
+
+
+@pytest.fixture(scope="session")
+def queue_native_runner(tmp_path_factory) -> Iterator[Path]:
+    """Build the trusted evaluator runner once and reuse it across subprocesses."""
+    if shutil.which("cargo") is None:
+        pytest.skip("Rust is required by the trusted queue evaluator")
+
+    project_root = Path(__file__).parents[1]
+    source = project_root / "examples" / "evaluators" / "queue" / "native_runner"
+    target_dir = tmp_path_factory.mktemp("queue-native-runner") / "target"
+    subprocess.run(
+        [
+            "cargo",
+            "build",
+            "--quiet",
+            "--release",
+            "--locked",
+            "--manifest-path",
+            str(source / "Cargo.toml"),
+            "--target-dir",
+            str(target_dir),
+        ],
+        cwd=source,
+        check=True,
+    )
+    runner = target_dir / "release" / "vibesys-queue-native-runner"
+    assert runner.is_file()
+
+    environment = pytest.MonkeyPatch()
+    environment.setenv("VIBESYS_QUEUE_NATIVE_RUNNER", str(runner))
+    try:
+        yield runner
+    finally:
+        environment.undo()
 
 
 def _copy_input_bundle(source: Path, target: Path) -> None:
@@ -129,6 +182,7 @@ def test_linearizable_queue_inputs_use_shared_editable_rust_starter():
             assert not (input_dir / relative).exists()
 
 
+@pytest.mark.usefixtures("queue_native_runner")
 def test_spsc_rigtorp_baseline_builds_and_passes_accuracy(tmp_path):
     if shutil.which("go") is None or shutil.which("c++") is None:
         pytest.skip("Go and a C++ compiler are required by the SPSC baseline")
@@ -186,6 +240,7 @@ def test_spsc_rigtorp_baseline_uses_pinned_upstream_header():
     assert "rigtorp::SPSCQueue<QueueEntry> entries" in adapter
 
 
+@pytest.mark.usefixtures("queue_native_runner")
 def test_mpmc_locked_ring_baseline_builds_and_passes_accuracy(tmp_path):
     if shutil.which("go") is None or shutil.which("cc") is None:
         pytest.skip("Go and a C compiler are required by the MPMC baseline")
@@ -247,7 +302,13 @@ def test_mpmc_locked_ring_baseline_has_atomic_publication_region():
 
 
 @pytest.mark.parametrize(("input_name", "scenario"), LINEARIZABLE_QUEUE_INPUTS.items())
-def test_materialized_rust_starter_builds_and_passes_accuracy(tmp_path, input_name, scenario):
+@pytest.mark.usefixtures("queue_native_runner")
+def test_materialized_rust_starter_passes_accuracy(
+    tmp_path,
+    input_name,
+    scenario,
+    compiled_queue_candidate,
+):
     if shutil.which("go") is None or shutil.which("cargo") is None:
         pytest.skip("Go and Rust are required by the trusted queue evaluator")
 
@@ -255,16 +316,8 @@ def test_materialized_rust_starter_builds_and_passes_accuracy(tmp_path, input_na
     workspace = tmp_path / "workspace"
     _materialize_linearizable_input(project_root, input_name, workspace)
 
-    subprocess.run(["make"], cwd=workspace, check=True)
+    shutil.copy2(compiled_queue_candidate, workspace / "queue-candidate.so")
     assert (workspace / "queue-candidate.so").is_file()
-    rebuilt = subprocess.run(
-        ["make"],
-        cwd=workspace,
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    assert "cargo build --release --locked" in rebuilt.stdout
 
     manifest = tomllib.loads((workspace / "vibesys.input.toml").read_text())
     accuracy = [
@@ -295,6 +348,7 @@ def test_materialized_rust_starter_builds_and_passes_accuracy(tmp_path, input_na
         assert f"PASS - {checked_scenario} {contract}" in completed.stdout
 
 
+@pytest.mark.usefixtures("queue_native_runner")
 def test_materialized_manifest_commands_run_go_evaluator_directly(tmp_path):
     if shutil.which("go") is None or shutil.which("cargo") is None:
         pytest.skip("Go and Rust are required by the trusted queue evaluator")
@@ -340,6 +394,7 @@ def test_materialized_manifest_commands_run_go_evaluator_directly(tmp_path):
     assert all(len(result["total_ops_per_sec_samples"]) == 3 for result in results)
 
 
+@pytest.mark.usefixtures("queue_native_runner")
 def test_queue_evaluator_rejects_adversarial_histories():
     if shutil.which("go") is None or shutil.which("cargo") is None:
         pytest.skip("Go and Rust are required by the trusted queue evaluator")

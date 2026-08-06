@@ -38,7 +38,7 @@ necessary.
 
 ## Add the profiler prompt
 
-Create `src/vibesys/loops/agent/templates/profilers/<kind>.j2`. Explain how the
+Create `src/vibesys/prompts/loops/agent/profilers/<kind>.j2`. Explain how the
 agent should collect and interpret evidence, which limitations it must report, and how it
 should produce the shared `ProfilerSummary`. The agent and evolve loops resolve this prompt
 by convention.

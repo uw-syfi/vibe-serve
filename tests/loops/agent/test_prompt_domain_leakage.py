@@ -17,11 +17,9 @@ from vibesys.domains.registry import resolve_domain
 from vibesys.domains.rendering import render_domain_section
 from vibesys.loops.agent import issue_board
 from vibesys.profilers import ProfilerKind
-from vibesys.prompts import render_template
+from vibesys.prompts import PROMPTS_DIR, render_template
 
-_TEMPLATE_DIR = (
-    Path(__file__).resolve().parents[3] / "src" / "vibesys" / "loops" / "agent" / "templates"
-)
+_TEMPLATE_DIR = PROMPTS_DIR / "loops" / "agent"
 
 
 @dataclass(frozen=True)

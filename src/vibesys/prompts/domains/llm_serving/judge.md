@@ -9,6 +9,13 @@ and deterministic prompt-dependent generation. Live cohorts may share active
 execution. Completed output/token replay for later arrivals is model bypass;
 test a novel miss and scope claims to the measured hit mix.
 
+{% if hidden_evaluator_configured %}
+The benchmark and accuracy commands are framework-owned hidden gates. Inspect the
+visible shims and verify the live service protocol, but do not require hidden
+evaluator files in the reviewer container or duplicate official runs; VibeSys
+executes them after a PASS verdict.
+{% endif %}
+
 {% if workspace_sources %}
 The pinned checkout(s)—{% for source in workspace_sources %}`{{ source.dest }}/` ({{ source.name }}){% if not loop.last %}, {% endif %}{% endfor %}—are mutable candidate code. Verify that the implementation adapted them, or supplied concrete inspection evidence justifying each replacement; include their production paths in static review.
 {% endif %}

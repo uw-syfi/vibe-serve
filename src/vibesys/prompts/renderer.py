@@ -3,13 +3,13 @@
 Two concepts:
 
 - **Template** — a full prompt the LLM sees as one document
-  (e.g. ``orchestrate/templates/implementer/system.j2``). Has structure:
+  (e.g. ``loops/plain/implementer/system.j2``). Has structure:
   headers, task description, constraints. Lives in a per-mode
   directory.
 - **Fragment** — a small reusable snippet meant to be composed *into*
   a template, not rendered standalone. Lives at
-  ``vibesys/templates/_backend/<backend>/<name>.j2``. The
-  ``_backend/`` prefix marks "fragment directory, not a place to find
+  ``vibesys/prompts/backend/<backend>/<name>.j2``. The
+  ``backend/`` directory marks "fragment directory, not a place to find
   full templates".
 
 :class:`ComputeBackendFragment` is the Python contract for backend fragments:
@@ -26,7 +26,7 @@ filename stem on every ``render(...)`` call. Templates can therefore
 reference ``{{ device_dtype }}`` regardless of which backend the run
 targets.
 
-See ``vibesys/templates/_backend/README.md`` for the
+See ``vibesys/prompts/backend/README.md`` for the
 fragment-filename convention contributors should follow.
 """
 
@@ -38,35 +38,33 @@ from jinja2 import Environment, FileSystemLoader
 
 from vibesys.constants import ComputeBackend
 
-_TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
+PROMPTS_DIR = Path(__file__).resolve().parent
 
 _env = Environment(
-    loader=FileSystemLoader(str(_TEMPLATES_DIR)),
+    loader=FileSystemLoader(str(PROMPTS_DIR)),
     keep_trailing_newline=True,
     trim_blocks=True,
     lstrip_blocks=True,
 )
 
 # Cache of Jinja2 environments keyed by template directory path
-_env_cache: dict[str, Environment] = {str(_TEMPLATES_DIR): _env}
+_env_cache: dict[str, Environment] = {str(PROMPTS_DIR): _env}
 
 
 def _build_env(template_dir: Path | str | None = None) -> Environment:
     """Return a Jinja2 Environment for the given template directory.
 
-    Per-mode template directories also fall back to the shared
-    ``vibesys/templates/`` root, so ``{% include
-    "_backend/<name>/foo.j2" %}`` from a per-mode template (and
-    fragment lookups via :class:`ComputeBackendFragment`) resolve from the
-    shared root.
+    Per-loop prompt directories also fall back to the shared
+    ``vibesys/prompts/`` root, so fragment lookups via
+    :class:`ComputeBackendFragment` resolve from package-owned prompt assets.
     """
     if template_dir is None:
         return _env
     key = str(template_dir)
     if key not in _env_cache:
         search_paths = [key]
-        if key != str(_TEMPLATES_DIR):
-            search_paths.append(str(_TEMPLATES_DIR))
+        if key != str(PROMPTS_DIR):
+            search_paths.append(str(PROMPTS_DIR))
         _env_cache[key] = Environment(
             loader=FileSystemLoader(search_paths),
             keep_trailing_newline=True,
@@ -104,7 +102,7 @@ def render_string(source: str, **kwargs: object) -> str:
 
 class ComputeBackendFragment(ABC):
     """Provides backend-specific Jinja fragments under
-    ``vibesys/templates/_backend/<backend>/``.
+    ``vibesys/prompts/backend/<backend>/``.
 
     Subclasses must set ``backend = ComputeBackend.<X>``. The default
     rendering reads ``<backend>/<name>.j2`` from the shared templates
@@ -146,7 +144,7 @@ class ComputeBackendFragment(ABC):
         if name not in self.NAMES:
             raise ValueError(f"Unknown fragment {name!r}; valid: {sorted(self.NAMES)}")
         return (
-            self._env.get_template(f"_backend/{self.backend.value}/{name}.j2").render().rstrip("\n")
+            self._env.get_template(f"backend/{self.backend.value}/{name}.j2").render().rstrip("\n")
         )
 
     def render_all(self) -> dict[str, str]:
@@ -158,7 +156,7 @@ class ComputeBackendFragment(ABC):
         """Verify a ``.j2`` file exists for every fragment in
         :attr:`NAMES`. Raises ``ValueError`` listing missing files.
         """
-        backend_dir = _TEMPLATES_DIR / "_backend" / cls.backend.value
+        backend_dir = PROMPTS_DIR / "backend" / cls.backend.value
         missing = [n for n in cls.NAMES if not (backend_dir / f"{n}.j2").is_file()]
         if missing:
             raise ValueError(
@@ -232,9 +230,9 @@ class Prompt:
     Parameters
     ----------
     template_dir:
-        Per-mode directory the renderer searches first (e.g.
-        ``orchestrate/templates/``). Falls back to the shared
-        ``vibesys/templates/`` root, where backend fragments
+        Per-loop directory the renderer searches first (e.g.
+        ``prompts/loops/plain/``). Falls back to the shared
+        ``vibesys/prompts/`` root, where backend fragments
         live.
     backend:
         Hardware backend the run targets. Selects the

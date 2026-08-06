@@ -100,6 +100,7 @@ and deterministic prompt-dependent generation. Live cohorts may share active
 execution. Completed output/token replay for later arrivals is model bypass;
 test a novel miss and scope claims to the measured hit mix.
 
+
 The pinned checkout(s)—`vllm/` (vllm)—are mutable candidate code. Verify that the implementation adapted them, or supplied concrete inspection evidence justifying each replacement; include their production paths in static review.
 
 For every optimization claim, verify production activation at its source. An

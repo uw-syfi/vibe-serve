@@ -13,12 +13,8 @@ from vibesys.backends.rocm import RocmBackend, _discover_rocm_devices
 from vibesys.constants import ComputeBackend
 from vibesys.main import _add_common_args
 from vibesys.profilers import ProfilerKind
-from vibesys.prompts import (
-    _FRAGMENT_IMPLS,
-    _TEMPLATES_DIR,
-    ComputeBackendFragment,
-    RocmComputeBackendFragment,
-)
+from vibesys.prompts import PROMPTS_DIR, RocmComputeBackendFragment
+from vibesys.prompts.renderer import _FRAGMENT_IMPLS, ComputeBackendFragment
 
 
 def _make_backend(tmp_path, devices=("/dev/kfd", "/dev/dri/renderD128")) -> RocmBackend:
@@ -199,6 +195,6 @@ class TestRocmPromptFragments:
     def test_rocm_fragments_are_non_empty(self):
         """Empty .j2 is a legal 'hard skip', but ROCm has real content for all
         three — an accidental empty file would silently drop prompt guidance."""
-        backend_dir = _TEMPLATES_DIR / "_backend" / ComputeBackend.ROCM.value
+        backend_dir = PROMPTS_DIR / "backend" / ComputeBackend.ROCM.value
         for name in ComputeBackendFragment.NAMES:
             assert (backend_dir / f"{name}.j2").read_text().strip()

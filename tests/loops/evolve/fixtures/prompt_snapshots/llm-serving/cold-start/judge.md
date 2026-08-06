@@ -38,6 +38,7 @@ execution. Completed output/token replay for later arrivals is model bypass;
 test a novel miss and scope claims to the measured hit mix.
 
 
+
 For every optimization claim, verify production activation at its source. An
 import, configured backend, object construction, or zero-valued field that is
 never updated proves nothing. Check point-local telemetry scope and observer

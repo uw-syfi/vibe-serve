@@ -414,6 +414,7 @@ class ModalEnvironment(_NoopWorkspaceRecovery):
         if request.git_history_root is not None:
             cli_provider_env.setdefault("VIBESYS_GIT_HISTORY", "/opt/vibesys-history")
         app_name = _modal_app_name(request.workspace, fallback=self.config.app)
+        cli_provider_env["VIBESYS_MODAL_APP_NAME"] = app_name
         runtime_document = request.log_dir / "runtime-environment.md"
         runtime_document.write_text(
             _modal_runtime_notes(self.config.gpu, app_name, request.workspace_sources)

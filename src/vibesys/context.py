@@ -12,6 +12,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TextIO, TypeVar, overload
 
+from deepagents.backends import LocalShellBackend
 from pydantic import BaseModel
 
 from vibesys import backends
@@ -146,6 +147,73 @@ def _coerce_dir_path(raw: str | None, label: str) -> str | None:
     return str(path) if path is not None else None
 
 
+def _hidden_copy_ignore(_directory: str, names: list[str]) -> list[str]:
+    return [name for name in names if name in {"target", "__pycache__", ".pytest_cache", ".venv"}]
+
+
+def _materialize_hidden_evaluator(source: Path | None, exp_dir: Path) -> Path | None:
+    if source is None:
+        return None
+    destination = exp_dir / "_hidden_evaluator" / source.name
+    if destination.exists():
+        shutil.rmtree(destination)
+    shutil.copytree(source, destination, symlinks=True, ignore=_hidden_copy_ignore)
+    return destination
+
+
+def _materialize_agent_project_root(
+    *,
+    exp_dir: Path,
+    hidden_evaluator_source: Path | None,
+    project_root: Path,
+) -> Path:
+    """Copy a project view for CLI agents that omits hidden evaluator sources."""
+    if hidden_evaluator_source is None:
+        return project_root
+
+    destination = exp_dir / "_agent_project_root"
+    if destination.exists():
+        shutil.rmtree(destination)
+
+    hidden_resolved = hidden_evaluator_source.resolve()
+
+    def ignore(directory: str, names: list[str]) -> list[str]:
+        directory_path = Path(directory).resolve()
+        ignored = {
+            name
+            for name in names
+            if name in {".git", "exp_env", "__pycache__", ".pytest_cache", ".venv"}
+        }
+        for name in names:
+            child = (directory_path / name).resolve()
+            if child == hidden_resolved:
+                ignored.add(name)
+        return sorted(ignored)
+
+    shutil.copytree(project_root, destination, symlinks=True, ignore=ignore)
+    return destination
+
+
+def _framework_env(
+    hidden_evaluator_path: Path | None,
+    *,
+    modal_app_name: str | None = None,
+) -> dict[str, str]:
+    env: dict[str, str] = {}
+    if modal_app_name:
+        env["VIBESYS_MODAL_APP_NAME"] = modal_app_name
+    if hidden_evaluator_path is None:
+        return env
+    value = str(hidden_evaluator_path)
+    env.update(
+        {
+            "VIBESYS_HIDDEN_EVALUATOR_DIR": value,
+            "VIBESYS_TRACELAB_EVALUATOR_DIR": value,
+        }
+    )
+    return env
+
+
 def _coerce_skills_dirs(raw_dirs: list[str] | None) -> list[Path]:
     if not raw_dirs:
         return []
@@ -172,6 +240,7 @@ def create_run_context(
     workspace_seed: Path | None = None,
     workspace_sources: tuple[WorkspaceSource, ...] = (),
     evaluator_path: Path | None = None,
+    hidden_evaluator_path: Path | None = None,
     objective: str | None = None,
     existing: bool = False,
     trusted_input_baseline: str | None = None,
@@ -208,6 +277,7 @@ def create_run_context(
             workspace_seed=workspace_seed,
             workspace_sources=workspace_sources,
             evaluator_path=evaluator_path,
+            hidden_evaluator_path=hidden_evaluator_path,
             objective=objective,
             existing=existing,
             trusted_input_baseline=trusted_input_baseline,
@@ -253,6 +323,7 @@ def _assemble_run_context(
     workspace_seed: Path | None,
     workspace_sources: tuple[WorkspaceSource, ...],
     evaluator_path: Path | None,
+    hidden_evaluator_path: Path | None,
     objective: str | None,
     existing: bool,
     trusted_input_baseline: str | None,
@@ -377,6 +448,13 @@ def _assemble_run_context(
     input_path_str = _coerce_dir_path(input_path, "--input")
     workspace_seed_path = _coerce_dir(workspace_seed, "workspace.seed")
     evaluator_source = _coerce_dir(evaluator_path, "evaluator.source")
+    hidden_evaluator_source = _coerce_dir(hidden_evaluator_path, "hidden_evaluator.source")
+    hidden_evaluator_runtime = _materialize_hidden_evaluator(hidden_evaluator_source, exp_dir)
+    agent_project_root = _materialize_agent_project_root(
+        exp_dir=exp_dir,
+        hidden_evaluator_source=hidden_evaluator_source,
+        project_root=PROJECT_ROOT,
+    )
     resolved_profiler_kind = resolve_profiler_kind(
         profiler_kind,
         domain=profiler_domain,
@@ -496,7 +574,7 @@ def _assemble_run_context(
                 git_history_root=git.history_root,
                 environment_bind_mounts=environment_patch.bind_mounts,
                 log=logger.lprint,
-                project_root=PROJECT_ROOT,
+                project_root=agent_project_root,
             )
         )
     )
@@ -548,6 +626,18 @@ def _assemble_run_context(
         log_dir=log_dir,
     )
 
+    framework_judge_backend = session.sandbox
+    if hidden_evaluator_runtime is not None:
+        framework_judge_backend = LocalShellBackend(
+            root_dir=str(workspace_files.root),
+            virtual_mode=True,
+            inherit_env=True,
+            env=_framework_env(
+                hidden_evaluator_runtime,
+                modal_app_name=session.view.deployment_namespace,
+            ),
+        )
+
     return _RunContext(
         backend=backend,
         run_environment=environment,
@@ -563,6 +653,8 @@ def _assemble_run_context(
         workspace_seed_path=workspace_seed_path,
         workspace_sources=workspace_sources,
         evaluator_path=evaluator_source,
+        hidden_evaluator_path=hidden_evaluator_runtime,
+        framework_judge_backend=framework_judge_backend,
         effective_objective=objective,
         accuracy_command=accuracy_command,
         benchmark_command=benchmark_command,
@@ -696,7 +788,7 @@ def _assemble_candidate_context(
                 git_history_root=parent.git.history_root,
                 environment_bind_mounts=parent.environment_patch.bind_mounts,
                 log=logger.lprint,
-                project_root=PROJECT_ROOT,
+                project_root=getattr(parent, "agent_project_root", PROJECT_ROOT),
             )
         )
     )
@@ -729,6 +821,18 @@ def _assemble_candidate_context(
         log_dir=log_dir,
     )
 
+    framework_judge_backend = session.sandbox
+    if getattr(parent, "hidden_evaluator_path", None) is not None:
+        framework_judge_backend = LocalShellBackend(
+            root_dir=str(workspace),
+            virtual_mode=True,
+            inherit_env=True,
+            env=_framework_env(
+                parent.hidden_evaluator_path,
+                modal_app_name=session.view.deployment_namespace,
+            ),
+        )
+
     paths = RunPaths(
         exp_dir=parent.exp_dir,
         log_dir=log_dir,
@@ -751,6 +855,8 @@ def _assemble_candidate_context(
         workspace_seed_path=None,
         workspace_sources=parent.workspace_sources,
         evaluator_path=parent.evaluator_path,
+        hidden_evaluator_path=getattr(parent, "hidden_evaluator_path", None),
+        framework_judge_backend=framework_judge_backend,
         effective_objective=effective_objective,
         accuracy_command=parent.accuracy_command,
         benchmark_command=parent.benchmark_command,
@@ -808,6 +914,8 @@ class _RunContext:
         workspace_seed_path: Path | None,
         workspace_sources: tuple[WorkspaceSource, ...],
         evaluator_path: Path | None,
+        hidden_evaluator_path: Path | None,
+        framework_judge_backend: Any,
         effective_objective: str | None,
         accuracy_command: str,
         benchmark_command: str,
@@ -842,6 +950,7 @@ class _RunContext:
         self.workspace_seed_path = workspace_seed_path
         self.workspace_sources = workspace_sources
         self.evaluator_path = evaluator_path
+        self.hidden_evaluator_path = hidden_evaluator_path
         self.effective_objective = effective_objective
         self.accuracy_command = accuracy_command
         self.benchmark_command = benchmark_command
@@ -863,6 +972,11 @@ class _RunContext:
         self.run_environment_view = run_environment_session.view
         self.implementer_backend = run_environment_session.sandbox
         self.judge_backend = run_environment_session.sandbox
+        self.framework_judge_backend = framework_judge_backend
+        agent_project_root = paths.exp_dir / "_agent_project_root"
+        self.agent_project_root = (
+            agent_project_root if agent_project_root.exists() else PROJECT_ROOT
+        )
         self.commands = commands
         self.device = device
         # Expose the picked device for legacy callers (gpu monitor tests etc).

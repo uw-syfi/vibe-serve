@@ -26,11 +26,9 @@ from vibesys.domains.registry import (
     resolve_domain,
 )
 from vibesys.domains.rendering import render_domain_section
-from vibesys.prompts import render_template
+from vibesys.prompts import PROMPTS_DIR, render_template
 
-_TEMPLATE_DIR = (
-    Path(__file__).resolve().parents[3] / "src" / "vibesys" / "loops" / "agent" / "templates"
-)
+_TEMPLATE_DIR = PROMPTS_DIR / "loops" / "agent"
 
 
 def _temporary_domain(prompt_dir: Path) -> DomainDefinition:
@@ -56,16 +54,16 @@ def test_resolve_registered_name():
     d = resolve_domain(DomainName.LLM_SERVING)
     assert d.name is DomainName.LLM_SERVING
     assert d.prompt_dir.is_dir()
-    assert d.prompt_dir.name == "templates"
-    assert d.prompt_dir.parent.name == "llm_serving"
+    assert d.prompt_dir.name == "llm_serving"
+    assert d.prompt_dir.parent.name == "domains"
 
 
 def test_resolve_microservices_domain():
     d = resolve_domain(DomainName.MICROSERVICES)
     assert d.name is DomainName.MICROSERVICES
     assert d.prompt_dir.is_dir()
-    assert d.prompt_dir.name == "templates"
-    assert d.prompt_dir.parent.name == "microservices"
+    assert d.prompt_dir.name == "microservices"
+    assert d.prompt_dir.parent.name == "domains"
 
 
 def test_resolve_path_is_not_supported(tmp_path: Path):

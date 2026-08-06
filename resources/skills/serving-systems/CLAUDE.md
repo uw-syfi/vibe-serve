@@ -197,7 +197,7 @@ The `repos/` directory is **excluded** from agent materialization (see `src/vibe
 
 ## Adding a platform
 
-1. Add the variant to `ComputeBackend` in `vibesys/constants.py` and wire the runtime impl + prompt fragments (see `vibesys/templates/_backend/README.md`).
+1. Add the variant to `ComputeBackend` in `vibesys/constants.py` and wire the runtime impl + prompt fragments (see `vibesys/prompts/backend/README.md`).
 2. Create `references/platforms/<backend>/` with the full skeleton: `floor.md`, `hardware.md`, `profiler.md`. `validate_skill_tree` fails the run if any is missing.
 3. Add platform rows to the compatibility matrices in `algorithms/`, using explicit N/A where a technique does not apply.
 4. Add `platforms/<backend>/<topic>.md` only for category-B topics where this backend has a genuinely different answer.

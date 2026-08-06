@@ -126,6 +126,23 @@ class EvaluatorInput(BaseModel):
         return value
 
 
+class HiddenEvaluatorInput(BaseModel):
+    """Trusted evaluator source available only to framework-owned commands."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    source: str
+
+    @field_validator("source")
+    @classmethod
+    def _relative_source(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("source must be a non-empty path")
+        if Path(value).is_absolute():
+            raise ValueError("source must be relative to the input bundle")
+        return value
+
+
 class BenchmarkResult(BaseModel):
     """Machine-readable scalar result emitted by a benchmark command."""
 
@@ -174,6 +191,7 @@ class InputManifest(BaseModel):
     benchmark: BenchmarkCommand
     workspace: WorkspaceInput | None = None
     evaluator: EvaluatorInput | None = None
+    hidden_evaluator: HiddenEvaluatorInput | None = None
 
     @model_validator(mode="after")
     def _unique_workspace_source_destinations(self) -> InputManifest:
@@ -202,6 +220,7 @@ class InputBundle(BaseModel):
     reference_path: Path | None
     workspace_seed_path: Path | None
     evaluator_path: Path | None
+    hidden_evaluator_path: Path | None
     manifest: InputManifest
 
     @property
@@ -334,6 +353,26 @@ def load_input_bundle(
         if not evaluator_path.is_dir():
             raise ValueError(f"evaluator.source path is not a directory: {evaluator_path}")
 
+    hidden_evaluator_path = None
+    if manifest.hidden_evaluator is not None and not allow_materialized_sources:
+        evaluators_root = (project_root / "examples" / "evaluators").resolve()
+        hidden_evaluator_path = (root / manifest.hidden_evaluator.source).resolve()
+        try:
+            hidden_evaluator_path.relative_to(evaluators_root)
+        except ValueError as exc:
+            raise ValueError(
+                f"hidden_evaluator.source must resolve inside {evaluators_root}: "
+                f"{manifest.hidden_evaluator.source}"
+            ) from exc
+        if not hidden_evaluator_path.exists():
+            raise FileNotFoundError(
+                f"hidden_evaluator.source path does not exist: {hidden_evaluator_path}"
+            )
+        if not hidden_evaluator_path.is_dir():
+            raise ValueError(
+                f"hidden_evaluator.source path is not a directory: {hidden_evaluator_path}"
+            )
+
     return InputBundle(
         root=root,
         manifest_path=manifest_path,
@@ -341,5 +380,6 @@ def load_input_bundle(
         reference_path=reference_path,
         workspace_seed_path=workspace_seed_path,
         evaluator_path=evaluator_path,
+        hidden_evaluator_path=hidden_evaluator_path,
         manifest=manifest,
     )

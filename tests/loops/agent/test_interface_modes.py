@@ -8,8 +8,6 @@ artifact requirements.
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
 from vibesys.domains.base import DomainName, DomainRole
@@ -18,11 +16,9 @@ from vibesys.domains.rendering import render_domain_section
 from vibesys.errors import ConfigurationError
 from vibesys.loops.agent.loop import _effective_profiler_definition
 from vibesys.profilers import ProfilerKind
-from vibesys.prompts import render_template
+from vibesys.prompts import PROMPTS_DIR, render_template
 
-_TEMPLATE_DIR = (
-    Path(__file__).resolve().parents[3] / "src" / "vibesys" / "loops" / "agent" / "templates"
-)
+_TEMPLATE_DIR = PROMPTS_DIR / "loops" / "agent"
 
 
 def test_domain_module_has_no_language_axis():

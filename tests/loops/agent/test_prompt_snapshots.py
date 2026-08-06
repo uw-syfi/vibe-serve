@@ -20,7 +20,7 @@ from vibesys.domains.registry import resolve_domain
 from vibesys.domains.rendering import render_domain_section
 from vibesys.input_manifest import WorkspaceSource
 from vibesys.profilers import ProfilerKind, profiler_definition
-from vibesys.prompts import render_template
+from vibesys.prompts import PROMPTS_DIR, render_template
 from vibesys.schemas import (
     ImplementerResponse,
     JudgeResponse,
@@ -30,7 +30,7 @@ from vibesys.schemas import (
 )
 
 _ROOT = Path(__file__).resolve().parents[3]
-_TEMPLATE_DIR = _ROOT / "src" / "vibesys" / "loops" / "agent" / "templates"
+_TEMPLATE_DIR = PROMPTS_DIR / "loops" / "agent"
 _SNAPSHOT_DIR = Path(__file__).with_name("fixtures") / "prompt_snapshots"
 
 _ROLES = ("implementer", "implementer_continuation", "judge", "single_agent", "orchestrator")

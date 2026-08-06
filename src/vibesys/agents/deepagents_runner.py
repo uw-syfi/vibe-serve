@@ -55,18 +55,70 @@ class DeepAgentsRunner:
         self._skills = skills
         self._model_name = model_name
         self._run_log_file = run_log_file
+        # Cache the compiled agent graph separately from conversation state.
+        # Tool objects may close over per-invocation policy (the issue-loop
+        # tools do), so their identities are part of the signature rather
+        # than just their names.
+        self._agents: dict[str, Any] = {}
+        self._agent_signatures: dict[str, tuple[Any, ...]] = {}
+        self._checkpointers: dict[str, MemorySaver] = {}
         self._sessions: dict[str, tuple[MemorySaver, str]] = {}
+
+    def _checkpointer(self, kind: str) -> MemorySaver:
+        """Return the checkpointer shared by one kind's cached graphs."""
+        checkpointer = self._checkpointers.get(kind)
+        if checkpointer is None:
+            checkpointer = MemorySaver()
+            self._checkpointers[kind] = checkpointer
+        return checkpointer
 
     def _session(
         self, *, kind: str, reuse_session: bool | None, session_key: str | None
     ) -> tuple[MemorySaver, str]:
-        """Return fresh state by default, or durable state for an explicit key."""
+        """Return a fresh thread by default, or a durable thread for a key."""
+        checkpointer = self._checkpointer(kind)
         if not reuse_session or kind == "chat":
-            return MemorySaver(), uuid.uuid4().hex
+            return checkpointer, uuid.uuid4().hex
         key = f"{kind}:{session_key}" if session_key else kind
         if key not in self._sessions:
-            self._sessions[key] = (MemorySaver(), uuid.uuid4().hex)
+            self._sessions[key] = (checkpointer, uuid.uuid4().hex)
         return self._sessions[key]
+
+    def _get_agent(
+        self,
+        *,
+        kind: str,
+        system_prompt: str,
+        response_cls: type[BaseModel] | None = None,
+        tools: list[BaseTool] | None = None,
+    ) -> Any:
+        """Return the cached graph, rebuilding it when its inputs change."""
+        tool_signature = tuple(id(tool) for tool in (tools or []))
+        signature = (
+            system_prompt,
+            tuple(self._skills),
+            tool_signature,
+            response_cls,
+            id(self._model),
+            id(self._backends[kind]),
+        )
+        if kind in self._agents and self._agent_signatures.get(kind) == signature:
+            return self._agents[kind]
+
+        kwargs: dict[str, Any] = {
+            "model": self._model,
+            "backend": self._backends[kind],
+            "system_prompt": system_prompt,
+            "skills": self._skills,
+            "checkpointer": self._checkpointer(kind),
+            "tools": tools,
+        }
+        if response_cls is not None:
+            kwargs["response_format"] = AutoStrategy(response_cls)
+        agent = create_deep_agent(**kwargs)
+        self._agents[kind] = agent
+        self._agent_signatures[kind] = signature
+        return agent
 
     def invoke(
         self,
@@ -88,20 +140,15 @@ class DeepAgentsRunner:
     ) -> T:
         label = _agent_label(kind)
 
-        checkpointer, thread_id = self._session(
+        _, thread_id = self._session(
             kind=kind,
             reuse_session=reuse_session,
             session_key=session_key,
         )
-
-        backend = self._backends[kind]
-        agent = create_deep_agent(
-            model=self._model,
-            backend=backend,
+        agent = self._get_agent(
+            kind=kind,
             system_prompt=system_prompt,
-            skills=self._skills,
-            response_format=AutoStrategy(response_cls),
-            checkpointer=checkpointer,
+            response_cls=response_cls,
             tools=tools,
         )
         log_agent_config(agent, label, self._run_log_file)
@@ -147,18 +194,15 @@ class DeepAgentsRunner:
         session_key: str | None = None,
     ) -> str:
         """Run a conversational agent without imposing a response schema."""
-        checkpointer, thread_id = self._session(
+        _, thread_id = self._session(
             kind=kind,
             reuse_session=reuse_session,
             session_key=session_key,
         )
         label = _agent_label(kind)
-        agent = create_deep_agent(
-            model=self._model,
-            backend=self._backends[kind],
+        agent = self._get_agent(
+            kind=kind,
             system_prompt=system_prompt,
-            skills=self._skills,
-            checkpointer=checkpointer,
             tools=tools,
         )
         log_agent_config(agent, label, self._run_log_file)

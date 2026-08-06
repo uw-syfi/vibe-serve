@@ -3,7 +3,7 @@
 This directory holds **fragments** — small reusable Jinja snippets that get composed into parent prompts based on the run's selected backend.
 
 ```
-_backend/
+backend/
 ├── cuda/                            ← cuda fragments
 │   ├── device_dtype.j2
 │   ├── judge_device_correctness.j2
@@ -16,7 +16,7 @@ _backend/
 
 ## How they're used
 
-`Prompt(template_dir, backend)` (in `vibesys/prompts.py`) auto-injects every fragment under `_backend/<backend>/` as a kwarg keyed by **filename stem** on every `prompt.render(...)` call.
+`Prompt(template_dir, backend)` (in `vibesys/prompts/renderer.py`) auto-injects every fragment under `backend/<backend>/` as a kwarg keyed by **filename stem** on every `prompt.render(...)` call.
 
 So a fragment file named `device_dtype.j2` is auto-injected as the kwarg `device_dtype`, and any parent template can reference it as `{{ device_dtype }}`. The parent template doesn't know or care which backend it's rendering against.
 
@@ -41,13 +41,13 @@ Explicit kwargs passed to `prompt.render(...)` override auto-injected fragments 
 
 1. Add the variant to `ComputeBackend` in
    `vibesys/constants.py`.
-2. Create `vibesys/templates/_backend/<new>/` and mirror every
+2. Create `vibesys/prompts/backend/<new>/` and mirror every
    name in `ComputeBackendFragment.NAMES` (currently: `device_dtype.j2`,
    `judge_device_correctness.j2`, `profiling_workflow.j2`). Use an
    empty file for a deliberate skip, or short placeholder prose for
    a soft skip — don't leave the file out, validation will fail.
 3. Add a concrete `ComputeBackendFragment` subclass in
-   `vibesys/prompts.py`:
+	   `vibesys/prompts/renderer.py`:
    ```python
    class RocmComputeBackendFragment(ComputeBackendFragment):
        backend = ComputeBackend.ROCM
@@ -60,10 +60,10 @@ Explicit kwargs passed to `prompt.render(...)` override auto-injected fragments 
 
 ## Python contract
 
-The canonical list of fragment names lives on `ComputeBackendFragment.NAMES` (in `vibesys/prompts.py`), not in this directory layout. Adding a fragment is a 3-step change:
+The canonical list of fragment names lives on `ComputeBackendFragment.NAMES` (in `vibesys/prompts/renderer.py`), not in this directory layout. Adding a fragment is a 3-step change:
 
 1. Add the name to `ComputeBackendFragment.NAMES`.
-2. Create `<name>.j2` under every `_backend/<backend>/` directory
+2. Create `<name>.j2` under every `backend/<backend>/` directory
    (empty file = hard skip; placeholder prose = soft skip).
 3. Reference `{{ <name> }}` from the parent template that needs it.
 

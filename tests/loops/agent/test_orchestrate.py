@@ -32,6 +32,7 @@ from vibesys.loops.agent.loop import (
 )
 from vibesys.loops.evolve.population import Objective
 from vibesys.profilers import ProfilerKind, ProfilerPreflightResult
+from vibesys.prompts import PROMPTS_DIR
 from vibesys.run import GitTracker
 from vibesys.schemas import (
     CandidateDisposition,
@@ -3012,9 +3013,7 @@ def test_read_roadmap_missing_returns_empty(tmp_path):
 
 
 def test_outer_prompts_reference_memory_paths_without_embedding_contents():
-    template_dir = (
-        Path(__file__).resolve().parents[3] / "src" / "vibesys" / "loops" / "agent" / "templates"
-    )
+    template_dir = PROMPTS_DIR / "loops" / "agent"
     plan_prompt = (template_dir / "orchestrator_plan_prompt.j2").read_text()
     pre_prompt = (template_dir / "orchestrator_pre_round_prompt.j2").read_text()
 

@@ -104,16 +104,25 @@ class TestUnknownProvider:
 
 class TestVertexAIProvider:
     @patch("google.oauth2.service_account.Credentials.from_service_account_info")
-    @patch("langchain_google_vertexai.model_garden.ChatAnthropicVertex")
-    def test_vertex_claude_model(self, mock_chat_cls, mock_from_sa, key_file):
+    @patch("vibesys.llm_client._vertex_anthropic_model_class")
+    def test_vertex_claude_model(self, mock_model_class, mock_from_sa, key_file):
         mock_creds = MagicMock()
         mock_from_sa.return_value = mock_creds
+        constructed_model = object()
+        mock_chat_cls = MagicMock(return_value=constructed_model)
+        mock_model_class.return_value = mock_chat_cls
         config = _make_config(
             "claude-sonnet-4-6",
             provider="vertex-ai",
             providers={"vertex-ai": {"json": str(key_file), "project": None, "region": "us-east5"}},
         )
-        build_model(config)
+        result = build_model(config)
+        assert result is constructed_model
+        mock_model_class.assert_called_once_with()
+        mock_from_sa.assert_called_once_with(
+            FAKE_CREDS_DICT,
+            scopes=["https://www.googleapis.com/auth/cloud-platform"],
+        )
         mock_chat_cls.assert_called_once_with(
             model_name="claude-sonnet-4-6",
             credentials=mock_creds,
@@ -122,16 +131,20 @@ class TestVertexAIProvider:
         )
 
     @patch("google.oauth2.service_account.Credentials.from_service_account_info")
-    @patch("langchain_google_genai.ChatGoogleGenerativeAI")
-    def test_vertex_gemini_model(self, mock_chat_cls, mock_from_sa, key_file):
+    @patch("vibesys.llm_client._vertex_gemini_model_class")
+    def test_vertex_gemini_model(self, mock_model_class, mock_from_sa, key_file):
         mock_creds = MagicMock()
         mock_from_sa.return_value = mock_creds
+        mock_chat_cls = MagicMock()
+        mock_model_class.return_value = mock_chat_cls
         config = _make_config(
             "gemini-2.5-pro",
             provider="vertex-ai",
             providers={"vertex-ai": {"json": str(key_file), "project": None, "region": "us-east5"}},
         )
-        build_model(config)
+        result = build_model(config)
+        assert result is mock_chat_cls.return_value
+        mock_model_class.assert_called_once_with()
         mock_chat_cls.assert_called_once_with(
             model="gemini-2.5-pro",
             credentials=mock_creds,
@@ -140,10 +153,12 @@ class TestVertexAIProvider:
         )
 
     @patch("google.oauth2.service_account.Credentials.from_service_account_info")
-    @patch("langchain_google_genai.ChatGoogleGenerativeAI")
-    def test_vertex_gemini_thinking_level(self, mock_chat_cls, mock_from_sa, key_file):
+    @patch("vibesys.llm_client._vertex_gemini_model_class")
+    def test_vertex_gemini_thinking_level(self, mock_model_class, mock_from_sa, key_file):
         mock_creds = MagicMock()
         mock_from_sa.return_value = mock_creds
+        mock_chat_cls = MagicMock()
+        mock_model_class.return_value = mock_chat_cls
         config = _make_config(
             "gemini-2.5-pro",
             provider="vertex-ai",
@@ -161,10 +176,12 @@ class TestVertexAIProvider:
         )
 
     @patch("google.oauth2.service_account.Credentials.from_service_account_info")
-    @patch("langchain_google_genai.ChatGoogleGenerativeAI")
-    def test_vertex_gemini_thinking_budget(self, mock_chat_cls, mock_from_sa, key_file):
+    @patch("vibesys.llm_client._vertex_gemini_model_class")
+    def test_vertex_gemini_thinking_budget(self, mock_model_class, mock_from_sa, key_file):
         mock_creds = MagicMock()
         mock_from_sa.return_value = mock_creds
+        mock_chat_cls = MagicMock()
+        mock_model_class.return_value = mock_chat_cls
         config = _make_config(
             "gemini-2.5-pro",
             provider="vertex-ai",
@@ -182,10 +199,12 @@ class TestVertexAIProvider:
         )
 
     @patch("google.oauth2.service_account.Credentials.from_service_account_info")
-    @patch("langchain_google_genai.ChatGoogleGenerativeAI")
-    def test_vertex_gemini_zero_thinking_budget(self, mock_chat_cls, mock_from_sa, key_file):
+    @patch("vibesys.llm_client._vertex_gemini_model_class")
+    def test_vertex_gemini_zero_thinking_budget(self, mock_model_class, mock_from_sa, key_file):
         mock_creds = MagicMock()
         mock_from_sa.return_value = mock_creds
+        mock_chat_cls = MagicMock()
+        mock_model_class.return_value = mock_chat_cls
         config = _make_config(
             "gemini-2.5-pro",
             provider="vertex-ai",
@@ -213,10 +232,12 @@ class TestVertexAIProvider:
             build_model(config)
 
     @patch("google.oauth2.service_account.Credentials.from_service_account_info")
-    @patch("langchain_google_vertexai.model_garden.ChatAnthropicVertex")
-    def test_vertex_project_overrides_json(self, mock_chat_cls, mock_from_sa, key_file):
+    @patch("vibesys.llm_client._vertex_anthropic_model_class")
+    def test_vertex_project_overrides_json(self, mock_model_class, mock_from_sa, key_file):
         mock_creds = MagicMock()
         mock_from_sa.return_value = mock_creds
+        mock_chat_cls = MagicMock()
+        mock_model_class.return_value = mock_chat_cls
         config = _make_config(
             "claude-sonnet-4-6",
             provider="vertex-ai",
@@ -329,8 +350,7 @@ class TestThinkingNotSupported:
             build_model(config)
 
     @patch("google.oauth2.service_account.Credentials.from_service_account_info")
-    @patch("langchain_google_vertexai.model_garden.ChatAnthropicVertex")
-    def test_vertex_claude_with_thinking_raises(self, mock_chat_cls, mock_from_sa, key_file):
+    def test_vertex_claude_with_thinking_raises(self, mock_from_sa, key_file):
         mock_from_sa.return_value = MagicMock()
         config = _make_config(
             "claude-sonnet-4-6",

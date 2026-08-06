@@ -10,7 +10,7 @@ Both have no device to select, no contention monitor, and no device migration.
 Metal remains local-only because Docker/Modal cannot expose MPS. CPU can also
 run inside Docker because it needs no accelerator passthrough. Per-platform
 *prompt* guidance (MPS vs pure-CPU) lives in the backend fragments under
-``templates/_backend/<name>/`` — not here.
+``prompts/backend/<name>/`` — not here.
 """
 
 from __future__ import annotations

@@ -32,7 +32,7 @@ from vibesys.profilers import (
     profiler_definition,
     require_profiler_kind,
 )
-from vibesys.prompts import render_template
+from vibesys.prompts import PROMPTS_DIR, render_template
 from vibesys.run import LoopContext, RepositoryVisibility
 from vibesys.sandbox.run_environment import (
     RunEnvironmentSpec,
@@ -74,7 +74,7 @@ DEFAULT_INTERFACE = "inprocess"
 
 _INNER_LOOPS = ("multi-agent", "single-agent")
 
-_TEMPLATE_DIR = Path(__file__).resolve().parent / "templates"
+_TEMPLATE_DIR = PROMPTS_DIR / "loops" / "agent"
 
 
 # ---------------------------------------------------------------------------
@@ -1184,6 +1184,7 @@ def _domain_render_context(
         "reference_path": ctx.ref_name,
         "benchmark_command": ctx.judge_benchmark_command,
         "accuracy_command": ctx.judge_accuracy_command,
+        "hidden_evaluator_configured": bool(vars(ctx).get("hidden_evaluator_path")),
         "runtime_notes": ctx.run_environment_view.prompt_notes,
         "profile_execution": ctx.run_environment_view.profile_execution,
         "workspace_sources": ctx.workspace_sources,
@@ -1998,7 +1999,10 @@ def _run_framework_accuracy_gate(
     release_deployment_after: bool = False,
 ) -> str | None:
     """Run the immutable manifest accuracy command after an agent reports PASS."""
-    command = ctx.judge_accuracy_command
+    hidden_evaluator = vars(ctx).get("hidden_evaluator_path") is not None
+    command = (
+        getattr(ctx, "accuracy_command", None) if hidden_evaluator else ctx.judge_accuracy_command
+    )
     execution_command = None
     if command:
         execution_command = _with_candidate_revision(
@@ -2061,7 +2065,10 @@ def _run_framework_benchmark(
     if result_spec is None:
         return None, None
 
-    base_command = ctx.judge_benchmark_command
+    hidden_evaluator = vars(ctx).get("hidden_evaluator_path") is not None
+    base_command = (
+        getattr(ctx, "benchmark_command", None) if hidden_evaluator else ctx.judge_benchmark_command
+    )
     if not base_command:
         return "Benchmark result contract is configured without a benchmark command.", None
 
@@ -2085,11 +2092,13 @@ def _run_framework_benchmark(
         passed = False
     else:
         try:
+            # ``framework_judge_backend`` is optional on legacy/test contexts.
+            backend = vars(ctx).get("framework_judge_backend") or ctx.judge_backend
             effective_timeout = _framework_command_timeout(ctx, timeout_seconds)
             if effective_timeout is None:
-                result = ctx.judge_backend.execute(command)
+                result = backend.execute(command)
             else:
-                result = ctx.judge_backend.execute(command, timeout=effective_timeout)
+                result = backend.execute(command, timeout=effective_timeout)
             output = result.output.strip()
             passed = result.exit_code == 0
             _publish_subprocess_output(
@@ -2243,6 +2252,7 @@ def run_agent_loop(
     workspace_seed: Path | None = None,
     workspace_sources: tuple[WorkspaceSource, ...] = (),
     evaluator_path: Path | None = None,
+    hidden_evaluator_path: Path | None = None,
     benchmark_result: BenchmarkResult | None = None,
     accuracy_timeout_seconds: int | None = None,
     benchmark_timeout_seconds: int | None = None,
@@ -2332,6 +2342,7 @@ def run_agent_loop(
         workspace_seed=workspace_seed,
         workspace_sources=workspace_sources,
         evaluator_path=evaluator_path,
+        hidden_evaluator_path=hidden_evaluator_path,
         objective=objective,
         existing=existing,
         trusted_input_baseline=trusted_input_baseline,

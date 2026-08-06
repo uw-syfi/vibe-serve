@@ -30,7 +30,7 @@ come from the domain and input bundle, not the interface mode.
 | Value | Behavior | Notes |
 | --- | --- | --- |
 | `agent` | Orchestrator-driven loop with implementer, judge, and profiler roles. | Default. Supports `--interface` and `--inner-loop`. |
-| `plain` | Issue-board loop with deterministic issue draining and perf evaluation. | Uses backend prompt fragments from `src/vibesys/templates/_backend/`. |
+| `plain` | Issue-board loop with deterministic issue draining and perf evaluation. | Uses backend prompt fragments from `src/vibesys/prompts/backend/`. |
 | `evolve` | Evolutionary search over candidate implementations. | Uses domain-aware mutator, judge, and profiler roles. |
 
 From a source checkout, use `./vs` for the commands below. It prepares a current

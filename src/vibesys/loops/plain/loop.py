@@ -10,7 +10,7 @@ Outer flow per iteration:
   3. Loop back to step 1 with the new issues.
 
 The very first iteration auto-creates one bootstrap FEATURE issue describing the
-LLM serving build task (rendered from ``templates/bootstrap_issue.j2``), so the
+LLM serving build task (rendered from ``prompts/loops/plain/bootstrap_issue.j2``), so the
 implementer phase always has something to chew on.
 
 State machine: ``PlainLoopState`` (in ``state.json``) tracks only the cursor —
@@ -38,7 +38,7 @@ from vibesys.input_manifest import WorkspaceSource
 from vibesys.loops.plain.render import render_all
 from vibesys.loops.plain.runner_ext import PlainLoopAgentRunner
 from vibesys.profilers import ProfilerKind
-from vibesys.prompts import Prompt
+from vibesys.prompts import PROMPTS_DIR, Prompt
 from vibesys.run import LoopContext, RepositoryVisibility
 from vibesys.sandbox.run_environment import (
     RunEnvironmentSpec,
@@ -59,7 +59,7 @@ from vs_issue_board import (
     IssueType,
 )
 
-_TEMPLATE_DIR = Path(__file__).resolve().parent / "templates"
+_TEMPLATE_DIR = PROMPTS_DIR / "loops" / "plain"
 _STATE_VERSION = 1
 
 
@@ -351,6 +351,7 @@ def run_plain_loop(
     workspace_seed: Path | None = None,
     workspace_sources: tuple[WorkspaceSource, ...] = (),
     evaluator_path: Path | None = None,
+    hidden_evaluator_path: Path | None = None,
     max_rounds: int = 5,
     max_attempts_per_issue: int = 3,
     max_issues_per_perf_eval: int = 3,
@@ -388,6 +389,7 @@ def run_plain_loop(
         workspace_seed=workspace_seed,
         workspace_sources=workspace_sources,
         evaluator_path=evaluator_path,
+        hidden_evaluator_path=hidden_evaluator_path,
         existing=existing,
         debug=debug,
         profiler_kind=profiler_kind,

@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+from typing import Any
 
 from pydantic import SecretStr
 
@@ -126,8 +127,6 @@ def _build_vertex_model(model_name: str, config: Config, thinking: ThinkingCfg):
         raise ValueError("Thinking is not supported for non-Gemini models on Vertex AI")
 
     if _is_google_model(model_name):
-        from langchain_google_genai import ChatGoogleGenerativeAI
-
         thinking_kwargs = {}
         thinking_level = thinking.level
         thinking_budget = thinking.budget
@@ -138,7 +137,7 @@ def _build_vertex_model(model_name: str, config: Config, thinking: ThinkingCfg):
             thinking_kwargs["thinking_budget"] = thinking_budget
             thinking_kwargs["include_thoughts"] = True
 
-        return ChatGoogleGenerativeAI(
+        return _vertex_gemini_model_class()(
             model=model_name,
             credentials=credentials,
             project=project,
@@ -146,11 +145,23 @@ def _build_vertex_model(model_name: str, config: Config, thinking: ThinkingCfg):
             **thinking_kwargs,
         )
     else:
-        from langchain_google_vertexai.model_garden import ChatAnthropicVertex
-
-        return ChatAnthropicVertex(
+        return _vertex_anthropic_model_class()(
             model_name=model_name,
             credentials=credentials,
             project=project,
             location=vertex_region,
         )
+
+
+def _vertex_anthropic_model_class() -> Any:
+    """Load the optional Vertex Anthropic class only when it is needed."""
+    from langchain_google_vertexai.model_garden import ChatAnthropicVertex
+
+    return ChatAnthropicVertex
+
+
+def _vertex_gemini_model_class() -> Any:
+    """Load the optional Vertex Gemini class only when it is needed."""
+    from langchain_google_genai import ChatGoogleGenerativeAI
+
+    return ChatGoogleGenerativeAI

@@ -1,11 +1,12 @@
 You are implementing a causal-LM inference service. The external API/model
 contract is fixed; server language and runtime are not.
 
-When the objective requires a bespoke model implementation, define the model
-layers you own explicitly (attention, MLP, normalization, positional encoding,
-and related state). Utility config/tokenizer/weight-loading APIs are allowed;
-ready-made model or serving-engine implementations are not. Materialize every
-parameter and runtime buffer on the declared device and verify a real forward.
+Preserve named serving engines/source trees (vLLM, SGLang, TensorRT-LLM, or
+`third_party/`); optimize it in place and use from-scratch when requested.
+
+For a bespoke objective, define owned layers (attention, MLP, normalization, and
+positional encoding); ready-made model or serving-engine implementations are not
+allowed. Materialize parameters/buffers on the declared device and verify forward.
 
 {% if interface == "inprocess" %}
 Preserve the input-declared import adapter, commonly `VibeServeModel`, with its

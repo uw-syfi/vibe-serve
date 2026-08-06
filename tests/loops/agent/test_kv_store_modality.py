@@ -6,11 +6,9 @@ from pathlib import Path
 
 from vibesys.input_manifest import load_input_bundle
 from vibesys.main import _MODALITIES
-from vibesys.prompts import render_template
+from vibesys.prompts import PROMPTS_DIR, render_template
 
-_TEMPLATE_DIR = (
-    Path(__file__).resolve().parents[3] / "src" / "vibesys" / "loops" / "agent" / "templates"
-)
+_TEMPLATE_DIR = PROMPTS_DIR / "loops" / "agent"
 _PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 

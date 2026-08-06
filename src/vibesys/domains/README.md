@@ -24,15 +24,16 @@ domain = "llm-serving"
 
 ## Anatomy of a domain package
 
-Each domain owns one package folder. Prompt content lives under `templates/` in
-Markdown files named for the agent roles. Domain-specific environment
-setup/teardown code lives next to the templates when the domain needs it.
+Each domain owns one Python package, while all framework prompt assets live in
+the central `vibesys/prompts/` package. Domain-specific environment
+setup/teardown code stays next to the domain definition.
 
 ```text
 src/vibesys/domains/my_domain/
   __init__.py       # exports DEFINITION
   hooks.py          # optional domain-specific EnvironmentHooks implementation
-  templates/
+
+src/vibesys/prompts/domains/my_domain/
     README.md        # optional human documentation
     implementer.md   # injected as {{ domain_implementer }}
     judge.md         # injected as {{ domain_judge }}
@@ -43,7 +44,7 @@ src/vibesys/domains/my_domain/
 
 Rules:
 
-- **Inside `templates/`, the filename is the address.** `implementer.md` maps to
+- **Inside the domain prompt directory, the filename is the address.** `implementer.md` maps to
   `{{ domain_implementer }}`, `judge.md` maps to `{{ domain_judge }}`, and so on.
 - **A missing role file injects nothing** for that role.
 - **`single_agent.md` is optional.** Omit it and it's derived automatically by
@@ -94,13 +95,15 @@ Example (inside `judge.md`):
 
 ## How to add a domain
 
-1. Copy `generic/` to a new in-repo `src/vibesys/domains/<module_name>/`
-   package, using underscores for the Python module name when the CLI domain
-   name contains hyphens.
-2. Edit `templates/README.md` with the title and "use for…" line.
+1. Copy `src/vibesys/domains/generic/` to a new in-repo
+   `src/vibesys/domains/<module_name>/` package, using underscores for the
+   Python module name when the CLI domain name contains hyphens.
+2. Copy `src/vibesys/prompts/domains/generic/` to
+   `src/vibesys/prompts/domains/<module_name>/` and edit its `README.md` with
+   the title and "use for…" line.
 3. Add `implementer.md` (what to read / what "done" means here) and `judge.md`
-   (what to check) under `templates/`. Leave a file out to inject nothing for
-   that role.
+   (what to check) under the central prompt directory. Leave a file out to
+   inject nothing for that role.
 4. Optionally add `single_agent.md` for the `--inner-loop single-agent`
    ablation; omit it to derive it from the other two.
 5. Optionally add `orchestrator.md` and `profiler.md` when the neutral planning

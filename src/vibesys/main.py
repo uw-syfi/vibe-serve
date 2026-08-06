@@ -748,6 +748,8 @@ def _run_validate(argv: list[str]) -> None:
         print(f"  workspace source: {source.name} -> {source.dest} @ {source.commit}")
     if bundle.evaluator_path is not None:
         print(f"  evaluator source: {bundle.evaluator_path}")
+    if bundle.hidden_evaluator_path is not None:
+        print(f"  hidden evaluator source: {bundle.hidden_evaluator_path}")
     if bundle.benchmark_result is not None:
         print(f"  benchmark metric: {bundle.benchmark_result.metric}")
 
@@ -981,6 +983,7 @@ def _run_agent(args: argparse.Namespace) -> None:
         workspace_seed=bundle.workspace_seed_path,
         workspace_sources=bundle.workspace_sources,
         evaluator_path=bundle.evaluator_path,
+        hidden_evaluator_path=bundle.hidden_evaluator_path,
         benchmark_result=bundle.benchmark_result,
         accuracy_timeout_seconds=bundle.manifest.accuracy.timeout_seconds,
         benchmark_timeout_seconds=bundle.manifest.benchmark.timeout_seconds,
@@ -1320,6 +1323,7 @@ def _run_evolve(args: argparse.Namespace) -> None:
         workspace_seed=bundle.workspace_seed_path,
         workspace_sources=bundle.workspace_sources,
         evaluator_path=bundle.evaluator_path,
+        hidden_evaluator_path=bundle.hidden_evaluator_path,
         accuracy_timeout_seconds=bundle.manifest.accuracy.timeout_seconds,
         objective=objective,
         max_generations=args.max_generations,
@@ -1439,6 +1443,7 @@ def _run_plain(args: argparse.Namespace) -> None:
         workspace_seed=bundle.workspace_seed_path,
         workspace_sources=bundle.workspace_sources,
         evaluator_path=bundle.evaluator_path,
+        hidden_evaluator_path=bundle.hidden_evaluator_path,
         max_rounds=args.max_rounds,
         max_attempts_per_issue=args.max_attempts_per_issue,
         max_issues_per_perf_eval=args.max_issues_per_perf_eval,
