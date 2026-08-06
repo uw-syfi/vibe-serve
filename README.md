@@ -72,6 +72,24 @@ cp .env.example .env       # provider keys for API-backed/deepagents runs
 cp agent.toml.example agent.toml
 ```
 
+### Coding-agent setup
+
+Choose one of these agent options in `agent.toml` or with command-line flags:
+
+| Agent | Selection | Authentication |
+| --- | --- | --- |
+| Codex CLI | `--agent-backend cli --cli-provider codex` | Install Codex and run `codex login`. |
+| Claude Code | `--agent-backend cli --cli-provider claude` | Install Claude Code and use its login flow. |
+| Gemini CLI | `--agent-backend cli --cli-provider gemini` | Install Gemini CLI and use its login flow. |
+| OpenCode | `--agent-backend cli --cli-provider opencode` | Install OpenCode and configure its provider. |
+| DeepAgents | `--agent-backend deepagents` | Put the selected provider's API credentials in `.env`. |
+
+The default `agent.toml.example` selects the Codex CLI. CLI credentials stay
+with the CLI; API credentials are loaded from `.env` automatically. The
+experimental Omnigent adapter can replace the CLI adapter for Claude or Codex;
+see [`src/vibesys/FEATURE_FLAGS.md`](src/vibesys/FEATURE_FLAGS.md) if you need
+that path.
+
 3. Check the installation:
 
 ```bash
@@ -85,16 +103,6 @@ cp agent.toml.example agent.toml
 To use the interactive TUI, install Node.js 20+, Bun, and pnpm 11 (or enable
 Corepack). Run `./vs`; it installs the frontend dependencies and builds the TUI
 when needed. npm is not required.
-
-For CLI-backed runs, install and authenticate the selected coding-agent CLI,
-such as Codex:
-
-```bash
-codex login
-```
-
-Use `.env` for API-backed providers and gated model downloads. CLI credentials
-are managed by the selected CLI.
 
 ## Quickstart
 
