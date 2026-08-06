@@ -3,7 +3,7 @@
 Accuracy and workload inputs for a running Train Ticket deployment. The shared
 Go service evaluator runs both modes; independent Train Ticket benchmark and
 accuracy adapters retain separate application-specific semantic oracles.
-Both modes can run without a full `vibesys --input` optimization run.
+Both modes can run without a full `./vs --input` optimization run.
 
 Expected target for a gateway/proxy deployment:
 

@@ -19,6 +19,7 @@ domain = "llm-serving"
 | Domain        | What it does |
 |---------------|--------------|
 | `llm-serving` | LLM inference server context: the `serving-systems` skill/references, `/model` weights, the accuracy + benchmark + reward-hack judge gates. |
+| `microservices` | Microservice workload context: service lifecycle, protocol correctness, and workload-specific evaluator guidance. |
 | `generic`     | Empty — no domain prose injected. The neutral baseline; copy it to start your own. |
 
 ## Anatomy of a domain package
@@ -70,7 +71,7 @@ use any of these in any file without tracking which role you're in:
 |----------|---------|
 | `modality` | The `--modality` value (e.g. `text_generation`). |
 | `interface` | The `--interface` value: `inprocess` (direct invocation inside an evaluator process) or `service` (over the wire). It does not imply a language or artifact format. |
-| `reference_path` | Path to the reference implementation. |
+| `reference_path` | Path to the reference material, or `.` when the input bundle has no `reference/` directory. |
 | `benchmark_command` | Benchmark command declared by the input manifest, or falsy if no benchmark is attached. |
 | `accuracy_command` | Accuracy-checker command declared by the input manifest, or falsy if not attached. |
 | `runtime_notes` | Runtime-environment notes for the round. |
@@ -109,7 +110,8 @@ Example (inside `judge.md`):
    `EnvironmentHooks` in that package and attach it to the definition.
 7. Register the definition in `vibesys.domains.registry.DOMAINS`.
 8. Add `[agent].domain = "<name>"` to the input manifest and run either
-   `vibesys --outer-loop agent ...` or `vibesys --outer-loop evolve ...`.
+   `./vs --outer-loop agent ...` or `./vs --outer-loop evolve ...` from the
+   repository root.
 
 Domains are registered explicitly so prompt context, environment hooks, and tests
 stay tied to the same domain identity.

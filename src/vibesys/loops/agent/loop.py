@@ -1,8 +1,7 @@
 """Orchestrator-driven build loop.
 
-Replaces the curriculum loop with an *autonomous* flow: an Orchestrator
-agent decides each round what the Implementer should build and what
-pass criteria the Judge should enforce, optionally asking a Profiler to
+An Orchestrator agent decides each round what the Implementer should build and
+what pass criteria the Judge should enforce, optionally asking a Profiler to
 collect kernel-level data first.
 """
 

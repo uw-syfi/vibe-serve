@@ -148,7 +148,7 @@ def main():
     result = asyncio.run(run_offline(args, pool))
 
     if args.output_json:
-        # Trusted single-scalar metric (see vibeserve.input.toml [benchmark.result]).
+        # Trusted single-scalar metric (see vibesys.input.toml [benchmark.result]).
         with open(args.output_json, "w") as f:
             json.dump(result, f, indent=2)
         print(f"\nResults written to {args.output_json}")

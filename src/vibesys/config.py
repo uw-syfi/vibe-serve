@@ -151,7 +151,10 @@ class ProvidersCfg(_Strict):
 class BackendCfg(_Strict):
     name: ComputeBackend = Field(
         default=DEFAULT_COMPUTE_BACKEND,
-        description="Compute backend, coerced from the TOML string. One of: cuda, metal.",
+        description=(
+            "Compute backend, coerced from the TOML string. One of: cuda, metal, "
+            "trainium, rocm, cpu."
+        ),
     )
 
 

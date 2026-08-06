@@ -1,1 +1,1 @@
-"""Torch profiler harness used by the curriculum profiler agent."""
+"""Torch profiler harness used by the performance profiler agent."""

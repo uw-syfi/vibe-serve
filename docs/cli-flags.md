@@ -12,10 +12,10 @@ Several flags look independent, but they combine into one execution contract:
 | --- | --- | --- |
 | Search loop | `--outer-loop` | Which outer-loop policy runs: `agent`, `plain`, or `evolve`. |
 | Evaluation interface | `--interface` | Agent loop only. Whether evaluator-owned code invokes the candidate directly or communicates with a service. |
-| Compute backend | `--backend` | Hardware/runtime target: `cuda`, `metal`, `trainium`, or `cpu`. |
+| Compute backend | `--backend` | Hardware/runtime target: `cuda`, `metal`, `trainium`, `rocm`, or `cpu`. |
 | Runtime environment | `--docker`, `--modal` | Where agent commands execute: local shell, Docker container, or Modal-backed workflow. |
 | Profiler | `--profiler` | Bottleneck evidence source: `nsys`, `torch`, `neuron`, `otel`, `macos_cpu`, `linux_cpu`, or `auto`. |
-| Domain | `[agent].domain` in `vibesys.input.toml` | Problem-space package used by the agent and evolve loops, such as `llm-serving` or `generic`. |
+| Domain | `[agent].domain` in `vibesys.input.toml` | Problem-space package used by the agent and evolve loops, such as `llm-serving`, `microservices`, or `generic`. |
 | Modality | `--modality` | Per-task I/O contract, such as `text_generation` or `speech_to_text`. |
 | Skills | `--skills-dir`, `--no-skills` | Candidate skill roots and the ablation switch that disables skill loading. |
 | Target inputs | `--input` | Target bundle directory with manifest-declared correctness and benchmark commands. |
@@ -230,6 +230,7 @@ context for the agent and evolve loops. Registered domains include:
 | Domain | Meaning |
 | --- | --- |
 | `llm-serving` | LLM-serving guidance, including serving-system skills and judge gates. |
+| `microservices` | Microservice workload guidance, lifecycle rules, and service-level evaluation context. |
 | `generic` | No extra domain guidance. Useful for custom/non-LLM targets. |
 
 Each input bundle must declare `[agent].domain`; there is no CLI override. New
@@ -280,9 +281,9 @@ Most examples use the standard bundle layout:
 examples/<target>/
 ├── OBJECTIVE.md
 ├── vibesys.input.toml
-├── reference/
-├── accuracy_checker/
-└── benchmark/
+├── reference/              # optional reference or seed inputs
+├── accuracy_checker/       # optional local checker; may be evaluator-owned
+└── benchmark/              # local or evaluator-owned benchmark entrypoint
 ```
 
 For nontrivial callable APIs, ABIs, ownership rules, or service protocols, keep
@@ -404,14 +405,14 @@ Over-the-wire service target:
   --input examples/<target>
 ```
 
-CPU-only target in the current merged code:
+CPU-only target:
 
 ```bash
 ./vs --outer-loop agent --backend cpu --interface service ...
 ```
 
-Use local execution unless the CPU backend's Docker support is present in your
-checkout.
+CPU runs support local execution and Docker; use local execution unless you
+specifically need the container boundary.
 
 ## Maintenance Rule
 

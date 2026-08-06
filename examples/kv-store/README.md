@@ -16,7 +16,7 @@ correctness (candidate vs a real Redis oracle) and scored by real YCSB.
 ```bash
 uv sync
 uv pip install -r examples/kv-store/requirements.txt
-cp agent.toml.example agent.toml            # no API key needed for --cli-provider claude
+cp agent.toml.example agent.toml            # CLI credentials are managed by Claude Code
 ```
 
 The benchmark auto-downloads YCSB 0.17.0 (Redis binding) on first run; no manual setup.
@@ -26,7 +26,7 @@ Verify the harness end-to-end against the seed: `examples/kv-store/run_test.sh`.
 ## Run
 
 ```bash
-vibesys --outer-loop agent \
+./vs --outer-loop agent \
   --input examples/kv-store \
   --exp-name kv-store-opt \
   --backend cpu \

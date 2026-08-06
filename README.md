@@ -64,13 +64,27 @@ accuracy and performance results.
 
 ## Installation
 
-Requires Python 3.12+.
+Requires Python 3.12+ and [uv](https://docs.astral.sh/uv/). Headless runs only
+need these Python prerequisites. The interactive `./vs` launcher additionally
+needs Node.js 20+, pnpm 11, and Bun; the launcher builds the TUI automatically
+when its generated client is missing. A CLI-backed run also needs the selected
+coding-agent CLI installed and authenticated separately (for example, Codex
+with `codex login`).
 
 ```bash
 uv sync
-cp .env.example .env       # provider keys (Anthropic / OpenAI / Vertex / …)
+cp .env.example .env       # provider keys for API-backed/deepagents runs
 cp agent.toml.example agent.toml
+
+# Check the install and one representative input bundle without starting an agent.
+./vs --headless --help >/dev/null
+./vs validate examples/data-structures/queue-spsc
 ```
+
+For CLI-backed runs, authenticate the selected coding-agent CLI instead of
+putting its credentials in `.env`. The `.env` file is loaded automatically when
+VibeSys reads `agent.toml` and is only needed for providers that use API
+credentials directly or for gated model downloads.
 
 ## Quickstart
 
@@ -90,7 +104,7 @@ cp agent.toml.example agent.toml
 A separate entry point exposes the issue MCP server used by the plain loop:
 
 ```bash
-vibesys-issue-mcp                         # serves issues.json over MCP
+uv run vibesys-issue-mcp                   # serves issues.json over MCP
 ```
 
 ## Domains — pointing vibesys at your problem space
@@ -108,8 +122,8 @@ Each input bundle declares its domain in `vibesys.input.toml`:
 domain = "llm-serving"
 ```
 
-The domain must be a registered name such as `llm-serving` or `generic`. A
-domain is an in-repo package: prompt templates plus optional environment
+The domain must be a registered name such as `llm-serving`, `microservices`, or
+`generic`. A domain is an in-repo package: prompt templates plus optional environment
 setup/teardown hooks. The package's `templates/` directory contains role files
 such as `implementer.md`, `judge.md`, and optionally `single_agent.md`; those
 files drop into the prompts at labelled points. Omit `single_agent.md` and it's
@@ -148,11 +162,11 @@ Each evaluation target lives under `examples/<name>/`:
 examples/<name>/
 ├── OBJECTIVE.md          # free-form deployment goal (model + hardware + workload + interface)
 ├── vibesys.input.toml  # manifest-declared domain, checker, benchmark, and optional inputs
-├── reference/            # reference HuggingFace Transformers implementation
+├── reference/            # optional reference or seed inputs
 │   ├── reference.py
 │   ├── config.json
 │   └── meta.json         # model id + revision
-├── accuracy_checker/     # checker.py + tests/data — the correctness gate
+├── accuracy_checker/     # optional checker.py + tests/data — the correctness gate
 ├── benchmark/            # benchmark.py + load levels — emits the metric to optimize
 └── README.md             # human-readable description
 ```
@@ -171,11 +185,11 @@ For multi-objective evolutionary runs, drop an `objectives.toml` next to `OBJECT
 
 ```toml
 [model]
-name = "gpt-5.4"             # auto-detected provider for claude-* / gpt-* / gemini-*
+name = "gpt-5.4"             # auto-detected provider for claude-* / gpt-* / gemini-* / gemma-*
 # provider = "openai"        # optional override
 
 [backend]
-name = "cuda"                 # or "metal" for Apple Silicon (local exec only)
+name = "cuda"                 # or "metal", "trainium", "rocm", or "cpu"
 
 [agent]
 backend = "cli"               # "cli" (codex/claude/gemini/opencode) or "deepagents"
@@ -234,7 +248,6 @@ exp_env/<run>/
 │   ├── issues.json           # IssueBoard (plain loop)
 │   ├── population.json       # Individual list (evolve loop)
 │   └── docker.log
-└── reference/                # snapshot of --ref at start
 ```
 
 Resume any run with `--resume` (defaults to "latest"):

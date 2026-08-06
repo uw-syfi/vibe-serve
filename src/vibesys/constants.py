@@ -23,21 +23,20 @@ class ComputeBackend(StrEnum):
     """Compute backends the agent can target.
 
     Add a new variant here when a compute stack (sandbox image,
-    GPU/device selection, profiler, curriculum) is wired up end-to-end.
+    GPU/device selection, profiler, and prompt/runtime support) is wired up
+    end-to-end.
 
     - ``CUDA`` is fully supported: NVIDIA container, nvidia-smi GPU
       selection, nsys profiler, FlashInfer-style optimizations.
     - ``METAL`` (Apple Silicon) is local-only — Docker/Modal sandboxes
       can't reach Apple GPUs, so ``LocalBackend.make_sandbox`` raises on
-      anything other than ``SandboxKind.LOCAL``. The curriculum
-      templates are still CUDA-flavoured (FlashInfer, CUDA graphs,
-      nsys) so ``vibesys-curriculum --backend metal`` is not a
-      supported workflow yet; the simple loop is the intended entry
-      point.
+      anything other than ``SandboxKind.LOCAL``. The serving-domain templates
+      remain CUDA-flavoured (FlashInfer, CUDA graphs, nsys), so use a target
+      whose prompts and tools support Metal.
     - ``TRAINIUM`` (AWS Trn1/Trn2) targets NeuronCores via an AWS Neuron
-      DLC container.  The host's ``/dev/neuron*`` devices are passed
+      DLC container. The host's ``/dev/neuron*`` devices are passed
       through to the container (``--device``, *not* ``--gpus``);
-      profiling uses ``neuron-explorer`` instead of nsys.  Modal offers
+      profiling uses ``neuron-explorer`` instead of nsys. Modal offers
       no Trainium, so ``TrainiumBackend.make_sandbox`` raises on
       ``SandboxKind.MODAL``.
     - ``ROCM`` (AMD Instinct) targets CDNA GPUs via a ROCm PyTorch
@@ -46,14 +45,12 @@ class ComputeBackend(StrEnum):
       profiling reuses ``torch`` since ``torch.profiler`` works on ROCm.
       Modal offers no AMD GPUs, so ``RocmBackend.make_sandbox`` raises on
       ``SandboxKind.MODAL``.  **Experimental**: wired end to end but not
-      yet exercised against MI300-class hardware, and like ``METAL`` the
-      curriculum is not wired up.
-    - ``CPU`` has no GPU at all: device selection and the hardware
-      monitor are no-ops and only local execution is supported (no
-      Docker/Modal GPU passthrough). It targets CPU-bound workloads
-      (KV stores, networking servers) where the win is in the code, not
-      the kernels; like ``METAL`` the curriculum is not wired up, so the
-      simple loop is the intended entry point.
+      yet exercised against MI300-class hardware, and serving-domain prompts
+      may require target-specific adaptation.
+    - ``CPU`` has no GPU at all: device selection and the hardware monitor are
+      no-ops. It supports local execution and CPU-only Docker containers, but
+      not Modal. It targets CPU-bound workloads (KV stores, networking servers)
+      where the win is in the code, not the kernels.
     """
 
     CUDA = "cuda"

@@ -3,7 +3,7 @@ Show-o2 1.5B HQ input bundle.
 Use:
 
 ```bash
-vibesys --input examples/model-serving/show-o2-1.5B-HQ-h100
+./vs --input examples/model-serving/show-o2-1.5B-HQ-vllm-omni
 ```
 
 This bundle targets `showlab/show-o2-1.5B-HQ`, a Show-o2 text-to-image
@@ -23,7 +23,7 @@ For a local HTTP smoke test that does not download weights:
 uv run python examples/model-serving/show_o2_mock_server.py --port 8000
 
 # Terminal 2
-cd examples/model-serving/show-o2-1.5B-HQ-h100
+cd examples/model-serving/show-o2-1.5B-HQ-vllm-omni
 uv run python benchmark/benchmark.py \
   --url http://localhost:8000 --warmup-requests 1 --num-requests 1 --steps 1
 ```

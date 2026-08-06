@@ -21,8 +21,7 @@ carry over. What differs is plumbing:
    discovery and the container contract follow the documented ROCm
    conventions; treat them as unverified until a run confirms them. Like
    :class:`~vibesys.backends.local.LocalBackend`'s ``metal`` and ``cpu``
-   bindings, the curriculum is not wired up — the simple loop is the
-   intended entry point.
+   bindings; serving-domain prompts may also need target-specific adaptation.
 
 Modal offers no AMD GPUs, so ``make_sandbox`` raises on
 ``SandboxKind.MODAL`` (parity with the Trainium backend).

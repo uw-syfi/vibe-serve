@@ -85,8 +85,8 @@ def render_template(
     """Render a Jinja2 template (no fragment auto-injection).
 
     Thin wrapper used by call sites that don't need backend-aware
-    fragment composition (e.g. curriculum mode). New backend-aware
-    code should use :class:`Prompt` instead.
+    fragment composition. New backend-aware code should use
+    :class:`Prompt` instead.
     """
     env = _build_env(template_dir)
     return env.get_template(name).render(**kwargs)

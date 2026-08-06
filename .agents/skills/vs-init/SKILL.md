@@ -40,17 +40,25 @@ Always infer the model/workload modality and a bundle slug, then ask the user to
 6. Create `examples/model-serving/<slug>/` with the same layout:
    - `OBJECTIVE.md`
    - `README.md`
+   - `vibesys.input.toml`
    - `requirements.txt`
-   - `config.json` if the source example has one
-   - `reference/README.md`, `reference/meta.json`, `reference/config.json` if applicable, `reference/reference.py`
-   - `accuracy_checker/README.md`, `accuracy_checker/checker.py`
-   - `benchmark/README.md`, `benchmark/benchmark.py`
+   - optional `config.json`
+   - optional `reference/README.md`, `reference/meta.json`, `reference/config.json`, and `reference/reference.py`
+   - optional `accuracy_checker/README.md` and `accuracy_checker/checker.py`
+   - `benchmark/README.md` and `benchmark/benchmark.py`
 7. Preserve the existing VibeSys contract:
-   - Reference path is passed with `--ref examples/model-serving/<slug>/reference`.
-   - Accuracy checker path is passed with `--acc-checker examples/model-serving/<slug>/accuracy_checker`.
-   - Benchmark path is passed with `--bench examples/model-serving/<slug>/benchmark`.
-   - Checkers should be executable as `python checker.py`.
-   - Benchmarks should be executable as `python benchmark.py --url http://localhost:8000 ...`.
+   - Use `vibesys.input.toml` as the manifest name; VibeSys does not use the
+     removed `--ref`, `--acc-checker`, or `--bench` flags.
+   - Declare the input's domain in `[agent].domain`.
+   - Declare evaluator commands in `[accuracy].command` and
+     `[benchmark].command`, usually as `["uv", "run", "python", ...]` arrays.
+   - Add `[workspace].seed` or `[evaluator].source` only when the target needs
+     a starter workspace or trusted evaluator code.
+   - Run the bundle with `./vs --input examples/model-serving/<slug> ...` from
+     the repository root.
+   - Checkers should be executable as `python checker.py` and benchmarks as
+     `python benchmark.py --url http://localhost:8000 ...` from their own
+     directories.
 8. Do not add a new shared evaluator library unless the user explicitly asks. This skill is for practical example setup, not refactoring.
 
 ## Modality Inference
@@ -175,10 +183,15 @@ Write a short `README.md` with the exact paths to use:
 
 ```text
 Use:
-- --ref examples/model-serving/<slug>/reference
-- --acc-checker examples/model-serving/<slug>/accuracy_checker
-- --bench examples/model-serving/<slug>/benchmark
+./vs --input examples/model-serving/<slug> \
+  --exp-name <experiment-name> \
+  --backend <backend> \
+  --interface service
 ```
+
+Explain any required external services, model credentials, hardware, or
+submodules separately. The manifest owns the reference, accuracy, and
+benchmark paths; do not document removed standalone path flags.
 
 Update `requirements.txt` from the copied example. Include only dependencies the checker/reference/benchmark need, such as `torch`, `transformers`, `accelerate`, `httpx`, `datasets`, `jsonschema`, `soundfile`, or `websockets`.
 
@@ -190,7 +203,10 @@ After creating or editing the example:
 2. Run lightweight `--help` checks for `accuracy_checker/checker.py` and `benchmark/benchmark.py` if imports allow it.
 3. Verify `reference/meta.json` is valid JSON.
 4. Verify the final layout with `find examples/model-serving/<slug> -maxdepth 3 -type f | sort`.
-5. Do not download large model weights or run GPU-heavy checks unless the user asks.
+5. Run `./vs validate examples/model-serving/<slug>` to check the manifest,
+   required paths, and optional workspace/evaluator sources without starting an
+   agent or downloading model weights.
+6. Do not download large model weights or run GPU-heavy checks unless the user asks.
 
 ## Handoff
 
@@ -199,4 +215,5 @@ End with:
 - The new bundle path.
 - The source example copied/adapted.
 - The optimization goal captured in `OBJECTIVE.md`.
-- The exact `vibesys` command to start optimizing, using the bundle's `--ref`, `--acc-checker`, and `--bench` paths.
+- The exact `./vs --input examples/model-serving/<slug> ...` command to start
+  optimizing; evaluator paths come from `vibesys.input.toml`.

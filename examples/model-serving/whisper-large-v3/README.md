@@ -15,7 +15,7 @@ incremental encoding. See [`OBJECTIVE.md`](OBJECTIVE.md).
 
 ```
 whisper-large-v3/
-├── vibeserve.input.toml   # manifest: domain, accuracy + benchmark commands, headline metric
+├── vibesys.input.toml     # manifest: domain, accuracy + benchmark commands, headline metric
 ├── OBJECTIVE.md           # what to optimize + the algorithmic levers
 ├── reference/             # HF WhisperForConditionalGeneration reference (correctness ground truth)
 │   ├── meta.json          # model id + pinned revision
