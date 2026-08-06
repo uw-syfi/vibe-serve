@@ -117,52 +117,9 @@ A separate entry point exposes the issue MCP server used by the plain loop:
 uv run vibesys-issue-mcp                   # serves issues.json over MCP
 ```
 
-## Domains — pointing vibesys at your problem space
-
-A **domain** is the bundle of cross-cutting context the agents need for whatever
-you're building: the background knowledge the implementer must read, and the
-correctness/performance/integrity gates the judge enforces. It answers *"what
-kind of system is this, and what does 'good' mean here?"* — kept separate from
-the neutral prompt skeleton and from the per-task I/O contract (`--modality`).
-
-Each input bundle declares its domain in `vibesys.input.toml`:
-
-```toml
-[agent]
-domain = "llm-serving"
-```
-
-The domain must be a registered name such as `llm-serving`, `microservices`, or
-`generic`. A domain is an in-repo package: prompt templates plus optional environment
-setup/teardown hooks. The package's `templates/` directory contains role files
-such as `implementer.md`, `judge.md`, and optionally `single_agent.md`; those
-files drop into the prompts at labelled points. Omit `single_agent.md` and it's
-derived from `implementer.md` plus `judge.md`.
-
-Full authoring guide: [`src/vibesys/domains/README.md`](src/vibesys/domains/README.md).
-
-## Interface: how the artifact is evaluated
-
-See the full flag-composition guide in [`docs/cli-flags.md`](docs/cli-flags.md).
-
-`--interface` describes only how evaluator-owned code reaches the candidate.
-The selected domain and input bundle define the implementation language,
-toolchain, artifact, and callable contract:
-
-```bash
-./vs --outer-loop agent --interface inprocess ...   # default: direct invocation
-./vs --outer-loop agent --interface service ...     # network service
-```
-
-- **`inprocess`** (default): evaluator-owned code invokes the candidate directly
-  inside an evaluator process. This can be a Python module, a C ABI shared
-  library, or another input-defined callable contract.
-- **`service`**: evaluator-owned code communicates with a running candidate over
-  a network protocol defined by the input bundle.
-
-Neither mode implies a programming language. Domain prompts may define shared
-language or toolchain requirements, while each input's candidate contract defines
-the exact artifact and API or protocol.
+For the complete flag reference, see [`docs/cli-flags.md`](docs/cli-flags.md).
+For adding or customizing domains, see
+[`src/vibesys/domains/README.md`](src/vibesys/domains/README.md).
 
 ## Per-target inputs
 
