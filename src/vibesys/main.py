@@ -436,12 +436,6 @@ def _prepare_experiment_repository(args: argparse.Namespace, config: Config) -> 
         args.exp_name = generate_experiment_name(args.input_bundle.root)
 
     if args.local:
-        if args.repo is not None:
-            _configuration_error(
-                "--local cannot be combined with --repo",
-                code="invalid_repository",
-                stage="repository_setup",
-            )
         return
 
     if args.repo is None:

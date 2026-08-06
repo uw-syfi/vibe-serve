@@ -58,6 +58,23 @@ def test_create_repository_checks_authentication_then_creates(tmp_path):
     ]
 
 
+def test_current_user_checks_authentication_then_reads_login():
+    runner = RecordingRunner([_result(), _result(stdout="octocat\n")])
+
+    assert GitHubCLI(_runner=runner).current_user() == "octocat"
+    assert runner.calls == [
+        (["gh", "auth", "status", "--hostname", "github.com"], None),
+        (["gh", "api", "user", "--jq", ".login"], None),
+    ]
+
+
+def test_current_user_rejects_empty_login():
+    runner = RecordingRunner([_result(), _result(stdout="\n")])
+
+    with pytest.raises(GitHubCLIError, match="empty authenticated user"):
+        GitHubCLI(_runner=runner).current_user()
+
+
 def test_clone_repository_reports_unauthenticated_user(tmp_path):
     runner = RecordingRunner([_result(1, stderr="not logged into any GitHub hosts")])
 

@@ -281,6 +281,22 @@ def test_local_runs_keep_generated_name_and_skip_github(tmp_path, monkeypatch):
     github.current_user.assert_not_called()
 
 
+def test_missing_gh_credentials_report_repository_setup_error(monkeypatch):
+    import vibesys.main as cli
+
+    config = cli.Config.model_validate({"model": {"name": "gpt-5.5"}})
+    github = Mock()
+    github.current_user.side_effect = cli.GitHubCLIError("run gh auth login")
+    monkeypatch.setattr(cli, "GitHubCLI", Mock(return_value=github))
+
+    with pytest.raises(ConfigurationError) as exc:
+        cli._resolve_repository_owner(config)
+
+    assert exc.value.diagnostic.code == "repository_setup_failed"
+    assert exc.value.diagnostic.stage == "repository_setup"
+    assert "gh auth login" in exc.value.diagnostic.message
+
+
 def test_local_and_repo_are_mutually_exclusive(tmp_path):
     from vibesys.main import _build_agent_parser
 
