@@ -766,7 +766,7 @@ def test_cli_forwards_workspace_sources_to_every_outer_loop(tmp_path, outer_loop
         'dest = "vllm"\n\n'
         '[evaluator]\nsource = "../../evaluators/queue"',
     )
-    argv = ["vibesys", "--outer-loop", outer_loop, "--input", str(bundle)]
+    argv = ["vibesys", "--outer-loop", outer_loop, "--local", "--input", str(bundle)]
 
     with (
         patch("sys.argv", argv),
