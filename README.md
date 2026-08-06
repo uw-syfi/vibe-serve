@@ -200,56 +200,9 @@ Provider credentials live in `.env` — see `.env.example`. The CLI flags `--age
 
 The config is validated against a typed schema on load (`vibesys/config.py`): unknown sections or keys, unknown providers/backends, and missing required fields are rejected with an error rather than silently ignored.
 
-## Outputs
-
-Every run creates `exp_env/<timestamp>-<name>/`:
-
-```
-exp_env/<run>/
-├── workspace/                # unified, git-tracked candidate workspace
-│   ├── roadmap.md            # or roadmap/index.md
-│   └── progress.md           # or progress/round-NNNN.md
-├── logs/
-│   ├── run-*.log             # top-level run log
-│   ├── run-*-roundNNN.log    # per-round agent log (agent loop)
-│   ├── rounds.json           # per-round audit
-│   ├── active_hypothesis.json # resumable implementer handoff, while active
-│   ├── state.json            # cursor (plain loop)
-│   ├── issues.json           # IssueBoard (plain loop)
-│   ├── population.json       # Individual list (evolve loop)
-│   └── docker.log
-```
-
-Resume any run with `--resume` (defaults to "latest"):
-
-```bash
-./vs --resume                  # newest run
-./vs --resume 20260507-...     # specific dir
-./vs --resume /path/to/clone   # local experiment clone
-./vs --resume owner/repo       # clone a GitHub experiment, then resume it
-```
-
-Fresh runs use GitHub by default. The interactive setup form is populated with
-the input path, an automatically generated experiment name, the configured
-repository owner (or the account from `gh`), repository name, and visibility.
-Use Tab/Shift-Tab to move through the defaults and Enter to launch. Clear the
-owner field, or pass `--local`, to keep a run under `exp_env/` without creating
-or syncing a GitHub repository.
-
-```bash
-gh auth login
-./vs \
-  --input examples/data-structures/queue-spsc \
-  ...
-```
-
-For non-interactive use, the repository name is generated from the input bundle;
-`--repo queue-trial` overrides the name, and `--repo another-org/queue-trial`
-overrides the owner explicitly. Durable workspace and run state are committed
-and pushed after each workspace checkpoint and again when the run closes; raw
-`logs/*.log` files stay local. Checkpoint push failures are retried without
-stopping the run. Later runs automatically push again when resumed from a clone
-with an `origin`.
+Fresh runs use GitHub-backed tracking by default. Pass `--local` for a local-only
+run under `exp_env/`; see [`docs/cli-flags.md`](docs/cli-flags.md) for repository
+and resume options.
 
 ## Citation
 
