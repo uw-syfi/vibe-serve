@@ -46,6 +46,15 @@ class GitHubCLI:
             message += f" GitHub CLI reported: {detail}"
         raise GitHubAuthenticationError(message)
 
+    def current_user(self) -> str:
+        """Return the login for the authenticated GitHub account."""
+        self.ensure_authenticated()
+        result = self._run(["api", "user", "--jq", ".login"])
+        login = result.stdout.strip()
+        if not login:
+            raise GitHubCLIError("GitHub CLI returned an empty authenticated user.")
+        return login
+
     def create_repository(
         self,
         repository: str,

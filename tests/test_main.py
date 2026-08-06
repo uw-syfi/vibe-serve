@@ -20,6 +20,7 @@ from vibesys.main import (
     _load_objectives_toml,
     _load_pareto_relative_noise_toml,
     _parse_cli_objective,
+    _prepare_experiment_repository,
     _prepare_stub_agent_smoke_defaults,
     _prune_rounds_state,
     _render_configuration_error,
@@ -225,6 +226,82 @@ visibility = "internal"
 
     assert args.repo == "my-playground/generated-trial"
     assert args.repo_visibility is RepositoryVisibility.INTERNAL
+
+
+def test_fresh_runs_default_to_authenticated_github_account(tmp_path, monkeypatch):
+    import vibesys.main as cli
+
+    bundle = _write_input_bundle(tmp_path)
+    args = cli._build_agent_parser().parse_args(["--input", str(bundle), "--no-skills"])
+    cli._validate_target_inputs(args)
+    config = cli.Config.model_validate({"model": {"name": "gpt-5.5"}})
+    github = Mock()
+    github.current_user.return_value = "octocat"
+    monkeypatch.setattr(cli, "GitHubCLI", Mock(return_value=github))
+
+    _prepare_experiment_repository(args, config)
+
+    assert args.exp_name.startswith("queue-spsc-")
+    assert args.repo == f"octocat/{args.exp_name}"
+    github.current_user.assert_called_once_with()
+
+
+def test_repository_owner_override_does_not_query_gh(tmp_path, monkeypatch):
+    import vibesys.main as cli
+
+    bundle = _write_input_bundle(tmp_path)
+    args = cli._build_agent_parser().parse_args(["--input", str(bundle), "--no-skills"])
+    cli._validate_target_inputs(args)
+    config = cli.Config.model_validate(
+        {"model": {"name": "gpt-5.5"}, "repository": {"owner": "my-org"}}
+    )
+    github = Mock()
+    monkeypatch.setattr(cli, "GitHubCLI", Mock(return_value=github))
+
+    _prepare_experiment_repository(args, config)
+
+    assert args.repo == f"my-org/{args.exp_name}"
+    github.current_user.assert_not_called()
+
+
+def test_local_runs_keep_generated_name_and_skip_github(tmp_path, monkeypatch):
+    import vibesys.main as cli
+
+    bundle = _write_input_bundle(tmp_path)
+    args = cli._build_agent_parser().parse_args(["--input", str(bundle), "--local", "--no-skills"])
+    cli._validate_target_inputs(args)
+    config = cli.Config.model_validate({"model": {"name": "gpt-5.5"}})
+    github = Mock()
+    monkeypatch.setattr(cli, "GitHubCLI", Mock(return_value=github))
+
+    _prepare_experiment_repository(args, config)
+
+    assert args.exp_name.startswith("queue-spsc-")
+    assert args.repo is None
+    github.current_user.assert_not_called()
+
+
+def test_local_and_repo_are_mutually_exclusive(tmp_path):
+    from vibesys.main import _build_agent_parser
+
+    bundle = _write_input_bundle(tmp_path)
+    config_path = tmp_path / "agent.toml"
+    config_path.write_text('[model]\nname = "gpt-5.5"\n')
+    args = _build_agent_parser().parse_args(
+        [
+            "--input",
+            str(bundle),
+            "--config",
+            str(config_path),
+            "--local",
+            "--repo",
+            "owner/name",
+            "--no-skills",
+        ]
+    )
+
+    with pytest.raises(ConfigurationError, match="--local cannot be combined"):
+        load_config_and_skills(args, domain=DomainName.GENERIC)
 
 
 @pytest.mark.parametrize(

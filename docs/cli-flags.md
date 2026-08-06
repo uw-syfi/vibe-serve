@@ -19,7 +19,7 @@ Several flags look independent, but they combine into one execution contract:
 | Modality | `--modality` | Per-task I/O contract, such as `text_generation` or `speech_to_text`. |
 | Skills | `--skills-dir`, `--no-skills` | Candidate skill roots and the ablation switch that disables skill loading. |
 | Target inputs | `--input` | Target bundle directory with manifest-declared correctness and benchmark commands. |
-| Experiment repository | `--repo`, `--repo-visibility`, `--resume` | Optionally create and synchronize a remote experiment, or resume from a local path/GitHub repository. |
+| Experiment repository | `--repo`, `--repo-visibility`, `--local`, `--resume` | Fresh runs use GitHub by default; `--local` keeps one under `exp_env/`, and `--resume` accepts local paths or GitHub repositories. |
 
 Do not treat these as simple toggles. Some combinations imply a startup
 contract, profiler, or sandbox capability. Language and artifact requirements
@@ -88,20 +88,24 @@ Configure interactive defaults in `agent.toml`:
 
 ```toml
 [repository]
-owner = "vibesys-playground"
+# Optional GitHub user/org override. If omitted, use the account authenticated with `gh`.
+# owner = "your-github-user"
 visibility = "private"
 ```
 
-The owner can be any GitHub user or organization and is never hard-coded. On a
-fresh interactive run, a pre-launch form opens when `owner` is configured. The
-input path and generated experiment/repository names are prefilled; Tab and
-Shift-Tab move between fields, Enter launches, and clearing the owner keeps the
-run local. Names default to `<input-name>-<UTC timestamp>`.
+Fresh runs use GitHub by default. The owner can be any GitHub user or
+organization; when `owner` is omitted, VibeSys uses the account authenticated
+with `gh`. On a fresh interactive run, a pre-launch form shows the input path,
+generated experiment/repository names, owner, and visibility. Tab and Shift-Tab
+move between fields, Enter launches, and clearing the owner keeps the run local.
+Names default to `<input-name>-<UTC timestamp>`.
 
-For headless use, pass `--repo NAME` to combine the name with the configured
-owner, or `--repo OWNER/NAME` to override the owner explicitly. Repositories use
-`[repository].visibility` unless `--repo-visibility` overrides it. Creation goes
-through the authenticated `gh` CLI.
+For headless use, the generated repository name is used automatically. Pass
+`--repo NAME` to override the name, or `--repo OWNER/NAME` to override the owner
+explicitly. Pass `--local` to keep the experiment under `exp_env/` without a
+GitHub repository. Repositories use `[repository].visibility` unless
+`--repo-visibility` overrides it. Creation goes through the authenticated `gh`
+CLI.
 
 The experiment repository records the materialized workspace and durable state
 needed to continue the loop. Provider/agent `logs/*.log` files and directory

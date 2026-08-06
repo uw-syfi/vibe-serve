@@ -53,7 +53,13 @@ export function validateSetupSelection(selection: SetupSelection): string | unde
 }
 
 export function applySetupSelection(argv: string[], selection: SetupSelection): string[] {
-  const result = withoutOptions(argv, ['--input', '--exp-name', '--repo', '--repo-visibility']);
+  const result = withoutOptions(argv, [
+    '--input',
+    '--exp-name',
+    '--repo',
+    '--repo-visibility',
+    '--local',
+  ]);
   result.push('--input', selection.inputPath.trim());
   result.push('--exp-name', selection.experimentName.trim());
 
@@ -61,6 +67,8 @@ export function applySetupSelection(argv: string[], selection: SetupSelection): 
   if (owner.length > 0) {
     result.push('--repo', `${owner}/${selection.repositoryName.trim()}`);
     result.push('--repo-visibility', selection.visibility.trim());
+  } else {
+    result.push('--local');
   }
   return result;
 }
@@ -72,6 +80,7 @@ export function shouldOfferInteractiveSetup(argv: string[]): boolean {
       argument.startsWith('--resume=') ||
       argument === '--repo' ||
       argument.startsWith('--repo=') ||
+      argument === '--local' ||
       argument === '--stub-agent' ||
       argument === '--headless',
   );

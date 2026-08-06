@@ -65,7 +65,9 @@ accuracy and performance results.
 ## Installation
 
 1. Install Python 3.12+ and [uv](https://docs.astral.sh/uv/).
-2. From the repository root, create the local configuration files:
+2. Install the [GitHub CLI](https://cli.github.com/) and sign in with
+   `gh auth login` (skip this only if every run uses `--local`).
+3. From the repository root, create the local configuration files:
 
 ```bash
 cp .env.example .env       # provider keys for API-backed/deepagents runs
@@ -182,7 +184,8 @@ model = "gpt-5.6-luna"        # implementer calls
 reasoning_effort = "xhigh"
 
 [repository]
-owner = "vibesys-playground"  # any GitHub user/org; enables pre-launch repository setup
+# Optional GitHub user/org override. If omitted, use the account from `gh auth status`.
+# owner = "your-github-user"
 visibility = "private"        # private, public, or internal
 
 # Optional: benchmark load levels handed to the perf evaluator.
@@ -225,14 +228,12 @@ Resume any run with `--resume` (defaults to "latest"):
 ./vs --resume owner/repo       # clone a GitHub experiment, then resume it
 ```
 
-When `[repository].owner` is configured, an interactive fresh run first opens a
-setup form populated with the input path, an automatically generated experiment
-name, owner, repository name, and visibility. Use Tab/Shift-Tab to move through
-the defaults and Enter to launch. Clear the owner field for a local-only run.
-
-The generated repository owner comes only from `agent.toml`; no organization is
-hard-coded. `agent.toml.example` uses `vibesys-playground` as its editable
-default. Authenticate the GitHub CLI before launching a remotely tracked run:
+Fresh runs use GitHub by default. The interactive setup form is populated with
+the input path, an automatically generated experiment name, the configured
+repository owner (or the account from `gh`), repository name, and visibility.
+Use Tab/Shift-Tab to move through the defaults and Enter to launch. Clear the
+owner field, or pass `--local`, to keep a run under `exp_env/` without creating
+or syncing a GitHub repository.
 
 ```bash
 gh auth login
@@ -241,12 +242,13 @@ gh auth login
   ...
 ```
 
-For non-interactive use, `--repo queue-trial` uses the configured owner, while
-`--repo another-org/queue-trial` overrides it explicitly. Durable workspace and
-run state are committed and pushed after each workspace checkpoint and again
-when the run closes; raw `logs/*.log` files stay local. Checkpoint push failures
-are retried without stopping the run. Later runs automatically push again when
-resumed from a clone with an `origin`.
+For non-interactive use, the repository name is generated from the input bundle;
+`--repo queue-trial` overrides the name, and `--repo another-org/queue-trial`
+overrides the owner explicitly. Durable workspace and run state are committed
+and pushed after each workspace checkpoint and again when the run closes; raw
+`logs/*.log` files stay local. Checkpoint push failures are retried without
+stopping the run. Later runs automatically push again when resumed from a clone
+with an `origin`.
 
 ## Citation
 

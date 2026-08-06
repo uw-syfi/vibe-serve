@@ -31,9 +31,9 @@ name = "gpt-5.4"
 # cli_timeout = 1800          # per-invocation timeout in seconds
 
 [repository]
-# The interactive setup screen uses these as editable defaults. Change owner
-# to any GitHub user or organization where you are allowed to create repos.
-owner = "vibesys-playground"
+# Optional GitHub user or organization override. If omitted, use the account
+# authenticated with `gh auth login`.
+# owner = "your-github-user"
 visibility = "private"       # private, public, or internal
 
 # [feature_flags]

@@ -50,6 +50,7 @@ describe('interactive setup model', () => {
     const local = {...selection, repositoryOwner: ''};
 
     expect(validateSetupSelection(local)).toBeUndefined();
+    expect(applySetupSelection([], local)).toContain('--local');
     expect(applySetupSelection([], local)).not.toContain('--repo');
   });
 
@@ -63,6 +64,7 @@ describe('interactive setup model', () => {
     expect(shouldOfferInteractiveSetup(['--input', 'example'])).toBe(true);
     expect(shouldOfferInteractiveSetup(['--resume'])).toBe(false);
     expect(shouldOfferInteractiveSetup(['--repo=owner/name'])).toBe(false);
+    expect(shouldOfferInteractiveSetup(['--local'])).toBe(false);
     expect(shouldOfferInteractiveSetup(['--stub-agent'])).toBe(false);
   });
 });

@@ -210,8 +210,8 @@ class RepositoryCfg(_Strict):
     owner: str | None = Field(
         default=None,
         description=(
-            "Default GitHub user or organization for repositories created by the "
-            "interactive setup screen. None leaves remote tracking opt-in."
+            "Optional default GitHub user or organization for experiment repositories. "
+            "When omitted, use the authenticated account from `gh`."
         ),
     )
     visibility: RepositoryVisibility = Field(

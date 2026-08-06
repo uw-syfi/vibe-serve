@@ -71,7 +71,7 @@ class TestBuildParser:
 
 
 class TestMain:
-    _BASE_ARGV = ["vibesys", "--outer-loop", "plain", *TARGET_ARGS]
+    _BASE_ARGV = ["vibesys", "--outer-loop", "plain", "--local", *TARGET_ARGS]
 
     def _patch_run(self, return_value: bool):
         return patch(
