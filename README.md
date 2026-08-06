@@ -90,7 +90,6 @@ with the CLI; API credentials are loaded from `.env` automatically.
 3. Check the installation:
 
 ```bash
-./vs --headless --help >/dev/null
 ./vs validate examples/data-structures/queue-spsc
 ```
 
