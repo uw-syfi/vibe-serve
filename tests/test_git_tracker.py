@@ -36,6 +36,7 @@ def test_init_creates_repo_gitignore_and_initial_commit(ws):
     gitignore = (ws / ".gitignore").read_text()
     assert "target" in gitignore
     assert "*.neff" in gitignore
+    assert "*.otlp.ndjson" in gitignore
     log = _git_stdout(ws, "log", "--format=%s")
     assert log.strip() == "initial: workspace setup"
 

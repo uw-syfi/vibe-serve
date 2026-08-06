@@ -40,6 +40,7 @@ class GitTracker:
         "*.neff",
         "*.ntff",
         "*.neuron",
+        "*.otlp.ndjson",
         "neuroncc_compile_workdir/",
         "neuron-compile-cache/",
     )

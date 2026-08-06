@@ -59,6 +59,36 @@ docker compose \
   down -v
 ```
 
+## Verify telemetry capture
+
+The optimization manifest wires OpenTelemetry capture into benchmark runs (see
+`benchmark/otel/telemetry.toml` and the telemetry README under
+`examples/evaluators/microservice/telemetry/`). To reproduce it against the
+repository layout, replace the plain benchmark run command above with the
+injected one and add the telemetry flags:
+
+```bash
+SCENARIO="$PWD/examples/microservices/hotel-reservation"
+go -C examples/evaluators/microservice run ./cmd/servicebench \
+  --workload "$SCENARIO/benchmark/workload.toml" \
+  --seed random \
+  --fixture-seed random \
+  --candidate-dir "$SCENARIO/hotelReservation" \
+  --run-command-json "[\"sh\",\"-c\",\"go -C $PWD/examples/evaluators/microservice run ./cmd/otelinject --compose $SCENARIO/hotelReservation/docker-compose.yml --config $SCENARIO/benchmark/otel/telemetry.toml --metrics-dir $SCENARIO/metrics/otel --output $SCENARIO/metrics/otel/compose.telemetry.yaml && docker compose -f docker-compose.yml -f $SCENARIO/metrics/otel/compose.telemetry.yaml up -d --build\"]" \
+  --stop-command-json '["docker","compose","stop","-t","10","frontend","geo","profile","rate","recommendation","reservation","search","user"]' \
+  --cleanup-command-json '["docker","compose","down","-v","--remove-orphans"]' \
+  --startup-timeout 120 \
+  --telemetry-command-json "[\"go\",\"run\",\"./cmd/otelcapture\",\"--input-json\",\"$SCENARIO/metrics/otel/traces.otlp.ndjson\",\"--settle-seconds\",\"5\"]" \
+  --telemetry-output /tmp/hotel-telemetry.json \
+  --telemetry-timeout 60 \
+  --output-json /tmp/hotel-benchmark.json
+```
+
+A successful run writes the normalized report to `/tmp/hotel-telemetry.json`
+and embeds it in the benchmark output. Remove
+`examples/microservices/hotel-reservation/metrics/otel/traces.otlp.ndjson`
+between runs to keep the raw capture small.
+
 ## Optimize
 
 ```bash

@@ -29,12 +29,15 @@ command = [
   "--seed", "random",
   "--fixture-seed", "random",
   "--candidate-dir", "../../hotelReservation",
-  "--run-command-json", "[\"docker\",\"compose\",\"up\",\"-d\",\"--build\"]",
+  "--run-command-json", "[\"sh\",\"-c\",\"go -C ../_evaluator/microservice run ./cmd/otelinject --compose ../../hotelReservation/docker-compose.yml --config ../../benchmark/otel/telemetry.toml --metrics-dir ../../metrics/otel --output ../../metrics/otel/compose.telemetry.yaml && docker compose -f docker-compose.yml -f ../metrics/otel/compose.telemetry.yaml up -d --build\"]",
   "--stop-command-json", "[\"docker\",\"compose\",\"stop\",\"-t\",\"10\",\"frontend\",\"geo\",\"profile\",\"rate\",\"recommendation\",\"reservation\",\"search\",\"user\"]",
   "--cleanup-command-json", "[\"docker\",\"compose\",\"down\",\"-v\",\"--remove-orphans\"]",
   "--startup-timeout", "120",
+  "--telemetry-command-json", "[\"go\",\"run\",\"./cmd/otelcapture\",\"--input-json\",\"../../metrics/otel/traces.otlp.ndjson\",\"--settle-seconds\",\"5\"]",
+  "--telemetry-output", "../../metrics/telemetry.json",
+  "--telemetry-timeout", "60",
 ]
-timeout_seconds = 300
+timeout_seconds = 360
 
 [benchmark.result]
 json_argument = "--output-json"

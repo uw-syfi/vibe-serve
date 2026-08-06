@@ -126,7 +126,13 @@ def test_hotel_accuracy_uses_shared_evaluator_with_random_cases() -> None:
     )
     assert (
         "--run-command-json",
-        '["docker","compose","up","-d","--build"]',
+        '["sh","-c","go -C ../_evaluator/microservice run ./cmd/otelinject'
+        " --compose ../../hotelReservation/docker-compose.yml"
+        " --config ../../benchmark/otel/telemetry.toml"
+        " --metrics-dir ../../metrics/otel"
+        " --output ../../metrics/otel/compose.telemetry.yaml"
+        " && docker compose -f docker-compose.yml"
+        ' -f ../metrics/otel/compose.telemetry.yaml up -d --build"]',
     ) in zip(bundle.benchmark_command, bundle.benchmark_command[1:], strict=False)
     assert (
         "--stop-command-json",
@@ -137,6 +143,23 @@ def test_hotel_accuracy_uses_shared_evaluator_with_random_cases() -> None:
         "--cleanup-command-json",
         '["docker","compose","down","-v","--remove-orphans"]',
     ) in zip(bundle.benchmark_command, bundle.benchmark_command[1:], strict=False)
+    assert (
+        "--telemetry-command-json",
+        '["go","run","./cmd/otelcapture",'
+        '"--input-json","../../metrics/otel/traces.otlp.ndjson",'
+        '"--settle-seconds","5"]',
+    ) in zip(bundle.benchmark_command, bundle.benchmark_command[1:], strict=False)
+    assert ("--telemetry-output", "../../metrics/telemetry.json") in zip(
+        bundle.benchmark_command,
+        bundle.benchmark_command[1:],
+        strict=False,
+    )
+    assert ("--telemetry-timeout", "60") in zip(
+        bundle.benchmark_command,
+        bundle.benchmark_command[1:],
+        strict=False,
+    )
+    assert "--telemetry-command-json" not in bundle.accuracy_command
 
 
 @pytest.mark.parametrize(

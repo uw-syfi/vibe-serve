@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"time"
 
 	"vibesys/microservice-evaluator/fsutil"
 	"vibesys/microservice-evaluator/telemetry"
@@ -35,14 +36,21 @@ func run() error {
 	var requestPath string
 	var outputPath string
 	var top int
+	var settleSeconds float64
 	flag.Var(&inputs, "input-json", "OTLP JSON or NDJSON input path (repeatable)")
 	flag.StringVar(&requestPath, "request-json", "", "servicebench telemetry request path")
 	flag.StringVar(&outputPath, "output-json", "", "normalized telemetry report path")
 	flag.IntVar(&top, "top", 20, "maximum rows per latency category")
+	flag.Float64Var(&settleSeconds, "settle-seconds", 0,
+		"delay before reading inputs so exporter buffers flush")
 	flag.Parse()
 	if requestPath == "" || outputPath == "" {
 		return fmt.Errorf("--request-json and --output-json are required")
 	}
+	if settleSeconds < 0 {
+		return fmt.Errorf("--settle-seconds must not be negative")
+	}
+	time.Sleep(time.Duration(settleSeconds * float64(time.Second)))
 	requestData, err := os.ReadFile(requestPath)
 	if err != nil {
 		return fmt.Errorf("read request: %w", err)

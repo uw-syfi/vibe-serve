@@ -36,6 +36,19 @@ Authentication semantics are checked through `/user`. The pinned reference
 still invokes the reservation service after a failed credential check, so the
 scenario does not claim that `/reservation` provides an authorization gate.
 
+## Telemetry
+
+During benchmark runs the evaluator injects a Docker Compose override that
+replaces the stock `jaeger` service with an OpenTelemetry Collector answering
+on the same endpoints, so the application's built-in Jaeger tracing streams
+spans to evaluator-owned capture. The candidate must keep exporting spans with
+meaningful `service.name` values and must not repoint, remove, or shadow the
+`jaeger` service dependency. The injection configuration under
+`benchmark/otel/` is trusted input and tamper-checked. Telemetry fails closed
+— a run with configured telemetry that produces no spans in the measured
+windows fails — but the reports are diagnostic evidence only and never the
+scored metric.
+
 ## State and ownership
 
 Reservations are persistent and have no public deletion API. Accuracy and
