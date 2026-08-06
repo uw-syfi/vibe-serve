@@ -85,10 +85,7 @@ Choose one of these agent options in `agent.toml` or with command-line flags:
 | DeepAgents | `--agent-backend deepagents` | Put the selected provider's API credentials in `.env`. |
 
 The default `agent.toml.example` selects the Codex CLI. CLI credentials stay
-with the CLI; API credentials are loaded from `.env` automatically. The
-experimental Omnigent adapter can replace the CLI adapter for Claude or Codex;
-see [`src/vibesys/FEATURE_FLAGS.md`](src/vibesys/FEATURE_FLAGS.md) if you need
-that path.
+with the CLI; API credentials are loaded from `.env` automatically.
 
 3. Check the installation:
 
@@ -119,15 +116,19 @@ when needed. npm is not required.
 
 `--outer-loop` defaults to `agent`. Pass `--outer-loop plain` or `--outer-loop evolve` to switch. See `./vs --outer-loop <kind> --help` for loop-specific flags, and [`docs/cli-flags.md`](docs/cli-flags.md) for the supported flag combinations.
 
-A separate entry point exposes the issue MCP server used by the plain loop:
+## Search strategies
 
-```bash
-uv run vibesys-issue-mcp                   # serves issues.json over MCP
-```
+VibeSys supports three outer-loop search strategies:
 
-For the complete flag reference, see [`docs/cli-flags.md`](docs/cli-flags.md).
-For adding or customizing domains, see
-[`src/vibesys/domains/README.md`](src/vibesys/domains/README.md).
+- `agent` (default): an orchestrator plans each round and delegates to the
+  implementer, judge, and profiler. It uses the `multi-agent` inner loop by
+  default; pass `--inner-loop single-agent` to run the single-agent ablation.
+- `evolve`: an evolutionary search over candidate implementations.
+- `plain`: an issue-board loop that drains implementation issues and evaluates
+  performance.
+
+For contributor workflows and extension guides, see
+[`docs/development.md`](docs/development.md).
 
 ## Per-target inputs
 
@@ -194,16 +195,7 @@ visibility = "private"        # private, public, or internal
 
 Provider credentials live in `.env` — see `.env.example`. The CLI flags `--agent-backend` / `--cli-provider` / `--backend` override these.
 
-Optional `[feature_flags]` entries are documented in
-[`src/vibesys/FEATURE_FLAGS.md`](src/vibesys/FEATURE_FLAGS.md). All flags default
-to off; `omnigent_agent_backend` swaps the `cli` backend from agentshim to
-Omnigent and additionally needs `uv sync --extra omnigent` on Python 3.12+.
-
 The config is validated against a typed schema on load (`vibesys/config.py`): unknown sections or keys, unknown providers/backends, and missing required fields are rejected with an error rather than silently ignored.
-
-## Skills library
-
-`resources/skills/` contains the Agent Skills entries the inner loop's agents read at runtime: model architectures, serving algorithms, programming frameworks, backend libraries, hardware platforms, and reference engines. New optimization techniques and model families enter as new skill entries; the framework itself is target-agnostic.
 
 ## Outputs
 
@@ -256,76 +248,6 @@ run state are committed and pushed after each workspace checkpoint and again
 when the run closes; raw `logs/*.log` files stay local. Checkpoint push failures
 are retried without stopping the run. Later runs automatically push again when
 resumed from a clone with an `origin`.
-
-## Repository layout
-
-```
-src/vibesys/
-├── __main__.py                   # Python backend entry point for TS launcher
-├── context.py                    # _RunContext: lifecycle + ctx.invoke()
-├── agent_runner.py               # invoke wrappers + structured-response extraction
-├── prompts.py                    # Jinja + backend-fragment renderer
-├── schemas.py                    # Pydantic response schemas
-├── llm_client.py                 # LLM client factory
-├── config.py / constants.py
-│
-├── loops/                        # the three outer-loop search policies
-│   ├── agent/                    # issue-tracker (Orchestrator-driven)
-│   ├── plain/                    # Ralph-style queue-drain
-│   ├── evolve/                   # population-based
-│   └── profiler.py               # shared Performance Evaluator helper
-│
-├── sandbox/                      # execution-environment policy
-│   ├── docker_sandbox.py
-│   ├── modal_sandbox.py
-│   ├── modal_model_setup.py
-│   └── run_environment.py
-│
-├── agents/                       # coding-agent harness abstraction
-│   └── callbacks.py              # LangChain logger (deepagents path)
-└── backends/                     # cuda / metal compute backends
-
-examples/                         # standalone workload bundles
-resources/                        # framework-owned assets exposed to agent runs
-├── profilers/                    # profiler MCP servers and analysis helpers
-└── skills/                       # Agent Skills library
-```
-
-- **agent**: a fresh orchestrator defines a causal hypothesis; an implementer
-  keeps a hypothesis-scoped session across rounds; an independent fresh judge
-  reviews nominated candidates, every `--judge-every` rounds (default 3), and
-  the final round. Framework-owned accuracy/benchmark gates run every
-  `--official-eval-every` accepted candidates (default 3), when the
-  orchestrator requests them, and on the final round. Other accepted candidates
-  remain provisional working checkpoints. Official Modal gates reuse a healthy
-  deployment only for the exact candidate commit, then explicitly stop it after
-  the final gate; candidate services must also scale to zero after a short idle
-  timeout as the crash backstop. Use `--memory-layout directories` for
-  `roadmap/index.md` plus one `progress/round-NNNN.md` file per round.
-- **plain**: drain `IssueBoard` (one impl + one judge per issue, BLOCK
-  after `--max-attempts-per-issue`) → `perf_eval` (may file new issues).
-  Early-exits when queue is empty and `perf_eval` files nothing.
-- **evolve**: per generation × child: select parent (Pareto frontier with
-  `--frontier-bias`, scalar softmax otherwise) + inspirations →
-  `git checkout` parent tree → mutator → judge → profiler → commit.
-  The input bundle's domain supplies role prompts, environment hooks, and
-  profiler compatibility. No early stop; runs the full
-  `--max-generations × --children-per-generation`.
-  Pass `--search-policy openevolve` to delegate population sampling,
-  MAP-Elites archiving, islands, and migration to pinned OpenEvolve 0.3.1;
-  VibeSys still owns agent mutation and multi-file evaluation. See
-  [`docs/openevolve.md`](docs/openevolve.md).
-
-## Development
-
-```bash
-./scripts/format.sh                                # format checked Python dirs
-./scripts/check_format.sh                          # check formatting for CI
-./scripts/check_lint.sh                            # check Ruff lint for CI
-uv run pytest                                       # full suite
-uv run pytest tests/loops/plain/test_plain_loop.py  # one file
-uv run pytest -k orchestrator                       # by keyword
-```
 
 ## Citation
 
