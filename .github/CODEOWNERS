@@ -12,4 +12,4 @@
 #   - "Include administrators" (so admin-authored prompt PRs are gated too)
 
 # VibeSys prompts (Jinja templates + renderer)
-/src/vibesys/prompts/   @kasikci @stephanie-wang @vic-lsh @kamahori
+/src/vibesys/prompts/   @vic-lsh @kamahori
