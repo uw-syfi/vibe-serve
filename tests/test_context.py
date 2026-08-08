@@ -93,7 +93,7 @@ def test_input_copy_respects_source_gitignore(tmp_path):  # noqa: ANN001, ANN201
     destination = tmp_path / "workspace"
     workspace = Workspace(
         destination,
-        run_environment=SimpleNamespace(isolated=False),
+        run_environment=SimpleNamespace(isolated=False),  # pyright: ignore[reportArgumentType]  # tracked: #297
         backend=MagicMock(),
         log=MagicMock(),
         project_root=tmp_path,
@@ -259,7 +259,7 @@ def test_run_context_defaults_profiler_support_paths(  # noqa: ANN201  # tracked
         patch("vibesys.context.build_agent_runner", return_value=MagicMock()),
         patch("vibesys.context.backends.get", return_value=_FakeBackend()),
         create_run_context(
-            config={"model": {"name": "claude-sonnet-4-6"}},
+            config={"model": {"name": "claude-sonnet-4-6"}},  # pyright: ignore[reportArgumentType]  # tracked: #297
             exp_name=f"{profiler_kind}-defaults",
             input_path=str(ref.parent),
             accuracy_command="uv run python accuracy_checker/checker.py",
@@ -284,7 +284,7 @@ def test_cli_context_skips_unused_langchain_model_construction(tmp_path):  # noq
         patch("vibesys.context.build_agent_runner", return_value=MagicMock()),
         patch("vibesys.context.backends.get", return_value=_FakeBackend()),
         create_run_context(
-            config={
+            config={  # pyright: ignore[reportArgumentType]  # tracked: #297
                 "model": {"name": "gpt-5.6-sol"},
                 "thinking": {"level": "xhigh"},
                 "agent": {"backend": "cli", "cli_provider": "codex"},
@@ -324,7 +324,7 @@ def test_run_context_copies_only_selected_profiler_support(tmp_path, selected): 
         patch("vibesys.context.build_agent_runner", return_value=MagicMock()),
         patch("vibesys.context.backends.get", return_value=_FakeBackend()),
         create_run_context(
-            config={"model": {"name": "claude-sonnet-4-6"}},
+            config={"model": {"name": "claude-sonnet-4-6"}},  # pyright: ignore[reportArgumentType]  # tracked: #297
             exp_name=f"{selected.value}-support",
             input_path=str(ref.parent),
             accuracy_command="uv run python accuracy_checker/checker.py",
@@ -364,7 +364,7 @@ def test_run_context_generic_auto_resolves_to_macos_profiler(tmp_path):  # noqa:
         patch("vibesys.context.backends.get", return_value=_FakeBackend(ProfilerKind.NSYS)),
         patch("vibesys.profilers.platform.system", return_value="Darwin"),
         create_run_context(
-            config={"model": {"name": "claude-sonnet-4-6"}},
+            config={"model": {"name": "claude-sonnet-4-6"}},  # pyright: ignore[reportArgumentType]  # tracked: #297
             exp_name="generic-auto-none",
             input_path=str(ref.parent),
             accuracy_command="uv run python accuracy_checker/checker.py",
@@ -397,7 +397,7 @@ def test_run_context_generic_auto_resolves_to_linux_profiler(tmp_path):  # noqa:
         patch("vibesys.context.backends.get", return_value=_FakeBackend(ProfilerKind.NSYS)),
         patch("vibesys.profilers.platform.system", return_value="Linux"),
         create_run_context(
-            config={"model": {"name": "claude-sonnet-4-6"}},
+            config={"model": {"name": "claude-sonnet-4-6"}},  # pyright: ignore[reportArgumentType]  # tracked: #297
             exp_name="generic-auto-linux",
             input_path=str(ref.parent),
             accuracy_command="uv run python accuracy_checker/checker.py",
@@ -441,7 +441,7 @@ def test_run_context_fails_fast_when_resolved_profiler_is_unusable(tmp_path):  #
         pytest.raises(ConfigurationError, match="Resolved profiler 'linux_cpu' is not usable"),
     ):
         create_run_context(
-            config={"model": {"name": "claude-sonnet-4-6"}},
+            config={"model": {"name": "claude-sonnet-4-6"}},  # pyright: ignore[reportArgumentType]  # tracked: #297
             exp_name="generic-auto-linux-unusable",
             input_path=str(ref.parent),
             accuracy_command="uv run python accuracy_checker/checker.py",
@@ -471,7 +471,7 @@ def test_run_context_rejects_generic_explicit_active_profilers(tmp_path, profile
         pytest.raises(ValueError, match="not supported for domain 'generic'"),
     ):
         create_run_context(
-            config={"model": {"name": "claude-sonnet-4-6"}},
+            config={"model": {"name": "claude-sonnet-4-6"}},  # pyright: ignore[reportArgumentType]  # tracked: #297
             exp_name=f"generic-{profiler_kind.value}",
             input_path=str(ref.parent),
             accuracy_command="uv run python accuracy_checker/checker.py",
@@ -495,7 +495,7 @@ def test_run_context_llm_auto_uses_backend_profiler_and_defaults_support_dir(tmp
         patch("vibesys.context.build_agent_runner", return_value=MagicMock()),
         patch("vibesys.context.backends.get", return_value=_FakeBackend(ProfilerKind.NSYS)),
         create_run_context(
-            config={"model": {"name": "claude-sonnet-4-6"}},
+            config={"model": {"name": "claude-sonnet-4-6"}},  # pyright: ignore[reportArgumentType]  # tracked: #297
             exp_name="llm-auto-nsys",
             input_path=str(ref.parent),
             accuracy_command="uv run python accuracy_checker/checker.py",
@@ -525,7 +525,7 @@ def test_run_context_noop_environment_hooks_do_not_require_model_artifacts(tmp_p
         patch("vibesys.context.build_agent_runner", return_value=MagicMock()),
         patch("vibesys.context.backends.get", return_value=_FakeBackend()),
         create_run_context(
-            config={"model": {"name": "claude-sonnet-4-6"}},
+            config={"model": {"name": "claude-sonnet-4-6"}},  # pyright: ignore[reportArgumentType]  # tracked: #297
             exp_name="generic-reference-dir",
             input_path=str(ref_dir.parent),
             accuracy_command="uv run python accuracy_checker/checker.py",
@@ -577,8 +577,8 @@ def test_candidate_context_cleans_up_when_agent_runner_construction_fails(tmp_pa
         pytest.raises(SystemExit, match="boom"),
     ):
         create_candidate_context(
-            parent,
-            config={"model": {"name": "claude-sonnet-4-6"}},
+            parent,  # pyright: ignore[reportArgumentType]  # tracked: #297
+            config={"model": {"name": "claude-sonnet-4-6"}},  # pyright: ignore[reportArgumentType]  # tracked: #297
             generation=1,
             child_idx=2,
             parent_commit="deadbeef",
@@ -600,8 +600,8 @@ def test_candidate_context_cleans_up_when_add_worktree_partially_fails(tmp_path)
 
     with pytest.raises(RuntimeError, match="git add failed"):
         create_candidate_context(
-            parent,
-            config={"model": {"name": "claude-sonnet-4-6"}},
+            parent,  # pyright: ignore[reportArgumentType]  # tracked: #297
+            config={"model": {"name": "claude-sonnet-4-6"}},  # pyright: ignore[reportArgumentType]  # tracked: #297
             generation=1,
             child_idx=2,
             parent_commit="deadbeef",
@@ -625,7 +625,7 @@ def test_run_context_cleans_up_when_agent_runner_construction_fails(tmp_path):  
         pytest.raises(RuntimeError, match="boom"),
     ):
         create_run_context(
-            config={"model": {"name": "claude-sonnet-4-6"}},
+            config={"model": {"name": "claude-sonnet-4-6"}},  # pyright: ignore[reportArgumentType]  # tracked: #297
             exp_name="failed-construction",
             input_path=str(ref.parent),
             accuracy_command="check-accuracy",
@@ -653,7 +653,7 @@ def test_run_context_tears_down_prepared_hooks_when_workspace_setup_fails(tmp_pa
         pytest.raises(RuntimeError, match="setup failed"),
     ):
         create_run_context(
-            config={"model": {"name": "claude-sonnet-4-6"}},
+            config={"model": {"name": "claude-sonnet-4-6"}},  # pyright: ignore[reportArgumentType]  # tracked: #297
             exp_name="failed-workspace-setup",
             input_path=str(ref.parent),
             accuracy_command="check-accuracy",
@@ -717,7 +717,7 @@ def test_run_context_materializes_input_project_path_dependencies(tmp_path):  # 
         patch("vibesys.context.build_agent_runner", return_value=MagicMock()),
         patch("vibesys.context.backends.get", return_value=_FakeBackend()),
         create_run_context(
-            config={"model": {"name": "claude-sonnet-4-6"}},
+            config={"model": {"name": "claude-sonnet-4-6"}},  # pyright: ignore[reportArgumentType]  # tracked: #297
             exp_name="input-local-package",
             input_path=str(ref_dir.parent),
             accuracy_command="uv run python accuracy_checker/checker.py",

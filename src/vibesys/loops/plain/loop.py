@@ -429,7 +429,7 @@ def run_plain_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
         # so every successful save (including tool-created issues from
         # judge/perf_eval) re-renders the human-readable mirror.
         # Forward-declare `store` so the lambda's late binding resolves.
-        store: IssueBoard  # type: ignore[no-redef]
+        store: IssueBoard
         store = IssueBoard(
             store_path,
             on_change=lambda: render_all(issues_dir, store),

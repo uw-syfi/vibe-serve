@@ -334,7 +334,7 @@ def _invoke_orchestrate(tmp_path, ref_file, runner, **kwargs):  # noqa: ANN001, 
             return_value=None,
         ),
     ):
-        return run_agent_loop(**defaults)
+        return run_agent_loop(**defaults)  # pyright: ignore[reportArgumentType]  # tracked: #297
 
 
 # ---------------------------------------------------------------------------
@@ -463,7 +463,7 @@ def test_read_only_role_preserves_allowed_roadmap_and_reverts_other_writes(tmp_p
     )
 
     result = _invoke_read_only_role(
-        ctx,
+        ctx,  # pyright: ignore[reportArgumentType]  # tracked: #297
         role="orchestrator",
         checkpoint_label="round-2-plan-input",
         allowed_workspace_paths=("roadmap/index.md",),
@@ -510,7 +510,7 @@ def test_read_only_role_preserves_allowed_directory_and_reverts_candidate_edits(
     )
 
     result = _invoke_read_only_role(
-        ctx,
+        ctx,  # pyright: ignore[reportArgumentType]  # tracked: #297
         role="profiler",
         checkpoint_label="round-2-profiler-input",
         allowed_workspace_paths=("progress/profiles/round-0002",),
@@ -1344,7 +1344,7 @@ def test_framework_local_validation_fails_and_restores_mutation(tmp_path):  # no
         progress_path=progress,
     )
 
-    assert "mutated the workspace" in feedback
+    assert "mutated the workspace" in feedback  # pyright: ignore[reportOperatorIssue]  # tracked: #297
     ctx.git.checkout_tree.assert_called_once_with("b" * 40, clean=True)
     artifact = progress / "validation" / "round-0003-attempt-01.json"
     assert '"passed": false' in artifact.read_text()
@@ -1392,8 +1392,8 @@ def test_framework_accuracy_gate_rejects_checker_failure(tmp_path):  # noqa: ANN
         progress_path=tmp_path / "progress.md",
     )
 
-    assert "Framework accuracy gate failed" in feedback
-    assert "bad history" in feedback
+    assert "Framework accuracy gate failed" in feedback  # pyright: ignore[reportOperatorIssue]  # tracked: #297
+    assert "bad history" in feedback  # pyright: ignore[reportOperatorIssue]  # tracked: #297
 
 
 def test_framework_accuracy_gate_uses_manifest_timeout(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
@@ -1483,7 +1483,7 @@ def test_framework_accuracy_gate_rejects_evaluator_changes_without_execution(tmp
         progress_path=tmp_path / "progress.md",
     )
 
-    assert "Evaluator-owned files were modified" in feedback
+    assert "Evaluator-owned files were modified" in feedback  # pyright: ignore[reportOperatorIssue]  # tracked: #297
     ctx.judge_backend.execute.assert_not_called()
 
 
@@ -1504,7 +1504,7 @@ def test_framework_accuracy_gate_rejects_changes_during_execution(tmp_path):  # 
         progress_path=tmp_path / "progress.md",
     )
 
-    assert "changed during accuracy execution" in feedback
+    assert "changed during accuracy execution" in feedback  # pyright: ignore[reportOperatorIssue]  # tracked: #297
 
 
 def test_framework_gates_reuse_accuracy_pass_after_later_gate_failure(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
@@ -1650,7 +1650,7 @@ def test_framework_benchmark_rejects_ambiguous_metric(tmp_path):  # noqa: ANN001
     )
 
     assert metric is None
-    assert "expected exactly one 'ops' field" in feedback
+    assert "expected exactly one 'ops' field" in feedback  # pyright: ignore[reportOperatorIssue]  # tracked: #297
 
 
 # ---------------------------------------------------------------------------

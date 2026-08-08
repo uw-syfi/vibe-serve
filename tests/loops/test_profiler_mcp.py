@@ -22,7 +22,7 @@ from vibesys.profilers import ProfilerKind
 # importing them by file path keeps the tests decoupled from sys.path state.
 def _load_module(name: str, path: Path):  # noqa: ANN202  # tracked: #288
     spec = importlib.util.spec_from_file_location(name, str(path))
-    module = importlib.util.module_from_spec(spec)
+    module = importlib.util.module_from_spec(spec)  # pyright: ignore[reportArgumentType]  # tracked: #297
     # Inject the server's parent dir onto sys.path BEFORE exec so the
     # server's ``import analyze_nsys`` / ``import analyze_torch_profile``
     # succeeds.
@@ -32,7 +32,7 @@ def _load_module(name: str, path: Path):  # noqa: ANN202  # tracked: #288
         sys.path.insert(0, parent)
         inserted = True
     try:
-        spec.loader.exec_module(module)
+        spec.loader.exec_module(module)  # pyright: ignore[reportOptionalMemberAccess]  # tracked: #297
     finally:
         if inserted:
             sys.path.remove(parent)
@@ -46,29 +46,29 @@ def test_profiler_mcp_spec_maps_known_kinds_exactly():  # noqa: ANN201  # tracke
     assert mcp_spec(ProfilerKind.NONE) is None
 
     nsys = mcp_spec(ProfilerKind.NSYS)
-    assert nsys.name == "vibesys-nsys-profiler"
-    assert nsys.args == ["nsys_profiler/server.py"]
+    assert nsys.name == "vibesys-nsys-profiler"  # pyright: ignore[reportOptionalMemberAccess]  # tracked: #297
+    assert nsys.args == ["nsys_profiler/server.py"]  # pyright: ignore[reportOptionalMemberAccess]  # tracked: #297
 
     torch = mcp_spec(ProfilerKind.TORCH)
-    assert torch.name == "vibesys-torch-profiler"
-    assert torch.args == ["torch_profiler/server.py"]
+    assert torch.name == "vibesys-torch-profiler"  # pyright: ignore[reportOptionalMemberAccess]  # tracked: #297
+    assert torch.args == ["torch_profiler/server.py"]  # pyright: ignore[reportOptionalMemberAccess]  # tracked: #297
 
     neuron = mcp_spec(ProfilerKind.NEURON)
-    assert neuron.name == "vibesys-neuron-profiler"
-    assert neuron.args == ["neuron_profiler/server.py"]
+    assert neuron.name == "vibesys-neuron-profiler"  # pyright: ignore[reportOptionalMemberAccess]  # tracked: #297
+    assert neuron.args == ["neuron_profiler/server.py"]  # pyright: ignore[reportOptionalMemberAccess]  # tracked: #297
 
     otel = mcp_spec(ProfilerKind.OTEL)
-    assert otel.name == "vibesys-otel-profiler"
-    assert otel.args == ["otel_profiler/server.py"]
+    assert otel.name == "vibesys-otel-profiler"  # pyright: ignore[reportOptionalMemberAccess]  # tracked: #297
+    assert otel.args == ["otel_profiler/server.py"]  # pyright: ignore[reportOptionalMemberAccess]  # tracked: #297
 
     macos = mcp_spec(ProfilerKind.MACOS_CPU)
-    assert macos.name == "vibesys-macos-cpu-profiler"
-    assert macos.args == ["macos_cpu_profiler/server.py"]
+    assert macos.name == "vibesys-macos-cpu-profiler"  # pyright: ignore[reportOptionalMemberAccess]  # tracked: #297
+    assert macos.args == ["macos_cpu_profiler/server.py"]  # pyright: ignore[reportOptionalMemberAccess]  # tracked: #297
 
 
 def test_profiler_mcp_spec_rejects_unknown_kind():  # noqa: ANN201  # tracked: #288
     with pytest.raises(TypeError, match="ProfilerKind"):
-        mcp_spec("bogus")
+        mcp_spec("bogus")  # pyright: ignore[reportArgumentType]  # tracked: #297
 
 
 @pytest.fixture(scope="module")

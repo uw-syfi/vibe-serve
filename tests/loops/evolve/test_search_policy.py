@@ -58,7 +58,7 @@ def _config(**overrides: object) -> OpenEvolveSearchConfig:
         "migration_interval": 1,
         "migration_rate": 1.0,
     }
-    values.update(overrides)
+    values.update(overrides)  # pyright: ignore[reportArgumentType,reportCallIssue]  # tracked: #297
     return OpenEvolveSearchConfig(**values)  # type: ignore[arg-type]
 
 
@@ -147,7 +147,7 @@ def test_migrants_keep_vibesys_identity_and_state_resumes(tmp_path) -> None:  # 
     assert selection is not None
     assert selection.parent.id in {seed.id, child.id}
     assert selection.target_island == 1
-    selected_program = resumed._database.programs[selection.policy_parent_id]  # noqa: SLF001  # tracked: #288
+    selected_program = resumed._database.programs[selection.policy_parent_id]  # pyright: ignore[reportArgumentType]  # tracked: #297  # noqa: SLF001  # tracked: #288
     assert selected_program.metadata["vibesys_individual_id"] == selection.parent.id
     assert selected_program.metadata["migrant"] is True
 
@@ -321,7 +321,7 @@ def test_empty_island_copy_resolves_through_vibesys_ancestry(tmp_path) -> None: 
     assert selection is not None
     assert selection.parent.id == seed.id
     assert selection.target_island == 1
-    copy = policy._database.programs[selection.policy_parent_id]  # noqa: SLF001  # tracked: #288
+    copy = policy._database.programs[selection.policy_parent_id]  # pyright: ignore[reportArgumentType]  # tracked: #297  # noqa: SLF001  # tracked: #288
     assert copy.metadata["vibesys_individual_id"] == seed.id
 
 
@@ -345,8 +345,8 @@ def test_empty_island_copy_has_same_identity_after_resume(tmp_path) -> None:  # 
         "objectives": None,
         "frontier_bias": 0.7,
     }
-    uninterrupted_selection = policy.select(population, **selection_args)
-    resumed_selection = resumed.select(population, **selection_args)
+    uninterrupted_selection = policy.select(population, **selection_args)  # pyright: ignore[reportArgumentType]  # tracked: #297
+    resumed_selection = resumed.select(population, **selection_args)  # pyright: ignore[reportArgumentType]  # tracked: #297
 
     assert uninterrupted_selection is not None and resumed_selection is not None  # noqa: PT018  # tracked: #288
     assert resumed_selection.policy_parent_id == uninterrupted_selection.policy_parent_id
@@ -410,7 +410,7 @@ def test_resume_continues_upstream_random_stream_without_touching_global_rng(tmp
         "objectives": None,
         "frontier_bias": 0.7,
     }
-    policy.select(population, **selection_args)
+    policy.select(population, **selection_args)  # pyright: ignore[reportArgumentType]  # tracked: #297
     resumed = OpenEvolveSearchPolicy(state_dir=tmp_path, seed=19, config=None)
     program_ids = sorted(policy._database.programs)  # noqa: SLF001  # tracked: #288
     policy._database.config.exploration_ratio = 1.0  # noqa: SLF001  # tracked: #288
@@ -420,8 +420,8 @@ def test_resume_continues_upstream_random_stream_without_touching_global_rng(tmp
         program_ids,
         program_ids[1:] + program_ids[:1],
     )
-    uninterrupted_next = policy.select(population, **selection_args)
-    resumed_next = resumed.select(population, **selection_args)
+    uninterrupted_next = policy.select(population, **selection_args)  # pyright: ignore[reportArgumentType]  # tracked: #297
+    resumed_next = resumed.select(population, **selection_args)  # pyright: ignore[reportArgumentType]  # tracked: #297
 
     assert uninterrupted_next is not None and resumed_next is not None  # noqa: PT018  # tracked: #288
     assert resumed_next.policy_parent_id == uninterrupted_next.policy_parent_id

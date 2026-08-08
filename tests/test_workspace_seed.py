@@ -100,7 +100,7 @@ def _patched_context_dependencies(project_root: Path):  # noqa: ANN202  # tracke
 
 def _make_context(input_dir: Path, seed: Path | None = None, **kwargs) -> _RunContext:  # noqa: ANN003  # tracked: #288
     return create_run_context(
-        config={"model": {"name": "claude-sonnet-4-6"}},
+        config={"model": {"name": "claude-sonnet-4-6"}},  # pyright: ignore[reportArgumentType]  # tracked: #297
         exp_name=kwargs.pop("exp_name", "workspace-seed"),
         input_path=str(input_dir),
         accuracy_command="accuracy-checker",

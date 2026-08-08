@@ -346,7 +346,7 @@ class ModalSandbox(BaseSandbox):
 
         # _workspace_volume is created by start() before _create_container().
         volumes: dict[str | os.PathLike[str], modal.Volume | modal.CloudBucketMount] = {
-            self._CONTAINER_ROOT: self._workspace_volume  # pyright: ignore[reportOptionalMemberAccess,reportAssignmentType]
+            self._CONTAINER_ROOT: self._workspace_volume  # pyright: ignore[reportAssignmentType]
         }
         if self._model_volume_name:
             model_vol = modal.Volume.from_name(self._model_volume_name).read_only()

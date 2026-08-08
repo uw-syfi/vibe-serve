@@ -326,10 +326,10 @@ class TestStateTransitions:
             issue.id, IssueStatus.IN_PROGRESS, actor="loop", iteration=1, note="claimed"
         )
         reloaded = store.get(issue.id)
-        assert reloaded.status == IssueStatus.IN_PROGRESS
-        assert len(reloaded.history) == 2
-        assert reloaded.history[-1].action == "open->in_progress"
-        assert reloaded.history[-1].note == "claimed"
+        assert reloaded.status == IssueStatus.IN_PROGRESS  # pyright: ignore[reportOptionalMemberAccess]  # tracked: #297
+        assert len(reloaded.history) == 2  # pyright: ignore[reportOptionalMemberAccess]  # tracked: #297
+        assert reloaded.history[-1].action == "open->in_progress"  # pyright: ignore[reportOptionalMemberAccess]  # tracked: #297
+        assert reloaded.history[-1].note == "claimed"  # pyright: ignore[reportOptionalMemberAccess]  # tracked: #297
 
     def test_update_status_to_closed_records_closed_iter(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         store = _make_store(tmp_path)
@@ -337,8 +337,8 @@ class TestStateTransitions:
         store.update_status(issue.id, IssueStatus.IN_PROGRESS, actor="loop", iteration=2)
         store.update_status(issue.id, IssueStatus.CLOSED, actor="judge", iteration=2, note="passed")
         reloaded = store.get(issue.id)
-        assert reloaded.status == IssueStatus.CLOSED
-        assert reloaded.closed_iter == 2
+        assert reloaded.status == IssueStatus.CLOSED  # pyright: ignore[reportOptionalMemberAccess]  # tracked: #297
+        assert reloaded.closed_iter == 2  # pyright: ignore[reportOptionalMemberAccess]  # tracked: #297
 
     def test_update_status_blocked_records_closed_iter(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         store = _make_store(tmp_path)
@@ -347,8 +347,8 @@ class TestStateTransitions:
             issue.id, IssueStatus.BLOCKED, actor="loop", iteration=3, note="exhausted retries"
         )
         reloaded = store.get(issue.id)
-        assert reloaded.status == IssueStatus.BLOCKED
-        assert reloaded.closed_iter == 3
+        assert reloaded.status == IssueStatus.BLOCKED  # pyright: ignore[reportOptionalMemberAccess]  # tracked: #297
+        assert reloaded.closed_iter == 3  # pyright: ignore[reportOptionalMemberAccess]  # tracked: #297
 
     def test_increment_attempts_appends_event(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         store = _make_store(tmp_path)
@@ -357,8 +357,8 @@ class TestStateTransitions:
         store.increment_attempts(issue.id, actor="implementer", iteration=1, note="first try")
         store.increment_attempts(issue.id, actor="implementer", iteration=1, note="retry")
         reloaded = store.get(issue.id)
-        assert reloaded.attempts == 2
-        assert sum(1 for e in reloaded.history if e.action == "attempt") == 2
+        assert reloaded.attempts == 2  # pyright: ignore[reportOptionalMemberAccess]  # tracked: #297
+        assert sum(1 for e in reloaded.history if e.action == "attempt") == 2  # pyright: ignore[reportOptionalMemberAccess]  # tracked: #297
 
     def test_update_unknown_id_raises(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         store = _make_store(tmp_path)
@@ -416,13 +416,13 @@ class TestNextOpen:
         feature = _create(store, type=IssueType.FEATURE, title="feature")
         bug = _create(store, type=IssueType.BUG, title="bug")
         first = store.next_open()
-        assert first.id == bug.id
+        assert first.id == bug.id  # pyright: ignore[reportOptionalMemberAccess]  # tracked: #297
         store.update_status(bug.id, IssueStatus.CLOSED, actor="x", iteration=1)
         second = store.next_open()
-        assert second.id == feature.id
+        assert second.id == feature.id  # pyright: ignore[reportOptionalMemberAccess]  # tracked: #297
         store.update_status(feature.id, IssueStatus.CLOSED, actor="x", iteration=1)
         third = store.next_open()
-        assert third.id == perf.id
+        assert third.id == perf.id  # pyright: ignore[reportOptionalMemberAccess]  # tracked: #297
 
     def test_next_open_fifo_within_type(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         store = _make_store(tmp_path)
@@ -432,11 +432,11 @@ class TestNextOpen:
         b = _create(store, type=IssueType.BUG, title="second bug")
         time.sleep(0.005)
         c = _create(store, type=IssueType.BUG, title="third bug")
-        assert store.next_open().id == a.id
+        assert store.next_open().id == a.id  # pyright: ignore[reportOptionalMemberAccess]  # tracked: #297
         store.update_status(a.id, IssueStatus.CLOSED, actor="x", iteration=1)
-        assert store.next_open().id == b.id
+        assert store.next_open().id == b.id  # pyright: ignore[reportOptionalMemberAccess]  # tracked: #297
         store.update_status(b.id, IssueStatus.CLOSED, actor="x", iteration=1)
-        assert store.next_open().id == c.id
+        assert store.next_open().id == c.id  # pyright: ignore[reportOptionalMemberAccess]  # tracked: #297
 
     def test_next_open_skips_in_progress(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         store = _make_store(tmp_path)
@@ -444,7 +444,7 @@ class TestNextOpen:
         b = _create(store, type=IssueType.BUG, title="open")
         store.update_status(a.id, IssueStatus.IN_PROGRESS, actor="loop", iteration=1)
         first = store.next_open()
-        assert first.id == b.id
+        assert first.id == b.id  # pyright: ignore[reportOptionalMemberAccess]  # tracked: #297
 
 
 # ---------------------------------------------------------------------------
@@ -494,8 +494,8 @@ class TestEventPayload:
         )
         reloaded = store.get(issue.id)
         # create + update_status + increment_attempts = 3 events
-        assert len(reloaded.history) == 3
-        for evt in reloaded.history:
+        assert len(reloaded.history) == 3  # pyright: ignore[reportOptionalMemberAccess]  # tracked: #297
+        for evt in reloaded.history:  # pyright: ignore[reportOptionalMemberAccess]  # tracked: #297
             assert evt.payload is None
 
     def test_load_old_json_without_payload_key(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
@@ -557,9 +557,9 @@ class TestReopenBlocked:
             note="exhausted",
         )
         before = store.get(a.id)
-        assert before.status == IssueStatus.BLOCKED
-        assert before.attempts == 2
-        assert before.closed_iter == 1
+        assert before.status == IssueStatus.BLOCKED  # pyright: ignore[reportOptionalMemberAccess]  # tracked: #297
+        assert before.attempts == 2  # pyright: ignore[reportOptionalMemberAccess]  # tracked: #297
+        assert before.closed_iter == 1  # pyright: ignore[reportOptionalMemberAccess]  # tracked: #297
 
         reopened = store.reopen_blocked(
             actor="loop:resume",
@@ -569,10 +569,10 @@ class TestReopenBlocked:
         assert reopened == [a.id]
 
         after = store.get(a.id)
-        assert after.status == IssueStatus.OPEN
-        assert after.attempts == 0
-        assert after.closed_iter is None
-        last = after.history[-1]
+        assert after.status == IssueStatus.OPEN  # pyright: ignore[reportOptionalMemberAccess]  # tracked: #297
+        assert after.attempts == 0  # pyright: ignore[reportOptionalMemberAccess]  # tracked: #297
+        assert after.closed_iter is None  # pyright: ignore[reportOptionalMemberAccess]  # tracked: #297
+        last = after.history[-1]  # pyright: ignore[reportOptionalMemberAccess]  # tracked: #297
         assert last.action == "blocked->open"
         assert last.actor == "loop:resume"
         assert last.iteration == 2
@@ -598,9 +598,9 @@ class TestReopenBlocked:
 
         reopened = store.reopen_blocked(actor="loop:resume", iteration=2)
         assert reopened == [blocked.id]
-        assert store.get(blocked.id).status == IssueStatus.OPEN
-        assert store.get(open_issue.id).status == IssueStatus.OPEN
-        assert store.get(closed.id).status == IssueStatus.CLOSED
+        assert store.get(blocked.id).status == IssueStatus.OPEN  # pyright: ignore[reportOptionalMemberAccess]  # tracked: #297
+        assert store.get(open_issue.id).status == IssueStatus.OPEN  # pyright: ignore[reportOptionalMemberAccess]  # tracked: #297
+        assert store.get(closed.id).status == IssueStatus.CLOSED  # pyright: ignore[reportOptionalMemberAccess]  # tracked: #297
 
     def test_reopen_blocked_no_blocked_is_noop(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         store = _make_store(tmp_path)
@@ -622,10 +622,10 @@ class TestReopenBlocked:
 
         fresh = _make_store(tmp_path)
         reloaded = fresh.get(a.id)
-        assert reloaded.status == IssueStatus.OPEN
-        assert reloaded.attempts == 0
-        assert reloaded.closed_iter is None
-        assert reloaded.history[-1].action == "blocked->open"
+        assert reloaded.status == IssueStatus.OPEN  # pyright: ignore[reportOptionalMemberAccess]  # tracked: #297
+        assert reloaded.attempts == 0  # pyright: ignore[reportOptionalMemberAccess]  # tracked: #297
+        assert reloaded.closed_iter is None  # pyright: ignore[reportOptionalMemberAccess]  # tracked: #297
+        assert reloaded.history[-1].action == "blocked->open"  # pyright: ignore[reportOptionalMemberAccess]  # tracked: #297
 
     def test_reopen_blocked_picked_by_next_open(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         store = _make_store(tmp_path)

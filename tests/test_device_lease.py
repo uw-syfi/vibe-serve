@@ -11,19 +11,19 @@ from vibesys.run import DeviceLease
 
 def test_gpu_env_pins_selected_device(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     backend = SimpleNamespace(selected_device=SimpleNamespace(index=3))
-    lease = DeviceLease(backend, log_dir=tmp_path)
+    lease = DeviceLease(backend, log_dir=tmp_path)  # pyright: ignore[reportArgumentType]  # tracked: #297
     assert lease.gpu_env() == {"CUDA_VISIBLE_DEVICES": "3"}
 
 
 def test_gpu_env_empty_without_device(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
-    lease = DeviceLease(SimpleNamespace(), log_dir=tmp_path)
+    lease = DeviceLease(SimpleNamespace(), log_dir=tmp_path)  # pyright: ignore[reportArgumentType]  # tracked: #297
     assert lease.gpu_env() == {}
 
 
 def test_reselect_skipped_when_view_disallows_host_reselect(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     backend = MagicMock()
     view = SimpleNamespace(host_device_reselect=False)
-    lease = DeviceLease(backend, log_dir=tmp_path, run_environment_view=view)
+    lease = DeviceLease(backend, log_dir=tmp_path, run_environment_view=view)  # pyright: ignore[reportArgumentType]  # tracked: #297
     lease.reselect()
     backend.reselect_device.assert_not_called()
 

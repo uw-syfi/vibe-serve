@@ -166,7 +166,7 @@ def test_checkout_tree_restores_snapshot_without_moving_head(ws):  # noqa: ANN00
     tracker.snapshot("round 1")
     second = tracker.current_sha()
 
-    assert tracker.checkout_tree(first) is True
+    assert tracker.checkout_tree(first) is True  # pyright: ignore[reportArgumentType]  # tracked: #297
     assert (ws / "main.py").read_text() == "VALUE = 1\n"
     assert not (ws / "later.py").exists()
     # HEAD stays put so the next commit lands as a new child commit.
@@ -179,7 +179,7 @@ def test_checkout_tree_clean_removes_untracked_files(ws):  # noqa: ANN001, ANN20
     first = tracker.current_sha()
 
     (ws / "leftover.txt").write_text("scratch\n")
-    assert tracker.checkout_tree(first, clean=True) is True
+    assert tracker.checkout_tree(first, clean=True) is True  # pyright: ignore[reportArgumentType]  # tracked: #297
     assert not (ws / "leftover.txt").exists()
 
 
@@ -221,7 +221,7 @@ def test_checkout_tree_preserves_framework_memory_while_removing_later_code(ws):
     (progress / "round-0003.md").write_text("# Round 3 in progress\n")
 
     assert tracker.checkout_tree(
-        first,
+        first,  # pyright: ignore[reportArgumentType]  # tracked: #297
         clean=True,
         preserve_paths=("progress",),
     )

@@ -20,7 +20,7 @@ from vibesys.run import CopySpec, InputProjectSpec, Workspace
 def _make_workspace(root, *, isolated=False, excluded_dirs=None, compute_backend=None):  # noqa: ANN001, ANN202  # tracked: #288
     return Workspace(
         root,
-        run_environment=SimpleNamespace(isolated=isolated),
+        run_environment=SimpleNamespace(isolated=isolated),  # pyright: ignore[reportArgumentType]  # tracked: #297
         backend=MagicMock(),
         log=MagicMock(),
         project_root=root.parent,

@@ -70,4 +70,4 @@ def test_definitions_mapping_is_read_only():  # noqa: ANN201  # tracked: #288
     registry = _registry()
 
     with pytest.raises(TypeError):
-        registry.definitions[ExampleFlag.NEW_LOOP] = FeatureDefinition(description="Changed.")
+        registry.definitions[ExampleFlag.NEW_LOOP] = FeatureDefinition(description="Changed.")  # pyright: ignore[reportIndexIssue]  # tracked: #297

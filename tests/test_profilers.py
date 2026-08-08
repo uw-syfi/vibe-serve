@@ -77,7 +77,7 @@ def _expected_resolved(  # noqa: PLR0911  # tracked: #288
     )
     if candidate not in allowed:
         raise ValueError
-    return candidate
+    return candidate  # pyright: ignore[reportReturnType]  # tracked: #297
 
 
 @pytest.mark.parametrize("domain", _DOMAINS)

@@ -41,8 +41,8 @@ def _request(tmp_path: Path, backend: FakeBackend, **overrides):  # noqa: ANN003
         cli_provider=None,
     )
     values.update(overrides)
-    values["log_dir"].mkdir(exist_ok=True)
-    return RunEnvironmentRequest(**values)
+    values["log_dir"].mkdir(exist_ok=True)  # pyright: ignore[reportOptionalMemberAccess]  # tracked: #297
+    return RunEnvironmentRequest(**values)  # pyright: ignore[reportArgumentType]  # tracked: #297
 
 
 def test_cli_compatibility_flags_keep_options_scoped_to_selected_environment():  # noqa: ANN201  # tracked: #288
@@ -288,7 +288,7 @@ def test_modal_environment_owns_candidate_runtime_naming(tmp_path):  # noqa: ANN
     assert runtime.deployment_name is not None
     assert runtime.deployment_name.endswith("-g12c7")
     assert len(runtime.deployment_name) <= 63
-    assert session.view.deployment_namespace in runtime.prompt_notes
+    assert session.view.deployment_namespace in runtime.prompt_notes  # pyright: ignore[reportOperatorIssue]  # tracked: #297
     assert "Candidate-specific namespace override" in runtime.prompt_notes
     assert runtime.deployment_name in runtime.prompt_notes
 
@@ -487,7 +487,7 @@ def test_modal_environment_per_run_namespace_prefix_unique(tmp_path):  # noqa: A
         log_dir=log_a,
         workspace=ws_a,
         ref_dir=None,
-        backend=backend_a,
+        backend=backend_a,  # pyright: ignore[reportArgumentType]  # tracked: #297
         agent_backend="cli",
         cli_provider="codex",
     )
@@ -495,7 +495,7 @@ def test_modal_environment_per_run_namespace_prefix_unique(tmp_path):  # noqa: A
         log_dir=log_b,
         workspace=ws_b,
         ref_dir=None,
-        backend=backend_b,
+        backend=backend_b,  # pyright: ignore[reportArgumentType]  # tracked: #297
         agent_backend="cli",
         cli_provider="codex",
     )
@@ -579,7 +579,7 @@ def test_docker_remove_workspace_child_quotes_path(tmp_path, monkeypatch):  # no
     ok = env.remove_workspace_child(
         tmp_path,
         "semi;touch hacked",
-        backend=backend,
+        backend=backend,  # pyright: ignore[reportArgumentType]  # tracked: #297
     )
 
     assert ok is True

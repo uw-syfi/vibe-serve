@@ -168,8 +168,8 @@ class TestCreateIssue:
         )
         assert out == "created issue #1"
         assert store.get(1) is not None
-        assert store.get(1).created_by == "perf_eval"
-        assert store.get(1).created_iter == 1
+        assert store.get(1).created_by == "perf_eval"  # pyright: ignore[reportOptionalMemberAccess]  # tracked: #297
+        assert store.get(1).created_iter == 1  # pyright: ignore[reportOptionalMemberAccess]  # tracked: #297
 
     def test_create_issue_invalid_type_returns_error_string(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         store = _make_store(tmp_path)

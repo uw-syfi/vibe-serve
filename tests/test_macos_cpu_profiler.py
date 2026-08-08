@@ -21,7 +21,7 @@ def test_command_line_tools_shim_falls_back_to_sample():  # noqa: ANN201  # trac
     capability = detect_capability(
         system="Darwin",
         which=lambda name: "/usr/bin/sample" if name == "sample" else None,
-        run=lambda *_args, **_kwargs: Result(stdout="/Library/Developer/CommandLineTools\n"),
+        run=lambda *_args, **_kwargs: Result(stdout="/Library/Developer/CommandLineTools\n"),  # pyright: ignore[reportArgumentType]  # tracked: #297
     )
     assert capability.tool is MacOSProfilerTool.SAMPLE
     assert DiagnosticCode.COMMAND_LINE_TOOLS_ONLY in capability.diagnostics
@@ -33,7 +33,7 @@ def test_missing_time_profiler_template_falls_back_to_sample():  # noqa: ANN201 
             return Result(stdout="/Applications/Xcode.app/Contents/Developer\n")
         return Result(stdout="Activity Monitor\n")
 
-    capability = detect_capability(system="Darwin", which=lambda name: f"/usr/bin/{name}", run=run)
+    capability = detect_capability(system="Darwin", which=lambda name: f"/usr/bin/{name}", run=run)  # pyright: ignore[reportArgumentType]  # tracked: #297
     assert capability.tool is MacOSProfilerTool.SAMPLE
     assert DiagnosticCode.TIME_PROFILER_UNAVAILABLE in capability.diagnostics
 
@@ -46,7 +46,7 @@ def test_functional_time_profiler_selects_instruments():  # noqa: ANN201  # trac
             return Result(stdout="Time Profiler\n")
         return Result(stdout="xctrace version 26.0\n")
 
-    capability = detect_capability(system="Darwin", which=lambda name: f"/usr/bin/{name}", run=run)
+    capability = detect_capability(system="Darwin", which=lambda name: f"/usr/bin/{name}", run=run)  # pyright: ignore[reportArgumentType]  # tracked: #297
     assert capability.tool is MacOSProfilerTool.XCTRACE
     assert capability.tool_version == "xctrace version 26.0"
 
@@ -66,7 +66,7 @@ def test_detection_reports_unavailable_tools_after_xcode_select_failure():  # no
 
 def test_descendants_returns_nested_processes_and_ignores_malformed_rows():  # noqa: ANN201  # tracked: #288
     result = Result(stdout="10 1\n20 10\nmalformed\n30 20\n40 10\n10 30\n")
-    assert _descendants(10, run=lambda *_args, **_kwargs: result) == [20, 40, 30]
+    assert _descendants(10, run=lambda *_args, **_kwargs: result) == [20, 40, 30]  # pyright: ignore[reportArgumentType]  # tracked: #297
 
 
 def test_collection_persists_reproduction_metadata(tmp_path: Path):  # noqa: ANN201  # tracked: #288
@@ -129,7 +129,7 @@ def test_permission_failure_and_child_target_are_structured(tmp_path: Path):  # 
     capability = detect_capability(
         system="Darwin",
         which=lambda name: "/usr/bin/sample" if name == "sample" else None,
-        run=lambda *_args, **_kwargs: Result(stdout="/Library/Developer/CommandLineTools\n"),
+        run=lambda *_args, **_kwargs: Result(stdout="/Library/Developer/CommandLineTools\n"),  # pyright: ignore[reportArgumentType]  # tracked: #297
     )
     process = type(
         "Process",

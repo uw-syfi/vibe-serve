@@ -71,7 +71,7 @@ def test_resolve_path_is_not_supported(tmp_path: Path):  # noqa: ANN201  # track
     f.mkdir()
     (f / "implementer.md").write_text("hello\n")
     with pytest.raises(TypeError, match="DomainName"):
-        resolve_domain(str(f))
+        resolve_domain(str(f))  # pyright: ignore[reportArgumentType]  # tracked: #297
 
 
 def test_registered_domains_carry_environment_hooks():  # noqa: ANN201  # tracked: #288
@@ -88,7 +88,7 @@ def test_domains_declare_torch_profiler_compatibility():  # noqa: ANN201  # trac
 
 def test_resolve_unknown_raises():  # noqa: ANN201  # tracked: #288
     with pytest.raises(TypeError) as exc:
-        resolve_domain("does-not-exist-xyz")
+        resolve_domain("does-not-exist-xyz")  # pyright: ignore[reportArgumentType]  # tracked: #297
     assert "DomainName" in str(exc.value)
 
 

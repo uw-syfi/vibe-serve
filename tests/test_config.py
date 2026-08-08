@@ -41,9 +41,9 @@ region = "us-east5"
         assert config.model.provider == "vertex-ai"
         assert config.thinking.level == "medium"
         assert config.thinking.budget is None
-        assert config.providers.vertex_ai.json_path == "~/keys/vertex.json"
-        assert config.providers.vertex_ai.project == "my-project"
-        assert config.providers.vertex_ai.region == "us-east5"
+        assert config.providers.vertex_ai.json_path == "~/keys/vertex.json"  # pyright: ignore[reportOptionalMemberAccess]  # tracked: #297
+        assert config.providers.vertex_ai.project == "my-project"  # pyright: ignore[reportOptionalMemberAccess]  # tracked: #297
+        assert config.providers.vertex_ai.region == "us-east5"  # pyright: ignore[reportOptionalMemberAccess]  # tracked: #297
 
     def test_minimal_config(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         cfg_file = tmp_path / "agent.toml"
@@ -230,9 +230,9 @@ provider = "vertex-ai"
         with patch.dict("os.environ", env, clear=False):
             config = load_config(cfg_file)
         vx = config.providers.vertex_ai
-        assert vx.json_path == "/env/key.json"
-        assert vx.project == "env-project"
-        assert vx.region == "us-central1"
+        assert vx.json_path == "/env/key.json"  # pyright: ignore[reportOptionalMemberAccess]  # tracked: #297
+        assert vx.project == "env-project"  # pyright: ignore[reportOptionalMemberAccess]  # tracked: #297
+        assert vx.region == "us-central1"  # pyright: ignore[reportOptionalMemberAccess]  # tracked: #297
 
     def test_env_vars_override_toml(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         cfg_file = tmp_path / "agent.toml"
@@ -254,9 +254,9 @@ region = "us-east5"
         with patch.dict("os.environ", env, clear=False):
             config = load_config(cfg_file)
         vx = config.providers.vertex_ai
-        assert vx.json_path == "/env/key.json"
-        assert vx.project == "env-project"
-        assert vx.region == "us-central1"
+        assert vx.json_path == "/env/key.json"  # pyright: ignore[reportOptionalMemberAccess]  # tracked: #297
+        assert vx.project == "env-project"  # pyright: ignore[reportOptionalMemberAccess]  # tracked: #297
+        assert vx.region == "us-central1"  # pyright: ignore[reportOptionalMemberAccess]  # tracked: #297
 
 
 class TestLoadDotenvFile:

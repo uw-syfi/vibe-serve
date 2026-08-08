@@ -21,7 +21,7 @@ def _make_backend(tmp_path, devices=("/dev/kfd", "/dev/dri/renderD128")) -> Rocm
     impl = backends.get(ComputeBackend.ROCM, log_dir=tmp_path / "logs")
     # Pin a deterministic device set so tests don't depend on host hardware.
     impl._devices = list(devices)  # noqa: SLF001  # tracked: #288
-    return impl
+    return impl  # pyright: ignore[reportReturnType]  # tracked: #297
 
 
 class TestRocmRegistry:

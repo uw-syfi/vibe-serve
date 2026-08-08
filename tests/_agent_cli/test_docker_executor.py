@@ -59,7 +59,7 @@ class _HungProcess(_FakeProcess):
     def wait(self, timeout: int | None = None) -> int:
         self.wait_timeout = timeout
         if self.returncode is None:
-            raise subprocess.TimeoutExpired(["docker", "exec"], timeout)
+            raise subprocess.TimeoutExpired(["docker", "exec"], timeout)  # pyright: ignore[reportArgumentType]  # tracked: #297
         return self.returncode
 
 
@@ -87,7 +87,7 @@ def test_docker_executor_runs_command_request_and_streams_to_sink(monkeypatch): 
         CallbackCommandStreamSink(
             on_stdout=stdout.append,
             on_stderr=stderr.append,
-            on_started=started.append,
+            on_started=started.append,  # pyright: ignore[reportArgumentType]  # tracked: #297
         ),
     )
 

@@ -68,7 +68,7 @@ def _build(config: Config, **overrides):  # noqa: ANN003, ANN202  # tracked: #28
         "use_docker": False,
     }
     kwargs.update(overrides)
-    return build_agent_runner(config, **kwargs)
+    return build_agent_runner(config, **kwargs)  # pyright: ignore[reportArgumentType]  # tracked: #297
 
 
 def _judge_fallback() -> JudgeResponse:
@@ -715,7 +715,7 @@ class TestTurnPathWithFakeExecutor:
         executor = _FakeExecutor(events)
         schemas = [{"name": "sys_os_read", "description": "d", "parameters": {}}]
         # Bypass _build_executor so no OS environment (and so no bwrap) is needed.
-        runner._build_executor = lambda _ws: (executor, schemas)  # type: ignore[method-assign]  # noqa: SLF001  # tracked: #288
+        runner._build_executor = lambda _ws: (executor, schemas)  # noqa: SLF001  # tracked: #288
         return runner, executor
 
     def test_invoke_parses_a_structured_response(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
@@ -821,7 +821,7 @@ class TestTurnPathWithFakeExecutor:
 
         runner = OmnigentAgentRunner(provider="claude", model_name="m")
         executor = _EnvProbe([TurnComplete(response="ok")])
-        runner._build_executor = lambda _ws: (executor, [])  # type: ignore[method-assign]  # noqa: SLF001  # tracked: #288
+        runner._build_executor = lambda _ws: (executor, [])  # noqa: SLF001  # tracked: #288
         os.environ.pop("CUDA_VISIBLE_DEVICES", None)
 
         runner.invoke_text(
@@ -872,7 +872,7 @@ class TestTurnPathWithFakeExecutor:
                 raise RuntimeError("harness exploded")  # noqa: TRY003  # tracked: #288
 
         runner = OmnigentAgentRunner(provider="claude", model_name="m", log_dir=log_dir)
-        runner._build_executor = lambda _ws: (_Boom([]), [])  # type: ignore[method-assign]  # noqa: SLF001  # tracked: #288
+        runner._build_executor = lambda _ws: (_Boom([]), [])  # noqa: SLF001  # tracked: #288
 
         with pytest.raises(RuntimeError, match="harness exploded"):
             runner.invoke_text(
@@ -916,7 +916,7 @@ class TestTurnPathWithFakeExecutor:
             return _FakeExecutor([TurnComplete(response="ok")]), []
 
         runner = OmnigentAgentRunner(provider="claude", model_name="m")
-        runner._build_executor = _build  # type: ignore[method-assign]  # noqa: SLF001  # tracked: #288
+        runner._build_executor = _build  # noqa: SLF001  # tracked: #288
 
         for _ in range(2):
             runner.invoke_text(
@@ -951,7 +951,7 @@ class TestTurnPathWithFakeExecutor:
             return executor, []
 
         runner = OmnigentAgentRunner(provider="claude", model_name="m")
-        runner._build_executor = _build  # type: ignore[method-assign]  # noqa: SLF001  # tracked: #288
+        runner._build_executor = _build  # noqa: SLF001  # tracked: #288
 
         for _ in range(2):
             runner.invoke_text(
@@ -990,7 +990,7 @@ class TestTurnPathWithFakeExecutor:
                 closed.append(True)
 
         runner = OmnigentAgentRunner(provider="claude", model_name="m")
-        runner._build_executor = lambda _ws: (_Closable([TurnComplete(response="ok")]), [])  # type: ignore[method-assign]  # noqa: SLF001  # tracked: #288
+        runner._build_executor = lambda _ws: (_Closable([TurnComplete(response="ok")]), [])  # noqa: SLF001  # tracked: #288
         runner.invoke_text(
             kind="implementer",
             workspace=tmp_path,
@@ -1012,7 +1012,7 @@ class TestTurnPathWithFakeExecutor:
 
         log = StringIO()
         runner = OmnigentAgentRunner(provider="claude", model_name="m", run_log_file=log)
-        runner._build_executor = lambda _ws: (_BadClose([TurnComplete(response="ok")]), [])  # type: ignore[method-assign]  # noqa: SLF001  # tracked: #288
+        runner._build_executor = lambda _ws: (_BadClose([TurnComplete(response="ok")]), [])  # noqa: SLF001  # tracked: #288
         runner.invoke_text(
             kind="implementer",
             workspace=tmp_path,

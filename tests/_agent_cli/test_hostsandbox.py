@@ -252,7 +252,7 @@ class TestSharedAbstraction:
 
     def test_base_is_abstract(self):  # noqa: ANN202  # tracked: #288
         with pytest.raises(TypeError):
-            hostsandbox.WorkspaceSandbox(workspace=Path("/x"))
+            hostsandbox.WorkspaceSandbox(workspace=Path("/x"))  # pyright: ignore[reportAbstractUsage]  # tracked: #297
 
     def test_backends_share_fields_and_wrap(self):  # noqa: ANN202  # tracked: #288
         host = hostsandbox.HostSandbox(
@@ -293,7 +293,7 @@ class TestMacosBuild:
         assert sb.workspace == workspace.resolve()
 
     def test_missing_sandbox_exec_returns_none(self, tmp_path, monkeypatch):  # noqa: ANN001, ANN202  # tracked: #288
-        self._patch(monkeypatch, sandbox_exec=None)
+        self._patch(monkeypatch, sandbox_exec=None)  # pyright: ignore[reportArgumentType]  # tracked: #297
         logs: list[str] = []
         assert hostsandbox.build(tmp_path, env={}, log=logs.append) is None
         assert any("sandbox-exec" in m for m in logs)
@@ -430,7 +430,7 @@ class _StubAgent(CLICodingAgent[CLIGenerationSession]):
             cmd=cmd,
             logger=self.logger,
             cwd=cwd,
-            timeout=timeout,
+            timeout=timeout,  # pyright: ignore[reportArgumentType]  # tracked: #297
             silent=silent,
             event_handler=self.event_handler,
             executor=self.executor,

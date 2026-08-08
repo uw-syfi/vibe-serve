@@ -41,7 +41,7 @@ class TestSubscription:
         sink = OutputSink()
         seen, unsubscribe = _collect(sink)
         sink.agent_output("one")
-        unsubscribe()
+        unsubscribe()  # pyright: ignore[reportCallIssue]  # tracked: #297
         sink.agent_output("two")
         assert [e.data.content for e in seen if isinstance(e.data, AgentOutputChunkData)] == ["one"]
 

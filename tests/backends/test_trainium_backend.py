@@ -19,7 +19,7 @@ def _make_backend(tmp_path, devices=("/dev/neuron0",)) -> TrainiumBackend:  # no
     impl = backends.get(ComputeBackend.TRAINIUM, log_dir=tmp_path / "logs")
     # Pin a deterministic device set so tests don't depend on host hardware.
     impl._devices = list(devices)  # noqa: SLF001  # tracked: #288
-    return impl
+    return impl  # pyright: ignore[reportReturnType]  # tracked: #297
 
 
 class TestTrainiumRegistry:

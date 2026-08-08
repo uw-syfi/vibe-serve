@@ -47,7 +47,7 @@ def test_chat_is_audited_but_not_injected(tmp_path):  # noqa: ANN001, ANN201  # 
     started = next(
         event for event in supervisor.read_events() if event.type == "invocation_started"
     )
-    assert started.data.user_prompt == "original prompt"
+    assert started.data.user_prompt == "original prompt"  # pyright: ignore[reportOptionalMemberAccess]  # tracked: #297
     event_types = [event["type"] for event in _events(tmp_path / "run-events.jsonl")]
     assert event_types.index("chat") < event_types.index("invocation_started")
 
@@ -88,7 +88,7 @@ def test_inspector_answers_round_and_failure_queries(tmp_path):  # noqa: ANN001,
     supervisor = RunSupervisor()
     (tmp_path / "logs").mkdir()
     supervisor.attach(tmp_path / "logs")
-    (supervisor.log_dir / "progress.md").write_text(
+    (supervisor.log_dir / "progress.md").write_text(  # pyright: ignore[reportOptionalOperand]  # tracked: #297
         "## Round 1 — Judge\nPASS\n\n## Round 2 — Judge\nFAIL: latency regressed\n"
     )
     inspector = RunInspector(supervisor)
@@ -121,7 +121,7 @@ def test_side_channel_chat_output_is_tagged_without_changing_active_agent(tmp_pa
     assert [event.agent_kind for event in agent_events] == ["chat", "implementer"]
     assert agent_events[0].round_label == "experiment-chat"
     assert agent_events[0].invocation_id == "chat-1"
-    assert agent_events[1].data.content == "experiment output"
+    assert agent_events[1].data.content == "experiment output"  # pyright: ignore[reportOptionalMemberAccess]  # tracked: #297
 
 
 def test_bootstrap_events_migrate_to_run_audit_without_replacing_history(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
@@ -235,7 +235,7 @@ def test_service_accepts_chat(tmp_path):  # noqa: ANN001, ANN201  # tracked: #28
     supervisor.attach(tmp_path / "logs")
     service = SupervisionService(supervisor)
     chat = service.execute(ChatQuery(text="what is the current status?"))
-    assert chat.chat.question == "what is the current status?"
+    assert chat.chat.question == "what is the current status?"  # pyright: ignore[reportOptionalMemberAccess]  # tracked: #297
     events = _events(tmp_path / "logs" / "run-events.jsonl")
     assert any(event["type"] == "chat" for event in events)
     assert any(event["type"] == "status_query" for event in events)
@@ -249,7 +249,7 @@ def test_service_routes_chat_to_configured_agent_handler(tmp_path):  # noqa: ANN
 
     response = SupervisionService(supervisor).execute(ChatQuery(text="what changed?"))
 
-    assert response.chat.answer == "agent answer"
+    assert response.chat.answer == "agent answer"  # pyright: ignore[reportOptionalMemberAccess]  # tracked: #297
     assert questions == ["what changed?"]
     assert response.events[-1].type is EventType.CHAT
     assert response.events[-1].agent_kind == "chat"
@@ -273,8 +273,8 @@ def test_chat_explains_configuration_failure_without_a_run_context(tmp_path):  #
 
     response = SupervisionService(supervisor).execute(ChatQuery(text="why did startup fail?"))
 
-    assert "config_loading" in response.chat.answer
-    assert "agent.toml was not found" in response.chat.answer
+    assert "config_loading" in response.chat.answer  # pyright: ignore[reportOptionalMemberAccess]  # tracked: #297
+    assert "agent.toml was not found" in response.chat.answer  # pyright: ignore[reportOptionalMemberAccess]  # tracked: #297
 
 
 def test_run_context_chat_exposes_trajectory_without_inlining_it_in_prompt(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
@@ -562,8 +562,8 @@ def test_run_context_records_invocation_boundary(tmp_path):  # noqa: ANN001, ANN
         kind="implementer",
         system_prompt="system",
         user_prompt="original",
-        response_cls=dict,
-        fallback_factory=dict,
+        response_cls=dict,  # pyright: ignore[reportArgumentType]  # tracked: #297
+        fallback_factory=dict,  # pyright: ignore[reportArgumentType]  # tracked: #297
         round_label="round 6 attempt 2",
     )
 

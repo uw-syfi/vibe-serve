@@ -77,7 +77,7 @@ class DummyAgent(CLICodingAgent[CLIGenerationSession]):
             cmd=cmd,
             logger=self.logger,
             cwd=cwd,
-            timeout=timeout,
+            timeout=timeout,  # pyright: ignore[reportArgumentType]  # tracked: #297
             silent=silent,
             event_handler=self.event_handler,
             executor=self.executor,

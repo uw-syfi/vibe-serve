@@ -183,7 +183,7 @@ def _invoke_loop(tmp_path, ref_file, runner, **kwargs):  # noqa: ANN001, ANN003,
             accuracy_gate,
         ),
     ):
-        return run_evolve_loop(**defaults)
+        return run_evolve_loop(**defaults)  # pyright: ignore[reportArgumentType]  # tracked: #297
 
 
 def _load_population(tmp_path) -> Population:  # noqa: ANN001  # tracked: #288
@@ -732,7 +732,7 @@ def test_candidate_code_is_multi_file_but_excludes_runtime_logs(tmp_path):  # no
     commit = tracker.current_sha()
 
     assert commit is not None
-    code = _candidate_code(SimpleNamespace(git=tracker), commit)
+    code = _candidate_code(SimpleNamespace(git=tracker), commit)  # pyright: ignore[reportArgumentType]  # tracked: #297
     assert "src/lib.rs" in code
     assert "src/ffi.rs" in code
     assert "logs/profile.txt" not in code
@@ -775,7 +775,7 @@ def test_programmatic_openevolve_config_infers_policy(tmp_path):  # noqa: ANN001
     config = OpenEvolveSearchConfig(num_islands=1)
 
     name, policy = _initialize_search_policy(
-        ctx,
+        ctx,  # pyright: ignore[reportArgumentType]  # tracked: #297
         Population(),
         requested=None,
         seed=1,
@@ -793,7 +793,7 @@ def test_programmatic_openevolve_config_rejects_vibesys_policy(tmp_path):  # noq
 
     with pytest.raises(ValueError, match="requires the OpenEvolve search policy"):
         _initialize_search_policy(
-            ctx,
+            ctx,  # pyright: ignore[reportArgumentType]  # tracked: #297
             Population(),
             requested="vibesys",
             seed=1,
@@ -869,7 +869,7 @@ def test_candidate_runtime_notes_delegates_deployment_naming_to_environment():  
             )
         ),
     )
-    notes, app = _candidate_runtime_notes(ctx, generation=3, child_idx=2)
+    notes, app = _candidate_runtime_notes(ctx, generation=3, child_idx=2)  # pyright: ignore[reportArgumentType]  # tracked: #297
     assert app == "candidate-3-2"
     assert notes == "provider-owned candidate instructions"
 
@@ -884,7 +884,7 @@ def test_candidate_runtime_notes_noop_without_named_deployment():  # noqa: ANN20
             )
         ),
     )
-    notes, app = _candidate_runtime_notes(ctx, generation=1, child_idx=1)
+    notes, app = _candidate_runtime_notes(ctx, generation=1, child_idx=1)  # pyright: ignore[reportArgumentType]  # tracked: #297
     assert app is None
     assert notes == notes_in
 
@@ -900,7 +900,7 @@ def test_teardown_candidate_deployment_delegates_to_run_environment():  # noqa: 
     run_env = MagicMock()
     ctx = SimpleNamespace(run_environment=run_env, lprint=lambda _: None)
 
-    _teardown_candidate_deployment(ctx, "vibesys-run-g1c2", keep=False)
+    _teardown_candidate_deployment(ctx, "vibesys-run-g1c2", keep=False)  # pyright: ignore[reportArgumentType]  # tracked: #297
 
     run_env.teardown_deployment.assert_called_once_with("vibesys-run-g1c2", log=ctx.lprint)
 
@@ -910,9 +910,9 @@ def test_teardown_candidate_deployment_noop_when_kept_or_absent():  # noqa: ANN2
     ctx = SimpleNamespace(run_environment=run_env, lprint=lambda _: None)
 
     # Opt-out: keep the app for post-hoc inspection.
-    _teardown_candidate_deployment(ctx, "vibesys-run-g1c2", keep=True)
+    _teardown_candidate_deployment(ctx, "vibesys-run-g1c2", keep=True)  # pyright: ignore[reportArgumentType]  # tracked: #297
     # No per-candidate deployment (non-Modal env).
-    _teardown_candidate_deployment(ctx, None, keep=False)
+    _teardown_candidate_deployment(ctx, None, keep=False)  # pyright: ignore[reportArgumentType]  # tracked: #297
 
     run_env.teardown_deployment.assert_not_called()
 
@@ -944,7 +944,7 @@ def test_plan_candidate_falls_back_to_latest_passer_then_none():  # noqa: ANN201
     empty = Population([])
     assert (
         _plan_candidate(
-            ctx,
+            ctx,  # pyright: ignore[reportArgumentType]  # tracked: #297
             empty,
             rng,
             k_top_inspirations=1,
@@ -959,7 +959,7 @@ def test_plan_candidate_falls_back_to_latest_passer_then_none():  # noqa: ANN201
     # A passer exists → returned as parent.
     pop = Population([_passing_seed()])
     plan = _plan_candidate(
-        ctx,
+        ctx,  # pyright: ignore[reportArgumentType]  # tracked: #297
         pop,
         rng,
         k_top_inspirations=1,
@@ -1007,8 +1007,8 @@ def test_run_generation_parallel_bounds_concurrency_and_records_all(tmp_path, mo
     monkeypatch.setattr(evolve_loop, "_evaluate_in_subcontext", fake_eval)
 
     _run_generation_parallel(
-        ctx,
-        config={"model": {"name": "m"}},
+        ctx,  # pyright: ignore[reportArgumentType]  # tracked: #297
+        config={"model": {"name": "m"}},  # pyright: ignore[reportArgumentType]  # tracked: #297
         agent_backend=None,
         cli_provider=None,
         max_parallelism=2,
@@ -1066,8 +1066,8 @@ def test_run_generation_parallel_skips_parent_without_commit(tmp_path, monkeypat
     monkeypatch.setattr(evolve_loop, "_evaluate_in_subcontext", fake_eval)
 
     _run_generation_parallel(
-        ctx,
-        config={"model": {"name": "m"}},
+        ctx,  # pyright: ignore[reportArgumentType]  # tracked: #297
+        config={"model": {"name": "m"}},  # pyright: ignore[reportArgumentType]  # tracked: #297
         agent_backend=None,
         cli_provider=None,
         max_parallelism=2,
@@ -1106,8 +1106,8 @@ def test_evaluate_in_subcontext_skips_parent_without_commit():  # noqa: ANN201  
     parentless = Individual(id=3, generation=1, parent_id=1, commit=None, passed=True, summary="x")
 
     outcome = _evaluate_in_subcontext(
-        parent_ctx,
-        config={"model": {"name": "m"}},
+        parent_ctx,  # pyright: ignore[reportArgumentType]  # tracked: #297
+        config={"model": {"name": "m"}},  # pyright: ignore[reportArgumentType]  # tracked: #297
         agent_backend=None,
         cli_provider=None,
         generation=2,
@@ -1143,7 +1143,7 @@ def test_evaluate_in_subcontext_builds_worktree_and_evaluates(tmp_path, ref_file
         patch("vibesys.context.PROJECT_ROOT", tmp_path),
         patch("vibesys.loops.evolve.loop._run_framework_accuracy_gate", return_value=None),
         create_run_context(
-            config={"model": {"name": "claude-sonnet-4-6"}},
+            config={"model": {"name": "claude-sonnet-4-6"}},  # pyright: ignore[reportArgumentType]  # tracked: #297
             exp_name="test-parallel-subctx",
             input_path=str(Path(ref_file).parent),
             accuracy_command="uv run python accuracy_checker/checker.py",
@@ -1169,7 +1169,7 @@ def test_evaluate_in_subcontext_builds_worktree_and_evaluates(tmp_path, ref_file
 
         outcome = _evaluate_in_subcontext(
             parent,
-            config={"model": {"name": "claude-sonnet-4-6"}},
+            config={"model": {"name": "claude-sonnet-4-6"}},  # pyright: ignore[reportArgumentType]  # tracked: #297
             agent_backend=None,
             cli_provider=None,
             generation=1,

@@ -69,7 +69,8 @@ def _write_sidecar(root: Path, content: str) -> Path:
 
 def test_trainium_loads_nki_skills_from_sidecar_metadata(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     _, skills, backend = load_config_and_skills(
-        _args(tmp_path, ComputeBackend.TRAINIUM), domain=DomainName.LLM_SERVING
+        _args(tmp_path, ComputeBackend.TRAINIUM),  # pyright: ignore[reportArgumentType]  # tracked: #297
+        domain=DomainName.LLM_SERVING,
     )
     assert backend is ComputeBackend.TRAINIUM
     names = _skill_names(skills)
@@ -79,7 +80,8 @@ def test_trainium_loads_nki_skills_from_sidecar_metadata(tmp_path):  # noqa: ANN
 
 def test_cuda_filters_out_trainium_scoped_nki_skills(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     _, skills, _ = load_config_and_skills(
-        _args(tmp_path, ComputeBackend.CUDA), domain=DomainName.LLM_SERVING
+        _args(tmp_path, ComputeBackend.CUDA),  # pyright: ignore[reportArgumentType]  # tracked: #297
+        domain=DomainName.LLM_SERVING,
     )
     names = _skill_names(skills)
     assert "serving-systems" in names
@@ -88,14 +90,14 @@ def test_cuda_filters_out_trainium_scoped_nki_skills(tmp_path):  # noqa: ANN001,
 
 @pytest.mark.parametrize("domain", [DomainName.GENERIC, DomainName.MICROSERVICES])
 def test_non_serving_domains_filter_out_serving_systems(tmp_path, domain):  # noqa: ANN001, ANN201  # tracked: #288
-    _, skills, _ = load_config_and_skills(_args(tmp_path, ComputeBackend.CUDA), domain=domain)
+    _, skills, _ = load_config_and_skills(_args(tmp_path, ComputeBackend.CUDA), domain=domain)  # pyright: ignore[reportArgumentType]  # tracked: #297
 
     assert "serving-systems" not in _skill_names(skills)
 
 
 def test_no_skills_disables_even_compatible_skills(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     _, skills, _ = load_config_and_skills(
-        _args(tmp_path, ComputeBackend.TRAINIUM, no_skills=True),
+        _args(tmp_path, ComputeBackend.TRAINIUM, no_skills=True),  # pyright: ignore[reportArgumentType]  # tracked: #297
         domain=DomainName.LLM_SERVING,
     )
     assert skills is None
