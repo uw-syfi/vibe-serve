@@ -116,6 +116,33 @@ def test_failed_child_rollback_preserves_its_exact_parent_commit():
     assert child_round == 21
 
 
+def test_implementation_failed_child_rollback_preserves_its_exact_parent_commit():
+    historical_parent = _RoundRecord(
+        round_number=20,
+        commit="a" * 40,
+        perf_metric=1400.0,
+        perf_unit="tok/s",
+        passed=True,
+    )
+    failed_child = _RoundRecord(
+        round_number=21,
+        commit="c" * 40,
+        perf_metric=None,
+        perf_unit=None,
+        passed=True,
+        hypothesis_outcome=HypothesisOutcome.IMPLEMENTATION_FAILED.value,
+        hypothesis_parent_round=20,
+        hypothesis_parent_commit="b" * 40,
+    )
+
+    commit, child_round = _resolve_rollback_commit(
+        historical_parent, [historical_parent, failed_child]
+    )
+
+    assert commit == "b" * 40
+    assert child_round == 21
+
+
 def test_distant_rollback_uses_requested_historical_commit():
     historical_parent = _RoundRecord(
         round_number=5,

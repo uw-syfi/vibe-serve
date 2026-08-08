@@ -356,7 +356,20 @@ def _backfill_revert_commit(
     return True
 
 
-_FAILED_HYPOTHESIS_OUTCOMES = frozenset({"blocked", "disproven", "inconclusive", "rejected"})
+# `CONTINUE`/`SUPPORTED`/`NOMINATED` name an active or successful hypothesis;
+# every other `HypothesisOutcome` member represents a failed one. Derive the
+# failure set by subtraction so a new enum member defaults to "failed" rather
+# than being silently omitted, as happened with `IMPLEMENTATION_FAILED`.
+# `"rejected"` is a framework-only label (the reviewed-but-not-passed outcome
+# assigned below) with no corresponding enum member, so it is added explicitly.
+_FAILED_HYPOTHESIS_OUTCOMES = (
+    frozenset(outcome.value for outcome in HypothesisOutcome)
+    - {
+        HypothesisOutcome.CONTINUE.value,
+        HypothesisOutcome.SUPPORTED.value,
+        HypothesisOutcome.NOMINATED.value,
+    }
+) | {"rejected"}
 _MAX_CONTINUATION_ROUNDS_WITHOUT_DESIGN_REVIEW = 2
 
 
