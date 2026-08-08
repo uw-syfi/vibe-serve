@@ -212,7 +212,7 @@ jobs:
 
       - name: Enforce per-module coverage floor
         # Repo-wide --cov-fail-under is an average and can't see a single
-        # near-zero module hiding inside it (issue #293). Reads the floor and
+        # near-zero module hiding inside it (issue #298). Reads the floor and
         # allowlist from [tool.vibesys.per_module_coverage] in pyproject.toml.
         run: uv run python scripts/check_coverage_floor.py coverage.json
 
