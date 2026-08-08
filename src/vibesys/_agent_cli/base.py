@@ -76,6 +76,17 @@ class CodingAgent(ABC):
     supports_native_output_schema = False
     """Whether this provider accepts a per-turn JSON Schema file."""
 
+    native_output_schema_wants_absolute_path = False
+    """Whether :meth:`set_output_schema_path` should receive an absolute path.
+
+    Providers whose CLI resolves the schema file against its own working
+    directory (e.g. Codex's ``--output-schema``) keep the default and get the
+    workspace-relative path. Providers that must read the schema themselves at
+    command-build time (e.g. Claude Code, whose ``--json-schema`` takes the
+    schema inline) set this ``True`` so the path is readable regardless of the
+    subprocess working directory.
+    """
+
     # Declared (not assigned) here: every concrete provider sets these in its
     # ``__init__``.  ``env`` is the subprocess environment the CLI is spawned
     # with; ``executor`` is the agentshim ``CommandExecutor`` (host, docker,
@@ -234,7 +245,10 @@ class CodingAgent(ABC):
         return None
 
     def set_output_schema_path(self, path: str | None) -> None:
-        """Set the workspace-relative schema path for the next generation.
+        """Set the JSON Schema file path for the next generation.
+
+        The path is workspace-relative by default, or absolute when the
+        provider sets :attr:`native_output_schema_wants_absolute_path`.
 
         Providers without a native structured-output facility deliberately do
         nothing here. Their runners retain the portable prompt-level schema

@@ -1,8 +1,20 @@
+import json
 from unittest.mock import MagicMock
 
 import pytest
 
-from vibesys._agent_cli.claude import ClaudeCodeCodingAgent, ClaudeGenerationSession
+from vibesys._agent_cli.claude import (
+    ClaudeCodeCodingAgent,
+    ClaudeGenerationSession,
+    StructuredOutputClaudeSession,
+)
+
+_SCHEMA = {
+    "type": "object",
+    "properties": {"a": {"type": "integer"}, "b": {"type": "integer"}},
+    "required": ["a", "b"],
+    "additionalProperties": False,
+}
 
 
 class _MockCommandExecutor:
@@ -103,6 +115,82 @@ class TestClaudeCommandConstruction:
         assert "deploy the app" not in cmd
 
 
+class TestClaudeNativeOutputSchema:
+    """Tests for native ``--json-schema`` structured output wiring."""
+
+    def test_advertises_native_output_schema(self):
+        assert ClaudeCodeCodingAgent.supports_native_output_schema is True
+
+    def test_wants_absolute_schema_path(self):
+        # ``--json-schema`` is read inline at build time, so the schema file
+        # path must be resolvable independent of the subprocess cwd.
+        assert ClaudeCodeCodingAgent.native_output_schema_wants_absolute_path is True
+
+    def test_command_omits_json_schema_when_unset(self, agent):
+        cmd = agent._get_command("test prompt")
+        assert "--json-schema" not in cmd
+        # No schema => the streaming envelope is unchanged.
+        assert "stream-json" in cmd
+
+    def test_resume_command_omits_json_schema_when_unset(self, agent):
+        cmd = agent._get_resume_command("test prompt", "sess-1")
+        assert "--json-schema" not in cmd
+
+    def test_set_output_schema_path_reads_and_inlines(self, agent, tmp_path):
+        schema_file = tmp_path / "schema.json"
+        schema_file.write_text(json.dumps(_SCHEMA, indent=2), encoding="utf-8")
+
+        agent.set_output_schema_path(str(schema_file))
+
+        # Stored compactly (no spaces) and semantically equal to the file.
+        assert agent.output_schema_json is not None
+        assert " " not in agent.output_schema_json
+        assert json.loads(agent.output_schema_json) == _SCHEMA
+
+    def test_command_includes_json_schema_when_set(self, agent, tmp_path):
+        schema_file = tmp_path / "schema.json"
+        schema_file.write_text(json.dumps(_SCHEMA), encoding="utf-8")
+        agent.set_output_schema_path(str(schema_file))
+
+        cmd = agent._get_command("test prompt")
+
+        assert "--json-schema" in cmd
+        inline = cmd[cmd.index("--json-schema") + 1]
+        assert json.loads(inline) == _SCHEMA
+        # The streaming transport is retained alongside the schema.
+        assert "stream-json" in cmd
+
+    def test_resume_command_includes_json_schema_when_set(self, agent, tmp_path):
+        schema_file = tmp_path / "schema.json"
+        schema_file.write_text(json.dumps(_SCHEMA), encoding="utf-8")
+        agent.set_output_schema_path(str(schema_file))
+
+        cmd = agent._get_resume_command("test prompt", "sess-1")
+
+        assert "--json-schema" in cmd
+        assert json.loads(cmd[cmd.index("--json-schema") + 1]) == _SCHEMA
+
+    def test_set_output_schema_path_none_clears_previous(self, agent, tmp_path):
+        schema_file = tmp_path / "schema.json"
+        schema_file.write_text(json.dumps(_SCHEMA), encoding="utf-8")
+        agent.set_output_schema_path(str(schema_file))
+        agent.set_output_schema_path(None)
+
+        assert agent.output_schema_json is None
+        assert "--json-schema" not in agent._get_command("test prompt")
+
+    def test_missing_schema_file_raises_actionable_error(self, agent, tmp_path):
+        missing = tmp_path / "does-not-exist.json"
+        with pytest.raises(RuntimeError, match="unreadable"):
+            agent.set_output_schema_path(str(missing))
+
+    def test_invalid_schema_json_raises_actionable_error(self, agent, tmp_path):
+        schema_file = tmp_path / "schema.json"
+        schema_file.write_text("{not valid json", encoding="utf-8")
+        with pytest.raises(RuntimeError, match="not valid JSON"):
+            agent.set_output_schema_path(str(schema_file))
+
+
 class TestClaudeGenerationSession:
     """Tests for ClaudeGenerationSession event processing."""
 
@@ -180,6 +268,80 @@ class TestClaudeGenerationSession:
     def test_create_session_returns_claude_session(self, agent):
         session = agent._create_session(cmd=["claude", "-p"])
         assert isinstance(session, ClaudeGenerationSession)
+        # The structured-output-aware subclass is used for every turn.
+        assert isinstance(session, StructuredOutputClaudeSession)
+
+
+class _ReplayExecutor:
+    """CommandExecutor that replays canned stdout lines through the sink."""
+
+    def __init__(self, lines):
+        self._lines = list(lines)
+
+    def run(self, request, sink):
+        from agentshim.executor import CommandResult
+
+        for line in self._lines:
+            sink.stdout(line)
+        return CommandResult(returncode=0, stdout="".join(self._lines), stderr="")
+
+
+class TestStructuredOutputClaudeSession:
+    """Tests for capturing and preferring the ``structured_output`` field."""
+
+    def _make_session(self, event_handler=None, executor=None):
+        return StructuredOutputClaudeSession(
+            binary_name="claude",
+            env={},
+            log_prefix="[Claude]",
+            cmd=["claude", "-p"],
+            logger=MagicMock(),
+            silent=True,
+            event_handler=event_handler,
+            executor=executor,
+        )
+
+    def test_captures_structured_output_from_result_event(self):
+        session = self._make_session()
+        line = (
+            '{"type":"result","result":"{\\"a\\":3,\\"b\\":5}","structured_output":{"a":3,"b":5}}\n'
+        )
+        session._process_stdout(line)
+        # agentshim still records the freeform ``result`` text ...
+        assert session.final_result == '{"a":3,"b":5}'
+        # ... and the schema-enforced payload is captured separately.
+        assert session.structured_output == {"a": 3, "b": 5}
+
+    def test_run_prefers_serialized_structured_output(self):
+        # Even if ``result`` held prose, ``run`` returns the schema payload.
+        line = (
+            '{"type":"result","result":"here is your answer","structured_output":{"a":3,"b":5}}\n'
+        )
+        session = self._make_session(executor=_ReplayExecutor([line]))
+        result = session.run("prompt")
+        assert json.loads(result) == {"a": 3, "b": 5}
+
+    def test_run_falls_back_to_result_without_structured_output(self):
+        line = '{"type":"result","result":"plain text answer"}\n'
+        session = self._make_session(executor=_ReplayExecutor([line]))
+        assert session.run("prompt") == "plain text answer"
+
+    def test_absent_structured_output_leaves_none(self):
+        session = self._make_session()
+        session._process_stdout('{"type":"result","result":"plain text answer"}\n')
+        assert session.structured_output is None
+        assert session.final_result == "plain text answer"
+
+    def test_null_structured_output_is_ignored(self):
+        session = self._make_session()
+        session._process_stdout('{"type":"result","result":"done","structured_output":null}\n')
+        assert session.structured_output is None
+
+    def test_non_json_line_does_not_raise(self):
+        session = self._make_session()
+        session._process_stdout("starting claude...\n")
+        assert session.structured_output is None
+        assert "starting claude..." in session.stdout_lines
 
     def test_assistant_usage_forwarded_to_event_handler(self):
         """Per-turn ``message.usage`` is forwarded via ``on_usage`` so the

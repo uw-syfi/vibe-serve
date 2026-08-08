@@ -190,6 +190,15 @@ class CliAgentRunner:
                     f"{type(exc).__name__}: {exc}",
                     self._run_log_file,
                 )
+        # Providers that read the schema themselves at command-build time (e.g.
+        # Claude Code's inline ``--json-schema``) need an absolute path that
+        # resolves independently of the subprocess working directory; others
+        # keep the workspace-relative path their CLI resolves against its cwd.
+        schema_arg = native_schema_path
+        if native_schema_path is not None and getattr(
+            self._provider_cls, "native_output_schema_wants_absolute_path", False
+        ):
+            schema_arg = str(workspace / native_schema_path)
         schema_hint = "" if native_schema_path else build_schema_hint(response_cls)
         combined_prompt = f"{system_prompt}\n\n{user_prompt}{schema_hint}"
         text = self._generate(
@@ -203,7 +212,7 @@ class CliAgentRunner:
             mcp_servers=mcp_servers,
             reuse_session=reuse_session,
             session_key=session_key,
-            output_schema_path=native_schema_path,
+            output_schema_path=schema_arg,
         )
         label = agent_label(kind)
         parsed = parse_typed_response_text(text, response_cls)

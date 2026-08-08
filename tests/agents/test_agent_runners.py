@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from io import StringIO
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -1150,6 +1151,46 @@ class TestCliAgentRunner:
         assert captured[0].output_schema_paths == [None]
         assert "Schema for JudgeResponse" in captured[0].generate_calls[0]["prompt"]
         assert "using prompt fallback" in log.getvalue()
+
+    def test_absolute_schema_path_provider_gets_resolved_path(self, monkeypatch, tmp_path):
+        """Providers reading the schema inline (Claude) get an absolute path,
+        resolvable independent of the subprocess cwd, and drop the prompt hint."""
+        captured: list = []
+        fake_cls = _make_fake_agent_class(
+            generate_returns='{"analysis": "ok", "feedback": "", "verdict": "pass"}',
+            captured=captured,
+        )
+        fake_cls.supports_native_output_schema = True
+        fake_cls.native_output_schema_wants_absolute_path = True
+        monkeypatch.setitem(
+            __import__(
+                "vibesys.agents.cli_runner",
+                fromlist=["_PROVIDER_CLASSES"],
+            )._PROVIDER_CLASSES,
+            "claude",
+            fake_cls,
+        )
+        workspace = tmp_path / "ws"
+        workspace.mkdir()
+        runner = CliAgentRunner(provider="claude", model="m", run_log_file=None)
+
+        runner.invoke(
+            kind="judge",
+            workspace=workspace,
+            system_prompt="THE-SYSTEM-PROMPT",
+            user_prompt="usr",
+            response_cls=JudgeResponse,
+            fallback_factory=_judge_fallback,
+            round_label="judge #1",
+        )
+
+        agent = captured[0]
+        passed = agent.output_schema_paths[-1]
+        assert passed is not None
+        assert Path(passed).is_absolute()
+        assert Path(passed).is_file()
+        assert Path(passed).parent == workspace / ".cache/vibesys/response-schemas"
+        assert "Schema for JudgeResponse" not in agent.generate_calls[0]["prompt"]
 
     def test_cli_runner_chat_returns_plain_text_in_a_fresh_session_per_turn(
         self, monkeypatch, tmp_path
