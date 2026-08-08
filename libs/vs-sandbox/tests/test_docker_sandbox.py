@@ -104,9 +104,7 @@ class TestStart:
         assert "abc123container" not in _live_containers
 
     @patch("subprocess.run")
-    def test_start_failure_retains_created_container_when_removal_fails(
-        self, mock_run, sandbox
-    ):
+    def test_start_failure_retains_created_container_when_removal_fails(self, mock_run, sandbox):
         from vs_sandbox.docker_sandbox import _live_containers
 
         mock_run.side_effect = [

@@ -518,10 +518,7 @@ class DockerSandbox(BaseSandbox):
                     removed = (
                         result.returncode == 0
                         or "No such container" in stderr
-                        or (
-                            "removal of container" in stderr
-                            and "is already in progress" in stderr
-                        )
+                        or ("removal of container" in stderr and "is already in progress" in stderr)
                     )
                     if not removed:
                         cleanup_error = RuntimeError(

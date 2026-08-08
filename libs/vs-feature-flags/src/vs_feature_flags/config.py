@@ -30,9 +30,7 @@ def parse_feature_flag_overrides(
             flag = flag_type(str(key))
         except (TypeError, ValueError):
             valid = _format_valid_flags(flag_type)
-            raise ValueError(
-                f"Unknown feature flag {key!r}. Supported flags: {valid}"
-            ) from None
+            raise ValueError(f"Unknown feature flag {key!r}. Supported flags: {valid}") from None
 
         if not isinstance(value, bool):
             raise ValueError(f"{section_name}.{key} must be true or false")
