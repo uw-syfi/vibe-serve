@@ -755,6 +755,7 @@ class _CarryOver:
     regression_info: str | None = None
     exhaustion_info: str | None = None
 
+
 @dataclass
 class _RoundOutcome:
     """Resolved per-round metrics, outcome labels, and candidate evidence.
@@ -1058,9 +1059,7 @@ def _resolve_round_outcome(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked:
             and completed_official_evaluation_reason is not None
         ):
             single_agent_response.perf_metric = framework_perf_metric
-            single_agent_response.perf_unit = (
-                benchmark_result.metric if benchmark_result else None
-            )
+            single_agent_response.perf_unit = benchmark_result.metric if benchmark_result else None
         profile_skipped = single_agent_response is None or (
             single_agent_response.perf_metric is None
         )
@@ -1106,9 +1105,7 @@ def _resolve_round_outcome(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked:
             and completed_official_evaluation_reason is not None
         ):
             implementation_metric = active_hypothesis.gate_approved_perf_metric
-        profile_skipped = (
-            framework_perf_metric is None and implementation_metric is None
-        )
+        profile_skipped = framework_perf_metric is None and implementation_metric is None
         if (
             framework_perf_metric is not None
             and passed
@@ -1127,9 +1124,7 @@ def _resolve_round_outcome(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked:
             else:
                 perf_unit = active_hypothesis.gate_approved_perf_unit
                 accepted_metrics = dict(active_hypothesis.gate_approved_metrics)
-                accepted_evaluation_artifact = (
-                    active_hypothesis.gate_approved_evaluation_artifact
-                )
+                accepted_evaluation_artifact = active_hypothesis.gate_approved_evaluation_artifact
         else:
             # Profiles and directional probes inform the designer,
             # but only an official checkpoint may update the
@@ -1166,9 +1161,7 @@ def _resolve_round_outcome(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked:
     elif single_agent_response is not None:
         candidate_disposition = single_agent_response.candidate_disposition.value
         candidate_metrics = dict(single_agent_response.candidate_metrics)
-        candidate_evaluation_artifact = (
-            single_agent_response.candidate_evaluation_artifact
-        )
+        candidate_evaluation_artifact = single_agent_response.candidate_evaluation_artifact
         candidate_operating_point = single_agent_response.candidate_operating_point
         candidate_retention_reason = single_agent_response.candidate_retention_reason
     else:
@@ -1192,12 +1185,8 @@ def _resolve_round_outcome(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked:
         candidate_evaluation_artifact = (
             active_hypothesis.gate_approved_candidate_evaluation_artifact
         )
-        candidate_operating_point = (
-            active_hypothesis.gate_approved_candidate_operating_point
-        )
-        candidate_retention_reason = (
-            active_hypothesis.gate_approved_candidate_retention_reason
-        )
+        candidate_operating_point = active_hypothesis.gate_approved_candidate_operating_point
+        candidate_retention_reason = active_hypothesis.gate_approved_candidate_retention_reason
 
     return _RoundOutcome(
         perf_metric=perf_metric,
@@ -1214,6 +1203,7 @@ def _resolve_round_outcome(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked:
         candidate_retention_reason=candidate_retention_reason,
         last_single_agent_response=last_single_agent_response,
     )
+
 
 def _run_pre_round_decision(  # noqa: PLR0913  # tracked: #288
     ctx: LoopContext,
@@ -3148,7 +3138,6 @@ def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
                         feedback = single_agent_response.feedback
                         active_hypothesis.feedback = feedback
                         _save_active_hypothesis(active_hypothesis_path, active_hypothesis)
-
 
                 # --- Record round result & update carry-over ---
                 commit = ctx.git.current_sha() if ctx.git_tracking else None
