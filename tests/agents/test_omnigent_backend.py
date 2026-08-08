@@ -47,7 +47,7 @@ from vibesys.schemas import JudgeResponse, Verdict
 from vs_sandbox import HostResource, HostResourceAccess
 
 
-def _config(*, omnigent: bool | None = None, **agent) -> Config:
+def _config(*, omnigent: bool | None = None, **agent) -> Config:  # noqa: ANN003  # tracked: #288
     """Minimal Config, optionally overriding the omnigent feature flag."""
     payload: dict = {"model": {"name": "m"}, "agent": agent}
     if omnigent is not None:
@@ -55,7 +55,7 @@ def _config(*, omnigent: bool | None = None, **agent) -> Config:
     return Config.model_validate(payload)
 
 
-def _build(config: Config, **overrides):
+def _build(config: Config, **overrides):  # noqa: ANN003, ANN202  # tracked: #288
     kwargs = {
         "agent_backend": None,
         "cli_provider": None,
@@ -78,31 +78,31 @@ def _judge_fallback() -> JudgeResponse:
 class TestFlagDefaultsOff:
     """The agentshim path must be untouched unless the flag is set."""
 
-    def test_flag_defaults_to_disabled(self):
+    def test_flag_defaults_to_disabled(self):  # noqa: ANN201  # tracked: #288
         assert is_feature_enabled(FeatureFlag.OMNIGENT_AGENT_BACKEND, _config()) is False
 
-    def test_flag_absent_from_config_yields_cli_runner(self):
+    def test_flag_absent_from_config_yields_cli_runner(self):  # noqa: ANN201  # tracked: #288
         runner = _build(_config(backend="cli", cli_provider="claude"))
 
         assert isinstance(runner, CliAgentRunner)
         assert runner.backend_name == "cli"
-        assert runner._provider == "claude"
+        assert runner._provider == "claude"  # noqa: SLF001  # tracked: #288
 
-    def test_flag_explicitly_false_yields_cli_runner(self):
+    def test_flag_explicitly_false_yields_cli_runner(self):  # noqa: ANN201  # tracked: #288
         runner = _build(_config(omnigent=False, backend="cli", cli_provider="codex"))
 
         assert isinstance(runner, CliAgentRunner)
         assert runner.backend_name == "cli"
 
     @pytest.mark.parametrize("provider", ["claude", "gemini", "codex", "opencode"])
-    def test_every_agentshim_provider_still_builds_with_flag_off(self, provider):
+    def test_every_agentshim_provider_still_builds_with_flag_off(self, provider):  # noqa: ANN001, ANN201  # tracked: #288
         """Providers omnigent cannot run must keep working on the default path."""
         runner = _build(_config(backend="cli", cli_provider=provider))
 
         assert isinstance(runner, CliAgentRunner)
-        assert runner._provider == provider
+        assert runner._provider == provider  # noqa: SLF001  # tracked: #288
 
-    def test_docker_path_unchanged_with_flag_off(self):
+    def test_docker_path_unchanged_with_flag_off(self):  # noqa: ANN201  # tracked: #288
         backends = {"implementer": MagicMock(), "judge": MagicMock(), "perf_eval": MagicMock()}
 
         runner = _build(
@@ -112,29 +112,29 @@ class TestFlagDefaultsOff:
         )
 
         assert isinstance(runner, CliAgentRunner)
-        assert runner._docker_sandboxes is backends
+        assert runner._docker_sandboxes is backends  # noqa: SLF001  # tracked: #288
 
 
 class TestFlagOnSelection:
-    def test_flag_on_yields_omnigent_runner(self):
+    def test_flag_on_yields_omnigent_runner(self):  # noqa: ANN201  # tracked: #288
         runner = _build(_config(omnigent=True, backend="cli", cli_provider="claude"))
 
         assert isinstance(runner, OmnigentAgentRunner)
         assert runner.backend_name == "omnigent"
-        assert runner._provider == "claude"
+        assert runner._provider == "claude"  # noqa: SLF001  # tracked: #288
 
-    def test_flag_on_passes_through_model_and_log_dir(self, tmp_path):
+    def test_flag_on_passes_through_model_and_log_dir(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         runner = _build(
             _config(omnigent=True, backend="cli", cli_provider="codex"),
             model_name="gpt-5",
             log_dir=tmp_path,
         )
 
-        assert runner._model == "gpt-5"
-        assert runner._model_name == "gpt-5"
-        assert runner._log_dir == tmp_path
+        assert runner._model == "gpt-5"  # noqa: SLF001  # tracked: #288
+        assert runner._model_name == "gpt-5"  # noqa: SLF001  # tracked: #288
+        assert runner._log_dir == tmp_path  # noqa: SLF001  # tracked: #288
 
-    def test_flag_on_does_not_affect_deepagents_backend(self):
+    def test_flag_on_does_not_affect_deepagents_backend(self):  # noqa: ANN201  # tracked: #288
         """The flag scopes to the cli backend only."""
         runner = _build(
             _config(omnigent=True, backend="deepagents"),
@@ -143,23 +143,23 @@ class TestFlagOnSelection:
 
         assert runner.backend_name == "deepagents"
 
-    def test_flag_on_does_not_affect_stub_backend(self):
+    def test_flag_on_does_not_affect_stub_backend(self):  # noqa: ANN201  # tracked: #288
         runner = _build(_config(omnigent=True, backend="stub"))
 
         assert runner.backend_name == "stub"
 
     @pytest.mark.parametrize("provider", ["gemini", "opencode"])
-    def test_unsupported_provider_names_the_remedy(self, provider):
+    def test_unsupported_provider_names_the_remedy(self, provider):  # noqa: ANN001, ANN201  # tracked: #288
         with pytest.raises(OmnigentUnavailableError) as exc:
             _build(_config(omnigent=True, backend="cli", cli_provider=provider))
 
         message = str(exc.value)
         assert provider in message
         assert "omnigent_agent_backend" in message
-        assert "claude" in message and "codex" in message
+        assert "claude" in message and "codex" in message  # noqa: PT018  # tracked: #288
         assert "agentshim" in message
 
-    def test_docker_combination_is_rejected(self):
+    def test_docker_combination_is_rejected(self):  # noqa: ANN201  # tracked: #288
         backends = {"implementer": MagicMock(), "judge": MagicMock(), "perf_eval": MagicMock()}
 
         with pytest.raises(OmnigentUnavailableError) as exc:
@@ -171,7 +171,7 @@ class TestFlagOnSelection:
 
         assert "--docker" in str(exc.value)
 
-    def test_host_resource_grants_are_refused_rather_than_dropped(self, tmp_path):
+    def test_host_resource_grants_are_refused_rather_than_dropped(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         """Silently dropping an operator's grant would weaken a security boundary."""
         grant = HostResource(tmp_path / "models", HostResourceAccess.READ_ONLY, "weights")
 
@@ -185,7 +185,7 @@ class TestFlagOnSelection:
         assert "models" in message
         assert "agentshim" in message
 
-    def test_empty_host_resources_are_fine(self):
+    def test_empty_host_resources_are_fine(self):  # noqa: ANN201  # tracked: #288
         runner = _build(
             _config(omnigent=True, backend="cli", cli_provider="claude"),
             host_resources=(),
@@ -195,18 +195,18 @@ class TestFlagOnSelection:
 
 
 class TestProviderRegistry:
-    def test_supported_providers_are_claude_and_codex(self):
+    def test_supported_providers_are_claude_and_codex(self):  # noqa: ANN201  # tracked: #288
         assert supported_providers() == ["claude", "codex"]
 
     @pytest.mark.parametrize("provider", ["claude", "codex"])
-    def test_specs_point_at_omnigent_inner_executors(self, provider):
+    def test_specs_point_at_omnigent_inner_executors(self, provider):  # noqa: ANN001, ANN201  # tracked: #288
         spec = OMNIGENT_PROVIDER_EXECUTORS[provider]
 
         assert spec.module.startswith("omnigent.inner.")
         assert spec.class_name.endswith("Executor")
         assert spec.harness
 
-    def test_resolve_rejects_unknown_provider(self):
+    def test_resolve_rejects_unknown_provider(self):  # noqa: ANN201  # tracked: #288
         with pytest.raises(OmnigentUnavailableError):
             resolve_executor_spec("does-not-exist")
 
@@ -214,7 +214,7 @@ class TestProviderRegistry:
 class TestMissingDependency:
     _MODULE = "omnigent.inner.claude_sdk_executor"
 
-    def test_import_error_names_the_extra(self, monkeypatch):
+    def test_import_error_names_the_extra(self, monkeypatch):  # noqa: ANN001, ANN201  # tracked: #288
         runner = OmnigentAgentRunner(provider="claude")
         monkeypatch.setattr(
             "vibesys.agents.omnigent.runner.import_module",
@@ -222,7 +222,7 @@ class TestMissingDependency:
         )
 
         with pytest.raises(OmnigentUnavailableError) as exc:
-            runner._executor_class()
+            runner._executor_class()  # noqa: SLF001  # tracked: #288
 
         message = str(exc.value)
         # Must name both remedies: install the extra, or turn the flag off.
@@ -231,7 +231,7 @@ class TestMissingDependency:
         assert "agentshim" in message
         assert self._MODULE in message
 
-    def test_incompatible_version_names_the_class(self, monkeypatch):
+    def test_incompatible_version_names_the_class(self, monkeypatch):  # noqa: ANN001, ANN201  # tracked: #288
         runner = OmnigentAgentRunner(provider="codex")
         monkeypatch.setattr(
             "vibesys.agents.omnigent.runner.import_module",
@@ -239,13 +239,13 @@ class TestMissingDependency:
         )
 
         with pytest.raises(OmnigentUnavailableError) as exc:
-            runner._executor_class()
+            runner._executor_class()  # noqa: SLF001  # tracked: #288
 
         assert "CodexExecutor" in str(exc.value)
 
 
 class TestPatchedEnviron:
-    def test_sets_and_restores_a_new_key(self):
+    def test_sets_and_restores_a_new_key(self):  # noqa: ANN201  # tracked: #288
         key = "VIBESYS_OMNIGENT_TEST_UNSET"
         os.environ.pop(key, None)
 
@@ -254,7 +254,7 @@ class TestPatchedEnviron:
 
         assert key not in os.environ
 
-    def test_restores_a_preexisting_value(self, monkeypatch):
+    def test_restores_a_preexisting_value(self, monkeypatch):  # noqa: ANN001, ANN201  # tracked: #288
         monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "0")
 
         with _patched_environ({"CUDA_VISIBLE_DEVICES": "3"}):
@@ -262,7 +262,7 @@ class TestPatchedEnviron:
 
         assert os.environ["CUDA_VISIBLE_DEVICES"] == "0"
 
-    def test_restores_on_exception(self, monkeypatch):
+    def test_restores_on_exception(self, monkeypatch):  # noqa: ANN001, ANN201  # tracked: #288
         monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "0")
 
         with pytest.raises(RuntimeError), _patched_environ({"CUDA_VISIBLE_DEVICES": "3"}):
@@ -270,7 +270,7 @@ class TestPatchedEnviron:
 
         assert os.environ["CUDA_VISIBLE_DEVICES"] == "0"
 
-    def test_none_is_a_noop(self):
+    def test_none_is_a_noop(self):  # noqa: ANN201  # tracked: #288
         before = dict(os.environ)
 
         with _patched_environ(None):
@@ -280,7 +280,7 @@ class TestPatchedEnviron:
 
 
 class TestMcpRejection:
-    def test_mcp_servers_are_refused_rather_than_dropped(self, tmp_path):
+    def test_mcp_servers_are_refused_rather_than_dropped(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         runner = OmnigentAgentRunner(provider="claude")
         server = MagicMock()
         server.name = "issue-board"
@@ -299,10 +299,10 @@ class TestMcpRejection:
 
 
 class TestUsageRecord:
-    def test_record_matches_the_agentshim_schema(self, tmp_path):
+    def test_record_matches_the_agentshim_schema(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         runner = OmnigentAgentRunner(provider="claude", model_name="m", log_dir=tmp_path)
 
-        runner._write_usage_record(
+        runner._write_usage_record(  # noqa: SLF001  # tracked: #288
             kind="judge",
             round_label="judge #1",
             usage={"input_tokens": 11, "output_tokens": 22},
@@ -321,10 +321,10 @@ class TestUsageRecord:
         assert record["total_cost_usd"] is None
         assert record["duration_ms"] is None
 
-    def test_no_log_dir_writes_nothing(self, tmp_path):
+    def test_no_log_dir_writes_nothing(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         runner = OmnigentAgentRunner(provider="claude")
 
-        runner._write_usage_record(kind="judge", round_label="r", usage={})
+        runner._write_usage_record(kind="judge", round_label="r", usage={})  # noqa: SLF001  # tracked: #288
 
         assert list(tmp_path.iterdir()) == []
 
@@ -363,14 +363,14 @@ requires_sandbox_backend = pytest.mark.skipif(
 class _FakeExecutor:
     """Stands in for an Omnigent executor, emitting a scripted event stream."""
 
-    def __init__(self, events):
+    def __init__(self, events):  # noqa: ANN001, ANN204  # tracked: #288
         self._events = events
         self.calls: list[tuple] = []
 
-    def run_turn(self, messages, tools, system_prompt, config=None):
+    def run_turn(self, messages, tools, system_prompt, config=None):  # noqa: ANN001, ANN202  # tracked: #288
         self.calls.append((messages, tools, system_prompt, config))
 
-        async def _stream():
+        async def _stream():  # noqa: ANN202  # tracked: #288
             for event in self._events:
                 yield event
 
@@ -381,11 +381,11 @@ class _FakeExecutor:
 class TestDriveTurn:
     """Exercises the real Omnigent event types against the adapter."""
 
-    def _run(self, events, log=None):
-        import asyncio
+    def _run(self, events, log=None):  # noqa: ANN001, ANN202  # tracked: #288
+        import asyncio  # noqa: PLC0415  # tracked: #288
 
-        from vibesys.agents.callbacks import AgentLogger
-        from vibesys.agents.omnigent.runner import _drive_turn
+        from vibesys.agents.callbacks import AgentLogger  # noqa: PLC0415  # tracked: #288
+        from vibesys.agents.omnigent.runner import _drive_turn  # noqa: PLC0415  # tracked: #288
 
         executor = _FakeExecutor(events)
         logger = AgentLogger(log_file=log, agent_label="Judge")
@@ -394,15 +394,15 @@ class TestDriveTurn:
         )
         return executor, text, usage
 
-    def test_turn_complete_response_wins_over_chunks(self):
-        from omnigent import TextChunk, TurnComplete
+    def test_turn_complete_response_wins_over_chunks(self):  # noqa: ANN201  # tracked: #288
+        from omnigent import TextChunk, TurnComplete  # noqa: PLC0415  # tracked: #288
 
         _, text, _ = self._run([TextChunk(text="partial"), TurnComplete(response="final answer")])
 
         assert text == "final answer"
 
-    def test_chunks_are_the_fallback_when_response_is_absent(self):
-        from omnigent import TextChunk, TurnComplete
+    def test_chunks_are_the_fallback_when_response_is_absent(self):  # noqa: ANN201  # tracked: #288
+        from omnigent import TextChunk, TurnComplete  # noqa: PLC0415  # tracked: #288
 
         _, text, _ = self._run(
             [TextChunk(text="one "), TextChunk(text="two"), TurnComplete(response=None)]
@@ -410,8 +410,8 @@ class TestDriveTurn:
 
         assert text == "one two"
 
-    def test_usage_is_returned_for_the_audit_record(self):
-        from omnigent import TurnComplete
+    def test_usage_is_returned_for_the_audit_record(self):  # noqa: ANN201  # tracked: #288
+        from omnigent import TurnComplete  # noqa: PLC0415  # tracked: #288
 
         _, _, usage = self._run(
             [TurnComplete(response="x", usage={"input_tokens": 5, "output_tokens": 7})]
@@ -419,7 +419,7 @@ class TestDriveTurn:
 
         assert usage == {"input_tokens": 5, "output_tokens": 7}
 
-    def test_prompt_and_system_prompt_reach_run_turn(self):
+    def test_prompt_and_system_prompt_reach_run_turn(self):  # noqa: ANN201  # tracked: #288
         """Messages must be plain dicts.
 
         ``run_turn`` is annotated ``list[Message]``, but 0.6.0's executors read
@@ -427,7 +427,7 @@ class TestDriveTurn:
         ``AttributeError: 'Message' object has no attribute 'get'`` on a live
         turn, which no fake-executor test would catch.
         """
-        from omnigent import TurnComplete
+        from omnigent import TurnComplete  # noqa: PLC0415  # tracked: #288
 
         executor, _, _ = self._run([TurnComplete(response="x")])
 
@@ -439,14 +439,14 @@ class TestDriveTurn:
         assert messages[0]["role"] == "user"
         assert messages[0]["content"] == "p"
 
-    def test_tool_schemas_are_forwarded(self):
+    def test_tool_schemas_are_forwarded(self):  # noqa: ANN201  # tracked: #288
         """An empty tool list leaves the agent with no filesystem access."""
-        import asyncio
+        import asyncio  # noqa: PLC0415  # tracked: #288
 
-        from omnigent import TurnComplete
+        from omnigent import TurnComplete  # noqa: PLC0415  # tracked: #288
 
-        from vibesys.agents.callbacks import AgentLogger
-        from vibesys.agents.omnigent.runner import _drive_turn
+        from vibesys.agents.callbacks import AgentLogger  # noqa: PLC0415  # tracked: #288
+        from vibesys.agents.omnigent.runner import _drive_turn  # noqa: PLC0415  # tracked: #288
 
         executor = _FakeExecutor([TurnComplete(response="x")])
         schemas = [{"name": "sys_os_read", "description": "d", "parameters": {}}]
@@ -463,8 +463,12 @@ class TestDriveTurn:
         _, tools, _, _ = executor.calls[0]
         assert tools == schemas
 
-    def test_tool_events_are_logged(self):
-        from omnigent import ToolCallComplete, ToolCallRequest, TurnComplete
+    def test_tool_events_are_logged(self):  # noqa: ANN201  # tracked: #288
+        from omnigent import (  # noqa: PLC0415  # tracked: #288
+            ToolCallComplete,
+            ToolCallRequest,
+            TurnComplete,
+        )
 
         log = StringIO()
         self._run(
@@ -479,7 +483,7 @@ class TestDriveTurn:
         written = log.getvalue()
         assert "Bash" in written
 
-    def test_empty_stream_yields_empty_text(self):
+    def test_empty_stream_yields_empty_text(self):  # noqa: ANN201  # tracked: #288
         _, text, usage = self._run([])
 
         assert text == ""
@@ -491,29 +495,29 @@ class TestExecutorResolution:
     """Only runs where omnigent is installed — proves the registry is accurate."""
 
     @pytest.mark.parametrize("provider", ["claude", "codex"])
-    def test_registered_classes_actually_exist(self, provider):
+    def test_registered_classes_actually_exist(self, provider):  # noqa: ANN001, ANN201  # tracked: #288
         runner = OmnigentAgentRunner(provider=provider)
 
-        executor_cls = runner._executor_class()
+        executor_cls = runner._executor_class()  # noqa: SLF001  # tracked: #288
 
         assert executor_cls.__name__ == OMNIGENT_PROVIDER_EXECUTORS[provider].class_name
 
     @pytest.mark.parametrize("provider", ["claude", "codex"])
-    def test_registered_classes_accept_cwd_and_model(self, provider):
+    def test_registered_classes_accept_cwd_and_model(self, provider):  # noqa: ANN001, ANN201  # tracked: #288
         """The constructor shape _build_executor depends on."""
-        import inspect
+        import inspect  # noqa: PLC0415  # tracked: #288
 
         runner = OmnigentAgentRunner(provider=provider)
-        params = inspect.signature(runner._executor_class().__init__).parameters
+        params = inspect.signature(runner._executor_class().__init__).parameters  # noqa: SLF001  # tracked: #288
 
         assert "cwd" in params
         assert "model" in params
 
     @requires_sandbox_backend
-    def test_build_executor_attaches_os_tools_and_dispatcher(self, tmp_path):
+    def test_build_executor_attaches_os_tools_and_dispatcher(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         runner = OmnigentAgentRunner(provider="claude", model="claude-sonnet-4-6")
 
-        executor, schemas = runner._build_executor(Path(tmp_path))
+        executor, schemas = runner._build_executor(Path(tmp_path))  # noqa: SLF001  # tracked: #288
 
         assert executor is not None
         # Without these the agent has no filesystem access at all.
@@ -523,7 +527,7 @@ class TestExecutorResolution:
             "sys_os_edit",
             "sys_os_shell",
         }
-        assert executor._tool_executor is not None
+        assert executor._tool_executor is not None  # noqa: SLF001  # tracked: #288
         runner.close()
 
 
@@ -531,8 +535,8 @@ class TestExecutorResolution:
 class TestMissingSandboxBackend:
     """A host without bwrap must get the flag's error, not a bare OSError."""
 
-    def test_missing_backend_binary_is_translated(self, tmp_path, monkeypatch):
-        from vibesys.agents.omnigent.runner import _build_os_tools
+    def test_missing_backend_binary_is_translated(self, tmp_path, monkeypatch):  # noqa: ANN001, ANN201  # tracked: #288
+        from vibesys.agents.omnigent.runner import _build_os_tools  # noqa: PLC0415  # tracked: #288
 
         monkeypatch.setattr(
             "omnigent.inner.os_env.create_os_environment",
@@ -540,7 +544,7 @@ class TestMissingSandboxBackend:
                 side_effect=OSError("linux_bwrap sandbox requires the 'bwrap' binary on PATH.")
             ),
         )
-        spec = OmnigentAgentRunner(provider="claude")._build_os_env(Path(tmp_path))
+        spec = OmnigentAgentRunner(provider="claude")._build_os_env(Path(tmp_path))  # noqa: SLF001  # tracked: #288
 
         with pytest.raises(OmnigentUnavailableError) as exc:
             _build_os_tools(spec, Path(tmp_path))
@@ -552,14 +556,14 @@ class TestMissingSandboxBackend:
         assert "agentshim" in message
         assert "disable the flag" in message
 
-    def test_declining_to_build_an_env_is_also_an_error(self, tmp_path, monkeypatch):
+    def test_declining_to_build_an_env_is_also_an_error(self, tmp_path, monkeypatch):  # noqa: ANN001, ANN201  # tracked: #288
         """A None env would mean a sandboxed but toolless agent."""
-        from vibesys.agents.omnigent.runner import _build_os_tools
+        from vibesys.agents.omnigent.runner import _build_os_tools  # noqa: PLC0415  # tracked: #288
 
         monkeypatch.setattr(
             "omnigent.inner.os_env.create_os_environment", MagicMock(return_value=None)
         )
-        spec = OmnigentAgentRunner(provider="claude")._build_os_env(Path(tmp_path))
+        spec = OmnigentAgentRunner(provider="claude")._build_os_env(Path(tmp_path))  # noqa: SLF001  # tracked: #288
 
         with pytest.raises(OmnigentUnavailableError) as exc:
             _build_os_tools(spec, Path(tmp_path))
@@ -572,15 +576,15 @@ class TestMissingSandboxBackend:
 class TestOsTools:
     """Covers the tool layer a live turn proved was missing."""
 
-    def test_schemas_are_flat_not_openai_function_shaped(self, tmp_path):
+    def test_schemas_are_flat_not_openai_function_shaped(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         """`run_turn` reads name/description off the top level.
 
         Passing `get_schema()` verbatim registers MCP tools with empty names,
         and the agent reports having no file tools.
         """
-        from vibesys.agents.omnigent.runner import _build_os_tools
+        from vibesys.agents.omnigent.runner import _build_os_tools  # noqa: PLC0415  # tracked: #288
 
-        spec = OmnigentAgentRunner(provider="claude")._build_os_env(Path(tmp_path))
+        spec = OmnigentAgentRunner(provider="claude")._build_os_env(Path(tmp_path))  # noqa: SLF001  # tracked: #288
         schemas, _ = _build_os_tools(spec, Path(tmp_path))
 
         for schema in schemas:
@@ -588,26 +592,26 @@ class TestOsTools:
             assert "function" not in schema
             assert schema["parameters"]["type"] == "object"
 
-    def test_dispatcher_executes_a_real_read(self, tmp_path):
-        import asyncio
+    def test_dispatcher_executes_a_real_read(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+        import asyncio  # noqa: PLC0415  # tracked: #288
 
-        from vibesys.agents.omnigent.runner import _build_os_tools
+        from vibesys.agents.omnigent.runner import _build_os_tools  # noqa: PLC0415  # tracked: #288
 
         (tmp_path / "NOTES.md").write_text("launch code 4417\n")
-        spec = OmnigentAgentRunner(provider="claude")._build_os_env(Path(tmp_path))
+        spec = OmnigentAgentRunner(provider="claude")._build_os_env(Path(tmp_path))  # noqa: SLF001  # tracked: #288
         _, dispatch = _build_os_tools(spec, Path(tmp_path))
 
         result = asyncio.run(dispatch("sys_os_read", {"path": "NOTES.md"}))
 
         assert "4417" in str(result)
 
-    def test_dispatcher_reports_unknown_tools(self):
-        import asyncio
+    def test_dispatcher_reports_unknown_tools(self):  # noqa: ANN201  # tracked: #288
+        import asyncio  # noqa: PLC0415  # tracked: #288
 
-        from vibesys.agents.omnigent.runner import _build_os_tools
+        from vibesys.agents.omnigent.runner import _build_os_tools  # noqa: PLC0415  # tracked: #288
 
         with tempfile.TemporaryDirectory() as tmp:
-            spec = OmnigentAgentRunner(provider="claude")._build_os_env(Path(tmp))
+            spec = OmnigentAgentRunner(provider="claude")._build_os_env(Path(tmp))  # noqa: SLF001  # tracked: #288
             _, dispatch = _build_os_tools(spec, Path(tmp))
 
             result = asyncio.run(dispatch("nope", {}))
@@ -618,29 +622,29 @@ class TestOsTools:
 @requires_omnigent
 @requires_sandbox_backend
 class TestLifecycle:
-    def test_close_is_idempotent(self, tmp_path):
+    def test_close_is_idempotent(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         runner = OmnigentAgentRunner(provider="claude")
-        runner._build_executor(Path(tmp_path))
+        runner._build_executor(Path(tmp_path))  # noqa: SLF001  # tracked: #288
 
         runner.close()
         runner.close()
 
-        assert runner._executors == {}
-        assert runner._loop is None
+        assert runner._executors == {}  # noqa: SLF001  # tracked: #288
+        assert runner._loop is None  # noqa: SLF001  # tracked: #288
 
-    def test_turns_share_one_loop(self, tmp_path):
+    def test_turns_share_one_loop(self, tmp_path):  # noqa: ANN001, ANN201, ARG002  # tracked: #288
         """A per-turn asyncio.run would strand cached executors on a dead loop."""
         runner = OmnigentAgentRunner(provider="claude")
 
         async def _noop() -> str:
             return "ok"
 
-        runner._run_async(_noop())
-        first = runner._loop
-        runner._run_async(_noop())
+        runner._run_async(_noop())  # noqa: SLF001  # tracked: #288
+        first = runner._loop  # noqa: SLF001  # tracked: #288
+        runner._run_async(_noop())  # noqa: SLF001  # tracked: #288
 
-        assert runner._loop is first
-        assert first is not None and not first.is_closed()
+        assert runner._loop is first  # noqa: SLF001  # tracked: #288
+        assert first is not None and not first.is_closed()  # noqa: PT018  # tracked: #288
         runner.close()
 
 
@@ -648,30 +652,30 @@ class TestLifecycle:
 class TestWorkspaceConfinement:
     """The opt-in path must not be a silent downgrade from vs_sandbox."""
 
-    def test_os_env_confines_writes_to_the_workspace(self, tmp_path):
+    def test_os_env_confines_writes_to_the_workspace(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         runner = OmnigentAgentRunner(provider="claude")
 
-        os_env = runner._build_os_env(Path(tmp_path))
+        os_env = runner._build_os_env(Path(tmp_path))  # noqa: SLF001  # tracked: #288
 
         assert os_env.cwd == str(tmp_path)
         assert os_env.sandbox is not None
         assert os_env.sandbox.write_paths == [str(tmp_path)]
 
-    def test_sandbox_is_never_disabled(self, tmp_path):
+    def test_sandbox_is_never_disabled(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         """`type="none"` would run the agent unconfined."""
         runner = OmnigentAgentRunner(provider="codex")
 
-        os_env = runner._build_os_env(Path(tmp_path))
+        os_env = runner._build_os_env(Path(tmp_path))  # noqa: SLF001  # tracked: #288
 
         assert os_env.sandbox.type != "none"
 
-    def test_sandbox_backend_matches_the_host_platform(self, tmp_path):
+    def test_sandbox_backend_matches_the_host_platform(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         """The dataclass default is linux_bwrap, which is wrong on macOS."""
-        import sys
+        import sys  # noqa: PLC0415  # tracked: #288
 
         runner = OmnigentAgentRunner(provider="claude")
 
-        os_env = runner._build_os_env(Path(tmp_path))
+        os_env = runner._build_os_env(Path(tmp_path))  # noqa: SLF001  # tracked: #288
 
         expected = {
             "linux": "linux_bwrap",
@@ -680,15 +684,15 @@ class TestWorkspaceConfinement:
         if expected is not None:
             assert os_env.sandbox.type == expected
 
-    def test_two_workspaces_do_not_share_a_grant(self, tmp_path):
+    def test_two_workspaces_do_not_share_a_grant(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         """Sibling runs must not be writable from one another."""
         a, b = tmp_path / "a", tmp_path / "b"
         a.mkdir()
         b.mkdir()
         runner = OmnigentAgentRunner(provider="claude")
 
-        env_a = runner._build_os_env(a)
-        env_b = runner._build_os_env(b)
+        env_a = runner._build_os_env(a)  # noqa: SLF001  # tracked: #288
+        env_b = runner._build_os_env(b)  # noqa: SLF001  # tracked: #288
 
         assert env_a.sandbox.write_paths == [str(a)]
         assert env_b.sandbox.write_paths == [str(b)]
@@ -706,16 +710,16 @@ class TestTurnPathWithFakeExecutor:
     """
 
     @staticmethod
-    def _runner(tmp_path, events, **kwargs):
+    def _runner(tmp_path, events, **kwargs):  # noqa: ANN001, ANN003, ANN205, ARG004  # tracked: #288
         runner = OmnigentAgentRunner(provider="claude", model_name="m", **kwargs)
         executor = _FakeExecutor(events)
         schemas = [{"name": "sys_os_read", "description": "d", "parameters": {}}]
         # Bypass _build_executor so no OS environment (and so no bwrap) is needed.
-        runner._build_executor = lambda _ws: (executor, schemas)  # type: ignore[method-assign]
+        runner._build_executor = lambda _ws: (executor, schemas)  # type: ignore[method-assign]  # noqa: SLF001  # tracked: #288
         return runner, executor
 
-    def test_invoke_parses_a_structured_response(self, tmp_path):
-        from omnigent import TurnComplete
+    def test_invoke_parses_a_structured_response(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+        from omnigent import TurnComplete  # noqa: PLC0415  # tracked: #288
 
         payload = '{"analysis":"a","feedback":"f","verdict":"pass"}'
         runner, _ = self._runner(tmp_path, [TurnComplete(response=payload)])
@@ -734,8 +738,8 @@ class TestTurnPathWithFakeExecutor:
         assert result.verdict == Verdict.PASS
         runner.close()
 
-    def test_invoke_falls_back_on_unparseable_output(self, tmp_path):
-        from omnigent import TurnComplete
+    def test_invoke_falls_back_on_unparseable_output(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+        from omnigent import TurnComplete  # noqa: PLC0415  # tracked: #288
 
         runner, _ = self._runner(tmp_path, [TurnComplete(response="not json at all")])
 
@@ -753,8 +757,8 @@ class TestTurnPathWithFakeExecutor:
         assert result.analysis == "fb"
         runner.close()
 
-    def test_invoke_sends_the_schema_hint(self, tmp_path):
-        from omnigent import TurnComplete
+    def test_invoke_sends_the_schema_hint(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+        from omnigent import TurnComplete  # noqa: PLC0415  # tracked: #288
 
         runner, executor = self._runner(tmp_path, [TurnComplete(response="{}")])
 
@@ -773,8 +777,8 @@ class TestTurnPathWithFakeExecutor:
         assert "JudgeResponse" in messages[0]["content"]
         runner.close()
 
-    def test_invoke_text_returns_the_raw_response(self, tmp_path):
-        from omnigent import TurnComplete
+    def test_invoke_text_returns_the_raw_response(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+        from omnigent import TurnComplete  # noqa: PLC0415  # tracked: #288
 
         runner, _ = self._runner(tmp_path, [TurnComplete(response="hello there")])
 
@@ -789,8 +793,8 @@ class TestTurnPathWithFakeExecutor:
         assert text == "hello there"
         runner.close()
 
-    def test_invoke_text_handles_an_empty_turn(self, tmp_path):
-        from omnigent import TurnComplete
+    def test_invoke_text_handles_an_empty_turn(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+        from omnigent import TurnComplete  # noqa: PLC0415  # tracked: #288
 
         runner, _ = self._runner(tmp_path, [TurnComplete(response=None)])
 
@@ -805,19 +809,19 @@ class TestTurnPathWithFakeExecutor:
         assert text == ""
         runner.close()
 
-    def test_env_overrides_apply_during_the_turn_and_are_restored(self, tmp_path):
-        from omnigent import TurnComplete
+    def test_env_overrides_apply_during_the_turn_and_are_restored(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+        from omnigent import TurnComplete  # noqa: PLC0415  # tracked: #288
 
         seen: list[str | None] = []
 
         class _EnvProbe(_FakeExecutor):
-            def run_turn(self, messages, tools, system_prompt, config=None):
+            def run_turn(self, messages, tools, system_prompt, config=None):  # noqa: ANN001, ANN202  # tracked: #288
                 seen.append(os.environ.get("CUDA_VISIBLE_DEVICES"))
                 return super().run_turn(messages, tools, system_prompt, config)
 
         runner = OmnigentAgentRunner(provider="claude", model_name="m")
         executor = _EnvProbe([TurnComplete(response="ok")])
-        runner._build_executor = lambda _ws: (executor, [])  # type: ignore[method-assign]
+        runner._build_executor = lambda _ws: (executor, [])  # type: ignore[method-assign]  # noqa: SLF001  # tracked: #288
         os.environ.pop("CUDA_VISIBLE_DEVICES", None)
 
         runner.invoke_text(
@@ -833,8 +837,8 @@ class TestTurnPathWithFakeExecutor:
         assert "CUDA_VISIBLE_DEVICES" not in os.environ
         runner.close()
 
-    def test_usage_record_is_written_per_turn(self, tmp_path):
-        from omnigent import TurnComplete
+    def test_usage_record_is_written_per_turn(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+        from omnigent import TurnComplete  # noqa: PLC0415  # tracked: #288
 
         log_dir = tmp_path / "logs"
         log_dir.mkdir()
@@ -858,17 +862,17 @@ class TestTurnPathWithFakeExecutor:
         assert record["provider"] == "claude"
         runner.close()
 
-    def test_a_failed_turn_still_writes_its_usage_record(self, tmp_path):
+    def test_a_failed_turn_still_writes_its_usage_record(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         """Tokens were spent either way; an audit gap on failure defeats the point."""
         log_dir = tmp_path / "logs"
         log_dir.mkdir()
 
         class _Boom(_FakeExecutor):
-            def run_turn(self, messages, tools, system_prompt, config=None):
-                raise RuntimeError("harness exploded")
+            def run_turn(self, messages, tools, system_prompt, config=None):  # noqa: ANN001, ANN202, ARG002  # tracked: #288
+                raise RuntimeError("harness exploded")  # noqa: TRY003  # tracked: #288
 
         runner = OmnigentAgentRunner(provider="claude", model_name="m", log_dir=log_dir)
-        runner._build_executor = lambda _ws: (_Boom([]), [])  # type: ignore[method-assign]
+        runner._build_executor = lambda _ws: (_Boom([]), [])  # type: ignore[method-assign]  # noqa: SLF001  # tracked: #288
 
         with pytest.raises(RuntimeError, match="harness exploded"):
             runner.invoke_text(
@@ -882,8 +886,8 @@ class TestTurnPathWithFakeExecutor:
         assert (log_dir / "usage.jsonl").read_text().strip()
         runner.close()
 
-    def test_the_run_log_records_the_backend_and_provider(self, tmp_path):
-        from omnigent import TurnComplete
+    def test_the_run_log_records_the_backend_and_provider(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+        from omnigent import TurnComplete  # noqa: PLC0415  # tracked: #288
 
         log = StringIO()
         runner, _ = self._runner(tmp_path, [TurnComplete(response="ok")], run_log_file=log)
@@ -902,17 +906,17 @@ class TestTurnPathWithFakeExecutor:
         assert "harness: claude-sdk" in written
         runner.close()
 
-    def test_executors_are_reused_per_kind_but_not_for_chat(self, tmp_path):
-        from omnigent import TurnComplete
+    def test_executors_are_reused_per_kind_but_not_for_chat(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+        from omnigent import TurnComplete  # noqa: PLC0415  # tracked: #288
 
         built: list[str] = []
 
-        def _build(_ws):
+        def _build(_ws):  # noqa: ANN001, ANN202  # tracked: #288
             built.append("x")
             return _FakeExecutor([TurnComplete(response="ok")]), []
 
         runner = OmnigentAgentRunner(provider="claude", model_name="m")
-        runner._build_executor = _build  # type: ignore[method-assign]
+        runner._build_executor = _build  # type: ignore[method-assign]  # noqa: SLF001  # tracked: #288
 
         for _ in range(2):
             runner.invoke_text(
@@ -931,23 +935,23 @@ class TestTurnPathWithFakeExecutor:
         assert len(built) == 3, "chat must start a fresh session each turn"
         runner.close()
 
-    def test_explicit_session_keys_reuse_and_fresh_sessions_close(self, tmp_path):
-        from omnigent import TurnComplete
+    def test_explicit_session_keys_reuse_and_fresh_sessions_close(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+        from omnigent import TurnComplete  # noqa: PLC0415  # tracked: #288
 
         built: list[_FakeExecutor] = []
         closed: list[_FakeExecutor] = []
 
         class _Closable(_FakeExecutor):
-            async def close(self):
+            async def close(self):  # noqa: ANN202  # tracked: #288
                 closed.append(self)
 
-        def _build(_ws):
+        def _build(_ws):  # noqa: ANN001, ANN202  # tracked: #288
             executor = _Closable([TurnComplete(response="ok")])
             built.append(executor)
             return executor, []
 
         runner = OmnigentAgentRunner(provider="claude", model_name="m")
-        runner._build_executor = _build  # type: ignore[method-assign]
+        runner._build_executor = _build  # type: ignore[method-assign]  # noqa: SLF001  # tracked: #288
 
         for _ in range(2):
             runner.invoke_text(
@@ -976,17 +980,17 @@ class TestTurnPathWithFakeExecutor:
         runner.close()
         assert closed == [built[1], built[0]]
 
-    def test_close_awaits_executor_close(self, tmp_path):
-        from omnigent import TurnComplete
+    def test_close_awaits_executor_close(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+        from omnigent import TurnComplete  # noqa: PLC0415  # tracked: #288
 
         closed: list[bool] = []
 
         class _Closable(_FakeExecutor):
-            async def close(self):
+            async def close(self):  # noqa: ANN202  # tracked: #288
                 closed.append(True)
 
         runner = OmnigentAgentRunner(provider="claude", model_name="m")
-        runner._build_executor = lambda _ws: (_Closable([TurnComplete(response="ok")]), [])  # type: ignore[method-assign]
+        runner._build_executor = lambda _ws: (_Closable([TurnComplete(response="ok")]), [])  # type: ignore[method-assign]  # noqa: SLF001  # tracked: #288
         runner.invoke_text(
             kind="implementer",
             workspace=tmp_path,
@@ -999,16 +1003,16 @@ class TestTurnPathWithFakeExecutor:
 
         assert closed == [True]
 
-    def test_close_survives_a_failing_executor_close(self, tmp_path):
-        from omnigent import TurnComplete
+    def test_close_survives_a_failing_executor_close(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+        from omnigent import TurnComplete  # noqa: PLC0415  # tracked: #288
 
         class _BadClose(_FakeExecutor):
-            async def close(self):
-                raise RuntimeError("close blew up")
+            async def close(self):  # noqa: ANN202  # tracked: #288
+                raise RuntimeError("close blew up")  # noqa: TRY003  # tracked: #288
 
         log = StringIO()
         runner = OmnigentAgentRunner(provider="claude", model_name="m", run_log_file=log)
-        runner._build_executor = lambda _ws: (_BadClose([TurnComplete(response="ok")]), [])  # type: ignore[method-assign]
+        runner._build_executor = lambda _ws: (_BadClose([TurnComplete(response="ok")]), [])  # type: ignore[method-assign]  # noqa: SLF001  # tracked: #288
         runner.invoke_text(
             kind="implementer",
             workspace=tmp_path,
@@ -1020,19 +1024,19 @@ class TestTurnPathWithFakeExecutor:
         runner.close()  # must not raise
 
         assert "executor close failed" in log.getvalue()
-        assert runner._loop is None
+        assert runner._loop is None  # noqa: SLF001  # tracked: #288
 
 
 @requires_omnigent
 class TestLazyPackageExports:
-    def test_runner_symbols_resolve_through_package_getattr(self):
-        import vibesys.agents.omnigent as pkg
+    def test_runner_symbols_resolve_through_package_getattr(self):  # noqa: ANN201  # tracked: #288
+        import vibesys.agents.omnigent as pkg  # noqa: PLC0415  # tracked: #288
 
         assert pkg.OmnigentAgentRunner is OmnigentAgentRunner
         assert pkg.OmnigentUnavailableError is OmnigentUnavailableError
 
-    def test_unknown_attribute_still_raises(self):
-        import vibesys.agents.omnigent as pkg
+    def test_unknown_attribute_still_raises(self):  # noqa: ANN201  # tracked: #288
+        import vibesys.agents.omnigent as pkg  # noqa: PLC0415  # tracked: #288
 
         with pytest.raises(AttributeError, match="no attribute"):
             _ = pkg.NoSuchThing
@@ -1052,19 +1056,21 @@ class TestToolExecutorSeam:
     # Provider -> the CLI binary its executor needs at construction time.
     # CodexExecutor raises ImportError without it; ClaudeSDKExecutor falls back
     # to the SDK's bundled CLI, so it constructs anywhere.
-    _PROVIDER_BINARY = {"claude": None, "codex": "codex"}
+    _PROVIDER_BINARY = {"claude": None, "codex": "codex"}  # noqa: RUF012  # tracked: #288
 
     @pytest.mark.parametrize("provider", ["claude", "codex"])
-    def test_the_seam_exists_on_the_pinned_version(self, provider):
+    def test_the_seam_exists_on_the_pinned_version(self, provider):  # noqa: ANN001, ANN201  # tracked: #288
         """Fails loudly if a version bump moves the attribute."""
-        from vibesys.agents.omnigent.runner import _TOOL_EXECUTOR_ATTR
+        from vibesys.agents.omnigent.runner import (  # noqa: PLC0415  # tracked: #288
+            _TOOL_EXECUTOR_ATTR,
+        )
 
         binary = self._PROVIDER_BINARY[provider]
         if binary is not None and shutil.which(binary) is None:
             pytest.skip(f"{provider} executor needs the {binary!r} CLI to construct")
 
         runner = OmnigentAgentRunner(provider=provider)
-        executor_cls = runner._executor_class()
+        executor_cls = runner._executor_class()  # noqa: SLF001  # tracked: #288
 
         # Constructed without os_env so no sandbox backend is needed here.
         executor = executor_cls(cwd=".", model=None)
@@ -1074,18 +1080,18 @@ class TestToolExecutorSeam:
             "the Omnigent backend can no longer give agents their tools"
         )
 
-    def test_a_missing_provider_cli_is_attributed_to_the_flag(self, tmp_path, monkeypatch):
+    def test_a_missing_provider_cli_is_attributed_to_the_flag(self, tmp_path, monkeypatch):  # noqa: ANN001, ANN201  # tracked: #288
         """Omnigent reports a missing CLI as ImportError from the constructor."""
 
         class _NeedsCli:
-            def __init__(self, **_kwargs):
-                raise ImportError("CodexExecutor requires the 'codex' CLI on PATH.")
+            def __init__(self, **_kwargs):  # noqa: ANN003, ANN204  # tracked: #288
+                raise ImportError("CodexExecutor requires the 'codex' CLI on PATH.")  # noqa: TRY003  # tracked: #288
 
         runner = OmnigentAgentRunner(provider="codex")
         monkeypatch.setattr(runner, "_executor_class", lambda: _NeedsCli)
 
         with pytest.raises(OmnigentUnavailableError) as exc:
-            runner._build_executor(Path(tmp_path))
+            runner._build_executor(Path(tmp_path))  # noqa: SLF001  # tracked: #288
 
         message = str(exc.value)
         assert "omnigent_agent_backend" in message
@@ -1094,13 +1100,13 @@ class TestToolExecutorSeam:
         assert "CLI on PATH" in message
         assert "agentshim" in message
 
-    def test_a_moved_seam_fails_at_construction(self, tmp_path, monkeypatch):
-        from vibesys.agents.omnigent import runner as runner_mod
+    def test_a_moved_seam_fails_at_construction(self, tmp_path, monkeypatch):  # noqa: ANN001, ANN201  # tracked: #288
+        from vibesys.agents.omnigent import runner as runner_mod  # noqa: PLC0415  # tracked: #288
 
         class _Renamed:
             """An executor whose dispatch slot has been renamed upstream."""
 
-            def __init__(self, **_kwargs):
+            def __init__(self, **_kwargs):  # noqa: ANN003, ANN204  # tracked: #288
                 self._dispatch_callback = None  # not _tool_executor
 
         runner = OmnigentAgentRunner(provider="claude")
@@ -1110,7 +1116,7 @@ class TestToolExecutorSeam:
         )
 
         with pytest.raises(OmnigentUnavailableError) as exc:
-            runner._build_executor(Path(tmp_path))
+            runner._build_executor(Path(tmp_path))  # noqa: SLF001  # tracked: #288
 
         message = str(exc.value)
         assert "_tool_executor" in message

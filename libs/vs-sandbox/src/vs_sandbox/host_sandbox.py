@@ -50,12 +50,12 @@ from __future__ import annotations
 import shutil
 import sys
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable  # noqa: TC003  # tracked: #288
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from vs_sandbox.host_resource_importer import prepare_host_resource_imports
-from vs_sandbox.host_resources import HostResource
+from vs_sandbox.host_resources import HostResource  # noqa: TC001  # tracked: #288
 
 DISABLE_ENV = "VIBESYS_AGENT_SANDBOX"
 
@@ -149,7 +149,7 @@ class HostSandbox(WorkspaceSandbox):
             "--dev",
             "/dev",
             "--tmpfs",
-            "/tmp",
+            "/tmp",  # noqa: S108  # tracked: #288
         ]
         # Leaf config mounts such as ~/.codex/auth.json need their destination
         # parents to exist in bubblewrap's otherwise-empty /home tree. These

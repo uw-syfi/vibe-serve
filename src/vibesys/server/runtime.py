@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import signal
-from collections.abc import Callable
-from pathlib import Path
+from collections.abc import Callable  # noqa: TC003  # tracked: #288
+from pathlib import Path  # noqa: TC003  # tracked: #288
 from typing import Any
 
 from vibesys.errors import ConfigurationError
@@ -25,7 +25,7 @@ def run_server(
     run: Callable[[], Any],
     *,
     socket_path: Path,
-) -> Any:
+) -> Any:  # noqa: ANN401  # tracked: #288
     """Run a headless backend that exposes supervision over a Unix socket."""
     supervisor = RunSupervisor()
     previous_sigterm = signal.getsignal(signal.SIGTERM)
@@ -46,7 +46,7 @@ def run_server(
     try:
         with SupervisionSocketServer(socket_path, service) as server:
             if not server.wait_for_subscriber(timeout=30.0):
-                raise RuntimeError("Timed out waiting for a supervision client")
+                raise RuntimeError("Timed out waiting for a supervision client")  # noqa: TRY003  # tracked: #288
             try:
                 value = run()
             except KeyboardInterrupt:

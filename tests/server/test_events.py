@@ -24,7 +24,7 @@ def _round_trip(event: RunEvent) -> RunEvent:
 
 
 class TestNewEventDataRoundTrip:
-    def test_tool_call(self):
+    def test_tool_call(self):  # noqa: ANN201  # tracked: #288
         status = AgentStatusData(
             progress="Round 1/2",
             agent_label="Implementer",
@@ -42,7 +42,7 @@ class TestNewEventDataRoundTrip:
         assert restored.data.args == {"cmd": "ls", "count": 3}
         assert restored.data.status == status
 
-    def test_tool_result(self):
+    def test_tool_result(self):  # noqa: ANN201  # tracked: #288
         event = make_event(
             EventType.TOOL_RESULT,
             data=ToolResultData(tool="shell", content="out", is_error=True),
@@ -51,7 +51,7 @@ class TestNewEventDataRoundTrip:
         assert isinstance(restored.data, ToolResultData)
         assert restored.data.is_error is True
 
-    def test_todo_update(self):
+    def test_todo_update(self):  # noqa: ANN201  # tracked: #288
         event = make_event(
             EventType.TODO_UPDATE,
             data=TodoUpdateData(todos=[TodoItemData(content="a", status="pending")]),
@@ -60,7 +60,7 @@ class TestNewEventDataRoundTrip:
         assert isinstance(restored.data, TodoUpdateData)
         assert restored.data.todos == [TodoItemData(content="a", status="pending")]
 
-    def test_usage_update(self):
+    def test_usage_update(self):  # noqa: ANN201  # tracked: #288
         event = make_event(
             EventType.USAGE_UPDATE,
             data=UsageUpdateData(input_tokens=5_000, context_window=1_000_000, model="m"),
@@ -69,7 +69,7 @@ class TestNewEventDataRoundTrip:
         assert isinstance(restored.data, UsageUpdateData)
         assert restored.data.input_tokens == 5_000
 
-    def test_agent_output_chunk_status_is_optional_and_round_trips(self):
+    def test_agent_output_chunk_status_is_optional_and_round_trips(self):  # noqa: ANN201  # tracked: #288
         bare = make_event(
             EventType.AGENT_OUTPUT_CHUNK,
             data=AgentOutputChunkData(channel="assistant", content="hi"),
@@ -89,7 +89,7 @@ class TestNewEventDataRoundTrip:
 
 
 class TestBackwardCompatibility:
-    def test_chunk_without_status_field_still_parses(self):
+    def test_chunk_without_status_field_still_parses(self):  # noqa: ANN201  # tracked: #288
         """Events recorded by older backends omit the new optional fields."""
         raw = (
             '{"protocol_version": 1, "sequence": 3, "run_id": "r", '
@@ -100,23 +100,23 @@ class TestBackwardCompatibility:
         assert isinstance(event.data, AgentOutputChunkData)
         assert event.data.status is None
 
-    def test_unknown_data_kind_rejected(self):
+    def test_unknown_data_kind_rejected(self):  # noqa: ANN201  # tracked: #288
         raw = (
             '{"protocol_version": 1, "timestamp": "2026-01-01T00:00:00Z", '
             '"type": "output", "data": {"kind": "not_a_kind"}}'
         )
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError):  # noqa: PT011  # tracked: #288
             RunEvent.model_validate_json(raw)
 
 
 @pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
-def test_benchmark_result_rejects_non_finite_value(value):
+def test_benchmark_result_rejects_non_finite_value(value):  # noqa: ANN001, ANN201  # tracked: #288
     with pytest.raises(ValidationError, match="finite number"):
         BenchmarkResultData(metric="throughput", value=value, unit="req/s")
 
 
 @pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
-def test_round_finished_rejects_non_finite_perf_metric(value):
+def test_round_finished_rejects_non_finite_perf_metric(value):  # noqa: ANN001, ANN201  # tracked: #288
     with pytest.raises(ValidationError, match="finite number"):
         RoundFinishedData(
             attempts=1,

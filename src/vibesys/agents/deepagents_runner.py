@@ -8,25 +8,25 @@ change vs. what the simple loop did before this abstraction landed.
 from __future__ import annotations
 
 import uuid
-from collections.abc import Callable
-from pathlib import Path
+from collections.abc import Callable  # noqa: TC003  # tracked: #288
+from pathlib import Path  # noqa: TC003  # tracked: #288
 from typing import Any, TextIO, TypeVar
 
 from deepagents import create_deep_agent
 from langchain.agents.structured_output import AutoStrategy
-from langchain_core.callbacks import BaseCallbackHandler
-from langchain_core.tools import BaseTool
+from langchain_core.callbacks import BaseCallbackHandler  # noqa: TC002  # tracked: #288
+from langchain_core.tools import BaseTool  # noqa: TC002  # tracked: #288
 from langgraph.checkpoint.memory import MemorySaver
 from pydantic import BaseModel
 
-from vibesys._agent_cli.base import MCPServerSpec
+from vibesys._agent_cli.base import MCPServerSpec  # noqa: TC001  # tracked: #288
 from vibesys.agent_runner import (
     log_agent_config,
     run_agent,
     run_typed_agent,
 )
 from vibesys.agents.callbacks import AgentLogger
-from vibesys.agents.progress import AgentProgress
+from vibesys.agents.progress import AgentProgress  # noqa: TC001  # tracked: #288
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -41,10 +41,10 @@ class DeepAgentsRunner:
 
     backend_name = "deepagents"
 
-    def __init__(
+    def __init__(  # noqa: ANN204, D107  # tracked: #288
         self,
         *,
-        model: Any,
+        model: Any,  # noqa: ANN401  # tracked: #288
         backends: dict[str, Any],
         skills: list[str],
         model_name: str | None,
@@ -91,7 +91,7 @@ class DeepAgentsRunner:
         system_prompt: str,
         response_cls: type[BaseModel] | None = None,
         tools: list[BaseTool] | None = None,
-    ) -> Any:
+    ) -> Any:  # noqa: ANN401  # tracked: #288
         """Return the cached graph, rebuilding it when its inputs change."""
         tool_signature = tuple(id(tool) for tool in (tools or []))
         signature = (
@@ -120,7 +120,7 @@ class DeepAgentsRunner:
         self._agent_signatures[kind] = signature
         return agent
 
-    def invoke(
+    def invoke(  # noqa: D102, PLR0913  # tracked: #288
         self,
         *,
         kind: str,
@@ -177,7 +177,7 @@ class DeepAgentsRunner:
             log_file=self._run_log_file,
         )
 
-    def invoke_text(
+    def invoke_text(  # noqa: PLR0913  # tracked: #288
         self,
         *,
         kind: str,

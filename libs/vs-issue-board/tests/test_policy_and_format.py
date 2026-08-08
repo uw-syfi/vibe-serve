@@ -16,7 +16,7 @@ from vs_issue_board.policy import (
 )
 
 
-def _make_store(tmp_path) -> IssueBoard:
+def _make_store(tmp_path) -> IssueBoard:  # noqa: ANN001  # tracked: #288
     return IssueBoard(tmp_path / "issues.json")
 
 
@@ -30,13 +30,13 @@ def _all_types() -> frozenset[IssueType]:
 
 
 class TestParseType:
-    def test_parse_each_value(self):
+    def test_parse_each_value(self):  # noqa: ANN201  # tracked: #288
         assert parse_type("bug") is IssueType.BUG
         assert parse_type("feature") is IssueType.FEATURE
         assert parse_type("perf") is IssueType.PERF
 
-    def test_garbage_raises_value_error(self):
-        with pytest.raises(ValueError):
+    def test_garbage_raises_value_error(self):  # noqa: ANN201  # tracked: #288
+        with pytest.raises(ValueError):  # noqa: PT011  # tracked: #288
             parse_type("enhancement")
 
 
@@ -46,7 +46,7 @@ class TestParseType:
 
 
 class TestCheckCreateAllowed:
-    def test_in_allowlist_no_cap_returns_none(self, tmp_path):
+    def test_in_allowlist_no_cap_returns_none(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         store = _make_store(tmp_path)
         policy = CreateIssuePolicy(
             creator="x",
@@ -56,7 +56,7 @@ class TestCheckCreateAllowed:
         )
         assert check_create_allowed(store, type_enum=IssueType.BUG, policy=policy) is None
 
-    def test_out_of_allowlist_returns_error(self, tmp_path):
+    def test_out_of_allowlist_returns_error(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         store = _make_store(tmp_path)
         policy = CreateIssuePolicy(
             creator="judge",
@@ -71,7 +71,7 @@ class TestCheckCreateAllowed:
         assert "'judge'" in err
         assert "'perf'" in err
 
-    def test_cap_enforced_against_persisted_store(self, tmp_path):
+    def test_cap_enforced_against_persisted_store(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         store = _make_store(tmp_path)
         policy = CreateIssuePolicy(
             creator="judge",
@@ -95,7 +95,7 @@ class TestCheckCreateAllowed:
         assert "cap reached" in err
         assert "(1/1)" in err
 
-    def test_cap_scoped_per_iteration(self, tmp_path):
+    def test_cap_scoped_per_iteration(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         store = _make_store(tmp_path)
         store.create(
             type=IssueType.BUG,
@@ -113,7 +113,7 @@ class TestCheckCreateAllowed:
         )
         assert check_create_allowed(store, type_enum=IssueType.BUG, policy=policy) is None
 
-    def test_cap_scoped_per_creator(self, tmp_path):
+    def test_cap_scoped_per_creator(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         store = _make_store(tmp_path)
         store.create(
             type=IssueType.BUG,
@@ -138,7 +138,7 @@ class TestCheckCreateAllowed:
 
 
 class TestCreateIssueUnderPolicy:
-    def test_happy_path_returns_issue_and_message(self, tmp_path):
+    def test_happy_path_returns_issue_and_message(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         store = _make_store(tmp_path)
         policy = CreateIssuePolicy(
             creator="perf_eval",
@@ -159,7 +159,7 @@ class TestCreateIssueUnderPolicy:
         assert issue.created_iter == 1
         assert msg == "created issue #1"
 
-    def test_invalid_type_returns_none_and_error(self, tmp_path):
+    def test_invalid_type_returns_none_and_error(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         store = _make_store(tmp_path)
         policy = CreateIssuePolicy(
             creator="perf_eval",
@@ -181,7 +181,7 @@ class TestCreateIssueUnderPolicy:
         # Nothing was written.
         assert store.list() == []
 
-    def test_cap_rejects_after_full(self, tmp_path):
+    def test_cap_rejects_after_full(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         store = _make_store(tmp_path)
         policy = CreateIssuePolicy(
             creator="perf_eval",
@@ -212,7 +212,7 @@ class TestCreateIssueUnderPolicy:
         # Store still has only 2.
         assert len(store.list()) == 2
 
-    def test_unlimited_cap(self, tmp_path):
+    def test_unlimited_cap(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         store = _make_store(tmp_path)
         policy = CreateIssuePolicy(
             creator="x",
@@ -238,7 +238,7 @@ class TestCreateIssueUnderPolicy:
 
 
 class TestFormatHelpers:
-    def test_format_issue_short_byte_for_byte(self, tmp_path):
+    def test_format_issue_short_byte_for_byte(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         store = _make_store(tmp_path)
         issue = store.create(
             type=IssueType.PERF,
@@ -249,7 +249,7 @@ class TestFormatHelpers:
         )
         assert format_issue_short(issue) == "#1 [perf] [open] paged kv"
 
-    def test_format_issue_full_byte_for_byte(self, tmp_path):
+    def test_format_issue_full_byte_for_byte(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         store = _make_store(tmp_path)
         issue = store.create(
             type=IssueType.BUG,

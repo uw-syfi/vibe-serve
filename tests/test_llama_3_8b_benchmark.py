@@ -7,27 +7,27 @@ from pathlib import Path
 
 BENCHMARK_PATH = Path("examples/model-serving/Llama-3-8B/benchmark/benchmark.py")
 SPEC = importlib.util.spec_from_file_location("llama_3_8b_benchmark", BENCHMARK_PATH)
-assert SPEC is not None and SPEC.loader is not None
+assert SPEC is not None and SPEC.loader is not None  # noqa: PT018  # tracked: #288
 BENCHMARK = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = BENCHMARK
 SPEC.loader.exec_module(BENCHMARK)
 
 
-def test_closed_loop_connection_limit_matches_requested_concurrency():
+def test_closed_loop_connection_limit_matches_requested_concurrency():  # noqa: ANN201  # tracked: #288
     limits = BENCHMARK.http_limits_for(256)
 
     assert limits.max_connections == 256
     assert limits.max_keepalive_connections == 256
 
 
-def test_open_loop_connection_limit_does_not_cap_active_requests():
+def test_open_loop_connection_limit_does_not_cap_active_requests():  # noqa: ANN201  # tracked: #288
     limits = BENCHMARK.http_limits_for(None)
 
     assert limits.max_connections is None
     assert limits.max_keepalive_connections == 100
 
 
-def test_concurrency_stats_track_driver_and_response_streams_separately():
+def test_concurrency_stats_track_driver_and_response_streams_separately():  # noqa: ANN201  # tracked: #288
     stats = BENCHMARK.ConcurrencyStats()
 
     stats.request_started()
@@ -43,18 +43,18 @@ def test_concurrency_stats_track_driver_and_response_streams_separately():
     assert stats.active_streams == 0
 
 
-def test_warmup_is_bounded_and_returns_discardable_results(monkeypatch):
+def test_warmup_is_bounded_and_returns_discardable_results(monkeypatch):  # noqa: ANN001, ANN201  # tracked: #288
     active = 0
     max_active = 0
 
-    async def fake_send_request(
-        client,
-        url,
-        model,
-        prompt,
-        max_tokens,
-        temperature,
-        concurrency_stats=None,
+    async def fake_send_request(  # noqa: ANN202, PLR0913  # tracked: #288
+        client,  # noqa: ANN001, ARG001  # tracked: #288
+        url,  # noqa: ANN001, ARG001  # tracked: #288
+        model,  # noqa: ANN001, ARG001  # tracked: #288
+        prompt,  # noqa: ANN001, ARG001  # tracked: #288
+        max_tokens,  # noqa: ANN001, ARG001  # tracked: #288
+        temperature,  # noqa: ANN001, ARG001  # tracked: #288
+        concurrency_stats=None,  # noqa: ANN001  # tracked: #288
     ):
         nonlocal active, max_active
         assert concurrency_stats is None
@@ -79,7 +79,7 @@ def test_warmup_is_bounded_and_returns_discardable_results(monkeypatch):
             "http://127.0.0.1:8000/v1/completions",
             ["prompt"],
             args,
-            random.Random(42),
+            random.Random(42),  # noqa: S311  # tracked: #288
         )
     )
 
@@ -87,25 +87,25 @@ def test_warmup_is_bounded_and_returns_discardable_results(monkeypatch):
     assert max_active == 3
 
 
-def test_benchmark_reports_requested_and_observed_concurrency(monkeypatch):
+def test_benchmark_reports_requested_and_observed_concurrency(monkeypatch):  # noqa: ANN001, ANN201  # tracked: #288
     class FakeAsyncClient:
-        def __init__(self, *, limits):
+        def __init__(self, *, limits):  # noqa: ANN001, ANN204  # tracked: #288
             self.limits = limits
 
-        async def __aenter__(self):
+        async def __aenter__(self):  # noqa: ANN204  # tracked: #288
             return self
 
-        async def __aexit__(self, exc_type, exc, traceback):
+        async def __aexit__(self, exc_type, exc, traceback):  # noqa: ANN001, ANN204  # tracked: #288
             return None
 
-    async def fake_send_request(
-        client,
-        url,
-        model,
-        prompt,
-        max_tokens,
-        temperature,
-        concurrency_stats=None,
+    async def fake_send_request(  # noqa: ANN202, PLR0913  # tracked: #288
+        client,  # noqa: ANN001, ARG001  # tracked: #288
+        url,  # noqa: ANN001, ARG001  # tracked: #288
+        model,  # noqa: ANN001, ARG001  # tracked: #288
+        prompt,  # noqa: ANN001, ARG001  # tracked: #288
+        max_tokens,  # noqa: ANN001, ARG001  # tracked: #288
+        temperature,  # noqa: ANN001, ARG001  # tracked: #288
+        concurrency_stats=None,  # noqa: ANN001  # tracked: #288
     ):
         concurrency_stats.request_started()
         concurrency_stats.stream_opened()

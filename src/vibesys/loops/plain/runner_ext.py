@@ -22,11 +22,11 @@ from __future__ import annotations
 
 from typing import Any, TypeVar
 
-from langchain_core.tools import BaseTool
+from langchain_core.tools import BaseTool  # noqa: TC002  # tracked: #288
 from pydantic import BaseModel
 
-from vibesys._agent_cli.base import MCPServerSpec
-from vibesys.agents.base import AgentRunner
+from vibesys._agent_cli.base import MCPServerSpec  # noqa: TC001  # tracked: #288
+from vibesys.agents.base import AgentRunner  # noqa: TC001  # tracked: #288
 from vibesys.loops.plain.mcp_config import build_issue_mcp_spec
 from vibesys.loops.plain.tools import build_issue_tools
 from vs_issue_board import IssueBoard, IssueType
@@ -53,7 +53,7 @@ class PlainLoopAgentRunner:
     determines the per-iteration cap scope) and does not forward.
     """
 
-    def __init__(
+    def __init__(  # noqa: ANN204, D107  # tracked: #288
         self,
         inner: AgentRunner,
         *,
@@ -65,10 +65,10 @@ class PlainLoopAgentRunner:
         self._perf_eval_cap = max_issues_per_perf_eval
 
     @property
-    def backend_name(self) -> str:
+    def backend_name(self) -> str:  # noqa: D102  # tracked: #288
         return self._inner.backend_name
 
-    def invoke(
+    def invoke(  # noqa: D102  # tracked: #288
         self,
         *,
         kind: str,
@@ -76,11 +76,11 @@ class PlainLoopAgentRunner:
         iteration: int | None = None,
         mcp_servers: list[MCPServerSpec] | None = None,
         tools: list[BaseTool] | None = None,
-        **kwargs: Any,
+        **kwargs: Any,  # noqa: ANN401  # tracked: #288
     ) -> T:
         if kind in ("judge", "perf_eval"):
             if iteration is None:
-                raise ValueError(
+                raise ValueError(  # noqa: TRY003  # tracked: #288
                     f"PlainLoopAgentRunner.invoke(kind={kind!r}) requires "
                     "iteration= so the cap can be scoped per-iteration"
                 )

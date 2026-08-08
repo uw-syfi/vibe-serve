@@ -25,7 +25,7 @@ from vibesys.schemas import (
 from vs_sandbox import HostResource
 
 
-def _agent_config(**agent) -> Config:
+def _agent_config(**agent) -> Config:  # noqa: ANN003  # tracked: #288
     """Minimal valid Config carrying just an ``[agent]`` section for runner tests."""
     return Config.model_validate({"model": {"name": "m"}, "agent": agent})
 
@@ -38,7 +38,7 @@ def _judge_fallback() -> JudgeResponse:
     )
 
 
-def test_prompt_markdown_emitter_preserves_raw_log_and_truncates_stdout(capsys, headless_renderer):
+def test_prompt_markdown_emitter_preserves_raw_log_and_truncates_stdout(capsys, headless_renderer):  # noqa: ANN001, ANN201  # tracked: #288
     headless_renderer.max_text_len = 20
     log = StringIO()
     prompt = "# Title\n\nUse **markdown** and `code`."
@@ -51,7 +51,7 @@ def test_prompt_markdown_emitter_preserves_raw_log_and_truncates_stdout(capsys, 
     assert log.getvalue() == prompt + "\n"
 
 
-def test_json_emitter_preserves_raw_log(capsys):
+def test_json_emitter_preserves_raw_log(capsys):  # noqa: ANN001, ANN201  # tracked: #288
     log = StringIO()
     raw_json = '{"analysis":"ok","items":[1,2]}'
 
@@ -65,7 +65,7 @@ def test_json_emitter_preserves_raw_log(capsys):
 class TestDeepAgentsRunner:
     """Tests for :class:`DeepAgentsRunner`."""
 
-    def test_deepagents_runner_invoke_returns_structured_response(self, tmp_path):
+    def test_deepagents_runner_invoke_returns_structured_response(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         pass_response = JudgeResponse(
             analysis="looks good",
             feedback="",
@@ -107,16 +107,16 @@ class TestDeepAgentsRunner:
         assert kwargs["response_cls"] is JudgeResponse
         assert kwargs["fallback_factory"] is _judge_fallback
         callbacks = kwargs["callbacks"]
-        assert callbacks[0]._progress.label() == "Round 1/5"
+        assert callbacks[0]._progress.label() == "Round 1/5"  # noqa: SLF001  # tracked: #288
 
-    def test_deepagents_runner_picks_backend_by_kind(self, tmp_path):
+    def test_deepagents_runner_picks_backend_by_kind(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         impl_backend = MagicMock(name="impl-backend")
         judge_backend = MagicMock(name="judge-backend")
         perf_backend = MagicMock(name="perf-backend")
 
         captured_backends: list = []
 
-        def _capture(**kwargs):
+        def _capture(**kwargs):  # noqa: ANN003, ANN202  # tracked: #288
             captured_backends.append(kwargs["backend"])
             return MagicMock(name="deep_agent")
 
@@ -155,7 +155,7 @@ class TestDeepAgentsRunner:
 
         assert captured_backends == [impl_backend, judge_backend, perf_backend]
 
-    def test_deepagents_runner_returns_plain_text_without_response_format(self, tmp_path):
+    def test_deepagents_runner_returns_plain_text_without_response_format(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         with (
             patch("vibesys.agents.deepagents_runner.create_deep_agent") as mock_create,
             patch(
@@ -184,7 +184,7 @@ class TestDeepAgentsRunner:
         assert "response_format" not in mock_create.call_args.kwargs
         assert mock_run.call_args.args[1] == "what happened?"
 
-    def test_deepagents_runner_sessions_are_explicit_and_role_scoped(self):
+    def test_deepagents_runner_sessions_are_explicit_and_role_scoped(self):  # noqa: ANN201  # tracked: #288
         runner = DeepAgentsRunner(
             model="m",
             backends={},
@@ -193,18 +193,18 @@ class TestDeepAgentsRunner:
             run_log_file=None,
         )
 
-        first = runner._session(kind="implementer", reuse_session=True, session_key="hypothesis:a")
-        continued = runner._session(
+        first = runner._session(kind="implementer", reuse_session=True, session_key="hypothesis:a")  # noqa: SLF001  # tracked: #288
+        continued = runner._session(  # noqa: SLF001  # tracked: #288
             kind="implementer", reuse_session=True, session_key="hypothesis:a"
         )
-        other_role = runner._session(kind="judge", reuse_session=True, session_key="hypothesis:a")
-        fresh = runner._session(kind="implementer", reuse_session=False, session_key="hypothesis:a")
+        other_role = runner._session(kind="judge", reuse_session=True, session_key="hypothesis:a")  # noqa: SLF001  # tracked: #288
+        fresh = runner._session(kind="implementer", reuse_session=False, session_key="hypothesis:a")  # noqa: SLF001  # tracked: #288
 
         assert continued is first
         assert other_role is not first
         assert fresh is not first
 
-    def test_deepagents_runner_reuses_graph_with_fresh_default_threads(self, tmp_path):
+    def test_deepagents_runner_reuses_graph_with_fresh_default_threads(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         """Repeated calls reuse construction but keep default conversations isolated."""
         pass_response = JudgeResponse(
             analysis="looks good",
@@ -242,7 +242,7 @@ class TestDeepAgentsRunner:
             thread_ids = [call.kwargs["thread_id"] for call in mock_run.call_args_list]
             assert thread_ids[0] != thread_ids[1]
 
-    def test_deepagents_runner_rebuilds_when_response_schema_changes(self, tmp_path):
+    def test_deepagents_runner_rebuilds_when_response_schema_changes(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         """A different response model must not reuse the old structured graph."""
         with (
             patch("vibesys.agents.deepagents_runner.create_deep_agent") as mock_create,
@@ -292,7 +292,7 @@ class TestDeepAgentsRunner:
                 is not mock_create.call_args_list[1].kwargs["response_format"].schema
             )
 
-    def test_deepagents_runner_rebuilds_when_tool_objects_change(self, tmp_path):
+    def test_deepagents_runner_rebuilds_when_tool_objects_change(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         """Same-named tools can carry different closure-bound behavior."""
         with (
             patch("vibesys.agents.deepagents_runner.create_deep_agent") as mock_create,
@@ -324,7 +324,7 @@ class TestDeepAgentsRunner:
 
             assert mock_create.call_count == 2
 
-    def test_deepagents_runner_typed_and_text_graphs_are_separate(self, tmp_path):
+    def test_deepagents_runner_typed_and_text_graphs_are_separate(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         with (
             patch("vibesys.agents.deepagents_runner.create_deep_agent") as mock_create,
             patch(
@@ -372,7 +372,7 @@ class TestDeepAgentsRunner:
 # ---------------------------------------------------------------------------
 
 
-def _make_fake_agent_class(
+def _make_fake_agent_class(  # noqa: ANN202  # tracked: #288
     *,
     generate_returns: str,
     captured: list,
@@ -389,12 +389,12 @@ def _make_fake_agent_class(
     ``generate()`` returns.
     """
 
-    from types import SimpleNamespace
+    from types import SimpleNamespace  # noqa: PLC0415  # tracked: #288
 
     class FakeAgent:
         supports_native_output_schema = False
 
-        def __init__(self, model=None, event_handler=None):
+        def __init__(self, model=None, event_handler=None):  # noqa: ANN001, ANN204  # tracked: #288
             self.model = model
             self.event_handler = event_handler
             self.env: dict[str, str] = {}
@@ -407,23 +407,23 @@ def _make_fake_agent_class(
             self.output_schema_paths: list[str | None] = []
             captured.append(self)
 
-        def set_reasoning_effort(self, effort):
+        def set_reasoning_effort(self, effort):  # noqa: ANN001, ANN202  # tracked: #288
             self.reasoning_effort = effort
 
-        def set_output_schema_path(self, path):
+        def set_output_schema_path(self, path):  # noqa: ANN001, ANN202  # tracked: #288
             self.output_schema_paths.append(path)
 
-        def install_mcp_servers(self, workspace, servers):
+        def install_mcp_servers(self, workspace, servers):  # noqa: ANN001, ANN202  # tracked: #288
             self.install_calls.append({"workspace": workspace, "servers": list(servers)})
             self.event_log.append("install")
 
-        def uninstall_mcp_servers(self, workspace, servers):
+        def uninstall_mcp_servers(self, workspace, servers):  # noqa: ANN001, ANN202  # tracked: #288
             self.uninstall_calls.append({"workspace": workspace, "servers": list(servers)})
             self.event_log.append("uninstall")
             if uninstall_raises is not None:
-                raise uninstall_raises("cleanup boom")
+                raise uninstall_raises("cleanup boom")  # noqa: TRY003  # tracked: #288
 
-        def generate(self, prompt, cwd=None, timeout=300, silent=False):
+        def generate(self, prompt, cwd=None, timeout=300, silent=False):  # noqa: ANN001, ANN202, FBT002  # tracked: #288
             self.generate_calls.append(
                 {
                     "prompt": prompt,
@@ -449,8 +449,11 @@ class TestCliAgentRunner:
     """Tests for :class:`CliAgentRunner`."""
 
     @pytest.mark.parametrize("provider", ["claude", "gemini", "codex", "opencode"])
-    def test_cli_runner_invokes_provider_and_returns_parsed_response(
-        self, monkeypatch, tmp_path, provider
+    def test_cli_runner_invokes_provider_and_returns_parsed_response(  # noqa: ANN201  # tracked: #288
+        self,
+        monkeypatch,  # noqa: ANN001  # tracked: #288
+        tmp_path,  # noqa: ANN001  # tracked: #288
+        provider,  # noqa: ANN001  # tracked: #288
     ):
         captured: list = []
         fake_cls = _make_fake_agent_class(
@@ -458,7 +461,7 @@ class TestCliAgentRunner:
             captured=captured,
         )
         monkeypatch.setitem(
-            __import__(
+            __import__(  # noqa: SLF001  # tracked: #288
                 "vibesys.agents.cli_runner",
                 fromlist=["_PROVIDER_CLASSES"],
             )._PROVIDER_CLASSES,
@@ -489,14 +492,14 @@ class TestCliAgentRunner:
         assert len(captured) == 1
         assert captured[0].generate_calls[0]["cwd"] == str(workspace)
 
-    def test_cli_runner_obeys_explicit_session_policy(self, monkeypatch, tmp_path):
+    def test_cli_runner_obeys_explicit_session_policy(self, monkeypatch, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         captured: list = []
         fake_cls = _make_fake_agent_class(
             generate_returns='{"analysis": "ok", "feedback": "", "verdict": "pass"}',
             captured=captured,
         )
         monkeypatch.setitem(
-            __import__(
+            __import__(  # noqa: SLF001  # tracked: #288
                 "vibesys.agents.cli_runner",
                 fromlist=["_PROVIDER_CLASSES"],
             )._PROVIDER_CLASSES,
@@ -528,7 +531,7 @@ class TestCliAgentRunner:
         invoke(session_key="hypothesis:a", reuse_session=False)
         assert len(captured) == 3
 
-    def test_codex_persistent_session_renews_before_third_turn(self, monkeypatch, tmp_path):
+    def test_codex_persistent_session_renews_before_third_turn(self, monkeypatch, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         captured: list = []
         fake_cls = _make_fake_agent_class(
             generate_returns='{"analysis": "ok", "feedback": "", "verdict": "pass"}',
@@ -536,7 +539,7 @@ class TestCliAgentRunner:
         )
         original_generate = fake_cls.generate
 
-        def generate(self, *args, **kwargs):
+        def generate(self, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003, ANN202  # tracked: #288
             if getattr(self, "session_id", None) is None:
                 self.session_id = f"thread-{len(self.generate_calls) + 1}"
             session_ids.append(self.session_id)
@@ -544,7 +547,7 @@ class TestCliAgentRunner:
 
         fake_cls.generate = generate
         monkeypatch.setitem(
-            __import__(
+            __import__(  # noqa: SLF001  # tracked: #288
                 "vibesys.agents.cli_runner",
                 fromlist=["_PROVIDER_CLASSES"],
             )._PROVIDER_CLASSES,
@@ -585,8 +588,11 @@ class TestCliAgentRunner:
             },
         ],
     )
-    def test_codex_persistent_session_renews_after_heavy_turn(
-        self, monkeypatch, tmp_path, session_state
+    def test_codex_persistent_session_renews_after_heavy_turn(  # noqa: ANN201  # tracked: #288
+        self,
+        monkeypatch,  # noqa: ANN001  # tracked: #288
+        tmp_path,  # noqa: ANN001  # tracked: #288
+        session_state,  # noqa: ANN001  # tracked: #288
     ):
         captured: list = []
         fake_cls = _make_fake_agent_class(
@@ -596,7 +602,7 @@ class TestCliAgentRunner:
         )
         original_generate = fake_cls.generate
 
-        def generate(self, *args, **kwargs):
+        def generate(self, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003, ANN202  # tracked: #288
             if getattr(self, "session_id", None) is None:
                 self.session_id = f"thread-{len(self.generate_calls) + 1}"
             session_ids.append(self.session_id)
@@ -604,7 +610,7 @@ class TestCliAgentRunner:
 
         fake_cls.generate = generate
         monkeypatch.setitem(
-            __import__(
+            __import__(  # noqa: SLF001  # tracked: #288
                 "vibesys.agents.cli_runner",
                 fromlist=["_PROVIDER_CLASSES"],
             )._PROVIDER_CLASSES,
@@ -631,14 +637,14 @@ class TestCliAgentRunner:
 
         assert session_ids == ["thread-1", "thread-2"]
 
-    def test_cli_runner_selects_models_and_effort_by_loop_role(self, monkeypatch, tmp_path):
+    def test_cli_runner_selects_models_and_effort_by_loop_role(self, monkeypatch, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         captured: list = []
         fake_cls = _make_fake_agent_class(
             generate_returns='{"analysis": "ok", "feedback": "", "verdict": "pass"}',
             captured=captured,
         )
         monkeypatch.setitem(
-            __import__(
+            __import__(  # noqa: SLF001  # tracked: #288
                 "vibesys.agents.cli_runner",
                 fromlist=["_PROVIDER_CLASSES"],
             )._PROVIDER_CLASSES,
@@ -678,8 +684,11 @@ class TestCliAgentRunner:
         assert [agent.reasoning_effort for agent in captured] == ["xhigh", "xhigh", "high"]
 
     @pytest.mark.parametrize("provider", ["claude", "gemini", "codex", "opencode"])
-    def test_host_resource_declarations_apply_to_every_local_cli_provider(
-        self, monkeypatch, tmp_path, provider
+    def test_host_resource_declarations_apply_to_every_local_cli_provider(  # noqa: ANN201  # tracked: #288
+        self,
+        monkeypatch,  # noqa: ANN001  # tracked: #288
+        tmp_path,  # noqa: ANN001  # tracked: #288
+        provider,  # noqa: ANN001  # tracked: #288
     ):
         captured: list = []
         fake_cls = _make_fake_agent_class(
@@ -687,7 +696,7 @@ class TestCliAgentRunner:
             captured=captured,
         )
         monkeypatch.setitem(
-            __import__(
+            __import__(  # noqa: SLF001  # tracked: #288
                 "vibesys.agents.cli_runner",
                 fromlist=["_PROVIDER_CLASSES"],
             )._PROVIDER_CLASSES,
@@ -727,14 +736,14 @@ class TestCliAgentRunner:
         assert result.verdict == Verdict.PASS
         assert resource in builds[0]["resources"]
 
-    def test_cli_runner_falls_back_on_unparseable_output(self, monkeypatch, tmp_path, capsys):
+    def test_cli_runner_falls_back_on_unparseable_output(self, monkeypatch, tmp_path, capsys):  # noqa: ANN001, ANN201  # tracked: #288
         captured: list = []
         fake_cls = _make_fake_agent_class(
             generate_returns="# Failure\n\nCould not produce **JSON**.",
             captured=captured,
         )
         monkeypatch.setitem(
-            __import__(
+            __import__(  # noqa: SLF001  # tracked: #288
                 "vibesys.agents.cli_runner",
                 fromlist=["_PROVIDER_CLASSES"],
             )._PROVIDER_CLASSES,
@@ -769,14 +778,14 @@ class TestCliAgentRunner:
         assert "# Failure" in stdout
         assert "**JSON**" in stdout
 
-    def test_cli_runner_passes_progress_to_logger(self, monkeypatch, tmp_path):
+    def test_cli_runner_passes_progress_to_logger(self, monkeypatch, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         captured: list = []
         fake_cls = _make_fake_agent_class(
             generate_returns='{"analysis": "ok", "feedback": "", "verdict": "pass"}',
             captured=captured,
         )
         monkeypatch.setitem(
-            __import__(
+            __import__(  # noqa: SLF001  # tracked: #288
                 "vibesys.agents.cli_runner",
                 fromlist=["_PROVIDER_CLASSES"],
             )._PROVIDER_CLASSES,
@@ -803,9 +812,9 @@ class TestCliAgentRunner:
             progress=RoundProgress(2, 5),
         )
 
-        assert captured[0].event_handler._progress.label() == "Round 2/5"
+        assert captured[0].event_handler._progress.label() == "Round 2/5"  # noqa: SLF001  # tracked: #288
 
-    def test_cli_runner_parses_fenced_json(self, monkeypatch, tmp_path):
+    def test_cli_runner_parses_fenced_json(self, monkeypatch, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         captured: list = []
         fenced = '```json\n{"analysis": "fenced", "feedback": "", "verdict": "pass"}\n```'
         fake_cls = _make_fake_agent_class(
@@ -813,7 +822,7 @@ class TestCliAgentRunner:
             captured=captured,
         )
         monkeypatch.setitem(
-            __import__(
+            __import__(  # noqa: SLF001  # tracked: #288
                 "vibesys.agents.cli_runner",
                 fromlist=["_PROVIDER_CLASSES"],
             )._PROVIDER_CLASSES,
@@ -842,7 +851,7 @@ class TestCliAgentRunner:
         assert result.verdict == Verdict.PASS
         assert result.analysis == "fenced"
 
-    def test_cli_runner_materializes_skills_into_workspace(self, monkeypatch, tmp_path):
+    def test_cli_runner_materializes_skills_into_workspace(self, monkeypatch, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         # Tier-organized source tree (like vibesys-skills):
         #   skill_src/
         #     algorithms/myskill/SKILL.md
@@ -863,7 +872,7 @@ class TestCliAgentRunner:
             captured=captured,
         )
         monkeypatch.setitem(
-            __import__(
+            __import__(  # noqa: SLF001  # tracked: #288
                 "vibesys.agents.cli_runner",
                 fromlist=["_PROVIDER_CLASSES"],
             )._PROVIDER_CLASSES,
@@ -903,7 +912,7 @@ class TestCliAgentRunner:
             assert (workspace / cli_dir / "myskill" / "file.txt").read_text() == "hello skill"
             assert (workspace / cli_dir / "tool-skill" / "SKILL.md").exists()
 
-    def _run_with_platform_skill(self, monkeypatch, tmp_path, compute_backend):
+    def _run_with_platform_skill(self, monkeypatch, tmp_path, compute_backend):  # noqa: ANN001, ANN202  # tracked: #288
         """Materialize a skill carrying references/platforms/<backend>/ trees."""
         skill_src = tmp_path / "serving-systems"
         skill_src.mkdir()
@@ -929,7 +938,7 @@ class TestCliAgentRunner:
             captured=captured,
         )
         monkeypatch.setitem(
-            __import__(
+            __import__(  # noqa: SLF001  # tracked: #288
                 "vibesys.agents.cli_runner",
                 fromlist=["_PROVIDER_CLASSES"],
             )._PROVIDER_CLASSES,
@@ -960,7 +969,7 @@ class TestCliAgentRunner:
     @pytest.mark.parametrize(
         "selected", [ComputeBackend.CUDA, ComputeBackend.TRAINIUM, ComputeBackend.METAL]
     )
-    def test_materialize_prunes_foreign_platform_dirs(self, monkeypatch, tmp_path, selected):
+    def test_materialize_prunes_foreign_platform_dirs(self, monkeypatch, tmp_path, selected):  # noqa: ANN001, ANN201  # tracked: #288
         """Only the selected backend's platform guidance reaches the agent.
 
         Applying one platform's floor to another produces wrong work — the
@@ -973,7 +982,7 @@ class TestCliAgentRunner:
         assert {p.name for p in platforms.iterdir()} == {selected.value}
         assert (platforms / selected.value / "floor.md").exists()
 
-    def test_materialize_keeps_portable_tiers_and_same_named_dirs(self, monkeypatch, tmp_path):
+    def test_materialize_keeps_portable_tiers_and_same_named_dirs(self, monkeypatch, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         """Pruning is scoped to references/platforms/, not to directory names."""
         refs = self._run_with_platform_skill(monkeypatch, tmp_path, ComputeBackend.TRAINIUM)
 
@@ -981,13 +990,13 @@ class TestCliAgentRunner:
         # `models/cuda/` shares a name with a backend but is not a platform dir.
         assert (refs / "models" / "cuda" / "note.md").exists()
 
-    def test_materialize_without_backend_keeps_every_platform(self, monkeypatch, tmp_path):
+    def test_materialize_without_backend_keeps_every_platform(self, monkeypatch, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         """No selected backend (e.g. non-run tooling) copies the tree intact."""
         refs = self._run_with_platform_skill(monkeypatch, tmp_path, None)
 
         assert {p.name for p in (refs / "platforms").iterdir()} == {b.value for b in ComputeBackend}
 
-    def test_cli_runner_materializes_single_skill_with_nested_content(self, monkeypatch, tmp_path):
+    def test_cli_runner_materializes_single_skill_with_nested_content(self, monkeypatch, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         # Single-skill source (SKILL.md at the root, sub-dirs are reference
         # material inside the one skill). This mirrors the repo's
         # `serving-systems/` layout.
@@ -1003,7 +1012,7 @@ class TestCliAgentRunner:
             captured=[],
         )
         monkeypatch.setitem(
-            __import__(
+            __import__(  # noqa: SLF001  # tracked: #288
                 "vibesys.agents.cli_runner",
                 fromlist=["_PROVIDER_CLASSES"],
             )._PROVIDER_CLASSES,
@@ -1041,14 +1050,14 @@ class TestCliAgentRunner:
                 / "SKILL.md"
             ).exists()
 
-    def test_cli_runner_appends_json_schema_to_prompt(self, monkeypatch, tmp_path):
+    def test_cli_runner_appends_json_schema_to_prompt(self, monkeypatch, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         captured: list = []
         fake_cls = _make_fake_agent_class(
             generate_returns='{"analysis": "ok", "feedback": "", "verdict": "pass"}',
             captured=captured,
         )
         monkeypatch.setitem(
-            __import__(
+            __import__(  # noqa: SLF001  # tracked: #288
                 "vibesys.agents.cli_runner",
                 fromlist=["_PROVIDER_CLASSES"],
             )._PROVIDER_CLASSES,
@@ -1079,7 +1088,7 @@ class TestCliAgentRunner:
         assert "JudgeResponse" in prompt
         assert prompt.startswith("THE-SYSTEM-PROMPT")
 
-    def test_codex_uses_native_schema_without_prompt_duplication(self, monkeypatch, tmp_path):
+    def test_codex_uses_native_schema_without_prompt_duplication(self, monkeypatch, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         captured: list = []
         fake_cls = _make_fake_agent_class(
             generate_returns='{"analysis": "ok", "feedback": "", "verdict": "pass"}',
@@ -1087,7 +1096,7 @@ class TestCliAgentRunner:
         )
         fake_cls.supports_native_output_schema = True
         monkeypatch.setitem(
-            __import__(
+            __import__(  # noqa: SLF001  # tracked: #288
                 "vibesys.agents.cli_runner",
                 fromlist=["_PROVIDER_CLASSES"],
             )._PROVIDER_CLASSES,
@@ -1115,7 +1124,7 @@ class TestCliAgentRunner:
         assert (workspace / relative).is_file()
         assert "Schema for JudgeResponse" not in agent.generate_calls[0]["prompt"]
 
-    def test_codex_schema_materialization_failure_uses_prompt_fallback(self, monkeypatch, tmp_path):
+    def test_codex_schema_materialization_failure_uses_prompt_fallback(self, monkeypatch, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         captured: list = []
         fake_cls = _make_fake_agent_class(
             generate_returns='{"analysis": "ok", "feedback": "", "verdict": "pass"}',
@@ -1126,7 +1135,7 @@ class TestCliAgentRunner:
             "vibesys.agents.cli_runner",
             fromlist=["_PROVIDER_CLASSES"],
         )
-        monkeypatch.setitem(runner_module._PROVIDER_CLASSES, "codex", fake_cls)
+        monkeypatch.setitem(runner_module._PROVIDER_CLASSES, "codex", fake_cls)  # noqa: SLF001  # tracked: #288
         monkeypatch.setattr(
             runner_module,
             "materialize_native_output_schema",
@@ -1152,7 +1161,7 @@ class TestCliAgentRunner:
         assert "Schema for JudgeResponse" in captured[0].generate_calls[0]["prompt"]
         assert "using prompt fallback" in log.getvalue()
 
-    def test_absolute_schema_path_provider_gets_resolved_path(self, monkeypatch, tmp_path):
+    def test_absolute_schema_path_provider_gets_resolved_path(self, monkeypatch, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         """Providers reading the schema inline (Claude) get an absolute path,
         resolvable independent of the subprocess cwd, and drop the prompt hint."""
         captured: list = []
@@ -1163,7 +1172,7 @@ class TestCliAgentRunner:
         fake_cls.supports_native_output_schema = True
         fake_cls.native_output_schema_wants_absolute_path = True
         monkeypatch.setitem(
-            __import__(
+            __import__(  # noqa: SLF001  # tracked: #288
                 "vibesys.agents.cli_runner",
                 fromlist=["_PROVIDER_CLASSES"],
             )._PROVIDER_CLASSES,
@@ -1192,8 +1201,10 @@ class TestCliAgentRunner:
         assert Path(passed).parent == workspace / ".cache/vibesys/response-schemas"
         assert "Schema for JudgeResponse" not in agent.generate_calls[0]["prompt"]
 
-    def test_cli_runner_chat_returns_plain_text_in_a_fresh_session_per_turn(
-        self, monkeypatch, tmp_path
+    def test_cli_runner_chat_returns_plain_text_in_a_fresh_session_per_turn(  # noqa: ANN201  # tracked: #288
+        self,
+        monkeypatch,  # noqa: ANN001  # tracked: #288
+        tmp_path,  # noqa: ANN001  # tracked: #288
     ):
         captured: list = []
         fake_cls = _make_fake_agent_class(
@@ -1201,7 +1212,7 @@ class TestCliAgentRunner:
             captured=captured,
         )
         monkeypatch.setitem(
-            __import__(
+            __import__(  # noqa: SLF001  # tracked: #288
                 "vibesys.agents.cli_runner",
                 fromlist=["_PROVIDER_CLASSES"],
             )._PROVIDER_CLASSES,
@@ -1228,13 +1239,13 @@ class TestCliAgentRunner:
         assert captured[0].generate_calls[0]["prompt"] == "sys\n\nturn 1"
         assert captured[1].generate_calls[0]["prompt"] == "sys\n\nturn 2"
         assert "Return EXACTLY" not in captured[0].generate_calls[0]["prompt"]
-        assert "chat" not in runner._agents
+        assert "chat" not in runner._agents  # noqa: SLF001  # tracked: #288
 
-    def test_cli_runner_retries_missing_codex_rollout_as_fresh_thread(self, monkeypatch, tmp_path):
+    def test_cli_runner_retries_missing_codex_rollout_as_fresh_thread(self, monkeypatch, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         captured: list = []
 
         class FakeCodexAgent:
-            def __init__(self, model=None, event_handler=None):
+            def __init__(self, model=None, event_handler=None):  # noqa: ANN001, ANN204  # tracked: #288
                 self.model = model
                 self.event_handler = event_handler
                 self.env: dict[str, str] = {}
@@ -1243,24 +1254,24 @@ class TestCliAgentRunner:
                 self._last_session = None
                 captured.append(self)
 
-            def install_mcp_servers(self, workspace, servers):
+            def install_mcp_servers(self, workspace, servers):  # noqa: ANN001, ANN202  # tracked: #288
                 pass
 
-            def uninstall_mcp_servers(self, workspace, servers):
+            def uninstall_mcp_servers(self, workspace, servers):  # noqa: ANN001, ANN202  # tracked: #288
                 pass
 
-            def generate(self, prompt, cwd=None, timeout=300, silent=False):
+            def generate(self, prompt, cwd=None, timeout=300, silent=False):  # noqa: ANN001, ANN202, ARG002, FBT002  # tracked: #288
                 self.generate_calls.append(
                     {"prompt": prompt, "cwd": cwd, "session_id": self.session_id}
                 )
                 if self.session_id is not None:
-                    raise RuntimeError(
+                    raise RuntimeError(  # noqa: TRY003  # tracked: #288
                         "thread/resume failed: no rollout found for thread id stale-thread"
                     )
                 return '{"analysis": "ok", "feedback": "", "verdict": "pass"}'
 
         monkeypatch.setitem(
-            __import__(
+            __import__(  # noqa: SLF001  # tracked: #288
                 "vibesys.agents.cli_runner",
                 fromlist=["_PROVIDER_CLASSES"],
             )._PROVIDER_CLASSES,
@@ -1288,29 +1299,32 @@ class TestCliAgentRunner:
             None,
         ]
 
-    def test_cli_runner_prints_prompt_as_rendered_markdown_before_generate(
-        self, monkeypatch, tmp_path, capsys
+    def test_cli_runner_prints_prompt_as_rendered_markdown_before_generate(  # noqa: ANN201  # tracked: #288
+        self,
+        monkeypatch,  # noqa: ANN001  # tracked: #288
+        tmp_path,  # noqa: ANN001  # tracked: #288
+        capsys,  # noqa: ANN001  # tracked: #288
     ):
         stdout_before_generate: list[str] = []
 
         class FakeAgent:
-            def __init__(self, model=None, event_handler=None):
+            def __init__(self, model=None, event_handler=None):  # noqa: ANN001, ANN204  # tracked: #288
                 self.model = model
                 self.event_handler = event_handler
                 self.env: dict[str, str] = {}
 
-            def install_mcp_servers(self, workspace, servers):
+            def install_mcp_servers(self, workspace, servers):  # noqa: ANN001, ANN202  # tracked: #288
                 pass
 
-            def uninstall_mcp_servers(self, workspace, servers):
+            def uninstall_mcp_servers(self, workspace, servers):  # noqa: ANN001, ANN202  # tracked: #288
                 pass
 
-            def generate(self, prompt, cwd=None, timeout=300, silent=False):
+            def generate(self, prompt, cwd=None, timeout=300, silent=False):  # noqa: ANN001, ANN202, ARG002, FBT002  # tracked: #288
                 stdout_before_generate.append(capsys.readouterr().out)
                 return '{"analysis": "ok", "feedback": "", "verdict": "pass"}'
 
         monkeypatch.setitem(
-            __import__(
+            __import__(  # noqa: SLF001  # tracked: #288
                 "vibesys.agents.cli_runner",
                 fromlist=["_PROVIDER_CLASSES"],
             )._PROVIDER_CLASSES,
@@ -1341,7 +1355,7 @@ class TestCliAgentRunner:
         assert "User Prompt" in stdout_before_generate[0][input_idx:]
         assert "**bold**" in stdout_before_generate[0][input_idx:]
 
-    def test_cli_runner_writes_usage_jsonl_on_success(self, monkeypatch, tmp_path):
+    def test_cli_runner_writes_usage_jsonl_on_success(self, monkeypatch, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         """CliAgentRunner appends one JSON record per invoke() to ``<log_dir>/usage.jsonl``."""
         captured: list = []
         fake_cls = _make_fake_agent_class(
@@ -1359,7 +1373,7 @@ class TestCliAgentRunner:
             },
         )
         monkeypatch.setitem(
-            __import__(
+            __import__(  # noqa: SLF001  # tracked: #288
                 "vibesys.agents.cli_runner",
                 fromlist=["_PROVIDER_CLASSES"],
             )._PROVIDER_CLASSES,
@@ -1407,7 +1421,7 @@ class TestCliAgentRunner:
         assert record["duration_ms"] == 18_431
         assert "timestamp" in record
 
-    def test_cli_runner_usage_jsonl_appends_across_invocations(self, monkeypatch, tmp_path):
+    def test_cli_runner_usage_jsonl_appends_across_invocations(self, monkeypatch, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         captured: list = []
         fake_cls = _make_fake_agent_class(
             generate_returns='{"analysis": "ok", "feedback": "", "verdict": "pass"}',
@@ -1419,7 +1433,7 @@ class TestCliAgentRunner:
             },
         )
         monkeypatch.setitem(
-            __import__(
+            __import__(  # noqa: SLF001  # tracked: #288
                 "vibesys.agents.cli_runner",
                 fromlist=["_PROVIDER_CLASSES"],
             )._PROVIDER_CLASSES,
@@ -1455,7 +1469,7 @@ class TestCliAgentRunner:
         labels = [json.loads(line)["round_label"] for line in lines]
         assert labels == ["round #0", "round #1", "round #2"]
 
-    def test_cli_runner_usage_jsonl_written_on_parse_failure(self, monkeypatch, tmp_path):
+    def test_cli_runner_usage_jsonl_written_on_parse_failure(self, monkeypatch, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         """Even when the CLI returns unparseable output, the tokens were spent —
         the usage record must still be appended so the audit log is complete."""
         captured: list = []
@@ -1469,7 +1483,7 @@ class TestCliAgentRunner:
             },
         )
         monkeypatch.setitem(
-            __import__(
+            __import__(  # noqa: SLF001  # tracked: #288
                 "vibesys.agents.cli_runner",
                 fromlist=["_PROVIDER_CLASSES"],
             )._PROVIDER_CLASSES,
@@ -1508,7 +1522,7 @@ class TestCliAgentRunner:
         assert record["input_tokens"] == 7_000
         assert record["total_cost_usd"] == 0.0034
 
-    def test_cli_runner_usage_jsonl_noop_when_log_dir_none(self, monkeypatch, tmp_path):
+    def test_cli_runner_usage_jsonl_noop_when_log_dir_none(self, monkeypatch, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         """Runners built without log_dir (tests, legacy callers) must still succeed."""
         captured: list = []
         fake_cls = _make_fake_agent_class(
@@ -1521,7 +1535,7 @@ class TestCliAgentRunner:
             },
         )
         monkeypatch.setitem(
-            __import__(
+            __import__(  # noqa: SLF001  # tracked: #288
                 "vibesys.agents.cli_runner",
                 fromlist=["_PROVIDER_CLASSES"],
             )._PROVIDER_CLASSES,
@@ -1549,14 +1563,14 @@ class TestCliAgentRunner:
         )
         assert result.verdict == Verdict.PASS
 
-    def test_cli_runner_layers_env_into_subprocess_env(self, monkeypatch, tmp_path):
+    def test_cli_runner_layers_env_into_subprocess_env(self, monkeypatch, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         captured: list = []
         fake_cls = _make_fake_agent_class(
             generate_returns='{"analysis": "ok", "feedback": "", "verdict": "pass"}',
             captured=captured,
         )
         monkeypatch.setitem(
-            __import__(
+            __import__(  # noqa: SLF001  # tracked: #288
                 "vibesys.agents.cli_runner",
                 fromlist=["_PROVIDER_CLASSES"],
             )._PROVIDER_CLASSES,
@@ -1586,10 +1600,12 @@ class TestCliAgentRunner:
         assert len(captured) == 1
         assert captured[0].env.get("CUDA_VISIBLE_DEVICES") == "2"
 
-    def test_cli_runner_docker_uses_command_executor(self, monkeypatch, tmp_path):
-        from types import SimpleNamespace
+    def test_cli_runner_docker_uses_command_executor(self, monkeypatch, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+        from types import SimpleNamespace  # noqa: PLC0415  # tracked: #288
 
-        from vibesys.agents.docker_executor import DockerCommandExecutor
+        from vibesys.agents.docker_executor import (  # noqa: PLC0415  # tracked: #288
+            DockerCommandExecutor,
+        )
 
         captured: list = []
         ownership_repairs: list[tuple[str, int, int]] = []
@@ -1601,7 +1617,7 @@ class TestCliAgentRunner:
         )
 
         class FakeAgent:
-            def __init__(self, model=None, event_handler=None, executor=None):
+            def __init__(self, model=None, event_handler=None, executor=None):  # noqa: ANN001, ANN204  # tracked: #288
                 self.model = model
                 self.event_handler = event_handler
                 self.executor = executor
@@ -1610,13 +1626,13 @@ class TestCliAgentRunner:
                 self._last_session = SimpleNamespace()
                 captured.append(self)
 
-            def install_mcp_servers(self, workspace, servers):
+            def install_mcp_servers(self, workspace, servers):  # noqa: ANN001, ANN202, ARG002  # tracked: #288
                 return None
 
-            def uninstall_mcp_servers(self, workspace, servers):
+            def uninstall_mcp_servers(self, workspace, servers):  # noqa: ANN001, ANN202, ARG002  # tracked: #288
                 return None
 
-            def generate(self, prompt, cwd=None, timeout=300, silent=False):
+            def generate(self, prompt, cwd=None, timeout=300, silent=False):  # noqa: ANN001, ANN202, FBT002  # tracked: #288
                 self.generate_calls.append(
                     {
                         "prompt": prompt,
@@ -1628,7 +1644,7 @@ class TestCliAgentRunner:
                 return '{"analysis": "ok", "feedback": "", "verdict": "pass"}'
 
         monkeypatch.setitem(
-            __import__(
+            __import__(  # noqa: SLF001  # tracked: #288
                 "vibesys.agents.cli_runner",
                 fromlist=["_PROVIDER_CLASSES"],
             )._PROVIDER_CLASSES,
@@ -1660,7 +1676,7 @@ class TestCliAgentRunner:
         assert captured[0].executor.container_id == "container-one"
         assert captured[0].generate_calls[0]["cwd"] is None
 
-        sandbox._container_id = "container-two"
+        sandbox._container_id = "container-two"  # noqa: SLF001  # tracked: #288
         runner.invoke(
             kind="judge",
             workspace=workspace,
@@ -1678,9 +1694,9 @@ class TestCliAgentRunner:
             "container-two",
         ]
 
-    def test_cli_runner_invokes_install_then_generate_then_uninstall(self, monkeypatch, tmp_path):
+    def test_cli_runner_invokes_install_then_generate_then_uninstall(self, monkeypatch, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         """The mcp_servers kwarg triggers a strict install → generate → uninstall sandwich."""
-        from vibesys._agent_cli.base import MCPServerSpec
+        from vibesys._agent_cli.base import MCPServerSpec  # noqa: PLC0415  # tracked: #288
 
         captured: list = []
         fake_cls = _make_fake_agent_class(
@@ -1688,7 +1704,7 @@ class TestCliAgentRunner:
             captured=captured,
         )
         monkeypatch.setitem(
-            __import__(
+            __import__(  # noqa: SLF001  # tracked: #288
                 "vibesys.agents.cli_runner",
                 fromlist=["_PROVIDER_CLASSES"],
             )._PROVIDER_CLASSES,
@@ -1721,10 +1737,10 @@ class TestCliAgentRunner:
         assert agent.uninstall_calls[0]["workspace"] == workspace
         assert agent.uninstall_calls[0]["servers"] == [spec]
 
-    def test_cli_runner_uninstalls_even_when_generate_raises(self, monkeypatch, tmp_path):
+    def test_cli_runner_uninstalls_even_when_generate_raises(self, monkeypatch, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         """uninstall_mcp_servers must run in finally so a crashing generate
         doesn't leave stale config in the workspace."""
-        from vibesys._agent_cli.base import MCPServerSpec
+        from vibesys._agent_cli.base import MCPServerSpec  # noqa: PLC0415  # tracked: #288
 
         captured: list = []
         fake_cls = _make_fake_agent_class(
@@ -1733,7 +1749,7 @@ class TestCliAgentRunner:
             generate_raises=RuntimeError,
         )
         monkeypatch.setitem(
-            __import__(
+            __import__(  # noqa: SLF001  # tracked: #288
                 "vibesys.agents.cli_runner",
                 fromlist=["_PROVIDER_CLASSES"],
             )._PROVIDER_CLASSES,
@@ -1761,10 +1777,12 @@ class TestCliAgentRunner:
         agent = captured[0]
         assert agent.event_log == ["install", "generate", "uninstall"]
 
-    def test_cli_runner_preserves_generate_error_when_uninstall_also_raises(
-        self, monkeypatch, tmp_path
+    def test_cli_runner_preserves_generate_error_when_uninstall_also_raises(  # noqa: ANN201  # tracked: #288
+        self,
+        monkeypatch,  # noqa: ANN001  # tracked: #288
+        tmp_path,  # noqa: ANN001  # tracked: #288
     ):
-        from vibesys._agent_cli.base import MCPServerSpec
+        from vibesys._agent_cli.base import MCPServerSpec  # noqa: PLC0415  # tracked: #288
 
         captured: list = []
         fake_cls = _make_fake_agent_class(
@@ -1774,7 +1792,7 @@ class TestCliAgentRunner:
             uninstall_raises=OSError,
         )
         monkeypatch.setitem(
-            __import__(
+            __import__(  # noqa: SLF001  # tracked: #288
                 "vibesys.agents.cli_runner",
                 fromlist=["_PROVIDER_CLASSES"],
             )._PROVIDER_CLASSES,
@@ -1800,7 +1818,7 @@ class TestCliAgentRunner:
 
         assert captured[0].event_log == ["install", "generate", "uninstall"]
 
-    def test_cli_runner_skips_install_uninstall_when_no_mcp_servers(self, monkeypatch, tmp_path):
+    def test_cli_runner_skips_install_uninstall_when_no_mcp_servers(self, monkeypatch, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         """When mcp_servers is None or omitted, install/uninstall hooks are
         not called at all."""
         captured: list = []
@@ -1809,7 +1827,7 @@ class TestCliAgentRunner:
             captured=captured,
         )
         monkeypatch.setitem(
-            __import__(
+            __import__(  # noqa: SLF001  # tracked: #288
                 "vibesys.agents.cli_runner",
                 fromlist=["_PROVIDER_CLASSES"],
             )._PROVIDER_CLASSES,
@@ -1841,7 +1859,7 @@ class TestCliAgentRunner:
 class TestBuildAgentRunner:
     """Tests for :func:`build_agent_runner`."""
 
-    def test_build_agent_runner_default_is_cli(self):
+    def test_build_agent_runner_default_is_cli(self):  # noqa: ANN201  # tracked: #288
         runner = build_agent_runner(
             _agent_config(),
             agent_backend=None,
@@ -1859,9 +1877,9 @@ class TestBuildAgentRunner:
             use_docker=False,
         )
         assert runner.backend_name == "cli"
-        assert runner._provider == "codex"
+        assert runner._provider == "codex"  # noqa: SLF001  # tracked: #288
 
-    def test_build_agent_runner_cli_provider_from_config(self):
+    def test_build_agent_runner_cli_provider_from_config(self):  # noqa: ANN201  # tracked: #288
         runner = build_agent_runner(
             _agent_config(backend="cli", cli_provider="claude"),
             agent_backend=None,
@@ -1875,9 +1893,9 @@ class TestBuildAgentRunner:
             use_docker=False,
         )
         assert runner.backend_name == "cli"
-        assert runner._provider == "claude"
+        assert runner._provider == "claude"  # noqa: SLF001  # tracked: #288
 
-    def test_build_agent_runner_cli_defaults_to_codex(self):
+    def test_build_agent_runner_cli_defaults_to_codex(self):  # noqa: ANN201  # tracked: #288
         """When backend=cli and no provider specified, defaults to codex."""
         runner = build_agent_runner(
             _agent_config(backend="cli"),
@@ -1892,11 +1910,11 @@ class TestBuildAgentRunner:
             use_docker=False,
         )
         assert runner.backend_name == "cli"
-        assert runner._provider == "codex"
+        assert runner._provider == "codex"  # noqa: SLF001  # tracked: #288
 
-    def test_build_agent_runner_cli_docker_returns_cli_runner(self):
+    def test_build_agent_runner_cli_docker_returns_cli_runner(self):  # noqa: ANN201  # tracked: #288
         """cli backend + docker now returns a CliAgentRunner with docker_sandboxes."""
-        from unittest.mock import MagicMock
+        from unittest.mock import MagicMock  # noqa: PLC0415  # tracked: #288
 
         mock_backends = {
             "implementer": MagicMock(),
@@ -1916,9 +1934,9 @@ class TestBuildAgentRunner:
             use_docker=True,
         )
         assert isinstance(runner, CliAgentRunner)
-        assert runner._docker_sandboxes is mock_backends
+        assert runner._docker_sandboxes is mock_backends  # noqa: SLF001  # tracked: #288
 
-    def test_build_agent_runner_rejects_unsupported_docker_provider(self):
+    def test_build_agent_runner_rejects_unsupported_docker_provider(self):  # noqa: ANN201  # tracked: #288
         with pytest.raises(SystemExit, match="not yet supported with --docker"):
             build_agent_runner(
                 _agent_config(),
@@ -1933,7 +1951,7 @@ class TestBuildAgentRunner:
                 use_docker=True,
             )
 
-    def test_build_agent_runner_rejects_unknown_backend(self):
+    def test_build_agent_runner_rejects_unknown_backend(self):  # noqa: ANN201  # tracked: #288
         with pytest.raises(SystemExit, match="unknown agent backend"):
             build_agent_runner(
                 _agent_config(),
@@ -1956,7 +1974,7 @@ class TestBuildAgentRunner:
     # so the run-log header can't report a model that isn't running.
 
     @staticmethod
-    def _cli_runner(config, *, model_name):
+    def _cli_runner(config, *, model_name):  # noqa: ANN001, ANN205  # tracked: #288
         return build_agent_runner(
             config,
             agent_backend=None,
@@ -1971,14 +1989,14 @@ class TestBuildAgentRunner:
         )
 
     @pytest.mark.parametrize("provider", ["claude", "gemini", "codex", "opencode"])
-    def test_cli_backend_uses_model_name(self, provider):
+    def test_cli_backend_uses_model_name(self, provider):  # noqa: ANN001, ANN201  # tracked: #288
         runner = self._cli_runner(
             _agent_config(backend="cli", cli_provider=provider),
             model_name="gpt-5.4",
         )
-        assert runner._model == "gpt-5.4"
+        assert runner._model == "gpt-5.4"  # noqa: SLF001  # tracked: #288
 
-    def test_displayed_model_name_matches_model_passed(self):
+    def test_displayed_model_name_matches_model_passed(self):  # noqa: ANN201  # tracked: #288
         # The run-log header prints _model_name; it must equal the model
         # actually handed to the CLI tool so the log never reports a model
         # that isn't running.
@@ -1986,9 +2004,9 @@ class TestBuildAgentRunner:
             _agent_config(backend="cli", cli_provider="codex"),
             model_name="gpt-5.4",
         )
-        assert runner._model_name == runner._model == "gpt-5.4"
+        assert runner._model_name == runner._model == "gpt-5.4"  # noqa: SLF001  # tracked: #288
 
-    def test_cli_backend_carries_outer_and_inner_role_configuration(self):
+    def test_cli_backend_carries_outer_and_inner_role_configuration(self):  # noqa: ANN201  # tracked: #288
         config = _agent_config(
             backend="cli",
             cli_provider="codex",
@@ -1998,12 +2016,12 @@ class TestBuildAgentRunner:
         config.thinking.level = "high"
         runner = self._cli_runner(config, model_name="gpt-5.6-sol")
 
-        assert runner._default_reasoning_effort == "high"
-        assert runner._role_models == {
+        assert runner._default_reasoning_effort == "high"  # noqa: SLF001  # tracked: #288
+        assert runner._role_models == {  # noqa: SLF001  # tracked: #288
             "orchestrator": "gpt-5.6-sol",
             "implementer": "gpt-5.6-luna",
         }
-        assert runner._role_reasoning_efforts == {
+        assert runner._role_reasoning_efforts == {  # noqa: SLF001  # tracked: #288
             "orchestrator": "xhigh",
             "implementer": "xhigh",
         }
@@ -2012,7 +2030,7 @@ class TestBuildAgentRunner:
 class TestAgentLoggerEventHandler:
     """Tests for :class:`AgentLogger` as a CLI event handler."""
 
-    def test_agent_logger_event_handler_methods_drive_formatters(self):
+    def test_agent_logger_event_handler_methods_drive_formatters(self):  # noqa: ANN201  # tracked: #288
         log_file = MagicMock()
         logger = AgentLogger(
             log_file=log_file,
@@ -2042,7 +2060,7 @@ class TestAgentLoggerEventHandler:
         assert err_call.args[1] == "boom"
         assert err_call.kwargs.get("is_error") is True
 
-    def test_agent_logger_event_handler_forwards_usage(self):
+    def test_agent_logger_event_handler_forwards_usage(self):  # noqa: ANN201  # tracked: #288
         log_file = MagicMock()
         logger = AgentLogger(
             log_file=log_file,
@@ -2058,8 +2076,8 @@ class TestAgentLoggerEventHandler:
         }
         logger.on_usage(usage)
 
-        assert logger._input_tokens == 12_345
-        assert logger._latest_usage == usage
+        assert logger._input_tokens == 12_345  # noqa: SLF001  # tracked: #288
+        assert logger._latest_usage == usage  # noqa: SLF001  # tracked: #288
 
 
 class TestBuildAgentRunnerBackendSelection:
@@ -2070,7 +2088,7 @@ class TestBuildAgentRunnerBackendSelection:
     Pinned here so the default cannot silently flip.
     """
 
-    def _build(self, config, *, agent_backend=None, cli_provider=None):
+    def _build(self, config, *, agent_backend=None, cli_provider=None):  # noqa: ANN001, ANN202  # tracked: #288
         return build_agent_runner(
             config,
             agent_backend=agent_backend,
@@ -2084,22 +2102,22 @@ class TestBuildAgentRunnerBackendSelection:
             use_docker=False,
         )
 
-    def test_default_backend_is_cli_with_empty_config(self):
+    def test_default_backend_is_cli_with_empty_config(self):  # noqa: ANN201  # tracked: #288
         runner = self._build(_agent_config())
         assert isinstance(runner, CliAgentRunner)
-        assert runner._provider == "codex"
+        assert runner._provider == "codex"  # noqa: SLF001  # tracked: #288
 
-    def test_empty_agent_section_defaults_to_cli(self):
+    def test_empty_agent_section_defaults_to_cli(self):  # noqa: ANN201  # tracked: #288
         runner = self._build(_agent_config())
         assert isinstance(runner, CliAgentRunner)
-        assert runner._provider == "codex"
+        assert runner._provider == "codex"  # noqa: SLF001  # tracked: #288
 
-    def test_agent_backend_flag_overrides_config(self):
+    def test_agent_backend_flag_overrides_config(self):  # noqa: ANN201  # tracked: #288
         # An explicit --agent-backend flag wins over [agent].backend.
         runner = self._build(_agent_config(backend="deepagents"), agent_backend="cli")
         assert isinstance(runner, CliAgentRunner)
 
-    def test_config_can_select_cli_provider(self):
+    def test_config_can_select_cli_provider(self):  # noqa: ANN201  # tracked: #288
         runner = self._build(_agent_config(backend="cli", cli_provider="claude"))
         assert isinstance(runner, CliAgentRunner)
-        assert runner._provider == "claude"
+        assert runner._provider == "claude"  # noqa: SLF001  # tracked: #288

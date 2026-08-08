@@ -1,6 +1,6 @@
-from __future__ import annotations
+from __future__ import annotations  # noqa: D100  # tracked: #288
 
-from vs_issue_board.core import Issue
+from vs_issue_board.core import Issue  # noqa: TC001  # tracked: #288
 
 
 def format_issue_short(issue: Issue) -> str:

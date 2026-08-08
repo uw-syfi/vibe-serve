@@ -40,7 +40,7 @@ from vibesys.constants import ComputeBackend
 
 PROMPTS_DIR = Path(__file__).resolve().parent
 
-_env = Environment(
+_env = Environment(  # noqa: S701  # tracked: #288
     loader=FileSystemLoader(str(PROMPTS_DIR)),
     keep_trailing_newline=True,
     trim_blocks=True,
@@ -65,7 +65,7 @@ def _build_env(template_dir: Path | str | None = None) -> Environment:
         search_paths = [key]
         if key != str(PROMPTS_DIR):
             search_paths.append(str(PROMPTS_DIR))
-        _env_cache[key] = Environment(
+        _env_cache[key] = Environment(  # noqa: S701  # tracked: #288
             loader=FileSystemLoader(search_paths),
             keep_trailing_newline=True,
             trim_blocks=True,
@@ -118,7 +118,7 @@ class ComputeBackendFragment(ABC):
 
     :meth:`validate` checks the on-disk contract — one ``.j2`` file
     per name in ``NAMES``.
-    """
+    """  # noqa: D205  # tracked: #288
 
     NAMES: ClassVar[frozenset[str]] = frozenset(
         {
@@ -129,7 +129,7 @@ class ComputeBackendFragment(ABC):
     )
     backend: ClassVar[ComputeBackend]  # set by subclasses
 
-    def __init__(self, env: Environment) -> None:
+    def __init__(self, env: Environment) -> None:  # noqa: D107  # tracked: #288
         self._env = env
 
     def render(self, name: str) -> str:
@@ -142,7 +142,7 @@ class ComputeBackendFragment(ABC):
         an extra blank line at every substitution site.
         """
         if name not in self.NAMES:
-            raise ValueError(f"Unknown fragment {name!r}; valid: {sorted(self.NAMES)}")
+            raise ValueError(f"Unknown fragment {name!r}; valid: {sorted(self.NAMES)}")  # noqa: TRY003  # tracked: #288
         return (
             self._env.get_template(f"backend/{self.backend.value}/{name}.j2").render().rstrip("\n")
         )
@@ -155,11 +155,11 @@ class ComputeBackendFragment(ABC):
     def validate(cls) -> None:
         """Verify a ``.j2`` file exists for every fragment in
         :attr:`NAMES`. Raises ``ValueError`` listing missing files.
-        """
+        """  # noqa: D205  # tracked: #288
         backend_dir = PROMPTS_DIR / "backend" / cls.backend.value
         missing = [n for n in cls.NAMES if not (backend_dir / f"{n}.j2").is_file()]
         if missing:
-            raise ValueError(
+            raise ValueError(  # noqa: TRY003  # tracked: #288
                 f"{cls.__name__}: missing fragment files under {backend_dir}: "
                 f"{', '.join(f'{n}.j2' for n in sorted(missing))}. "
                 f"Use an empty file for a deliberate skip."
@@ -208,7 +208,7 @@ _FRAGMENT_IMPLS: dict[ComputeBackend, type[ComputeBackendFragment]] = {
 def get_backend_fragment(backend: ComputeBackend, env: Environment) -> ComputeBackendFragment:
     """Construct the :class:`ComputeBackendFragment` impl for the given backend."""
     if backend not in _FRAGMENT_IMPLS:
-        raise ValueError(
+        raise ValueError(  # noqa: TRY003  # tracked: #288
             f"No ComputeBackendFragment registered for {backend!r}. "
             f"Registered: {sorted(_FRAGMENT_IMPLS.keys(), key=lambda b: b.value)}"
         )
@@ -238,9 +238,9 @@ class Prompt:
         Hardware backend the run targets. Selects the
         :class:`ComputeBackendFragment` impl whose fragments get
         auto-injected.
-    """
+    """  # noqa: D205  # tracked: #288
 
-    def __init__(self, template_dir: Path | str, backend: ComputeBackend) -> None:
+    def __init__(self, template_dir: Path | str, backend: ComputeBackend) -> None:  # noqa: D107  # tracked: #288
         self._env = _build_env(template_dir)
         self._fragments = get_backend_fragment(backend, self._env)
         type(self._fragments).validate()

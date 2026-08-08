@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+from pathlib import Path  # noqa: TC003  # tracked: #288
 
 from vibesys.domains.base import DOMAIN_ROLES, DomainDefinition, DomainRole
 from vibesys.prompts import render_string
@@ -12,7 +12,7 @@ def _coerce_role(role: DomainRole | str) -> DomainRole:
     try:
         return role if isinstance(role, DomainRole) else DomainRole(role)
     except ValueError as exc:
-        raise ValueError(
+        raise ValueError(  # noqa: TRY003  # tracked: #288
             f"Unknown domain role {role!r}. Choose from: "
             f"{', '.join(domain_role.value for domain_role in DOMAIN_ROLES)}."
         ) from exc

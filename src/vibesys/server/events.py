@@ -7,13 +7,13 @@ import threading
 from bisect import bisect_right
 from datetime import UTC, datetime
 from enum import StrEnum
-from pathlib import Path
+from pathlib import Path  # noqa: TC003  # tracked: #288
 from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, FiniteFloat, ValidationError
 
 
-class EventType(StrEnum):
+class EventType(StrEnum):  # noqa: D101  # tracked: #288
     SERVER_STARTED = "server_started"
     SERVER_READY = "server_ready"
     CONFIGURATION_FAILED = "configuration_failed"
@@ -40,7 +40,7 @@ class EventType(StrEnum):
     USAGE_UPDATE = "usage_update"
 
 
-class EventStatus(StrEnum):
+class EventStatus(StrEnum):  # noqa: D101  # tracked: #288
     ACTIVE = "active"
     ANSWERED = "answered"
     PENDING = "pending"
@@ -56,49 +56,49 @@ AgentOutputChannel = Literal["assistant", "analysis", "tool", "diagnostic", "pro
 """Presentation channel for streamed agent output."""
 
 
-class ChatData(BaseModel):
+class ChatData(BaseModel):  # noqa: D101  # tracked: #288
     kind: Literal["chat"] = "chat"
     answer: str
 
 
-class InvocationStartedData(BaseModel):
+class InvocationStartedData(BaseModel):  # noqa: D101  # tracked: #288
     kind: Literal["invocation_started"] = "invocation_started"
     system_prompt: str
     user_prompt: str
 
 
-class InvocationFinishedData(BaseModel):
+class InvocationFinishedData(BaseModel):  # noqa: D101  # tracked: #288
     kind: Literal["invocation_finished"] = "invocation_finished"
     result: Any = None
     error: str | None = None
 
 
-class OutputData(BaseModel):
+class OutputData(BaseModel):  # noqa: D101  # tracked: #288
     kind: Literal["output"] = "output"
     stream: OutputStream
     source: str = "backend"
     content: str
 
 
-class ServerReadyData(BaseModel):
+class ServerReadyData(BaseModel):  # noqa: D101  # tracked: #288
     kind: Literal["server_ready"] = "server_ready"
     socket_protocol: Literal["jsonl"] = "jsonl"
 
 
-class RunStartedData(BaseModel):
+class RunStartedData(BaseModel):  # noqa: D101  # tracked: #288
     kind: Literal["run_started"] = "run_started"
     outer_loop: str
     input: str
     max_rounds: int
 
 
-class RunInterruptedData(BaseModel):
+class RunInterruptedData(BaseModel):  # noqa: D101  # tracked: #288
     kind: Literal["run_interrupted"] = "run_interrupted"
     reason: str
     signal: str | None = None
 
 
-class ConfigurationFailedData(BaseModel):
+class ConfigurationFailedData(BaseModel):  # noqa: D101  # tracked: #288
     kind: Literal["configuration_failed"] = "configuration_failed"
     code: str
     stage: str
@@ -107,7 +107,7 @@ class ConfigurationFailedData(BaseModel):
     exit_code: int
 
 
-class PhaseData(BaseModel):
+class PhaseData(BaseModel):  # noqa: D101  # tracked: #288
     kind: Literal["phase"] = "phase"
     phase: str
     attempt: int | None = None
@@ -128,14 +128,14 @@ class AgentStatusData(BaseModel):
     context_window: int | None = None
 
 
-class AgentOutputChunkData(BaseModel):
+class AgentOutputChunkData(BaseModel):  # noqa: D101  # tracked: #288
     kind: Literal["agent_output_chunk"] = "agent_output_chunk"
     channel: AgentOutputChannel
     content: str
     status: AgentStatusData | None = None
 
 
-class ToolCallData(BaseModel):
+class ToolCallData(BaseModel):  # noqa: D101  # tracked: #288
     kind: Literal["tool_call"] = "tool_call"
     tool: str
     call_id: str | None = None
@@ -143,7 +143,7 @@ class ToolCallData(BaseModel):
     status: AgentStatusData | None = None
 
 
-class ToolResultData(BaseModel):
+class ToolResultData(BaseModel):  # noqa: D101  # tracked: #288
     kind: Literal["tool_result"] = "tool_result"
     tool: str
     call_id: str | None = None
@@ -151,7 +151,7 @@ class ToolResultData(BaseModel):
     is_error: bool = False
 
 
-class TodoItemData(BaseModel):
+class TodoItemData(BaseModel):  # noqa: D101  # tracked: #288
     content: str
     # Expected values are "pending" / "in_progress" / "completed", but the
     # field stays open: todo payloads originate from agent tool calls, and an
@@ -159,19 +159,19 @@ class TodoItemData(BaseModel):
     status: str
 
 
-class TodoUpdateData(BaseModel):
+class TodoUpdateData(BaseModel):  # noqa: D101  # tracked: #288
     kind: Literal["todo_update"] = "todo_update"
     todos: list[TodoItemData] = Field(default_factory=list)
 
 
-class UsageUpdateData(BaseModel):
+class UsageUpdateData(BaseModel):  # noqa: D101  # tracked: #288
     kind: Literal["usage_update"] = "usage_update"
     input_tokens: int
     context_window: int | None = None
     model: str | None = None
 
 
-class SubprocessOutputData(BaseModel):
+class SubprocessOutputData(BaseModel):  # noqa: D101  # tracked: #288
     kind: Literal["subprocess_output"] = "subprocess_output"
     process_id: str
     process_kind: str
@@ -179,21 +179,21 @@ class SubprocessOutputData(BaseModel):
     content: str
 
 
-class JudgeResultData(BaseModel):
+class JudgeResultData(BaseModel):  # noqa: D101  # tracked: #288
     kind: Literal["judge_result"] = "judge_result"
     verdict: Literal["pass", "fail"]
     feedback: str
     attempt: int
 
 
-class BenchmarkResultData(BaseModel):
+class BenchmarkResultData(BaseModel):  # noqa: D101  # tracked: #288
     kind: Literal["benchmark_result"] = "benchmark_result"
     metric: str
     value: FiniteFloat
     unit: str
 
 
-class RoundFinishedData(BaseModel):
+class RoundFinishedData(BaseModel):  # noqa: D101  # tracked: #288
     kind: Literal["round_finished"] = "round_finished"
     attempts: int
     judge_verdict: Literal["pass", "fail", "skipped"]
@@ -245,7 +245,7 @@ class RunEvent(BaseModel):
 class EventStore:
     """Serialize event access so readers never observe partial JSONL writes."""
 
-    def __init__(self, path: Path, run_id: str):
+    def __init__(self, path: Path, run_id: str):  # noqa: ANN204, D107  # tracked: #288
         self.path = path
         self.run_id = run_id
         self._lock = threading.RLock()
@@ -258,7 +258,7 @@ class EventStore:
         )
         self._next_sequence = max(self._sequences, default=0) + 1
 
-    def append(self, event: RunEvent) -> RunEvent:
+    def append(self, event: RunEvent) -> RunEvent:  # noqa: D102  # tracked: #288
         with self._changed:
             if self._malformed_tail_offset is not None:
                 with self.path.open("r+b") as stream:
@@ -276,11 +276,11 @@ class EventStore:
             return event
 
     @property
-    def last_sequence(self) -> int:
+    def last_sequence(self) -> int:  # noqa: D102  # tracked: #288
         with self._lock:
             return self._next_sequence - 1
 
-    def read(self, after_sequence: int = 0) -> list[RunEvent]:
+    def read(self, after_sequence: int = 0) -> list[RunEvent]:  # noqa: D102  # tracked: #288
         with self._lock:
             return self._events_after_unlocked(after_sequence)
 
@@ -324,15 +324,15 @@ class EventStore:
         return events, None
 
 
-def make_event(event_type: EventType, text: str = "", **fields: Any) -> RunEvent:
+def make_event(event_type: EventType, text: str = "", **fields: Any) -> RunEvent:  # noqa: ANN401, D103  # tracked: #288
     return RunEvent(timestamp=datetime.now(UTC), type=event_type, text=text, **fields)
 
 
-def json_value(value: Any) -> Any:
+def json_value(value: Any) -> Any:  # noqa: ANN401, D103  # tracked: #288
     if isinstance(value, BaseModel):
         return value.model_dump(mode="json")
     try:
         json.dumps(value)
-        return value
+        return value  # noqa: TRY300  # tracked: #288
     except TypeError:
         return repr(value)

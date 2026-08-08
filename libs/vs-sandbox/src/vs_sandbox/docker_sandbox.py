@@ -10,7 +10,7 @@ import signal
 import subprocess
 import tempfile
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable  # noqa: TC003  # tracked: #288
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -33,25 +33,25 @@ _live_containers: dict[str, str] = {}  # container_id -> container_name
 def _cleanup_containers() -> None:
     """Stop and remove all tracked containers."""
     for container_id, _name in list(_live_containers.items()):
-        try:
-            subprocess.run(
-                ["docker", "stop", container_id],
+        try:  # noqa: SIM105  # tracked: #288
+            subprocess.run(  # noqa: S603  # tracked: #288
+                ["docker", "stop", container_id],  # noqa: S607  # tracked: #288
                 capture_output=True,
                 text=True,
                 check=False,
                 timeout=30,
             )
-        except Exception:
+        except Exception:  # noqa: BLE001, S110  # tracked: #288
             pass
         try:
-            removed = subprocess.run(
-                ["docker", "rm", "-f", container_id],
+            removed = subprocess.run(  # noqa: S603  # tracked: #288
+                ["docker", "rm", "-f", container_id],  # noqa: S607  # tracked: #288
                 capture_output=True,
                 text=True,
                 check=False,
                 timeout=10,
             )
-        except Exception:
+        except Exception:  # noqa: BLE001, S112  # tracked: #288
             continue
         if removed.returncode == 0 or "No such container" in (removed.stderr or ""):
             _live_containers.pop(container_id, None)
@@ -99,7 +99,7 @@ class DockerSandbox(BaseSandbox):
 
     _CONTAINER_ROOT = "/workspace"
 
-    def __init__(
+    def __init__(  # noqa: D417, PLR0913  # tracked: #288
         self,
         host_workspace: str,
         image: str,
@@ -108,7 +108,7 @@ class DockerSandbox(BaseSandbox):
         group_add: list[str] | None = None,
         entrypoint: str | None = None,
         shm_size: str | None = None,
-        auto_remove: bool = False,
+        auto_remove: bool = False,  # noqa: FBT001, FBT002  # tracked: #288
         default_timeout: int = 300,
         start_timeout: int = 120,
         max_output_bytes: int = 100_000,
@@ -235,10 +235,10 @@ class DockerSandbox(BaseSandbox):
             return self._CONTAINER_ROOT + path
         return path  # relative — resolved against workdir by the shell
 
-    def ls_info(self, path: str):
+    def ls_info(self, path: str):  # noqa: ANN201, D102  # tracked: #288
         return super().ls_info(self._vpath(path))
 
-    def read(self, file_path: str, offset: int = 0, limit: int = 2000) -> str:
+    def read(self, file_path: str, offset: int = 0, limit: int = 2000) -> str:  # noqa: D102  # tracked: #288
         return super().read(self._vpath(file_path), offset, limit)
 
     def write(self, file_path: str, content: str) -> WriteResult:
@@ -249,48 +249,52 @@ class DockerSandbox(BaseSandbox):
         (``E2BIG``).  Using ``docker cp`` via a temp file avoids the limit.
         """
         if self._container_id is None:
-            raise RuntimeError("Container not started — call start() first")
+            raise RuntimeError("Container not started — call start() first")  # noqa: TRY003  # tracked: #288
 
         container_path = self._vpath(file_path)
 
         # Ensure parent directory exists inside the container
         parent = str(Path(container_path).parent)
         mkdir_cmd = ["docker", "exec", self._container_id, "mkdir", "-p", parent]
-        subprocess.run(mkdir_cmd, capture_output=True, check=False)
+        subprocess.run(mkdir_cmd, capture_output=True, check=False)  # noqa: S603  # tracked: #288
 
         with tempfile.NamedTemporaryFile(mode="w", suffix=".tmp", delete=True) as tmp:
             tmp.write(content)
             tmp.flush()
             cp_cmd = ["docker", "cp", tmp.name, f"{self._container_id}:{container_path}"]
             self._log_cmd(cp_cmd)
-            result = subprocess.run(cp_cmd, capture_output=True, text=True, check=False)
+            result = subprocess.run(cp_cmd, capture_output=True, text=True, check=False)  # noqa: S603  # tracked: #288
             self._log_cmd(cp_cmd, result)
 
         if result.returncode != 0:
             return WriteResult(path=file_path, error=result.stderr.strip())
         return WriteResult(path=file_path)
 
-    def edit(
-        self, file_path: str, old_string: str, new_string: str, replace_all: bool = False
+    def edit(  # noqa: D102  # tracked: #288
+        self,
+        file_path: str,
+        old_string: str,
+        new_string: str,
+        replace_all: bool = False,  # noqa: FBT001, FBT002  # tracked: #288
     ) -> EditResult:
         return super().edit(self._vpath(file_path), old_string, new_string, replace_all)
 
-    def glob_info(self, pattern: str, path: str = "/"):
+    def glob_info(self, pattern: str, path: str = "/"):  # noqa: ANN201, D102  # tracked: #288
         return super().glob_info(pattern, self._vpath(path))
 
-    def grep_raw(self, pattern: str, path: str | None = None, glob: str | None = None):
+    def grep_raw(self, pattern: str, path: str | None = None, glob: str | None = None):  # noqa: ANN201, D102  # tracked: #288
         # Check container is still running before issuing grep; a dead
         # container causes docker-exec to emit an error on stderr that the
         # parent parser cannot parse (e.g. "No such container").
         if self._container_id is not None:
-            check = subprocess.run(
-                ["docker", "inspect", "--format={{.State.Running}}", self._container_id],
+            check = subprocess.run(  # noqa: S603  # tracked: #288
+                ["docker", "inspect", "--format={{.State.Running}}", self._container_id],  # noqa: S607  # tracked: #288
                 capture_output=True,
                 text=True,
                 check=False,
             )
             if check.returncode != 0 or "true" not in check.stdout.lower():
-                raise RuntimeError(f"Docker container {self._container_id} is no longer running")
+                raise RuntimeError(f"Docker container {self._container_id} is no longer running")  # noqa: TRY003  # tracked: #288
         return super().grep_raw(
             pattern,
             self._vpath(path) if path is not None else self._CONTAINER_ROOT,
@@ -316,7 +320,7 @@ class DockerSandbox(BaseSandbox):
         # Fallback: pass through as-is (e.g. user explicitly set gpus="device=0")
         return gpus
 
-    def start(self) -> None:
+    def start(self) -> None:  # noqa: C901, PLR0912  # tracked: #288
         """Start the Docker container."""
         self._container_name = f"vibesys-{uuid.uuid4().hex[:12]}"
         cmd = [
@@ -371,7 +375,7 @@ class DockerSandbox(BaseSandbox):
 
         self._log_cmd(cmd)
         try:
-            result = subprocess.run(
+            result = subprocess.run(  # noqa: S603  # tracked: #288
                 cmd,
                 capture_output=True,
                 text=True,
@@ -383,7 +387,7 @@ class DockerSandbox(BaseSandbox):
                 cmd,
                 error=f"docker run timed out after {self._start_timeout}s",
             )
-            raise RuntimeError(
+            raise RuntimeError(  # noqa: TRY003  # tracked: #288
                 "Timed out starting Docker container after "
                 f"{self._start_timeout}s. If this is the first run, pre-pull "
                 f"the image with `docker pull {self._image}`; otherwise check "
@@ -396,7 +400,7 @@ class DockerSandbox(BaseSandbox):
                 self._container_id = container_id
                 _live_containers[container_id] = self._container_name
                 self._discard_started_container()
-            raise RuntimeError(
+            raise RuntimeError(  # noqa: TRY003  # tracked: #288
                 f"Failed to start Docker container (exit {result.returncode}):\n"
                 f"  stdout: {result.stdout.strip()}\n"
                 f"  stderr: {result.stderr.strip()}\n"
@@ -415,7 +419,7 @@ class DockerSandbox(BaseSandbox):
         """Finish startup after Docker has created and registered the container."""
         container_id = self._container_id
         if container_id is None:
-            raise RuntimeError("Container was not created before initialization")
+            raise RuntimeError("Container was not created before initialization")  # noqa: TRY003  # tracked: #288
 
         # Save metadata for vibesys-shell to reconstruct the environment
         self._metadata = {
@@ -434,7 +438,7 @@ class DockerSandbox(BaseSandbox):
         # Install uv (with timeout to avoid hanging on network issues)
         uv_cmd = ["docker", "exec", container_id, "bash", "-c", "pip install uv"]
         try:
-            uv_result = subprocess.run(
+            uv_result = subprocess.run(  # noqa: S603  # tracked: #288
                 uv_cmd,
                 capture_output=True,
                 text=True,
@@ -459,7 +463,7 @@ class DockerSandbox(BaseSandbox):
             ]
             self._log_cmd(init_cmd)
             try:
-                init_result = subprocess.run(
+                init_result = subprocess.run(  # noqa: S603  # tracked: #288
                     init_cmd,
                     capture_output=True,
                     text=True,
@@ -468,7 +472,7 @@ class DockerSandbox(BaseSandbox):
                 )
                 self._log_cmd(init_cmd, init_result)
                 if init_result.returncode != 0:
-                    raise RuntimeError(
+                    raise RuntimeError(  # noqa: TRY003  # tracked: #288
                         f"Container init command failed (exit {init_result.returncode}):\n"
                         f"  command: {init_cmd_str}\n"
                         f"  stdout: {init_result.stdout.strip()[:500]}\n"
@@ -476,7 +480,7 @@ class DockerSandbox(BaseSandbox):
                     )
             except subprocess.TimeoutExpired as exc:
                 self._log_cmd(init_cmd, error=f"init command timed out after 600s: {init_cmd_str}")
-                raise RuntimeError(
+                raise RuntimeError(  # noqa: TRY003  # tracked: #288
                     f"Container init command timed out after 600s: {init_cmd_str}"
                 ) from exc
 
@@ -505,7 +509,7 @@ class DockerSandbox(BaseSandbox):
         removed = False
         for cmd, timeout in commands:
             try:
-                result = subprocess.run(
+                result = subprocess.run(  # noqa: S603  # tracked: #288
                     cmd,
                     capture_output=True,
                     text=True,
@@ -525,12 +529,12 @@ class DockerSandbox(BaseSandbox):
                             f"Failed to remove Docker container {container_id} "
                             f"(exit {result.returncode}): {result.stderr.strip()}"
                         )
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001  # tracked: #288
                 if cmd[1] == "rm":
                     cleanup_error = exc
-                try:
+                try:  # noqa: SIM105  # tracked: #288
                     self._log_cmd(cmd, error=f"container cleanup failed: {exc}")
-                except Exception:
+                except Exception:  # noqa: BLE001, S110  # tracked: #288
                     pass
 
         if not removed and cleanup_error is not None and not suppress_errors:
@@ -575,7 +579,7 @@ class DockerSandbox(BaseSandbox):
     ) -> ExecuteResponse:
         """Execute a command inside the Docker container."""
         if self._container_id is None:
-            raise RuntimeError("Container not started — call start() first")
+            raise RuntimeError("Container not started — call start() first")  # noqa: TRY003  # tracked: #288
 
         effective_timeout = timeout if timeout is not None else self._default_timeout
 
@@ -591,7 +595,7 @@ class DockerSandbox(BaseSandbox):
         ]
         self._log_cmd(exec_cmd)
         try:
-            result = subprocess.run(
+            result = subprocess.run(  # noqa: PLW1510, S603  # tracked: #288
                 exec_cmd,
                 capture_output=True,
                 text=True,
@@ -638,7 +642,7 @@ class DockerSandbox(BaseSandbox):
     ) -> list[FileUploadResponse]:
         """Upload files into the container using docker cp."""
         if self._container_id is None:
-            raise RuntimeError("Container not started — call start() first")
+            raise RuntimeError("Container not started — call start() first")  # noqa: TRY003  # tracked: #288
 
         results: list[FileUploadResponse] = []
 
@@ -651,7 +655,7 @@ class DockerSandbox(BaseSandbox):
                 # Ensure parent dir exists
                 parent = str(Path(container_path).parent)
                 mkdir_cmd = ["docker", "exec", self._container_id, "mkdir", "-p", parent]
-                subprocess.run(
+                subprocess.run(  # noqa: S603  # tracked: #288
                     mkdir_cmd,
                     capture_output=True,
                     check=False,
@@ -659,7 +663,7 @@ class DockerSandbox(BaseSandbox):
                 self._log_cmd(mkdir_cmd)
 
                 cp_cmd = ["docker", "cp", tmp.name, f"{self._container_id}:{container_path}"]
-                result = subprocess.run(
+                result = subprocess.run(  # noqa: S603  # tracked: #288
                     cp_cmd,
                     capture_output=True,
                     text=True,
@@ -680,7 +684,7 @@ class DockerSandbox(BaseSandbox):
     ) -> list[FileDownloadResponse]:
         """Download files from the container using docker cp."""
         if self._container_id is None:
-            raise RuntimeError("Container not started — call start() first")
+            raise RuntimeError("Container not started — call start() first")  # noqa: TRY003  # tracked: #288
 
         results: list[FileDownloadResponse] = []
 
@@ -691,7 +695,7 @@ class DockerSandbox(BaseSandbox):
                 tmp_path = tmp.name
 
             cp_cmd = ["docker", "cp", f"{self._container_id}:{container_path}", tmp_path]
-            result = subprocess.run(
+            result = subprocess.run(  # noqa: S603  # tracked: #288
                 cp_cmd,
                 capture_output=True,
                 text=True,
@@ -710,9 +714,9 @@ class DockerSandbox(BaseSandbox):
 
         return results
 
-    def __enter__(self) -> DockerSandbox:
+    def __enter__(self) -> DockerSandbox:  # noqa: D105  # tracked: #288
         self.start()
         return self
 
-    def __exit__(self, *exc: object) -> None:
+    def __exit__(self, *exc: object) -> None:  # noqa: D105  # tracked: #288
         self.stop()

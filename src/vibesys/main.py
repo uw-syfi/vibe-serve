@@ -23,7 +23,7 @@ import os
 import subprocess
 import sys
 import tomllib
-from collections.abc import Callable
+from collections.abc import Callable  # noqa: TC003  # tracked: #288
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, NoReturn
@@ -34,7 +34,7 @@ from vibesys.constants import (
     PROJECT_ROOT,
     ComputeBackend,
 )
-from vibesys.domains.base import DomainName
+from vibesys.domains.base import DomainName  # noqa: TC001  # tracked: #288
 from vibesys.errors import ConfigurationDiagnostic, ConfigurationError
 from vibesys.input_manifest import InputBundle, load_input_bundle
 from vibesys.profilers import CLI_PROFILER_CHOICES, ProfilerKind, coerce_profiler_kind
@@ -88,7 +88,7 @@ class _RunArgumentParser(argparse.ArgumentParser):
 
 
 @dataclass(frozen=True)
-class CliInvocation:
+class CliInvocation:  # noqa: D101  # tracked: #288
     loop_kind: str
     args: argparse.Namespace
 
@@ -458,7 +458,8 @@ def _prepare_experiment_repository(args: argparse.Namespace, config: Config) -> 
 
 def _prepare_stub_agent_smoke_defaults(argv: list[str]) -> list[str]:
     if "--stub-agent" not in argv or any(
-        token == "--input" or token.startswith("--input=") for token in argv
+        token == "--input" or token.startswith("--input=")  # noqa: S105  # tracked: #288
+        for token in argv  # noqa: RUF100, S105  # tracked: #288
     ):
         return argv
     return [
@@ -470,7 +471,7 @@ def _prepare_stub_agent_smoke_defaults(argv: list[str]) -> list[str]:
     ]
 
 
-def run_environment_spec_from_args(args: argparse.Namespace) -> RunEnvironmentSpec:
+def run_environment_spec_from_args(args: argparse.Namespace) -> RunEnvironmentSpec:  # noqa: D103  # tracked: #288
     return make_run_environment_spec(
         use_docker=args.docker,
         docker_image=args.docker_image,
@@ -494,7 +495,7 @@ def _validate_run_environment_profiler(args: argparse.Namespace) -> None:
     )
 
 
-def _resolve_run_dir(run_dir_arg: str) -> str:
+def _resolve_run_dir(run_dir_arg: str) -> str:  # noqa: PLR0911  # tracked: #288
     """Resolve a run directory name.
 
     If *run_dir_arg* is ``"latest"``, find the most recent experiment
@@ -563,8 +564,8 @@ def _clone_experiment(remote: str) -> str:
                 code="resume_clone_failed",
                 stage="resume_resolution",
             )
-        existing_origin = subprocess.run(
-            ["git", "remote", "get-url", "origin"],
+        existing_origin = subprocess.run(  # noqa: PLW1510  # tracked: #288
+            ["git", "remote", "get-url", "origin"],  # noqa: S607  # tracked: #288
             cwd=destination,
             capture_output=True,
             text=True,
@@ -572,7 +573,7 @@ def _clone_experiment(remote: str) -> str:
         expected_suffix = remote.removesuffix(".git").rstrip("/")
         origin = existing_origin.stdout.strip().removesuffix(".git").rstrip("/")
         if existing_origin.returncode == 0 and (
-            origin == expected_suffix
+            origin == expected_suffix  # noqa: PIE810  # tracked: #288
             or origin.endswith(f"/{expected_suffix}")
             or origin.endswith(f":{expected_suffix}")
         ):
@@ -596,7 +597,7 @@ def _clone_experiment(remote: str) -> str:
 
     command = ["git", "clone", remote, str(destination)]
     try:
-        result = subprocess.run(command, capture_output=True, text=True)
+        result = subprocess.run(command, capture_output=True, text=True)  # noqa: PLW1510, S603  # tracked: #288
     except FileNotFoundError as exc:
         tool = command[0]
         _configuration_error(
@@ -746,7 +747,7 @@ def _run_tui_defaults(argv: list[str]) -> None:
         visibility=config.repository.visibility,
         theme=args.theme or config.tui.theme,
     )
-    print(defaults.model_dump_json())
+    print(defaults.model_dump_json())  # noqa: T201  # tracked: #288
 
 
 # ---------------------------------------------------------------------------
@@ -784,21 +785,21 @@ def _run_validate(argv: list[str]) -> None:
             exit_code=1,
         )
 
-    print("VibeSys validation passed: input bundle is valid.")
-    print(f"  input bundle: {bundle.root}")
-    print(f"  objective: {bundle.objective_path}")
-    print(f"  accuracy command: {bundle.accuracy_command_display}")
-    print(f"  benchmark command: {bundle.benchmark_command_display}")
+    print("VibeSys validation passed: input bundle is valid.")  # noqa: T201  # tracked: #288
+    print(f"  input bundle: {bundle.root}")  # noqa: T201  # tracked: #288
+    print(f"  objective: {bundle.objective_path}")  # noqa: T201  # tracked: #288
+    print(f"  accuracy command: {bundle.accuracy_command_display}")  # noqa: T201  # tracked: #288
+    print(f"  benchmark command: {bundle.benchmark_command_display}")  # noqa: T201  # tracked: #288
     if bundle.workspace_seed_path is not None:
-        print(f"  workspace seed: {bundle.workspace_seed_path}")
+        print(f"  workspace seed: {bundle.workspace_seed_path}")  # noqa: T201  # tracked: #288
     for source in bundle.workspace_sources:
-        print(f"  workspace source: {source.name} -> {source.dest} @ {source.commit}")
+        print(f"  workspace source: {source.name} -> {source.dest} @ {source.commit}")  # noqa: T201  # tracked: #288
     if bundle.evaluator_path is not None:
-        print(f"  evaluator source: {bundle.evaluator_path}")
+        print(f"  evaluator source: {bundle.evaluator_path}")  # noqa: T201  # tracked: #288
     if bundle.hidden_evaluator_path is not None:
-        print(f"  hidden evaluator source: {bundle.hidden_evaluator_path}")
+        print(f"  hidden evaluator source: {bundle.hidden_evaluator_path}")  # noqa: T201  # tracked: #288
     if bundle.benchmark_result is not None:
-        print(f"  benchmark metric: {bundle.benchmark_result.metric}")
+        print(f"  benchmark metric: {bundle.benchmark_result.metric}")  # noqa: T201  # tracked: #288
 
 
 # ---------------------------------------------------------------------------
@@ -833,7 +834,7 @@ def _detect_resume_round(exp_dir: Path) -> int:
     try:
         data = json.loads(rounds_json.read_text())
         return len(data) + 1
-    except Exception:
+    except Exception:  # noqa: BLE001  # tracked: #288
         return 1
 
 
@@ -850,7 +851,7 @@ def _prune_rounds_state(exp_dir: Path, keep_up_to: int) -> None:
         return
     try:
         data = json.loads(rounds_json.read_text())
-    except Exception:
+    except Exception:  # noqa: BLE001  # tracked: #288
         return
     kept = [d for d in data if int(d.get("round", 0)) < keep_up_to]
     rounds_json.write_text(json.dumps(kept, indent=2))
@@ -983,7 +984,7 @@ def _run_agent(args: argparse.Namespace) -> None:
     bundle: InputBundle = args.input_bundle
     config, skills, backend = load_config_and_skills(args, domain=bundle.domain)
     _prepare_experiment_repository(args, config)
-    from vibesys.loops.agent.loop import run_agent_loop
+    from vibesys.loops.agent.loop import run_agent_loop  # noqa: PLC0415  # tracked: #288
 
     objective = _with_operator_constraints(_load_objective(bundle), args.constraint)
 
@@ -995,7 +996,7 @@ def _run_agent(args: argparse.Namespace) -> None:
         run_dir_name = _resolve_run_dir(args.resume)
         exp_name = run_dir_name
         existing = True
-        print(f"Resuming agent run: exp_env/{run_dir_name}/")
+        print(f"Resuming agent run: exp_env/{run_dir_name}/")  # noqa: T201  # tracked: #288
         exp_dir = PROJECT_ROOT / "exp_env" / run_dir_name
         if not exp_dir.is_dir():
             _configuration_error(
@@ -1003,16 +1004,16 @@ def _run_agent(args: argparse.Namespace) -> None:
                 code="resume_not_found",
                 stage="resume_resolution",
             )
-        from vibesys.server.registry import active_supervisor
+        from vibesys.server.registry import active_supervisor  # noqa: PLC0415  # tracked: #288
 
         supervisor = active_supervisor()
         if supervisor is not None:
             supervisor.attach(exp_dir / "logs")
         if args.start_round is None:
             start_round = _detect_resume_round(exp_dir)
-            print(f"Auto-detected next round: {start_round}")
+            print(f"Auto-detected next round: {start_round}")  # noqa: T201  # tracked: #288
         else:
-            print(f"Resetting to round {start_round} (discarding later rounds).")
+            print(f"Resetting to round {start_round} (discarding later rounds).")  # noqa: T201  # tracked: #288
             _prune_rounds_state(exp_dir, keep_up_to=start_round)
         if start_round > args.max_rounds:
             _configuration_error(
@@ -1062,9 +1063,9 @@ def _run_agent(args: argparse.Namespace) -> None:
     )
 
     if success:
-        print(f"\nAgent loop completed {args.max_rounds} rounds.")
+        print(f"\nAgent loop completed {args.max_rounds} rounds.")  # noqa: T201  # tracked: #288
     else:
-        print("\nAgent loop stopped early (exception or KeyboardInterrupt).")
+        print("\nAgent loop stopped early (exception or KeyboardInterrupt).")  # noqa: T201  # tracked: #288
         sys.exit(1)
 
 
@@ -1073,19 +1074,19 @@ def _run_agent(args: argparse.Namespace) -> None:
 # ===========================================================================
 
 
-def _parse_cli_objective(spec: str):
+def _parse_cli_objective(spec: str):  # noqa: ANN202  # tracked: #288
     """Parse a ``--objective`` flag value (``name:direction``)."""
-    from vibesys.loops.evolve.population import Objective
+    from vibesys.loops.evolve.population import Objective  # noqa: PLC0415  # tracked: #288
 
     if ":" not in spec:
-        raise argparse.ArgumentTypeError(f"--objective {spec!r} must be 'name:max' or 'name:min'")
+        raise argparse.ArgumentTypeError(f"--objective {spec!r} must be 'name:max' or 'name:min'")  # noqa: TRY003  # tracked: #288
     name, _, direction = spec.partition(":")
     name = name.strip()
     direction = direction.strip().lower()
     if not name:
-        raise argparse.ArgumentTypeError(f"--objective {spec!r}: metric name is empty")
+        raise argparse.ArgumentTypeError(f"--objective {spec!r}: metric name is empty")  # noqa: TRY003  # tracked: #288
     if direction not in ("max", "min"):
-        raise argparse.ArgumentTypeError(
+        raise argparse.ArgumentTypeError(  # noqa: TRY003  # tracked: #288
             f"--objective {spec!r}: direction must be 'max' or 'min', got {direction!r}"
         )
     return Objective(name=name, direction=direction)
@@ -1093,7 +1094,7 @@ def _parse_cli_objective(spec: str):
 
 def _load_objectives_toml(input_path: Path) -> list[Objective]:
     """Read loop-independent Pareto axes from an input bundle when present."""
-    from vibesys.loops.evolve.population import Objective
+    from vibesys.loops.evolve.population import Objective  # noqa: PLC0415  # tracked: #288
 
     path = input_path / "objectives.toml"
     if not path.exists():
@@ -1105,7 +1106,7 @@ def _load_objectives_toml(input_path: Path) -> list[Objective]:
         name = entry.get("name")
         direction = entry.get("direction")
         if not name or direction not in ("max", "min"):
-            raise ValueError(
+            raise ValueError(  # noqa: TRY003  # tracked: #288
                 f"Malformed entry in {path}: {entry!r}. Each [[objective]] "
                 f"must set name and direction (max|min)."
             )
@@ -1126,13 +1127,13 @@ def _load_pareto_relative_noise_toml(input_path: Path) -> float:
     data = tomllib.loads(path.read_text())
     raw_value = (data.get("pareto") or {}).get("relative_noise", 0.0)
     if isinstance(raw_value, bool):
-        raise ValueError(f"Malformed pareto.relative_noise in {path}: {raw_value!r}")
+        raise ValueError(f"Malformed pareto.relative_noise in {path}: {raw_value!r}")  # noqa: TRY003, TRY004  # tracked: #288
     try:
         value = float(raw_value)
     except (TypeError, ValueError) as exc:
-        raise ValueError(f"Malformed pareto.relative_noise in {path}: {raw_value!r}") from exc
+        raise ValueError(f"Malformed pareto.relative_noise in {path}: {raw_value!r}") from exc  # noqa: TRY003  # tracked: #288
     if not math.isfinite(value) or not 0 <= value < 1:
-        raise ValueError(
+        raise ValueError(  # noqa: TRY003  # tracked: #288
             f"Malformed pareto.relative_noise in {path}: expected a finite value "
             f"in [0, 1), got {raw_value!r}"
         )
@@ -1229,7 +1230,7 @@ def _build_evolve_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _validate_evolve(args: argparse.Namespace) -> None:
+def _validate_evolve(args: argparse.Namespace) -> None:  # noqa: C901  # tracked: #288
     _validate_run_environment_profiler(args)
     _validate_target_inputs(args)
     if args.children_per_generation < 1:
@@ -1275,7 +1276,7 @@ def _resolve_openevolve_options(
     existing: bool,
     exp_name: str,
 ) -> tuple[str | None, OpenEvolveSearchConfig | None]:
-    from vibesys.loops.evolve.search_policy import (
+    from vibesys.loops.evolve.search_policy import (  # noqa: PLC0415  # tracked: #288
         OpenEvolveSearchConfig,
         OpenEvolveSearchPolicy,
     )
@@ -1323,7 +1324,9 @@ def _restore_openevolve_objectives(
 ) -> list[Objective]:
     if not existing or objectives:
         return objectives
-    from vibesys.loops.evolve.search_policy import OpenEvolveSearchPolicy
+    from vibesys.loops.evolve.search_policy import (  # noqa: PLC0415  # tracked: #288
+        OpenEvolveSearchPolicy,
+    )
 
     persisted = OpenEvolveSearchPolicy.persisted_objectives(
         _resume_exp_dir(exp_name) / "logs" / "openevolve"
@@ -1335,7 +1338,7 @@ def _run_evolve(args: argparse.Namespace) -> None:
     bundle: InputBundle = args.input_bundle
     config, skills, backend = load_config_and_skills(args, domain=bundle.domain)
     _prepare_experiment_repository(args, config)
-    from vibesys.loops.evolve.loop import run_evolve_loop
+    from vibesys.loops.evolve.loop import run_evolve_loop  # noqa: PLC0415  # tracked: #288
 
     objective = _load_objective(bundle)
     objectives = _resolve_objectives(args)
@@ -1346,7 +1349,7 @@ def _run_evolve(args: argparse.Namespace) -> None:
         run_dir_name = _resolve_run_dir(args.resume)
         exp_name = run_dir_name
         existing = True
-        print(f"Resuming evolve run: exp_env/{run_dir_name}/")
+        print(f"Resuming evolve run: exp_env/{run_dir_name}/")  # noqa: T201  # tracked: #288
 
     objectives = _restore_openevolve_objectives(
         objectives,
@@ -1355,7 +1358,7 @@ def _run_evolve(args: argparse.Namespace) -> None:
     )
     if objectives:
         spec = ", ".join(f"{o.name}({o.direction})" for o in objectives)
-        print(f"Pareto mode active: [{spec}]; frontier_bias={args.frontier_bias}")
+        print(f"Pareto mode active: [{spec}]; frontier_bias={args.frontier_bias}")  # noqa: T201  # tracked: #288
 
     search_policy, openevolve_config = _resolve_openevolve_options(
         args,
@@ -1403,12 +1406,12 @@ def _run_evolve(args: argparse.Namespace) -> None:
     )
 
     if success:
-        print(
+        print(  # noqa: T201  # tracked: #288
             f"\nEvolve loop completed {args.max_generations} generations "
-            f"× {args.children_per_generation} cands."
+            f"× {args.children_per_generation} cands."  # noqa: RUF001  # tracked: #288
         )
     else:
-        print("\nEvolve loop stopped early (exception or KeyboardInterrupt).")
+        print("\nEvolve loop stopped early (exception or KeyboardInterrupt).")  # noqa: T201  # tracked: #288
         sys.exit(1)
 
 
@@ -1441,7 +1444,7 @@ def _run_plain(args: argparse.Namespace) -> None:
     bundle: InputBundle = args.input_bundle
     config, skills, backend = load_config_and_skills(args, domain=bundle.domain)
     _prepare_experiment_repository(args, config)
-    from vibesys.loops.plain.loop import (
+    from vibesys.loops.plain.loop import (  # noqa: PLC0415  # tracked: #288
         PlainLoopState,
         load_state,
         run_plain_loop,
@@ -1455,7 +1458,7 @@ def _run_plain(args: argparse.Namespace) -> None:
         run_dir_name = _resolve_run_dir(args.resume)
         exp_name = run_dir_name
         existing = True
-        print(f"Resuming from: exp_env/{run_dir_name}/")
+        print(f"Resuming from: exp_env/{run_dir_name}/")  # noqa: T201  # tracked: #288
 
         exp_dir = PROJECT_ROOT / "exp_env" / run_dir_name
         log_dir = exp_dir / "logs"
@@ -1468,7 +1471,7 @@ def _run_plain(args: argparse.Namespace) -> None:
         else:
             resume_state = load_state(log_dir)
             if resume_state is not None:
-                print(
+                print(  # noqa: T201  # tracked: #288
                     f"Auto-detected state: round {resume_state.round_idx + 1}, "
                     f"phase '{resume_state.phase}'"
                     + (
@@ -1479,7 +1482,7 @@ def _run_plain(args: argparse.Namespace) -> None:
                 )
             else:
                 resume_state = PlainLoopState(bootstrap_done=True)
-                print(
+                print(  # noqa: T201  # tracked: #288
                     "Warning: state.json not found. Starting fresh "
                     "(bootstrap will be skipped because existing run)."
                 )
@@ -1511,9 +1514,9 @@ def _run_plain(args: argparse.Namespace) -> None:
     )
 
     if success:
-        print("\nPlain loop completed: no remaining open issues.")
+        print("\nPlain loop completed: no remaining open issues.")  # noqa: T201  # tracked: #288
     else:
-        print(f"\nPlain loop did not complete after {args.max_rounds} rounds.")
+        print(f"\nPlain loop did not complete after {args.max_rounds} rounds.")  # noqa: T201  # tracked: #288
         sys.exit(1)
 
 
@@ -1560,8 +1563,12 @@ def _dispatch(argv: list[str]) -> None:
     invocation = parse_cli_invocation(argv)
     loop_kind, args = invocation.loop_kind, invocation.args
     runner = _LOOP_COMMANDS[loop_kind].run
-    from vibesys.server.events import EventStatus, EventType, RunStartedData
-    from vibesys.server.registry import active_supervisor
+    from vibesys.server.events import (  # noqa: PLC0415  # tracked: #288
+        EventStatus,
+        EventType,
+        RunStartedData,
+    )
+    from vibesys.server.registry import active_supervisor  # noqa: PLC0415  # tracked: #288
 
     supervisor = active_supervisor()
     if supervisor is not None:
@@ -1584,24 +1591,24 @@ def _control_socket_from_argv(argv: list[str]) -> Path | None:
         if token.startswith("--control-socket="):
             value = token.partition("=")[2]
             return Path(value) if value else None
-        if token == "--control-socket" and index + 1 < len(argv):
+        if token == "--control-socket" and index + 1 < len(argv):  # noqa: S105  # tracked: #288
             return Path(argv[index + 1])
     return None
 
 
 def _render_configuration_error(error: ConfigurationError) -> NoReturn:
     diagnostic = error.diagnostic
-    print(f"vibesys: {diagnostic.message}", file=sys.stderr)
+    print(f"vibesys: {diagnostic.message}", file=sys.stderr)  # noqa: T201  # tracked: #288
     if diagnostic.usage:
-        print(diagnostic.usage, file=sys.stderr)
+        print(diagnostic.usage, file=sys.stderr)  # noqa: T201  # tracked: #288
     raise SystemExit(diagnostic.exit_code)
 
 
-def main() -> None:
+def main() -> None:  # noqa: D103  # tracked: #288
     argv = sys.argv[1:]
     control_socket = _control_socket_from_argv(argv)
     if control_socket is not None:
-        from vibesys.server.runtime import run_server
+        from vibesys.server.runtime import run_server  # noqa: PLC0415  # tracked: #288
 
         try:
             run_server(lambda: _dispatch(argv), socket_path=control_socket)

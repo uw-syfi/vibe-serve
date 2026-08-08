@@ -10,7 +10,7 @@ from agentshim.executor import CommandExecutor, HostCommandExecutor
 from agentshim.utils import get_interactive_env
 from loguru import logger
 
-from vs_sandbox import WorkspaceSandbox
+from vs_sandbox import WorkspaceSandbox  # noqa: TC001  # tracked: #288
 
 from .base import CodingAgent
 
@@ -27,7 +27,7 @@ class CLICodingAgent(CodingAgent, Generic[SessionT]):
     type-safe per provider.
     """
 
-    def __init__(
+    def __init__(  # noqa: ANN204  # tracked: #288
         self,
         binary_name: str,
         model: str | None = None,
@@ -66,7 +66,7 @@ class CLICodingAgent(CodingAgent, Generic[SessionT]):
     def _get_command(self, prompt: str) -> list[str]:
         """Construct the command line arguments for a fresh session."""
 
-    def _get_resume_command(self, prompt: str, session_id: str) -> list[str] | None:
+    def _get_resume_command(self, prompt: str, session_id: str) -> list[str] | None:  # noqa: ARG002  # tracked: #288
         """Construct the command to resume a previous session.
 
         Returns ``None`` if the provider does not support session resumption,
@@ -75,7 +75,7 @@ class CLICodingAgent(CodingAgent, Generic[SessionT]):
         """
         return None
 
-    def _extract_session_id(self, session: SessionT) -> str | None:
+    def _extract_session_id(self, session: SessionT) -> str | None:  # noqa: ARG002  # tracked: #288
         """Extract a session/conversation ID from the completed session.
 
         Subclasses override this to parse the provider's output format.
@@ -94,7 +94,7 @@ class CLICodingAgent(CodingAgent, Generic[SessionT]):
         cmd: list[str],
         cwd: str | None = None,
         timeout: int | None = None,
-        silent: bool = False,
+        silent: bool = False,  # noqa: FBT001, FBT002  # tracked: #288
     ) -> SessionT:
         """Create the provider-specific session for one generation request."""
 
@@ -103,7 +103,7 @@ class CLICodingAgent(CodingAgent, Generic[SessionT]):
         prompt: str,
         cwd: str | None = None,
         timeout: int | None = None,
-        silent: bool = False,
+        silent: bool = False,  # noqa: FBT001, FBT002  # tracked: #288
     ) -> str:
         """Generate text using the CLI tool.
 

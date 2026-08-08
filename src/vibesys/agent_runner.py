@@ -65,7 +65,7 @@ def _extract_todos(update: dict[str, Any]) -> list[dict[str, Any]] | None:
     return None
 
 
-def _iter_update_dicts(value: Any) -> Iterator[dict[str, Any]]:
+def _iter_update_dicts(value: Any) -> Iterator[dict[str, Any]]:  # noqa: ANN401  # tracked: #288
     """Yield all nested dict nodes reachable from a stream update payload."""
     if isinstance(value, dict):
         yield value
@@ -76,7 +76,7 @@ def _iter_update_dicts(value: Any) -> Iterator[dict[str, Any]]:
             yield from _iter_update_dicts(item)
 
 
-def _extract_text_from_message_content(content: Any) -> str:
+def _extract_text_from_message_content(content: Any) -> str:  # noqa: ANN401  # tracked: #288
     """Normalize AI message content that may be a string or a content-block list."""
     if isinstance(content, str):
         return content
@@ -115,7 +115,7 @@ def _extract_last_ai_message_text(update: dict[str, Any]) -> str:
 # ---------------------------------------------------------------------------
 
 
-def log_agent_config(agent: Any, label: str, log_file: TextIO | None) -> None:
+def log_agent_config(agent: Any, label: str, log_file: TextIO | None) -> None:  # noqa: ANN401  # tracked: #288
     """Write agent configuration (tools list) to log file."""
     if not log_file:
         return
@@ -230,7 +230,7 @@ def parse_typed_response_text(text: str, response_cls: type[T]) -> T | None:
     return None
 
 
-def _coerce_typed_response(payload: Any, response_cls: type[T]) -> T | None:
+def _coerce_typed_response(payload: Any, response_cls: type[T]) -> T | None:  # noqa: ANN401  # tracked: #288
     if isinstance(payload, response_cls):
         return payload
     if isinstance(payload, dict):
@@ -243,7 +243,7 @@ def _coerce_typed_response(payload: Any, response_cls: type[T]) -> T | None:
     return None
 
 
-def _extract_typed_structured_response(update: Any, response_cls: type[T]) -> T | None:
+def _extract_typed_structured_response(update: Any, response_cls: type[T]) -> T | None:  # noqa: ANN401  # tracked: #288
     """Find a structured response of the given type anywhere in the streamed update tree."""
     for node in _iter_update_dicts(update):
         if "structured_response" not in node:
@@ -259,8 +259,8 @@ def _extract_typed_structured_response(update: Any, response_cls: type[T]) -> T 
 # ---------------------------------------------------------------------------
 
 
-def run_agent(
-    agent: Any,
+def run_agent(  # noqa: PLR0913  # tracked: #288
+    agent: Any,  # noqa: ANN401  # tracked: #288
     prompt: str,
     callbacks: list[BaseCallbackHandler] | None = None,
     thread_id: str | None = None,
@@ -307,8 +307,8 @@ def run_agent(
     return last_ai_message
 
 
-def run_typed_agent(
-    agent: Any,
+def run_typed_agent(  # noqa: PLR0913  # tracked: #288
+    agent: Any,  # noqa: ANN401  # tracked: #288
     prompt: str,
     *,
     response_cls: type[T],
@@ -372,8 +372,8 @@ def run_typed_agent(
     return structured_response
 
 
-def run_implementer_agent(
-    agent: Any,
+def run_implementer_agent(  # noqa: PLR0913  # tracked: #288
+    agent: Any,  # noqa: ANN401  # tracked: #288
     prompt: str,
     callbacks: list[BaseCallbackHandler] | None = None,
     thread_id: str | None = None,
@@ -397,8 +397,8 @@ def run_implementer_agent(
     )
 
 
-def run_judge_agent(
-    agent: Any,
+def run_judge_agent(  # noqa: PLR0913  # tracked: #288
+    agent: Any,  # noqa: ANN401  # tracked: #288
     prompt: str,
     callbacks: list[BaseCallbackHandler] | None = None,
     thread_id: str | None = None,
@@ -427,8 +427,8 @@ def run_judge_agent(
     )
 
 
-def run_perf_eval_agent(
-    agent: Any,
+def run_perf_eval_agent(  # noqa: PLR0913  # tracked: #288
+    agent: Any,  # noqa: ANN401  # tracked: #288
     prompt: str,
     callbacks: list[BaseCallbackHandler] | None = None,
     thread_id: str | None = None,
@@ -492,7 +492,7 @@ def _parse_profiler_response_text(text: str) -> ProfilerResponse | None:
     return None
 
 
-def _coerce_profiler_response(payload: Any) -> ProfilerResponse | None:
+def _coerce_profiler_response(payload: Any) -> ProfilerResponse | None:  # noqa: ANN401  # tracked: #288
     if isinstance(payload, ProfilerResponse):
         return payload
     if isinstance(payload, dict):
@@ -521,8 +521,8 @@ def _extract_profiler_structured_response(update: dict[str, Any]) -> ProfilerRes
 # ---------------------------------------------------------------------------
 
 
-def run_profiler_agent(
-    agent: Any,
+def run_profiler_agent(  # noqa: PLR0913  # tracked: #288
+    agent: Any,  # noqa: ANN401  # tracked: #288
     prompt: str,
     callbacks: list[BaseCallbackHandler] | None = None,
     thread_id: str | None = None,
@@ -581,8 +581,8 @@ def run_profiler_agent(
     return structured_response
 
 
-def run_issue_implementer_agent(
-    agent: Any,
+def run_issue_implementer_agent(  # noqa: PLR0913  # tracked: #288
+    agent: Any,  # noqa: ANN401  # tracked: #288
     prompt: str,
     *,
     issue_id: int,
@@ -610,8 +610,8 @@ def run_issue_implementer_agent(
     )
 
 
-def run_issue_judge_agent(
-    agent: Any,
+def run_issue_judge_agent(  # noqa: PLR0913  # tracked: #288
+    agent: Any,  # noqa: ANN401  # tracked: #288
     prompt: str,
     *,
     issue_id: int,
@@ -640,8 +640,8 @@ def run_issue_judge_agent(
     )
 
 
-def run_issue_perf_eval_agent(
-    agent: Any,
+def run_issue_perf_eval_agent(  # noqa: PLR0913  # tracked: #288
+    agent: Any,  # noqa: ANN401  # tracked: #288
     prompt: str,
     callbacks: list[BaseCallbackHandler] | None = None,
     thread_id: str | None = None,

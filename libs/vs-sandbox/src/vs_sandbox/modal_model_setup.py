@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import os
 import re
-from collections.abc import Callable
+from collections.abc import Callable  # noqa: TC003  # tracked: #288
 
 import modal
 
@@ -32,7 +32,7 @@ def _volume_is_ready(volume: modal.Volume) -> bool:
     """Return True if the volume has a ``_READY_SENTINEL`` marker at its root."""
     try:
         entries = volume.listdir("/")
-    except Exception:
+    except Exception:  # noqa: BLE001  # tracked: #288
         return False
     ready_name = _READY_SENTINEL.lstrip("/")
     return any(e.path.lstrip("/") == ready_name for e in entries)
@@ -72,7 +72,7 @@ def ensure_model_volume(
         The name of the Modal Volume that was ensured.  Pass this as
         ``--modal-model-volume``.
     """
-    from pathlib import Path
+    from pathlib import Path  # noqa: PLC0415  # tracked: #288
 
     vol_name = _volume_name_for(model_id)
     volume = modal.Volume.from_name(vol_name, create_if_missing=True)
@@ -124,10 +124,10 @@ def ensure_model_volume(
         serialized=True,
     )
     def _download(mid: str, rev: str | None, sentinel: str) -> None:
-        import os as _os
-        from pathlib import Path
+        import os as _os  # noqa: PLC0415  # tracked: #288
+        from pathlib import Path  # noqa: PLC0415  # tracked: #288
 
-        from huggingface_hub import snapshot_download
+        from huggingface_hub import snapshot_download  # noqa: PLC0415  # tracked: #288
 
         snapshot_download(
             mid,

@@ -31,14 +31,14 @@ sys.path.insert(0, str(_HERE))
 import analyze_nsys  # noqa: E402  (sys.path setup above)
 
 
-def _capture(fn, **kwargs) -> str:
+def _capture(fn, **kwargs) -> str:  # noqa: ANN001, ANN003  # tracked: #288
     """Run an ``analyze_nsys.cmd_*`` with an argparse-like namespace and
     capture stdout as a string.
 
     The ``cmd_*`` helpers print their results to stdout; we intercept
     and return the buffered text so the MCP client gets a structured
     reply.
-    """
+    """  # noqa: D205  # tracked: #288
     ns = types.SimpleNamespace(**kwargs)
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
@@ -47,7 +47,7 @@ def _capture(fn, **kwargs) -> str:
     return out or "(no output)"
 
 
-def build_server() -> FastMCP:
+def build_server() -> FastMCP:  # noqa: C901  # tracked: #288
     """Construct the FastMCP instance with nsys analysis tools.
 
     Exposed separately so unit tests can introspect registered tools
@@ -142,7 +142,7 @@ def build_server() -> FastMCP:
     return mcp
 
 
-def main(argv: list[str] | None = None) -> None:
+def main(argv: list[str] | None = None) -> None:  # noqa: D103  # tracked: #288
     parser = argparse.ArgumentParser(
         prog="vibesys-nsys-mcp",
         description="Stdio MCP server exposing nsys profile analyses.",

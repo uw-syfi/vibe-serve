@@ -11,7 +11,7 @@ import json
 import os
 import sys
 import traceback
-from collections.abc import Callable
+from collections.abc import Callable  # noqa: TC003  # tracked: #288
 from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
@@ -23,13 +23,13 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 _STORE_VERSION = 1
 
 
-class IssueType(StrEnum):
+class IssueType(StrEnum):  # noqa: D101  # tracked: #288
     BUG = "bug"
     FEATURE = "feature"
     PERF = "perf"
 
 
-class IssueStatus(StrEnum):
+class IssueStatus(StrEnum):  # noqa: D101  # tracked: #288
     OPEN = "open"
     IN_PROGRESS = "in_progress"
     CLOSED = "closed"
@@ -88,16 +88,16 @@ class _IssueBoardData(BaseModel):
     def _valid_issue_identity(self) -> Self:
         issue_ids = [issue.id for issue in self.issues]
         if len(issue_ids) != len(set(issue_ids)):
-            raise ValueError("issue IDs must be unique")
+            raise ValueError("issue IDs must be unique")  # noqa: TRY003  # tracked: #288
         if issue_ids and self.next_id <= max(issue_ids):
-            raise ValueError("next_id must be greater than every persisted issue ID")
+            raise ValueError("next_id must be greater than every persisted issue ID")  # noqa: TRY003  # tracked: #288
         return self
 
 
 class IssueBoard:
     """Atomic JSON-backed issue tracker."""
 
-    def __init__(
+    def __init__(  # noqa: D107  # tracked: #288
         self,
         path: Path,
         *,
@@ -122,27 +122,27 @@ class IssueBoard:
         try:
             loaded = json.loads(self.path.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, UnicodeDecodeError) as exc:
-            raise IssueBoardLoadError(
+            raise IssueBoardLoadError(  # noqa: TRY003  # tracked: #288
                 f"cannot load issue board {self.path}: invalid JSON: {exc}"
             ) from exc
         except OSError as exc:
-            raise IssueBoardLoadError(
+            raise IssueBoardLoadError(  # noqa: TRY003  # tracked: #288
                 f"cannot load issue board {self.path}: cannot read store: {exc}"
             ) from exc
         if not isinstance(loaded, dict):
-            raise IssueBoardLoadError(
+            raise IssueBoardLoadError(  # noqa: TRY003  # tracked: #288
                 f"cannot load issue board {self.path}: expected a JSON object"
             )
         version = loaded.get("version")
         if version != _STORE_VERSION:
-            raise IssueBoardLoadError(
+            raise IssueBoardLoadError(  # noqa: TRY003  # tracked: #288
                 f"cannot load issue board {self.path}: unsupported version "
                 f"{version!r}; expected {_STORE_VERSION}"
             )
         try:
             data = _IssueBoardData.model_validate(loaded)
         except ValidationError as exc:
-            raise IssueBoardLoadError(
+            raise IssueBoardLoadError(  # noqa: TRY003  # tracked: #288
                 f"cannot load issue board {self.path}: invalid store structure: {exc}"
             ) from exc
         return data.model_dump(mode="json")
@@ -150,12 +150,12 @@ class IssueBoard:
     def _save_locked(self) -> None:
         tmp = self.path.with_suffix(self.path.suffix + ".tmp")
         tmp.write_text(json.dumps(self._data, indent=2), encoding="utf-8")
-        os.replace(tmp, self.path)
+        os.replace(tmp, self.path)  # noqa: PTH105  # tracked: #288
         if self._on_change is not None:
             try:
                 self._on_change()
             except Exception:  # noqa: BLE001
-                print(
+                print(  # noqa: T201  # tracked: #288
                     "[IssueBoard] on_change callback raised; ignoring:",
                     file=sys.stderr,
                 )
@@ -174,21 +174,21 @@ class IssueBoard:
             if raw.get("id") == issue.id:
                 self._data["issues"][idx] = issue.model_dump(mode="json")
                 return
-        raise KeyError(f"issue #{issue.id} not found")
+        raise KeyError(f"issue #{issue.id} not found")  # noqa: TRY003  # tracked: #288
 
-    def create(
+    def create(  # noqa: D102  # tracked: #288
         self,
         *,
-        type: IssueType | str,
+        type: IssueType | str,  # noqa: A002  # tracked: #288
         title: str,
         description: str,
         created_by: str,
         iteration: int,
     ) -> Issue:
         if not isinstance(type, IssueType):
-            type = IssueType(type)
+            type = IssueType(type)  # noqa: A001  # tracked: #288
         with self._lock:
-            now = datetime.now().isoformat()
+            now = datetime.now().isoformat()  # noqa: DTZ005  # tracked: #288
             issue = Issue(
                 id=self._data["next_id"],
                 type=type,
@@ -214,14 +214,14 @@ class IssueBoard:
             self._save_locked()
             return issue
 
-    def get(self, issue_id: int) -> Issue | None:
+    def get(self, issue_id: int) -> Issue | None:  # noqa: D102  # tracked: #288
         with self._lock:
             for raw in self._data["issues"]:
                 if raw.get("id") == issue_id:
                     return self._issue_from_dict(raw)
         return None
 
-    def update_status(
+    def update_status(  # noqa: D102, PLR0913  # tracked: #288
         self,
         issue_id: int,
         status: IssueStatus | str,
@@ -236,8 +236,8 @@ class IssueBoard:
         with self._lock:
             issue = self.get(issue_id)
             if issue is None:
-                raise KeyError(f"issue #{issue_id} not found")
-            now = datetime.now().isoformat()
+                raise KeyError(f"issue #{issue_id} not found")  # noqa: TRY003  # tracked: #288
+            now = datetime.now().isoformat()  # noqa: DTZ005  # tracked: #288
             old_status = issue.status
             issue.status = status
             issue.updated_at = now
@@ -271,7 +271,7 @@ class IssueBoard:
                 if raw.get("status") != IssueStatus.BLOCKED.value:
                     continue
                 issue = self._issue_from_dict(raw)
-                now = datetime.now().isoformat()
+                now = datetime.now().isoformat()  # noqa: DTZ005  # tracked: #288
                 issue.status = IssueStatus.OPEN
                 issue.attempts = 0
                 issue.closed_iter = None
@@ -291,7 +291,7 @@ class IssueBoard:
                 self._save_locked()
         return reopened
 
-    def increment_attempts(
+    def increment_attempts(  # noqa: D102  # tracked: #288
         self,
         issue_id: int,
         *,
@@ -303,8 +303,8 @@ class IssueBoard:
         with self._lock:
             issue = self.get(issue_id)
             if issue is None:
-                raise KeyError(f"issue #{issue_id} not found")
-            now = datetime.now().isoformat()
+                raise KeyError(f"issue #{issue_id} not found")  # noqa: TRY003  # tracked: #288
+            now = datetime.now().isoformat()  # noqa: DTZ005  # tracked: #288
             issue.attempts += 1
             issue.updated_at = now
             issue.history.append(
@@ -321,16 +321,16 @@ class IssueBoard:
             self._save_locked()
             return issue
 
-    def list(
+    def list(  # noqa: D102  # tracked: #288
         self,
         *,
         status: IssueStatus | str | None = None,
-        type: IssueType | str | None = None,
+        type: IssueType | str | None = None,  # noqa: A002  # tracked: #288
     ) -> list[Issue]:
         if status is not None and not isinstance(status, IssueStatus):
             status = IssueStatus(status)
         if type is not None and not isinstance(type, IssueType):
-            type = IssueType(type)
+            type = IssueType(type)  # noqa: A001  # tracked: #288
         with self._lock:
             out: list[Issue] = []
             for raw in self._data["issues"]:

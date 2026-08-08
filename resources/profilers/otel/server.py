@@ -10,7 +10,7 @@ from mcp.server.fastmcp import FastMCP
 from pydantic import BaseModel, ConfigDict, Field, StrictFloat, StrictInt, model_validator
 
 
-class LatencyRow(BaseModel):
+class LatencyRow(BaseModel):  # noqa: D101  # tracked: #288
     model_config = ConfigDict(extra="forbid")
 
     name: str = Field(min_length=1)
@@ -23,33 +23,33 @@ class LatencyRow(BaseModel):
     max_ms: StrictFloat = Field(ge=0)
 
     @model_validator(mode="after")
-    def validate_distribution(self) -> "LatencyRow":
+    def validate_distribution(self) -> "LatencyRow":  # noqa: D102  # tracked: #288
         if self.error_count > self.count:
-            raise ValueError("error_count must not exceed count")
+            raise ValueError("error_count must not exceed count")  # noqa: TRY003  # tracked: #288
         values = (self.mean_ms, self.p50_ms, self.p95_ms, self.p99_ms, self.max_ms)
         if not all(math.isfinite(value) for value in values):
-            raise ValueError("latency values must be finite")
+            raise ValueError("latency values must be finite")  # noqa: TRY003  # tracked: #288
         if not (self.p50_ms <= self.p95_ms <= self.p99_ms <= self.max_ms):
-            raise ValueError("latency percentiles must be ordered")
+            raise ValueError("latency percentiles must be ordered")  # noqa: TRY003  # tracked: #288
         return self
 
 
-class MeasurementWindow(BaseModel):
+class MeasurementWindow(BaseModel):  # noqa: D101  # tracked: #288
     model_config = ConfigDict(extra="forbid")
 
     start: str
     end: str
 
     @model_validator(mode="after")
-    def validate_bounds(self) -> "MeasurementWindow":
+    def validate_bounds(self) -> "MeasurementWindow":  # noqa: D102  # tracked: #288
         start = _parse_timestamp(self.start, "start")
         end = _parse_timestamp(self.end, "end")
         if end < start:
-            raise ValueError("measurement window end must not precede start")
+            raise ValueError("measurement window end must not precede start")  # noqa: TRY003  # tracked: #288
         return self
 
 
-class TelemetryReport(BaseModel):
+class TelemetryReport(BaseModel):  # noqa: D101  # tracked: #288
     model_config = ConfigDict(extra="forbid")
 
     schema_version: Literal[1]
@@ -65,12 +65,12 @@ class TelemetryReport(BaseModel):
     datastores_by_p95: list[LatencyRow] = Field(default_factory=list)
 
     @model_validator(mode="after")
-    def validate_report(self) -> "TelemetryReport":
+    def validate_report(self) -> "TelemetryReport":  # noqa: D102  # tracked: #288
         _parse_timestamp(self.collected_at, "collected_at")
         if not self.measurement_windows:
-            raise ValueError("measurement_windows must not be empty")
+            raise ValueError("measurement_windows must not be empty")  # noqa: TRY003  # tracked: #288
         if self.error_count > self.span_count:
-            raise ValueError("error_count must not exceed span_count")
+            raise ValueError("error_count must not exceed span_count")  # noqa: TRY003  # tracked: #288
         for label, rows in (
             ("services_by_p95", self.services_by_p95),
             ("spans_by_p95", self.spans_by_p95),
@@ -78,9 +78,9 @@ class TelemetryReport(BaseModel):
         ):
             names = [row.name for row in rows]
             if len(names) != len(set(names)):
-                raise ValueError(f"{label} contains duplicate names")
+                raise ValueError(f"{label} contains duplicate names")  # noqa: TRY003  # tracked: #288
         if not self.services_by_p95 or not self.spans_by_p95:
-            raise ValueError("services_by_p95 and spans_by_p95 must not be empty")
+            raise ValueError("services_by_p95 and spans_by_p95 must not be empty")  # noqa: TRY003  # tracked: #288
         return self
 
 
@@ -129,11 +129,11 @@ class ReportComparison(BaseModel):
     datastore_p95_changes: list[RowChange]
 
 
-def load_report(path: str) -> TelemetryReport:
+def load_report(path: str) -> TelemetryReport:  # noqa: D103  # tracked: #288
     return TelemetryReport.model_validate_json(Path(path).read_text(encoding="utf-8"))
 
 
-def summarize_report(path: str, *, top: int = 10) -> ReportSummary:
+def summarize_report(path: str, *, top: int = 10) -> ReportSummary:  # noqa: D103  # tracked: #288
     _validate_top(top)
     report = load_report(path)
     return ReportSummary(
@@ -150,12 +150,12 @@ def summarize_report(path: str, *, top: int = 10) -> ReportSummary:
     )
 
 
-def compare_reports(before_path: str, after_path: str, *, top: int = 10) -> ReportComparison:
+def compare_reports(before_path: str, after_path: str, *, top: int = 10) -> ReportComparison:  # noqa: D103  # tracked: #288
     _validate_top(top)
     before = load_report(before_path)
     after = load_report(after_path)
     if _report_identity(before) != _report_identity(after):
-        raise ValueError("reports must have matching workload identity and window count")
+        raise ValueError("reports must have matching workload identity and window count")  # noqa: TRY003  # tracked: #288
     return ReportComparison(
         before_span_count=before.span_count,
         after_span_count=after.span_count,
@@ -175,19 +175,19 @@ def _report_identity(report: TelemetryReport) -> tuple:
 
 def _parse_timestamp(value: str, label: str) -> datetime:
     if not value:
-        raise ValueError(f"measurement window {label} must not be empty")
+        raise ValueError(f"measurement window {label} must not be empty")  # noqa: TRY003  # tracked: #288
     try:
-        timestamp = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        timestamp = datetime.fromisoformat(value.replace("Z", "+00:00"))  # noqa: FURB162  # tracked: #288
     except ValueError as exc:
-        raise ValueError(f"measurement window {label} must be an RFC3339 timestamp") from exc
+        raise ValueError(f"measurement window {label} must be an RFC3339 timestamp") from exc  # noqa: TRY003  # tracked: #288
     if timestamp.tzinfo is None:
-        raise ValueError(f"measurement window {label} must include a timezone")
+        raise ValueError(f"measurement window {label} must include a timezone")  # noqa: TRY003  # tracked: #288
     return timestamp
 
 
 def _validate_top(top: int) -> None:
     if top <= 0:
-        raise ValueError("top must be positive")
+        raise ValueError("top must be positive")  # noqa: TRY003  # tracked: #288
 
 
 def _compare_rows(
@@ -236,7 +236,7 @@ def _change_magnitude(change: RowChange) -> float:
     return 0.0
 
 
-def find_reports(root: str = ".") -> list[str]:
+def find_reports(root: str = ".") -> list[str]:  # noqa: D103  # tracked: #288
     base = Path(root)
     reports = []
     for path in base.rglob("*.json"):
@@ -259,7 +259,7 @@ def find_reports(root: str = ".") -> list[str]:
     return sorted(reports)
 
 
-def build_server() -> FastMCP:
+def build_server() -> FastMCP:  # noqa: D103  # tracked: #288
     mcp = FastMCP("vibesys-otel-profiler")
 
     @mcp.tool()

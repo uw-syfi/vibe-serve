@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import os
 import subprocess
-from collections.abc import Callable
+from collections.abc import Callable  # noqa: TC003  # tracked: #288
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path  # noqa: TC003  # tracked: #288
 
 from vibesys.repository import REPOSITORY_SLUG, RepositoryVisibility
 from vs_github import GitHubCLI
@@ -26,7 +26,7 @@ class ExperimentRepository:
     log: Callable[[str], None]
     github: GitHubCLI = field(default_factory=GitHubCLI)
 
-    _GIT_IDENTITY = {
+    _GIT_IDENTITY = {  # noqa: RUF012  # tracked: #288
         "GIT_AUTHOR_NAME": "vibesys",
         "GIT_AUTHOR_EMAIL": "vibesys@local",
         "GIT_COMMITTER_NAME": "vibesys",
@@ -36,9 +36,9 @@ class ExperimentRepository:
     def create_remote(self, slug: str, visibility: RepositoryVisibility) -> None:
         """Create a GitHub repository and attach it as ``origin``."""
         if not REPOSITORY_SLUG.fullmatch(slug):
-            raise ValueError(f"--repo must be a GitHub OWNER/NAME pair, got {slug!r}")
+            raise ValueError(f"--repo must be a GitHub OWNER/NAME pair, got {slug!r}")  # noqa: TRY003  # tracked: #288
         if self.has_origin():
-            raise ValueError(f"experiment repository already has an origin remote: {self.root}")
+            raise ValueError(f"experiment repository already has an origin remote: {self.root}")  # noqa: TRY003  # tracked: #288
 
         self._ensure_gitignore()
         self.github.create_repository(
@@ -95,7 +95,7 @@ class ExperimentRepository:
     ) -> subprocess.CompletedProcess[str]:
         env = {**os.environ, **self._GIT_IDENTITY}
         try:
-            result = subprocess.run(
+            result = subprocess.run(  # noqa: PLW1510, S603  # tracked: #288
                 command,
                 cwd=self.root,
                 capture_output=True,
@@ -103,8 +103,8 @@ class ExperimentRepository:
                 env=env,
             )
         except FileNotFoundError as exc:
-            raise RuntimeError(f"{tool} is required for experiment repository tracking") from exc
+            raise RuntimeError(f"{tool} is required for experiment repository tracking") from exc  # noqa: TRY003  # tracked: #288
         if check and result.returncode != 0:
             detail = result.stderr.strip() or result.stdout.strip() or "unknown error"
-            raise RuntimeError(f"{tool} command failed ({' '.join(command)}): {detail}")
+            raise RuntimeError(f"{tool} command failed ({' '.join(command)}): {detail}")  # noqa: TRY003  # tracked: #288
         return result

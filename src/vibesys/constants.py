@@ -1,4 +1,4 @@
-from enum import StrEnum
+from enum import StrEnum  # noqa: D100  # tracked: #288
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent

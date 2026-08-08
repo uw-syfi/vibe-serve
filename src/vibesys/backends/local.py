@@ -15,11 +15,11 @@ run inside Docker because it needs no accelerator passthrough. Per-platform
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable  # noqa: TC003  # tracked: #288
 from pathlib import Path
 
 from deepagents.backends import LocalShellBackend
-from deepagents.backends.protocol import SandboxBackendProtocol
+from deepagents.backends.protocol import SandboxBackendProtocol  # noqa: TC002  # tracked: #288
 
 from vibesys.backends.base import (
     ContentionMonitor,
@@ -37,7 +37,7 @@ _DEFAULT_CPU_IMAGE = "python:3.12-bookworm"
 class LocalBackend:
     """No-device backend (Metal / CPU) — hardware hooks are no-ops."""
 
-    def __init__(
+    def __init__(  # noqa: D107, PLR0913  # tracked: #288
         self,
         name: ComputeBackend,
         log_dir: Path,
@@ -61,7 +61,7 @@ class LocalBackend:
 
     # -- ComputeBackendImpl protocol -----------------------------------------
 
-    def make_sandbox(
+    def make_sandbox(  # noqa: D102, PLR0913  # tracked: #288
         self,
         kind: SandboxKind,
         *,
@@ -72,7 +72,7 @@ class LocalBackend:
         extra_env: dict[str, str] | None = None,
         extra_init_commands: list[str] | None = None,
         setup_fns: list[SetupFn] | None = None,
-        modal_options: ModalOptions | None = None,
+        modal_options: ModalOptions | None = None,  # noqa: ARG002  # tracked: #288
         attach_accelerator: bool = True,
     ) -> SandboxBackendProtocol:
         del attach_accelerator
@@ -91,7 +91,7 @@ class LocalBackend:
             )
         if kind is SandboxKind.DOCKER and self._supports_docker:
             if self.image is None:
-                raise ValueError(f"{self.name.value} backend requires a Docker image")
+                raise ValueError(f"{self.name.value} backend requires a Docker image")  # noqa: TRY003  # tracked: #288
             return DockerSandbox(
                 host_workspace=host_workspace,
                 image=self.image,
@@ -104,16 +104,16 @@ class LocalBackend:
                 setup_fns=setup_fns,
             )
         if kind in (SandboxKind.DOCKER, SandboxKind.MODAL):
-            raise ValueError(
+            raise ValueError(  # noqa: TRY003  # tracked: #288
                 f"{self.name.value} backend only supports local execution; "
                 f"SandboxKind.{kind.name} is unavailable ({self._unavailable_reason})."
             )
-        raise ValueError(f"Unknown sandbox kind: {kind!r}")
+        raise ValueError(f"Unknown sandbox kind: {kind!r}")  # noqa: TRY003  # tracked: #288
 
-    def make_monitor(self, log_dir: Path) -> ContentionMonitor | None:
+    def make_monitor(self, log_dir: Path) -> ContentionMonitor | None:  # noqa: ARG002, D102  # tracked: #288
         return None
 
-    def reselect_device(self) -> None:
+    def reselect_device(self) -> None:  # noqa: D102  # tracked: #288
         return None
 
 

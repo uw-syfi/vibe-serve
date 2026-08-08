@@ -4,7 +4,7 @@ from vibesys.llm_client import _is_google_model
 
 
 @pytest.mark.parametrize(
-    "model_name, expected",
+    "model_name, expected",  # noqa: PT006  # tracked: #288
     [
         ("gemini-1.5-pro", True),
         ("gemma-2b", True),
@@ -14,5 +14,5 @@ from vibesys.llm_client import _is_google_model
         ("Gemini-1.5-pro", False),  # case-sensitive
     ],
 )
-def test_is_google_model(model_name, expected):
+def test_is_google_model(model_name, expected):  # noqa: ANN001, ANN201  # tracked: #288
     assert _is_google_model(model_name) is expected

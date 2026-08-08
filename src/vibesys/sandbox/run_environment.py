@@ -30,19 +30,19 @@ import os
 import shlex
 import subprocess
 import sys
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping  # noqa: TC003  # tracked: #288
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal, Protocol
 
-from deepagents.backends.protocol import SandboxBackendProtocol
-from deepagents.backends.sandbox import BaseSandbox
+from deepagents.backends.protocol import SandboxBackendProtocol  # noqa: TC002  # tracked: #288
+from deepagents.backends.sandbox import BaseSandbox  # noqa: TC002  # tracked: #288
 
 from vibesys.backends import SandboxKind
-from vibesys.backends.base import ComputeBackendImpl, SetupFn
+from vibesys.backends.base import ComputeBackendImpl, SetupFn  # noqa: TC001  # tracked: #288
 from vibesys.constants import DEFAULT_AGENT_BACKEND, PROJECT_ROOT
-from vibesys.domains.environment import EnvironmentBindMount
-from vibesys.input_manifest import WorkspaceSource
+from vibesys.domains.environment import EnvironmentBindMount  # noqa: TC001  # tracked: #288
+from vibesys.input_manifest import WorkspaceSource  # noqa: TC001  # tracked: #288
 from vibesys.profilers import ProfilerKind
 
 
@@ -106,7 +106,7 @@ class CandidateRuntime:
 
 
 @dataclass(frozen=True)
-class RunEnvironmentRequest:
+class RunEnvironmentRequest:  # noqa: D101  # tracked: #288
     log_dir: Path
     workspace: Path
     ref_dir: Path | None
@@ -125,27 +125,27 @@ class RunEnvironmentRequest:
     project_root: Path = PROJECT_ROOT
 
 
-class RunEnvironmentSession(Protocol):
+class RunEnvironmentSession(Protocol):  # noqa: D101  # tracked: #288
     sandbox: SandboxBackendProtocol
     view: RunEnvironmentView
 
-    def __enter__(self) -> RunEnvironmentSession: ...
-    def __exit__(self, exc_type: object, exc: object, tb: object) -> None: ...
-    def close(self) -> None: ...
+    def __enter__(self) -> RunEnvironmentSession: ...  # noqa: D105  # tracked: #288
+    def __exit__(self, exc_type: object, exc: object, tb: object) -> None: ...  # noqa: D105  # tracked: #288
+    def close(self) -> None: ...  # noqa: D102  # tracked: #288
 
 
-class RunEnvironment(Protocol):
+class RunEnvironment(Protocol):  # noqa: D101  # tracked: #288
     isolated: bool
     materialize_local_model_weights: bool
     default_profiler_kind: ProfilerKind
     supported_profiler_kinds: frozenset[ProfilerKind] | None
     backend_image: str | None
 
-    def open(self, request: RunEnvironmentRequest) -> RunEnvironmentSession: ...
-    def repair_workspace(
+    def open(self, request: RunEnvironmentRequest) -> RunEnvironmentSession: ...  # noqa: D102  # tracked: #288
+    def repair_workspace(  # noqa: D102  # tracked: #288
         self, workspace: Path, *, backend: ComputeBackendImpl, log: Callable[[str], None]
     ) -> None: ...
-    def remove_workspace_child(
+    def remove_workspace_child(  # noqa: D102  # tracked: #288
         self, workspace: Path, rel_path: str, *, backend: ComputeBackendImpl
     ) -> bool: ...
     def teardown_deployment(self, name: str, *, log: Callable[[str], None]) -> None:
@@ -166,20 +166,31 @@ class RunEnvironment(Protocol):
 
 class _NoopWorkspaceRecovery:
     def repair_workspace(
-        self, workspace: Path, *, backend: ComputeBackendImpl, log: Callable[[str], None]
+        self,
+        workspace: Path,  # noqa: ARG002  # tracked: #288
+        *,
+        backend: ComputeBackendImpl,  # noqa: ARG002  # tracked: #288
+        log: Callable[[str], None],  # noqa: ARG002  # tracked: #288
     ) -> None:
         return
 
     def remove_workspace_child(
-        self, workspace: Path, rel_path: str, *, backend: ComputeBackendImpl
+        self,
+        workspace: Path,  # noqa: ARG002  # tracked: #288
+        rel_path: str,  # noqa: ARG002  # tracked: #288
+        *,
+        backend: ComputeBackendImpl,  # noqa: ARG002  # tracked: #288
     ) -> bool:
         return False
 
-    def teardown_deployment(self, name: str, *, log: Callable[[str], None]) -> None:
+    def teardown_deployment(self, name: str, *, log: Callable[[str], None]) -> None:  # noqa: ARG002  # tracked: #288
         return
 
     def candidate_runtime(
-        self, view: RunEnvironmentView, generation: int, child_idx: int
+        self,
+        view: RunEnvironmentView,
+        generation: int,  # noqa: ARG002  # tracked: #288
+        child_idx: int,  # noqa: ARG002  # tracked: #288
     ) -> CandidateRuntime:
         return CandidateRuntime(view.prompt_notes, view.deployment_namespace)
 
@@ -205,14 +216,14 @@ class _DefaultRunEnvironmentSession:
             self.sandbox.stop()  # pyright: ignore[reportAttributeAccessIssue]
 
 
-class LocalEnvironment(_NoopWorkspaceRecovery):
+class LocalEnvironment(_NoopWorkspaceRecovery):  # noqa: D101  # tracked: #288
     isolated: bool = False
     materialize_local_model_weights: bool = True
     default_profiler_kind: ProfilerKind = ProfilerKind.NSYS
     supported_profiler_kinds: frozenset[ProfilerKind] | None = None
     backend_image: str | None = None
 
-    def open(self, request: RunEnvironmentRequest) -> RunEnvironmentSession:
+    def open(self, request: RunEnvironmentRequest) -> RunEnvironmentSession:  # noqa: D102  # tracked: #288
         objective_document = _materialize_effective_objective(request)
         sandbox = request.backend.make_sandbox(
             SandboxKind.LOCAL,
@@ -242,26 +253,26 @@ class LocalEnvironment(_NoopWorkspaceRecovery):
 
 
 @dataclass(frozen=True)
-class DockerEnvironmentConfig:
+class DockerEnvironmentConfig:  # noqa: D101  # tracked: #288
     image: str | None = None
 
 
-class DockerEnvironment:
+class DockerEnvironment:  # noqa: D101  # tracked: #288
     isolated = True
     materialize_local_model_weights = True
     default_profiler_kind = ProfilerKind.NSYS
     supported_profiler_kinds: frozenset[ProfilerKind] | None = None
 
-    def __init__(self, config: DockerEnvironmentConfig) -> None:
+    def __init__(self, config: DockerEnvironmentConfig) -> None:  # noqa: D107  # tracked: #288
         self.config = config
         self.backend_image = config.image
 
     @classmethod
-    def from_options(cls, options: Mapping[str, object]) -> DockerEnvironment:
+    def from_options(cls, options: Mapping[str, object]) -> DockerEnvironment:  # noqa: D102  # tracked: #288
         image = options.get("image")
         return cls(DockerEnvironmentConfig(image=str(image) if image else None))
 
-    def open(self, request: RunEnvironmentRequest) -> RunEnvironmentSession:
+    def open(self, request: RunEnvironmentRequest) -> RunEnvironmentSession:  # noqa: D102  # tracked: #288
         bind_mounts, docker_symlinks, passthrough = _container_mount_plan(request)
         extra_init_commands, cli_provider_env = _cli_container_setup(request)
         cli_provider_env.setdefault("UV_CACHE_DIR", "/workspace/.cache/uv")
@@ -323,43 +334,46 @@ class DockerEnvironment:
                     f"(rc={result.returncode}): "
                     f"{result.stderr.decode(errors='replace').strip()}"
                 )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # tracked: #288
             log(f"[warn] chown failed for {workspace}: {exc}")
 
-    def remove_workspace_child(
+    def remove_workspace_child(  # noqa: D102  # tracked: #288
         self, workspace: Path, rel_path: str, *, backend: ComputeBackendImpl
     ) -> bool:
         target = workspace / rel_path
-        try:
+        try:  # noqa: SIM105  # tracked: #288
             _docker_workspace_run(
                 workspace,
                 backend=backend,
                 shell_command=f"rm -rf -- {shlex.quote(f'/workspace/{rel_path}')}",
                 timeout=120,
             )
-        except Exception:
+        except Exception:  # noqa: BLE001, S110  # tracked: #288
             pass
         return not (target.exists() or target.is_symlink())
 
-    def teardown_deployment(self, name: str, *, log: Callable[[str], None]) -> None:
+    def teardown_deployment(self, name: str, *, log: Callable[[str], None]) -> None:  # noqa: ARG002, D102  # tracked: #288
         # The editor container is torn down by the session; nothing per-candidate.
         return
 
-    def candidate_runtime(
-        self, view: RunEnvironmentView, generation: int, child_idx: int
+    def candidate_runtime(  # noqa: D102  # tracked: #288
+        self,
+        view: RunEnvironmentView,
+        generation: int,  # noqa: ARG002  # tracked: #288
+        child_idx: int,  # noqa: ARG002  # tracked: #288
     ) -> CandidateRuntime:
         return CandidateRuntime(view.prompt_notes, view.deployment_namespace)
 
 
 @dataclass(frozen=True)
-class ModalEnvironmentConfig:
+class ModalEnvironmentConfig:  # noqa: D101  # tracked: #288
     image: str | None = None
     gpu: str = "H100!"
     model_volume: str | None = None
     app: str = "vibesys"
 
 
-class ModalEnvironment(_NoopWorkspaceRecovery):
+class ModalEnvironment(_NoopWorkspaceRecovery):  # noqa: D101  # tracked: #288
     isolated = True
     materialize_local_model_weights = False
     default_profiler_kind = ProfilerKind.TORCH
@@ -367,13 +381,13 @@ class ModalEnvironment(_NoopWorkspaceRecovery):
         {ProfilerKind.AUTO, ProfilerKind.TORCH, ProfilerKind.NONE}
     )
 
-    def __init__(self, config: ModalEnvironmentConfig) -> None:
+    def __init__(self, config: ModalEnvironmentConfig) -> None:  # noqa: D107  # tracked: #288
         self.config = config
         self.model_volume: str | None = config.model_volume
         self.backend_image = config.image
 
     @classmethod
-    def from_options(cls, options: Mapping[str, object]) -> ModalEnvironment:
+    def from_options(cls, options: Mapping[str, object]) -> ModalEnvironment:  # noqa: D102  # tracked: #288
         return cls(
             ModalEnvironmentConfig(
                 image=str(options["image"]) if options.get("image") else None,
@@ -507,12 +521,12 @@ class ModalEnvironment(_NoopWorkspaceRecovery):
         meta_path = request.ref_dir / "meta.json"
         if not meta_path.exists():
             return
-        from vs_sandbox import ensure_model_volume
+        from vs_sandbox import ensure_model_volume  # noqa: PLC0415  # tracked: #288
 
         meta = json.loads(meta_path.read_text())
         model_id = meta.get("model_id")
         if not model_id:
-            raise ValueError(
+            raise ValueError(  # noqa: TRY003  # tracked: #288
                 f"meta.json at {meta_path} missing required 'model_id' field "
                 "(needed for Modal auto-upload)"
             )
@@ -544,12 +558,12 @@ class ModalEnvironment(_NoopWorkspaceRecovery):
         draft_meta_path = request.ref_dir / "draft_meta.json"
         if not draft_meta_path.exists():
             return None
-        from vs_sandbox import ensure_model_volume
+        from vs_sandbox import ensure_model_volume  # noqa: PLC0415  # tracked: #288
 
         draft_meta = json.loads(draft_meta_path.read_text())
         draft_model_id = draft_meta.get("model_id")
         if not draft_model_id:
-            raise ValueError(
+            raise ValueError(  # noqa: TRY003  # tracked: #288
                 f"draft_meta.json at {draft_meta_path} missing required 'model_id' field"
             )
         hf_available = bool(os.environ.get("HF_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN"))
@@ -576,14 +590,14 @@ class ModalEnvironment(_NoopWorkspaceRecovery):
         leaves an idle app behind and must never fail a run.
         """
         try:
-            result = subprocess.run(
+            result = subprocess.run(  # noqa: S603  # tracked: #288
                 [sys.executable, "-m", "modal", "app", "stop", name, "--yes"],
                 capture_output=True,
                 text=True,
                 timeout=60,
                 check=False,
             )
-        except Exception as exc:  # timeout, missing binary, etc.
+        except Exception as exc:  # timeout, missing binary, etc.  # noqa: BLE001  # tracked: #288
             log(f"[warn] modal app stop {name} raised: {exc}")
             return
         if result.returncode != 0:
@@ -594,7 +608,7 @@ class ModalEnvironment(_NoopWorkspaceRecovery):
         else:
             log(f"[modal] stopped candidate app {name}")
 
-    def candidate_runtime(
+    def candidate_runtime(  # noqa: D102  # tracked: #288
         self, view: RunEnvironmentView, generation: int, child_idx: int
     ) -> CandidateRuntime:
         base_name = view.deployment_namespace
@@ -612,17 +626,17 @@ class ModalEnvironment(_NoopWorkspaceRecovery):
         )
 
 
-def build_run_environment(spec: RunEnvironmentSpec) -> RunEnvironment:
+def build_run_environment(spec: RunEnvironmentSpec) -> RunEnvironment:  # noqa: D103  # tracked: #288
     if spec.name == "local":
         return LocalEnvironment()
     if spec.name == "docker":
         return DockerEnvironment.from_options(spec.options)
     if spec.name == "modal":
         return ModalEnvironment.from_options(spec.options)
-    raise ValueError(f"unknown run environment: {spec.name!r}")
+    raise ValueError(f"unknown run environment: {spec.name!r}")  # noqa: TRY003  # tracked: #288
 
 
-def make_run_environment_spec(
+def make_run_environment_spec(  # noqa: PLR0913  # tracked: #288
     *,
     use_docker: bool = False,
     docker_image: str | None = None,
@@ -641,7 +655,7 @@ def make_run_environment_spec(
     decorators instead.
     """
     if use_docker and use_modal:
-        raise ValueError("--docker and --modal are mutually exclusive")
+        raise ValueError("--docker and --modal are mutually exclusive")  # noqa: TRY003  # tracked: #288
     if use_modal:
         return RunEnvironmentSpec(
             name="modal",
@@ -929,8 +943,8 @@ def _docker_workspace_run(
     timeout: int,
 ) -> subprocess.CompletedProcess[bytes]:
     image = getattr(backend, "image", "ubuntu:latest")
-    return subprocess.run(
-        [
+    return subprocess.run(  # noqa: S603  # tracked: #288
+        [  # noqa: S607  # tracked: #288
             "docker",
             "run",
             "--rm",
@@ -1021,7 +1035,7 @@ def _container_mount_plan(
         and (request.agent_backend or DEFAULT_AGENT_BACKEND) == "cli"
         and request.cli_provider
     ):
-        from vibesys.agents.cli_docker import auth_bind_mounts
+        from vibesys.agents.cli_docker import auth_bind_mounts  # noqa: PLC0415  # tracked: #288
 
         bind_mounts.extend(auth_bind_mounts(request.cli_provider))
         bind_mounts.append((str(request.project_root), "/opt/vibesys", True))
@@ -1068,7 +1082,7 @@ def _cli_container_setup(
     effective_agent = request.agent_backend or DEFAULT_AGENT_BACKEND
     if effective_agent != "cli" or not request.cli_provider:
         return [], {}
-    from vibesys.agents.cli_docker import (
+    from vibesys.agents.cli_docker import (  # noqa: PLC0415  # tracked: #288
         DOCKER_PROVIDER_ENV,
         auth_copy_commands,
         docker_init_commands,

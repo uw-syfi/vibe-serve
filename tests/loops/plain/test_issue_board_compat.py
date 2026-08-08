@@ -18,7 +18,7 @@ from vs_issue_board import (
 from vs_issue_board import mcp as issue_board_mcp
 
 
-def test_issue_board_compat_exports_reusable_package_api():
+def test_issue_board_compat_exports_reusable_package_api():  # noqa: ANN201  # tracked: #288
     assert compat.Issue is Issue
     assert compat.IssueBoard is IssueBoard
     assert compat.IssueEvent is IssueEvent
@@ -26,7 +26,7 @@ def test_issue_board_compat_exports_reusable_package_api():
     assert compat.IssueType is IssueType
 
 
-def test_tool_impl_compat_exports_reusable_package_helpers():
+def test_tool_impl_compat_exports_reusable_package_helpers():  # noqa: ANN201  # tracked: #288
     assert tool_impl.CreateIssuePolicy is CreateIssuePolicy
     assert tool_impl.check_create_allowed is check_create_allowed
     assert tool_impl.create_issue_under_policy is create_issue_under_policy
@@ -35,7 +35,7 @@ def test_tool_impl_compat_exports_reusable_package_helpers():
     assert tool_impl.parse_type is parse_type
 
 
-def test_mcp_server_compat_exports_reusable_package_server():
+def test_mcp_server_compat_exports_reusable_package_server():  # noqa: ANN201  # tracked: #288
     assert mcp_server.build_parser is issue_board_mcp.build_parser
     assert mcp_server.build_server is issue_board_mcp.build_server
     assert mcp_server.main is issue_board_mcp.main

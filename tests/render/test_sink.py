@@ -26,7 +26,7 @@ def _collect(sink: OutputSink) -> tuple[list[RunEvent], object]:
 
 
 class TestSubscription:
-    def test_subscriber_receives_events(self):
+    def test_subscriber_receives_events(self):  # noqa: ANN201  # tracked: #288
         sink = OutputSink()
         seen, _ = _collect(sink)
         sink.agent_output("hello", channel="assistant")
@@ -37,7 +37,7 @@ class TestSubscription:
         assert data.content == "hello"
         assert data.channel == "assistant"
 
-    def test_unsubscribe_stops_delivery(self):
+    def test_unsubscribe_stops_delivery(self):  # noqa: ANN201  # tracked: #288
         sink = OutputSink()
         seen, unsubscribe = _collect(sink)
         sink.agent_output("one")
@@ -45,7 +45,7 @@ class TestSubscription:
         sink.agent_output("two")
         assert [e.data.content for e in seen if isinstance(e.data, AgentOutputChunkData)] == ["one"]
 
-    def test_empty_content_is_not_emitted(self):
+    def test_empty_content_is_not_emitted(self):  # noqa: ANN201  # tracked: #288
         sink = OutputSink()
         seen, _ = _collect(sink)
         sink.agent_output("")
@@ -54,7 +54,7 @@ class TestSubscription:
 
 
 class TestTypedEmitters:
-    def test_tool_call_event(self):
+    def test_tool_call_event(self):  # noqa: ANN201  # tracked: #288
         sink = OutputSink()
         seen, _ = _collect(sink)
         sink.tool_call("shell", {"cmd": "ls"}, call_id="call-1")
@@ -65,17 +65,17 @@ class TestTypedEmitters:
         assert data.call_id == "call-1"
         assert data.args == {"cmd": "ls"}
 
-    def test_tool_call_args_coerced_to_json_safe(self):
+    def test_tool_call_args_coerced_to_json_safe(self):  # noqa: ANN201  # tracked: #288
         sink = OutputSink()
         seen, _ = _collect(sink)
-        sink.tool_call("write", {"path": Path("/tmp/x")})
+        sink.tool_call("write", {"path": Path("/tmp/x")})  # noqa: S108  # tracked: #288
         data = seen[0].data
         assert isinstance(data, ToolCallData)
         # Non-JSON values are repr()'d so the event always serializes.
         assert isinstance(data.args["path"], str)
         seen[0].model_dump_json()
 
-    def test_tool_result_event(self):
+    def test_tool_result_event(self):  # noqa: ANN201  # tracked: #288
         sink = OutputSink()
         seen, _ = _collect(sink)
         sink.tool_result("shell", "output text", call_id="call-1", is_error=True)
@@ -86,7 +86,7 @@ class TestTypedEmitters:
         assert data.content == "output text"
         assert data.is_error is True
 
-    def test_todo_update_event(self):
+    def test_todo_update_event(self):  # noqa: ANN201  # tracked: #288
         sink = OutputSink()
         seen, _ = _collect(sink)
         sink.todo_update([TodoItemData(content="a", status="pending")])
@@ -94,7 +94,7 @@ class TestTypedEmitters:
         assert isinstance(data, TodoUpdateData)
         assert data.todos[0].content == "a"
 
-    def test_usage_update_event(self):
+    def test_usage_update_event(self):  # noqa: ANN201  # tracked: #288
         sink = OutputSink()
         seen, _ = _collect(sink)
         sink.usage_update(12_345, context_window=200_000, model="claude-sonnet-4-6")
@@ -106,7 +106,7 @@ class TestTypedEmitters:
 
 
 class TestSupervisorForwarding:
-    def test_events_forwarded_to_active_supervisor(self, tmp_path):
+    def test_events_forwarded_to_active_supervisor(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         supervisor = RunSupervisor()
         supervisor.attach(tmp_path / "logs")
         REGISTRY.activate(supervisor)
@@ -121,11 +121,11 @@ class TestSupervisorForwarding:
         assert EventType.AGENT_OUTPUT_CHUNK in types
         assert EventType.TOOL_CALL in types
 
-    def test_no_supervisor_no_error(self):
+    def test_no_supervisor_no_error(self):  # noqa: ANN201  # tracked: #288
         sink = OutputSink()
         sink.agent_output("standalone")  # must not raise without a supervisor
 
-    def test_logger_metadata_routes_subprocess_thread_events_to_chat(self, tmp_path):
+    def test_logger_metadata_routes_subprocess_thread_events_to_chat(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         supervisor = RunSupervisor()
         supervisor.attach(tmp_path / "logs")
         logger = AgentLogger(

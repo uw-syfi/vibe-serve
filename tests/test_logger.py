@@ -7,19 +7,19 @@ import sys
 from vibesys.run import RunLogger
 
 
-def test_tee_logger_owns_and_restores_stderr(tmp_path):
+def test_tee_logger_owns_and_restores_stderr(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     original = sys.stderr
     logger = RunLogger(tmp_path)
     try:
         assert sys.stderr is not original  # tee installed
-        print("diagnostic", file=sys.stderr)
+        print("diagnostic", file=sys.stderr)  # noqa: T201  # tracked: #288
     finally:
         logger.close()
     assert sys.stderr is original  # restored on close
     assert "diagnostic" in logger.path.read_text()
 
 
-def test_no_tee_logger_leaves_stderr_untouched(tmp_path):
+def test_no_tee_logger_leaves_stderr_untouched(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     original = sys.stderr
     logger = RunLogger(tmp_path, tee_stderr=False)
     try:
@@ -35,7 +35,7 @@ def test_no_tee_logger_leaves_stderr_untouched(tmp_path):
     assert "candidate line" in logger.path.read_text()
 
 
-def test_switch_closes_each_superseded_log_file(tmp_path):
+def test_switch_closes_each_superseded_log_file(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     logger = RunLogger(tmp_path, tee_stderr=False)
     first = logger.file
 
@@ -52,7 +52,7 @@ def test_switch_closes_each_superseded_log_file(tmp_path):
     logger.close()  # Cleanup remains idempotent.
 
 
-def test_stable_writer_follows_switch_after_old_file_is_closed(tmp_path):
+def test_stable_writer_follows_switch_after_old_file_is_closed(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     logger = RunLogger(tmp_path, tee_stderr=False)
     writer = logger.writer
     first = logger.file

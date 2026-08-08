@@ -22,7 +22,7 @@ class InputProjectError(ValueError):
 
 
 @dataclass(frozen=True)
-class InputDependency:
+class InputDependency:  # noqa: D101  # tracked: #288
     name: str
     source_path: Path
     workspace_path: Path
@@ -110,17 +110,17 @@ def _collect_examples_lib_dependencies(project_dir: Path, examples_libs: Path) -
     def visit(current: Path) -> None:
         current = current.resolve()
         if current in visiting:
-            raise InputProjectError(f"Cyclic input dependency involving {current}")
+            raise InputProjectError(f"Cyclic input dependency involving {current}")  # noqa: TRY003  # tracked: #288
         visiting.add(current)
         try:
             for dep_name, raw_path in _path_sources(current).items():
                 dep_path = (current / raw_path).resolve()
                 if not _is_relative_to(dep_path, examples_libs):
-                    raise InputProjectError(
+                    raise InputProjectError(  # noqa: TRY003  # tracked: #288
                         f"Input dependency {dep_name!r} points outside examples/libs: {raw_path}"
                     )
                 if not (dep_path / "pyproject.toml").is_file():
-                    raise InputProjectError(
+                    raise InputProjectError(  # noqa: TRY003  # tracked: #288
                         f"Input dependency {dep_name!r} has no pyproject.toml: {dep_path}"
                     )
                 if dep_path not in collected:
@@ -193,7 +193,7 @@ def _rewrite_pyproject_text(
         if in_uv_sources:
             for source_name, (old_path, new_path) in replacements.items():
                 if re.match(rf"\s*{re.escape(source_name)}\s*=", line):
-                    line = re.sub(
+                    line = re.sub(  # noqa: PLW2901  # tracked: #288
                         rf"(path\s*=\s*['\"]){re.escape(old_path)}(['\"])",
                         lambda match, replacement=new_path: (
                             f"{match.group(1)}{replacement}{match.group(2)}"
@@ -224,6 +224,6 @@ def _project_name(project_dir: Path) -> str:
 def _is_relative_to(path: Path, parent: Path) -> bool:
     try:
         path.relative_to(parent)
-        return True
+        return True  # noqa: TRY300  # tracked: #288
     except ValueError:
         return False

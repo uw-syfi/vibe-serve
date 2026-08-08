@@ -21,15 +21,15 @@ from __future__ import annotations
 
 import json
 import os
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable  # noqa: TC003  # tracked: #288
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol, TextIO, TypeVar, cast
 
-from langchain_core.tools import BaseTool
+from langchain_core.tools import BaseTool  # noqa: TC002  # tracked: #288
 from pydantic import BaseModel
 
-from vibesys._agent_cli.base import CodingAgent, MCPServerSpec
+from vibesys._agent_cli.base import CodingAgent, MCPServerSpec  # noqa: TC001  # tracked: #288
 from vibesys._agent_cli.claude import ClaudeCodeCodingAgent
 from vibesys._agent_cli.codex import CodexCodingAgent
 from vibesys._agent_cli.gemini import GeminiCodingAgent
@@ -49,8 +49,8 @@ from vibesys.agents.cli_common import (
     materialize_skills,
 )
 from vibesys.agents.host_resource_declarations import declare_agent_host_resources
-from vibesys.agents.progress import AgentProgress
-from vibesys.constants import ComputeBackend
+from vibesys.agents.progress import AgentProgress  # noqa: TC001  # tracked: #288
+from vibesys.constants import ComputeBackend  # noqa: TC001  # tracked: #288
 from vs_sandbox import HostResource, build_host_sandbox
 
 T = TypeVar("T", bound=BaseModel)
@@ -62,9 +62,9 @@ class _ProviderFactory(Protocol):
     def __call__(
         self,
         model: str | None = None,
-        event_handler: Any | None = None,
+        event_handler: Any | None = None,  # noqa: ANN401  # tracked: #288
         *,
-        executor: Any | None = None,
+        executor: Any | None = None,  # noqa: ANN401  # tracked: #288
     ) -> CodingAgent: ...
 
 
@@ -109,7 +109,7 @@ class CliAgentRunner:
 
     backend_name = "cli"
 
-    def __init__(
+    def __init__(  # noqa: ANN204, D107, PLR0913  # tracked: #288
         self,
         *,
         provider: str,
@@ -127,7 +127,7 @@ class CliAgentRunner:
         role_reasoning_efforts: dict[str, str] | None = None,
     ):
         if provider not in _PROVIDER_CLASSES:
-            raise SystemExit(
+            raise SystemExit(  # noqa: TRY003  # tracked: #288
                 f"unknown cli provider {provider!r}; expected one of: {sorted(_PROVIDER_CLASSES)}"
             )
         self._provider = provider
@@ -157,7 +157,7 @@ class CliAgentRunner:
         self._agents: dict[str, CodingAgent] = {}
         self._session_turn_counts: dict[str, int] = {}
 
-    def invoke(
+    def invoke(  # noqa: D102, PLR0913  # tracked: #288
         self,
         *,
         kind: str,
@@ -240,7 +240,7 @@ class CliAgentRunner:
         log_json_and_print(parsed.model_dump_json(indent=2), self._run_log_file)
         return parsed
 
-    def invoke_text(
+    def invoke_text(  # noqa: PLR0913  # tracked: #288
         self,
         *,
         kind: str,
@@ -282,7 +282,7 @@ class CliAgentRunner:
             log_and_print(f"No response received from {label.lower()}.", self._run_log_file)
         return text
 
-    def _generate(
+    def _generate(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
         self,
         *,
         kind: str,
@@ -342,12 +342,14 @@ class CliAgentRunner:
                 # Dynamic poke: only the docker path constructs agents with a
                 # DockerCommandExecutor, which carries container_id.
                 executor = getattr(agent, "executor", None)
-                executor.container_id = self._docker_sandboxes[kind]._container_id  # pyright: ignore[reportOptionalMemberAccess]
+                executor.container_id = self._docker_sandboxes[kind]._container_id  # pyright: ignore[reportOptionalMemberAccess]  # noqa: SLF001  # tracked: #288
         elif self._docker_sandboxes is not None:
-            from vibesys.agents.docker_executor import DockerCommandExecutor
+            from vibesys.agents.docker_executor import (  # noqa: PLC0415  # tracked: #288
+                DockerCommandExecutor,
+            )
 
             sandbox = self._docker_sandboxes[kind]
-            executor = DockerCommandExecutor(sandbox._container_id)
+            executor = DockerCommandExecutor(sandbox._container_id)  # noqa: SLF001  # tracked: #288
             agent = self._provider_cls(
                 model=selected_model,
                 event_handler=logger,
@@ -399,7 +401,7 @@ class CliAgentRunner:
         if callable(schema_setter):
             schema_setter(output_schema_path)
         elif output_schema_path is not None:
-            raise RuntimeError(
+            raise RuntimeError(  # noqa: TRY003  # tracked: #288
                 f"{type(agent).__name__} advertised native output schemas "
                 "without implementing set_output_schema_path()"
             )
@@ -489,7 +491,7 @@ class CliAgentRunner:
             if mcp_servers:
                 try:
                     agent.uninstall_mcp_servers(workspace, mcp_servers)
-                except Exception as cleanup_exc:
+                except Exception as cleanup_exc:  # noqa: BLE001  # tracked: #288
                     cleanup_error = cleanup_exc
                     if agent_error is not None:
                         log_and_print(
@@ -501,7 +503,7 @@ class CliAgentRunner:
                 try:
                     executor = agent.executor
                     executor.repair_workspace_ownership(uid=os.getuid(), gid=os.getgid())
-                except Exception as cleanup_exc:
+                except Exception as cleanup_exc:  # noqa: BLE001  # tracked: #288
                     if cleanup_error is None:
                         cleanup_error = cleanup_exc
                     else:
@@ -536,7 +538,7 @@ class CliAgentRunner:
         *,
         kind: str,
         round_label: str,
-        agent: Any,
+        agent: Any,  # noqa: ANN401  # tracked: #288
         model_name: str | None,
         reasoning_effort: str | None,
     ) -> None:

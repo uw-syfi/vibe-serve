@@ -78,16 +78,16 @@ class ModelConfig:
 
     def __post_init__(self) -> None:
         if self.provider not in _CANONICAL_PROVIDERS:
-            raise ValueError(
+            raise ValueError(  # noqa: TRY003  # tracked: #288
                 f"provider must be one of {sorted(_CANONICAL_PROVIDERS)}, got {self.provider!r}. "
                 "Use from_provider_and_model() or from_string() to map SDS aliases."
             )
         if not self.model or not self.model.strip():
-            raise ValueError("model must be a non-empty string")
+            raise ValueError("model must be a non-empty string")  # noqa: TRY003  # tracked: #288
         if self.thinking_budget is not None and (
             not isinstance(self.thinking_budget, int) or self.thinking_budget <= 0  # pyright: ignore[reportUnnecessaryIsInstance]
         ):
-            raise ValueError(
+            raise ValueError(  # noqa: TRY003  # tracked: #288
                 f"thinking_budget must be a positive int, got {self.thinking_budget!r}"
             )
 
@@ -111,13 +111,13 @@ class ModelConfig:
         """
         alias = provider.lower()
         if alias in _UNRESOLVABLE_ALIASES:
-            raise ValueError(
+            raise ValueError(  # noqa: TRY003  # tracked: #288
                 f"Provider {provider!r} has no canonical family mapping. "
                 "Use from_string() with provider_hint for heuristic resolution."
             )
         canonical = _ALIAS_TO_CANONICAL.get(alias)
         if canonical is None:
-            raise ValueError(
+            raise ValueError(  # noqa: TRY003  # tracked: #288
                 f"Unknown provider alias {provider!r}. Known aliases: {sorted(_ALIAS_TO_CANONICAL)}"
             )
         return cls(
@@ -129,7 +129,7 @@ class ModelConfig:
     # ------------------------------------------------------------------
 
     @classmethod
-    def from_string(
+    def from_string(  # noqa: PLR0911  # tracked: #288
         cls,
         model_str: str,
         *,
@@ -263,7 +263,7 @@ class ModelConfig:
     # Environment validation
     # ------------------------------------------------------------------
 
-    def validate_env(self) -> None:
+    def validate_env(self) -> None:  # noqa: C901  # tracked: #288
         """Check that required environment variables are present for this provider.
 
         Raises:
@@ -319,10 +319,10 @@ def normalize_provider(alias: str) -> str:
     """
     a = alias.lower()
     if a in _UNRESOLVABLE_ALIASES:
-        raise ValueError(f"Provider {alias!r} has no canonical family mapping.")
+        raise ValueError(f"Provider {alias!r} has no canonical family mapping.")  # noqa: TRY003  # tracked: #288
     canonical = _ALIAS_TO_CANONICAL.get(a)
     if canonical is None:
-        raise ValueError(f"Unknown provider alias {alias!r}. Known: {sorted(_ALIAS_TO_CANONICAL)}")
+        raise ValueError(f"Unknown provider alias {alias!r}. Known: {sorted(_ALIAS_TO_CANONICAL)}")  # noqa: TRY003  # tracked: #288
     return canonical
 
 

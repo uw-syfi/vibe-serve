@@ -5,12 +5,12 @@ from __future__ import annotations
 import json
 import os
 import subprocess
-from collections.abc import Callable
+from collections.abc import Callable  # noqa: TC003  # tracked: #288
 from datetime import datetime
 from pathlib import Path
 
 from deepagents.backends import LocalShellBackend
-from deepagents.backends.protocol import SandboxBackendProtocol
+from deepagents.backends.protocol import SandboxBackendProtocol  # noqa: TC002  # tracked: #288
 
 from vibesys.backends.base import (
     ContentionMonitor,
@@ -43,7 +43,7 @@ class CudaBackend:
     name = ComputeBackend.CUDA
     profiler_kind = ProfilerKind.NSYS
 
-    def __init__(
+    def __init__(  # noqa: D107  # tracked: #288
         self,
         log_dir: Path,
         *,
@@ -64,7 +64,7 @@ class CudaBackend:
 
     # -- ComputeBackendImpl protocol ---------------------------------------------
 
-    def make_sandbox(
+    def make_sandbox(  # noqa: PLR0913  # tracked: #288
         self,
         kind: SandboxKind,
         *,
@@ -119,7 +119,7 @@ class CudaBackend:
             )
         elif kind is SandboxKind.MODAL:
             if modal_options is None:
-                raise ValueError("modal_options is required for SandboxKind.MODAL")
+                raise ValueError("modal_options is required for SandboxKind.MODAL")  # noqa: TRY003  # tracked: #288
             sandbox = ModalSandbox(
                 host_workspace=host_workspace,
                 image=self.image,
@@ -138,12 +138,12 @@ class CudaBackend:
                 app_name=modal_options.app_name,
             )
         else:
-            raise ValueError(f"Unknown sandbox kind: {kind!r}")
+            raise ValueError(f"Unknown sandbox kind: {kind!r}")  # noqa: TRY003  # tracked: #288
 
         self._sandboxes.append((kind, sandbox))
         return sandbox
 
-    def make_monitor(self, log_dir: Path) -> ContentionMonitor | None:
+    def make_monitor(self, log_dir: Path) -> ContentionMonitor | None:  # noqa: D102  # tracked: #288
         if self.selected_device is None:
             return None
         self._monitor = GpuContentionMonitor(
@@ -181,13 +181,13 @@ class CudaBackend:
         for kind, sb in self._sandboxes:
             if kind is SandboxKind.DOCKER:
                 sb.stop()  # pyright: ignore[reportAttributeAccessIssue]
-                sb._gpus = self._docker_gpu_spec()  # pyright: ignore[reportAttributeAccessIssue]
+                sb._gpus = self._docker_gpu_spec()  # pyright: ignore[reportAttributeAccessIssue]  # noqa: SLF001  # tracked: #288
                 sb.start()  # re-runs setup_fns  # pyright: ignore[reportAttributeAccessIssue]
             elif kind is SandboxKind.LOCAL:
                 env = getattr(sb, "_env", None)
                 if env is None:
                     env = {}
-                    sb._env = env  # pyright: ignore[reportAttributeAccessIssue]
+                    sb._env = env  # pyright: ignore[reportAttributeAccessIssue]  # noqa: SLF001  # tracked: #288
                 env["CUDA_VISIBLE_DEVICES"] = str(new_gpu.index)
             # SandboxKind.MODAL: remote GPU, nothing to restart.
 
@@ -262,8 +262,8 @@ class CudaBackend:
         Empty dict if nvidia-smi is missing or the driver version is unknown.
         """
         try:
-            result = subprocess.run(
-                ["nvidia-smi", "--query-gpu=driver_version", "--format=csv,noheader"],
+            result = subprocess.run(  # noqa: PLW1510  # tracked: #288
+                ["nvidia-smi", "--query-gpu=driver_version", "--format=csv,noheader"],  # noqa: S607  # tracked: #288
                 capture_output=True,
                 text=True,
                 timeout=10,
@@ -296,7 +296,7 @@ class CudaBackend:
         data = {
             "selected_gpu": _gpu_to_dict(gpu),
             "all_gpus_at_selection": [_gpu_to_dict(g) for g in all_gpus],
-            "selected_at": datetime.now().isoformat(),
+            "selected_at": datetime.now().isoformat(),  # noqa: DTZ005  # tracked: #288
             "contention_detected": False,
             "contention_events": 0,
         }

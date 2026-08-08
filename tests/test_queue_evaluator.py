@@ -5,7 +5,7 @@ import json
 import shutil
 import subprocess
 import tomllib
-from collections.abc import Iterator
+from collections.abc import Iterator  # noqa: TC003  # tracked: #288
 from pathlib import Path
 
 import pytest
@@ -24,7 +24,7 @@ LINEARIZABLE_ACCURACY_SETTINGS = {
 
 
 @pytest.fixture(scope="session")
-def compiled_queue_candidate(tmp_path_factory) -> Path:
+def compiled_queue_candidate(tmp_path_factory) -> Path:  # noqa: ANN001  # tracked: #288
     """Build the shared Rust starter once for materialized-input tests."""
     if shutil.which("cargo") is None:
         pytest.skip("Rust is required by the trusted queue evaluator")
@@ -33,7 +33,7 @@ def compiled_queue_candidate(tmp_path_factory) -> Path:
     starter = project_root / "examples" / "starters" / "queue-rs"
     build_dir = tmp_path_factory.mktemp("queue-rs-build") / "starter"
     shutil.copytree(starter, build_dir)
-    subprocess.run(["make"], cwd=build_dir, check=True)
+    subprocess.run(["make"], cwd=build_dir, check=True)  # noqa: S607  # tracked: #288
 
     candidate = build_dir / "queue-candidate.so"
     assert candidate.is_file()
@@ -41,7 +41,7 @@ def compiled_queue_candidate(tmp_path_factory) -> Path:
 
 
 @pytest.fixture(scope="session")
-def queue_native_runner(tmp_path_factory) -> Iterator[Path]:
+def queue_native_runner(tmp_path_factory) -> Iterator[Path]:  # noqa: ANN001  # tracked: #288
     """Build the trusted evaluator runner once and reuse it across subprocesses."""
     if shutil.which("cargo") is None:
         pytest.skip("Rust is required by the trusted queue evaluator")
@@ -49,8 +49,8 @@ def queue_native_runner(tmp_path_factory) -> Iterator[Path]:
     project_root = Path(__file__).parents[1]
     source = project_root / "examples" / "evaluators" / "queue" / "native_runner"
     target_dir = tmp_path_factory.mktemp("queue-native-runner") / "target"
-    subprocess.run(
-        [
+    subprocess.run(  # noqa: S603  # tracked: #288
+        [  # noqa: S607  # tracked: #288
             "cargo",
             "build",
             "--quiet",
@@ -89,7 +89,7 @@ def _materialize_linearizable_input(
     input_name: str,
     workspace: Path,
 ) -> Path:
-    from vibesys.input_manifest import load_input_bundle
+    from vibesys.input_manifest import load_input_bundle  # noqa: PLC0415  # tracked: #288
 
     input_dir = project_root / "examples" / "data-structures" / input_name
     bundle = load_input_bundle(input_dir, project_root=project_root)
@@ -104,7 +104,7 @@ def _materialize_linearizable_input(
     return input_dir
 
 
-def test_linearizable_queue_manifests_invoke_go_evaluator_directly():
+def test_linearizable_queue_manifests_invoke_go_evaluator_directly():  # noqa: ANN201  # tracked: #288
     root = Path(__file__).parents[1] / "examples" / "data-structures"
 
     for input_name, scenario in LINEARIZABLE_QUEUE_INPUTS.items():
@@ -157,8 +157,8 @@ def test_linearizable_queue_manifests_invoke_go_evaluator_directly():
     assert not any(old_core.glob("src/queue_input_core/*.py"))
 
 
-def test_linearizable_queue_inputs_use_shared_editable_rust_starter():
-    from vibesys.input_manifest import load_input_bundle
+def test_linearizable_queue_inputs_use_shared_editable_rust_starter():  # noqa: ANN201  # tracked: #288
+    from vibesys.input_manifest import load_input_bundle  # noqa: PLC0415  # tracked: #288
 
     project_root = Path(__file__).parents[1]
     root = project_root / "examples" / "data-structures"
@@ -183,7 +183,7 @@ def test_linearizable_queue_inputs_use_shared_editable_rust_starter():
 
 
 @pytest.mark.usefixtures("queue_native_runner")
-def test_spsc_rigtorp_baseline_builds_and_passes_accuracy(tmp_path):
+def test_spsc_rigtorp_baseline_builds_and_passes_accuracy(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     if shutil.which("go") is None or shutil.which("c++") is None:
         pytest.skip("Go and a C++ compiler are required by the SPSC baseline")
 
@@ -194,13 +194,13 @@ def test_spsc_rigtorp_baseline_builds_and_passes_accuracy(tmp_path):
     evaluator = project_root / "examples" / "evaluators" / "queue"
     abi_header = evaluator / "include" / "vibesys_queue_abi.h"
 
-    subprocess.run(
-        ["make", "clean", "all", f"ABI_HEADER={abi_header}"],
+    subprocess.run(  # noqa: S603  # tracked: #288
+        ["make", "clean", "all", f"ABI_HEADER={abi_header}"],  # noqa: S607  # tracked: #288
         cwd=baseline,
         check=True,
     )
-    completed = subprocess.run(
-        [
+    completed = subprocess.run(  # noqa: S603  # tracked: #288
+        [  # noqa: S607  # tracked: #288
             "go",
             "-C",
             str(evaluator),
@@ -227,7 +227,7 @@ def test_spsc_rigtorp_baseline_builds_and_passes_accuracy(tmp_path):
     assert "PASS - spsc linearizable" in completed.stdout
 
 
-def test_spsc_rigtorp_baseline_uses_pinned_upstream_header():
+def test_spsc_rigtorp_baseline_uses_pinned_upstream_header():  # noqa: ANN201  # tracked: #288
     project_root = Path(__file__).parents[1]
     baseline = project_root / "examples" / "baselines" / "queue-spsc-rigtorp"
     upstream_header = baseline / "include" / "rigtorp" / "SPSCQueue.h"
@@ -241,7 +241,7 @@ def test_spsc_rigtorp_baseline_uses_pinned_upstream_header():
 
 
 @pytest.mark.usefixtures("queue_native_runner")
-def test_mpmc_locked_ring_baseline_builds_and_passes_accuracy(tmp_path):
+def test_mpmc_locked_ring_baseline_builds_and_passes_accuracy(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     if shutil.which("go") is None or shutil.which("cc") is None:
         pytest.skip("Go and a C compiler are required by the MPMC baseline")
 
@@ -252,13 +252,13 @@ def test_mpmc_locked_ring_baseline_builds_and_passes_accuracy(tmp_path):
     evaluator = project_root / "examples" / "evaluators" / "queue"
     abi_header = evaluator / "include" / "vibesys_queue_abi.h"
 
-    subprocess.run(
-        ["make", "clean", "all", f"ABI_HEADER={abi_header}"],
+    subprocess.run(  # noqa: S603  # tracked: #288
+        ["make", "clean", "all", f"ABI_HEADER={abi_header}"],  # noqa: S607  # tracked: #288
         cwd=baseline,
         check=True,
     )
-    completed = subprocess.run(
-        [
+    completed = subprocess.run(  # noqa: S603  # tracked: #288
+        [  # noqa: S607  # tracked: #288
             "go",
             "-C",
             str(evaluator),
@@ -285,7 +285,7 @@ def test_mpmc_locked_ring_baseline_builds_and_passes_accuracy(tmp_path):
     assert "PASS - mpmc reservation-aware bounded FIFO" in completed.stdout
 
 
-def test_mpmc_locked_ring_baseline_has_atomic_publication_region():
+def test_mpmc_locked_ring_baseline_has_atomic_publication_region():  # noqa: ANN201  # tracked: #288
     project_root = Path(__file__).parents[1]
     baseline = project_root / "examples" / "baselines" / "queue-mpmc-locked-ring"
     adapter = (baseline / "locked_ring.c").read_text()
@@ -303,11 +303,11 @@ def test_mpmc_locked_ring_baseline_has_atomic_publication_region():
 
 @pytest.mark.parametrize(("input_name", "scenario"), LINEARIZABLE_QUEUE_INPUTS.items())
 @pytest.mark.usefixtures("queue_native_runner")
-def test_materialized_rust_starter_passes_accuracy(
-    tmp_path,
-    input_name,
-    scenario,
-    compiled_queue_candidate,
+def test_materialized_rust_starter_passes_accuracy(  # noqa: ANN201  # tracked: #288
+    tmp_path,  # noqa: ANN001  # tracked: #288
+    input_name,  # noqa: ANN001  # tracked: #288
+    scenario,  # noqa: ANN001  # tracked: #288
+    compiled_queue_candidate,  # noqa: ANN001  # tracked: #288
 ):
     if shutil.which("go") is None or shutil.which("cargo") is None:
         pytest.skip("Go and Rust are required by the trusted queue evaluator")
@@ -331,7 +331,7 @@ def test_materialized_rust_starter_passes_accuracy(
         "--trials",
         "1",
     ]
-    completed = subprocess.run(
+    completed = subprocess.run(  # noqa: S603  # tracked: #288
         accuracy,
         cwd=workspace,
         check=True,
@@ -349,7 +349,7 @@ def test_materialized_rust_starter_passes_accuracy(
 
 
 @pytest.mark.usefixtures("queue_native_runner")
-def test_materialized_manifest_commands_run_go_evaluator_directly(tmp_path):
+def test_materialized_manifest_commands_run_go_evaluator_directly(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     if shutil.which("go") is None or shutil.which("cargo") is None:
         pytest.skip("Go and Rust are required by the trusted queue evaluator")
 
@@ -361,7 +361,7 @@ def test_materialized_manifest_commands_run_go_evaluator_directly(tmp_path):
         workspace,
     )
     assert (workspace / "_evaluator" / "queue" / "DESIGN.md").is_file()
-    subprocess.run(["make"], cwd=workspace, check=True)
+    subprocess.run(["make"], cwd=workspace, check=True)  # noqa: S607  # tracked: #288
     manifest = tomllib.loads((input_dir / "vibesys.input.toml").read_text())
 
     accuracy = [
@@ -373,7 +373,7 @@ def test_materialized_manifest_commands_run_go_evaluator_directly(tmp_path):
         "--trials",
         "1",
     ]
-    subprocess.run(accuracy, cwd=workspace, check=True)
+    subprocess.run(accuracy, cwd=workspace, check=True)  # noqa: S603  # tracked: #288
 
     output = workspace / "results.json"
     benchmark = [
@@ -387,7 +387,7 @@ def test_materialized_manifest_commands_run_go_evaluator_directly(tmp_path):
         "--output-json",
         str(output),
     ]
-    subprocess.run(benchmark, cwd=workspace, check=True)
+    subprocess.run(benchmark, cwd=workspace, check=True)  # noqa: S603  # tracked: #288
     results = json.loads(output.read_text())
     assert [result["scenario"] for result in results] == ["spsc"]
     assert all(result["repetitions"] == 3 for result in results)
@@ -395,9 +395,9 @@ def test_materialized_manifest_commands_run_go_evaluator_directly(tmp_path):
 
 
 @pytest.mark.usefixtures("queue_native_runner")
-def test_queue_evaluator_rejects_adversarial_histories():
+def test_queue_evaluator_rejects_adversarial_histories():  # noqa: ANN201  # tracked: #288
     if shutil.which("go") is None or shutil.which("cargo") is None:
         pytest.skip("Go and Rust are required by the trusted queue evaluator")
 
     evaluator = Path(__file__).parents[1] / "examples" / "evaluators" / "queue"
-    subprocess.run(["go", "test", "./..."], cwd=evaluator, check=True)
+    subprocess.run(["go", "test", "./..."], cwd=evaluator, check=True)  # noqa: S607  # tracked: #288

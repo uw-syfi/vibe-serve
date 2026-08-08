@@ -24,7 +24,7 @@ class StructuredOutputClaudeSession(ClaudeGenerationSession):
     field is absent, so :meth:`run` falls through to agentshim's ``result``.
     """
 
-    def __init__(self, **kwargs: Any):
+    def __init__(self, **kwargs: Any):  # noqa: ANN204, ANN401  # tracked: #288
         super().__init__(**kwargs)
         # ``None`` means "no schema-enforced payload seen"; a captured value is
         # any JSON type the schema root produced (always an object for VibeSys
@@ -67,7 +67,7 @@ class ClaudeCodeCodingAgent(CLICodingAgent[ClaudeGenerationSession]):
     # rather than the workspace-relative path Codex resolves against its cwd.
     native_output_schema_wants_absolute_path = True
 
-    def __init__(
+    def __init__(  # noqa: ANN204  # tracked: #288
         self,
         model: str | None = None,
         event_handler: AgentEventHandler | None = None,
@@ -123,13 +123,13 @@ class ClaudeCodeCodingAgent(CLICodingAgent[ClaudeGenerationSession]):
         try:
             raw = Path(path).read_text(encoding="utf-8")
         except OSError as exc:
-            raise RuntimeError(
+            raise RuntimeError(  # noqa: TRY003  # tracked: #288
                 f"claude native output schema unreadable at {path}: {type(exc).__name__}"
             ) from exc
         try:
             schema = json.loads(raw)
         except json.JSONDecodeError as exc:
-            raise RuntimeError(
+            raise RuntimeError(  # noqa: TRY003  # tracked: #288
                 f"claude native output schema at {path} is not valid JSON: {exc}"
             ) from exc
         # Compact form keeps the process argv small; claude re-validates it as a
@@ -140,7 +140,7 @@ class ClaudeCodeCodingAgent(CLICodingAgent[ClaudeGenerationSession]):
         if self.output_schema_json is not None:
             cmd.extend(["--json-schema", self.output_schema_json])
 
-    def _get_command(self, prompt: str) -> list[str]:
+    def _get_command(self, prompt: str) -> list[str]:  # noqa: ARG002  # tracked: #288
         cmd = [
             self.binary_path,
             "-p",  # Print mode, reads prompt from stdin
@@ -154,7 +154,7 @@ class ClaudeCodeCodingAgent(CLICodingAgent[ClaudeGenerationSession]):
         self._append_output_schema(cmd)
         return cmd
 
-    def _get_resume_command(self, prompt: str, session_id: str) -> list[str]:
+    def _get_resume_command(self, prompt: str, session_id: str) -> list[str]:  # noqa: ARG002  # tracked: #288
         cmd = [
             self.binary_path,
             "--resume",
@@ -178,7 +178,7 @@ class ClaudeCodeCodingAgent(CLICodingAgent[ClaudeGenerationSession]):
         cmd: list[str],
         cwd: str | None = None,
         timeout: int | None = None,
-        silent: bool = False,
+        silent: bool = False,  # noqa: FBT001, FBT002  # tracked: #288
     ) -> ClaudeGenerationSession:
         return StructuredOutputClaudeSession(
             binary_name=self.binary_name,
@@ -209,6 +209,6 @@ class ClaudeCodeCodingAgent(CLICodingAgent[ClaudeGenerationSession]):
             server_config=server_config,
         )
 
-    def uninstall_mcp_servers(self, workspace: Path, servers: list[MCPServerSpec]) -> None:
+    def uninstall_mcp_servers(self, workspace: Path, servers: list[MCPServerSpec]) -> None:  # noqa: ARG002  # tracked: #288
         """Restore the workspace's original ``.mcp.json``. Idempotent."""
         self._restore_mcp_config_file(workspace / ".mcp.json")

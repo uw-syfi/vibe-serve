@@ -28,12 +28,12 @@ class InputCommand(BaseModel):
     @classmethod
     def _non_empty_command(cls, value: tuple[str, ...]) -> tuple[str, ...]:
         if not value:
-            raise ValueError("command must contain at least one argv element")
+            raise ValueError("command must contain at least one argv element")  # noqa: TRY003  # tracked: #288
         if any(not part for part in value):
-            raise ValueError("command elements must be non-empty strings")
+            raise ValueError("command elements must be non-empty strings")  # noqa: TRY003  # tracked: #288
         return value
 
-    def display(self) -> str:
+    def display(self) -> str:  # noqa: D102  # tracked: #288
         return " ".join(shlex.quote(part) for part in self.command)
 
 
@@ -51,9 +51,9 @@ class WorkspaceInput(BaseModel):
         if value is None:
             return None
         if not value.strip():
-            raise ValueError("seed must be a non-empty path")
+            raise ValueError("seed must be a non-empty path")  # noqa: TRY003  # tracked: #288
         if Path(value).is_absolute():
-            raise ValueError("seed must be relative to the input bundle")
+            raise ValueError("seed must be relative to the input bundle")  # noqa: TRY003  # tracked: #288
         return value
 
 
@@ -72,40 +72,40 @@ class WorkspaceSource(BaseModel):
     @classmethod
     def _valid_name(cls, value: str) -> str:
         if not value:
-            raise ValueError("name must be non-empty")
+            raise ValueError("name must be non-empty")  # noqa: TRY003  # tracked: #288
         if any(character.isspace() for character in value):
-            raise ValueError("name must not contain whitespace")
+            raise ValueError("name must not contain whitespace")  # noqa: TRY003  # tracked: #288
         return value
 
     @field_validator("repo")
     @classmethod
     def _valid_repo(cls, value: str) -> str:
         if not value.strip():
-            raise ValueError("repo must be non-empty")
+            raise ValueError("repo must be non-empty")  # noqa: TRY003  # tracked: #288
         parsed = urlparse(value)
         if parsed.scheme and parsed.scheme not in {"file", "http", "https", "ssh", "git"}:
-            raise ValueError(f"unsupported repo URL scheme: {parsed.scheme}")
+            raise ValueError(f"unsupported repo URL scheme: {parsed.scheme}")  # noqa: TRY003  # tracked: #288
         return value
 
     @field_validator("commit")
     @classmethod
     def _valid_commit(cls, value: str) -> str:
         if not value:
-            raise ValueError("commit must be non-empty")
-        if not (7 <= len(value) <= 64) or any(c not in "0123456789abcdefABCDEF" for c in value):
-            raise ValueError("commit must be a 7-64 character hexadecimal hash")
+            raise ValueError("commit must be non-empty")  # noqa: TRY003  # tracked: #288
+        if not (7 <= len(value) <= 64) or any(c not in "0123456789abcdefABCDEF" for c in value):  # noqa: PLR2004  # tracked: #288
+            raise ValueError("commit must be a 7-64 character hexadecimal hash")  # noqa: TRY003  # tracked: #288
         return value.lower()
 
     @field_validator("dest")
     @classmethod
     def _relative_dest(cls, value: str) -> str:
         if not value.strip():
-            raise ValueError("dest must be a non-empty path")
+            raise ValueError("dest must be a non-empty path")  # noqa: TRY003  # tracked: #288
         path = Path(value)
         if path.is_absolute():
-            raise ValueError("dest must be relative to the workspace")
+            raise ValueError("dest must be relative to the workspace")  # noqa: TRY003  # tracked: #288
         if any(part in {"", ".", ".."} for part in path.parts):
-            raise ValueError("dest must not contain empty, current, or parent path components")
+            raise ValueError("dest must not contain empty, current, or parent path components")  # noqa: TRY003  # tracked: #288
         return value
 
 
@@ -120,9 +120,9 @@ class EvaluatorInput(BaseModel):
     @classmethod
     def _relative_source(cls, value: str) -> str:
         if not value.strip():
-            raise ValueError("source must be a non-empty path")
+            raise ValueError("source must be a non-empty path")  # noqa: TRY003  # tracked: #288
         if Path(value).is_absolute():
-            raise ValueError("source must be relative to the input bundle")
+            raise ValueError("source must be relative to the input bundle")  # noqa: TRY003  # tracked: #288
         return value
 
 
@@ -137,9 +137,9 @@ class HiddenEvaluatorInput(BaseModel):
     @classmethod
     def _relative_source(cls, value: str) -> str:
         if not value.strip():
-            raise ValueError("source must be a non-empty path")
+            raise ValueError("source must be a non-empty path")  # noqa: TRY003  # tracked: #288
         if Path(value).is_absolute():
-            raise ValueError("source must be relative to the input bundle")
+            raise ValueError("source must be relative to the input bundle")  # noqa: TRY003  # tracked: #288
         return value
 
 
@@ -155,14 +155,14 @@ class BenchmarkResult(BaseModel):
     @classmethod
     def _single_option(cls, value: str) -> str:
         if not value.startswith("-") or any(character.isspace() for character in value):
-            raise ValueError("json_argument must be one option-style argv element")
+            raise ValueError("json_argument must be one option-style argv element")  # noqa: TRY003  # tracked: #288
         return value
 
     @field_validator("metric")
     @classmethod
     def _metric_name(cls, value: str) -> str:
         if not value or any(character.isspace() for character in value):
-            raise ValueError("metric must be a non-empty JSON field name without whitespace")
+            raise ValueError("metric must be a non-empty JSON field name without whitespace")  # noqa: TRY003  # tracked: #288
         return value
 
 
@@ -201,9 +201,9 @@ class InputManifest(BaseModel):
         seen_dests: set[str] = set()
         for source in self.workspace.sources:
             if source.name in seen_names:
-                raise ValueError(f"duplicate workspace source name: {source.name}")
+                raise ValueError(f"duplicate workspace source name: {source.name}")  # noqa: TRY003  # tracked: #288
             if source.dest in seen_dests:
-                raise ValueError(f"duplicate workspace source destination: {source.dest}")
+                raise ValueError(f"duplicate workspace source destination: {source.dest}")  # noqa: TRY003  # tracked: #288
             seen_names.add(source.name)
             seen_dests.add(source.dest)
         return self
@@ -224,41 +224,41 @@ class InputBundle(BaseModel):
     manifest: InputManifest
 
     @property
-    def objective(self) -> str:
+    def objective(self) -> str:  # noqa: D102  # tracked: #288
         return self.objective_path.read_text()
 
     @property
-    def accuracy_command(self) -> tuple[str, ...]:
+    def accuracy_command(self) -> tuple[str, ...]:  # noqa: D102  # tracked: #288
         return self.manifest.accuracy.command
 
     @property
-    def benchmark_command(self) -> tuple[str, ...]:
+    def benchmark_command(self) -> tuple[str, ...]:  # noqa: D102  # tracked: #288
         return self.manifest.benchmark.command
 
     @property
-    def domain(self) -> DomainName:
+    def domain(self) -> DomainName:  # noqa: D102  # tracked: #288
         return self.manifest.agent.domain
 
     @property
-    def accuracy_command_display(self) -> str:
+    def accuracy_command_display(self) -> str:  # noqa: D102  # tracked: #288
         return self.manifest.accuracy.display()
 
     @property
-    def benchmark_command_display(self) -> str:
+    def benchmark_command_display(self) -> str:  # noqa: D102  # tracked: #288
         return self.manifest.benchmark.display()
 
     @property
-    def benchmark_result(self) -> BenchmarkResult | None:
+    def benchmark_result(self) -> BenchmarkResult | None:  # noqa: D102  # tracked: #288
         return self.manifest.benchmark.result
 
     @property
-    def workspace_sources(self) -> tuple[WorkspaceSource, ...]:
+    def workspace_sources(self) -> tuple[WorkspaceSource, ...]:  # noqa: D102  # tracked: #288
         if self.manifest.workspace is None:
             return ()
         return self.manifest.workspace.sources
 
 
-def load_input_bundle(
+def load_input_bundle(  # noqa: C901, PLR0912, PLR0915  # tracked: #288
     path: Path,
     *,
     project_root: Path | None = None,
@@ -273,22 +273,22 @@ def load_input_bundle(
     project_root = (project_root or PROJECT_ROOT).resolve()
     root = path.expanduser().resolve()
     if not root.exists():
-        raise FileNotFoundError(f"--input path does not exist: {path}")
+        raise FileNotFoundError(f"--input path does not exist: {path}")  # noqa: TRY003  # tracked: #288
     if not root.is_dir():
-        raise ValueError(f"--input path is not a directory: {path}")
+        raise ValueError(f"--input path is not a directory: {path}")  # noqa: TRY003  # tracked: #288
 
     manifest_path = root / MANIFEST_NAME
     if not manifest_path.is_file():
-        raise FileNotFoundError(f"Input manifest not found: {manifest_path}")
+        raise FileNotFoundError(f"Input manifest not found: {manifest_path}")  # noqa: TRY003  # tracked: #288
 
     objective_path = root / "OBJECTIVE.md"
     if not objective_path.is_file():
-        raise FileNotFoundError(f"OBJECTIVE.md not found: {objective_path}")
+        raise FileNotFoundError(f"OBJECTIVE.md not found: {objective_path}")  # noqa: TRY003  # tracked: #288
 
     try:
         manifest = InputManifest.model_validate(tomllib.loads(manifest_path.read_text()))
     except ValidationError as exc:
-        raise ValueError(f"Invalid input manifest {manifest_path}: {exc}") from exc
+        raise ValueError(f"Invalid input manifest {manifest_path}: {exc}") from exc  # noqa: TRY003  # tracked: #288
 
     for label, command in (
         ("accuracy.command", manifest.accuracy.command),
@@ -296,7 +296,7 @@ def load_input_bundle(
     ):
         executable = Path(command[0])
         if executable.is_absolute():
-            raise ValueError(
+            raise ValueError(  # noqa: TRY003  # tracked: #288
                 f"{label} executable must be relative to the input bundle: {command[0]}"
             )
         if "/" not in command[0]:
@@ -305,15 +305,15 @@ def load_input_bundle(
         try:
             resolved.relative_to(root)
         except ValueError as exc:
-            raise ValueError(f"{label} executable escapes the input bundle: {command[0]}") from exc
+            raise ValueError(f"{label} executable escapes the input bundle: {command[0]}") from exc  # noqa: TRY003  # tracked: #288
         if not resolved.exists():
-            raise FileNotFoundError(f"{label} executable does not exist: {resolved}")
+            raise FileNotFoundError(f"{label} executable does not exist: {resolved}")  # noqa: TRY003  # tracked: #288
         if not resolved.is_file():
-            raise ValueError(f"{label} executable is not a file: {resolved}")
+            raise ValueError(f"{label} executable is not a file: {resolved}")  # noqa: TRY003  # tracked: #288
 
     reference_path = root / "reference"
     if reference_path.exists() and not reference_path.is_dir():
-        raise ValueError(f"reference path is not a directory: {reference_path}")
+        raise ValueError(f"reference path is not a directory: {reference_path}")  # noqa: TRY003  # tracked: #288
     if not reference_path.exists():
         reference_path = None
 
@@ -328,13 +328,13 @@ def load_input_bundle(
         try:
             workspace_seed_path.relative_to(starters_root)
         except ValueError as exc:
-            raise ValueError(
+            raise ValueError(  # noqa: TRY003  # tracked: #288
                 f"workspace.seed must resolve inside {starters_root}: {manifest.workspace.seed}"
             ) from exc
         if not workspace_seed_path.exists():
-            raise FileNotFoundError(f"workspace.seed path does not exist: {workspace_seed_path}")
+            raise FileNotFoundError(f"workspace.seed path does not exist: {workspace_seed_path}")  # noqa: TRY003  # tracked: #288
         if not workspace_seed_path.is_dir():
-            raise ValueError(f"workspace.seed path is not a directory: {workspace_seed_path}")
+            raise ValueError(f"workspace.seed path is not a directory: {workspace_seed_path}")  # noqa: TRY003  # tracked: #288
 
     evaluator_path = None
     if manifest.evaluator is not None and not allow_materialized_sources:
@@ -343,14 +343,14 @@ def load_input_bundle(
         try:
             evaluator_path.relative_to(evaluators_root)
         except ValueError as exc:
-            raise ValueError(
+            raise ValueError(  # noqa: TRY003  # tracked: #288
                 f"evaluator.source must resolve inside {evaluators_root}: "
                 f"{manifest.evaluator.source}"
             ) from exc
         if not evaluator_path.exists():
-            raise FileNotFoundError(f"evaluator.source path does not exist: {evaluator_path}")
+            raise FileNotFoundError(f"evaluator.source path does not exist: {evaluator_path}")  # noqa: TRY003  # tracked: #288
         if not evaluator_path.is_dir():
-            raise ValueError(f"evaluator.source path is not a directory: {evaluator_path}")
+            raise ValueError(f"evaluator.source path is not a directory: {evaluator_path}")  # noqa: TRY003  # tracked: #288
 
     hidden_evaluator_path = None
     if manifest.hidden_evaluator is not None and not allow_materialized_sources:
@@ -359,16 +359,16 @@ def load_input_bundle(
         try:
             hidden_evaluator_path.relative_to(evaluators_root)
         except ValueError as exc:
-            raise ValueError(
+            raise ValueError(  # noqa: TRY003  # tracked: #288
                 f"hidden_evaluator.source must resolve inside {evaluators_root}: "
                 f"{manifest.hidden_evaluator.source}"
             ) from exc
         if not hidden_evaluator_path.exists():
-            raise FileNotFoundError(
+            raise FileNotFoundError(  # noqa: TRY003  # tracked: #288
                 f"hidden_evaluator.source path does not exist: {hidden_evaluator_path}"
             )
         if not hidden_evaluator_path.is_dir():
-            raise ValueError(
+            raise ValueError(  # noqa: TRY003  # tracked: #288
                 f"hidden_evaluator.source path is not a directory: {hidden_evaluator_path}"
             )
 

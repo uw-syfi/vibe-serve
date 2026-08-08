@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 
-def test_queue_abi_header_supports_cpp_linkage(tmp_path):
+def test_queue_abi_header_supports_cpp_linkage(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     compiler = shutil.which("c++")
     if compiler is None:
         pytest.skip("a C++ compiler is required to check the queue ABI header")
@@ -19,7 +19,7 @@ def test_queue_abi_header_supports_cpp_linkage(tmp_path):
         '#include "vibesys_queue_abi.h"\n'
         'extern "C" uint32_t vsq_abi_version() { return VSQ_ABI_VERSION; }\n'
     )
-    subprocess.run(
+    subprocess.run(  # noqa: S603  # tracked: #288
         [
             compiler,
             "-std=c++17",

@@ -12,7 +12,7 @@ from vibesys.tui import TuiTheme
 
 class TestLoadConfigValid:
     @patch.dict(os.environ, {}, clear=False)
-    def test_full_config(self, tmp_path):
+    def test_full_config(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         # Clear vertex env vars so they don't override toml values
         os.environ.pop("VERTEX_SERVICE_ACCOUNT_JSON", None)
         os.environ.pop("VERTEX_PROJECT", None)
@@ -45,7 +45,7 @@ region = "us-east5"
         assert config.providers.vertex_ai.project == "my-project"
         assert config.providers.vertex_ai.region == "us-east5"
 
-    def test_minimal_config(self, tmp_path):
+    def test_minimal_config(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         cfg_file = tmp_path / "agent.toml"
         cfg_file.write_text('[model]\nname = "claude-sonnet-4-6"\n')
         config = load_config(cfg_file)
@@ -59,7 +59,7 @@ region = "us-east5"
         assert config.repository.owner is None
         assert config.repository.visibility == "private"
 
-    def test_outer_and_inner_agent_models_are_parsed(self, tmp_path):
+    def test_outer_and_inner_agent_models_are_parsed(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         cfg_file = tmp_path / "agent.toml"
         cfg_file.write_text(
             """\
@@ -92,23 +92,23 @@ reasoning_effort = "xhigh"
 
 
 class TestLoadConfigErrors:
-    def test_missing_model_name(self, tmp_path):
+    def test_missing_model_name(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         cfg_file = tmp_path / "agent.toml"
         cfg_file.write_text("[model]\nprovider = 'vertex-ai'\n")
         with pytest.raises(ValueError, match="name"):
             load_config(cfg_file)
 
-    def test_missing_file(self):
+    def test_missing_file(self):  # noqa: ANN201  # tracked: #288
         with pytest.raises(FileNotFoundError):
             load_config(Path("/nonexistent/agent.toml"))
 
-    def test_invalid_toml(self, tmp_path):
+    def test_invalid_toml(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         cfg_file = tmp_path / "agent.toml"
         cfg_file.write_text("not valid toml [[[")
         with pytest.raises(tomllib.TOMLDecodeError):
             load_config(cfg_file)
 
-    def test_unknown_provider(self, tmp_path):
+    def test_unknown_provider(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         cfg_file = tmp_path / "agent.toml"
         cfg_file.write_text("""\
 [model]
@@ -118,7 +118,7 @@ provider = "bedrock"
         with pytest.raises(ValueError, match="bedrock"):
             load_config(cfg_file)
 
-    def test_unknown_feature_flag(self, tmp_path):
+    def test_unknown_feature_flag(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         cfg_file = tmp_path / "agent.toml"
         cfg_file.write_text("""\
 [model]
@@ -132,7 +132,7 @@ new_loop = true
 
 
 class TestLoadConfigFeatureFlags:
-    def test_feature_flags_parsed_as_typed_overrides(self, tmp_path):
+    def test_feature_flags_parsed_as_typed_overrides(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         cfg_file = tmp_path / "agent.toml"
         cfg_file.write_text("""\
 [model]
@@ -145,7 +145,7 @@ example_feature = true
 
         assert config.feature_flags == {FeatureFlag.EXAMPLE_FEATURE: True}
 
-    def test_omnigent_agent_backend_parsed_from_toml(self, tmp_path):
+    def test_omnigent_agent_backend_parsed_from_toml(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         cfg_file = tmp_path / "agent.toml"
         cfg_file.write_text("""\
 [model]
@@ -158,7 +158,7 @@ omnigent_agent_backend = true
 
         assert config.feature_flags == {FeatureFlag.OMNIGENT_AGENT_BACKEND: True}
 
-    def test_omnigent_agent_backend_rejects_non_boolean(self, tmp_path):
+    def test_omnigent_agent_backend_rejects_non_boolean(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         cfg_file = tmp_path / "agent.toml"
         cfg_file.write_text("""\
 [model]
@@ -174,25 +174,25 @@ omnigent_agent_backend = "yes"
 class TestLoadConfigStrict:
     """Unknown sections/keys are rejected (fail-fast), not silently dropped."""
 
-    def test_unknown_top_level_section_rejected(self, tmp_path):
+    def test_unknown_top_level_section_rejected(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         cfg_file = tmp_path / "agent.toml"
         cfg_file.write_text('[model]\nname = "claude-sonnet-4-6"\n\n[bogus]\nx = 1\n')
         with pytest.raises(ValueError, match="bogus"):
             load_config(cfg_file)
 
-    def test_unknown_key_in_known_section_rejected(self, tmp_path):
+    def test_unknown_key_in_known_section_rejected(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         cfg_file = tmp_path / "agent.toml"
         cfg_file.write_text('[model]\nname = "claude-sonnet-4-6"\n\n[agent]\ncli_modle = "x"\n')
         with pytest.raises(ValueError, match="cli_modle"):
             load_config(cfg_file)
 
-    def test_unknown_backend_rejected(self, tmp_path):
+    def test_unknown_backend_rejected(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         cfg_file = tmp_path / "agent.toml"
         cfg_file.write_text('[model]\nname = "claude-sonnet-4-6"\n\n[backend]\nname = "tpu"\n')
         with pytest.raises(ValueError, match="tpu"):
             load_config(cfg_file)
 
-    def test_removed_cli_model_key_rejected(self, tmp_path):
+    def test_removed_cli_model_key_rejected(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         # [agent].cli_model was removed in favour of [model].name driving the
         # CLI tool directly; stale configs that still set it must error rather
         # than be silently ignored.
@@ -205,7 +205,7 @@ class TestLoadConfigStrict:
 
 
 class TestLoadConfigProviderDefault:
-    def test_missing_provider_defaults_to_none(self, tmp_path):
+    def test_missing_provider_defaults_to_none(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         cfg_file = tmp_path / "agent.toml"
         cfg_file.write_text('[model]\nname = "claude-sonnet-4-6"\n')
         config = load_config(cfg_file)
@@ -213,7 +213,7 @@ class TestLoadConfigProviderDefault:
 
 
 class TestLoadConfigEnvVars:
-    def test_env_var_fallbacks(self, tmp_path):
+    def test_env_var_fallbacks(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         cfg_file = tmp_path / "agent.toml"
         cfg_file.write_text("""\
 [model]
@@ -234,7 +234,7 @@ provider = "vertex-ai"
         assert vx.project == "env-project"
         assert vx.region == "us-central1"
 
-    def test_env_vars_override_toml(self, tmp_path):
+    def test_env_vars_override_toml(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         cfg_file = tmp_path / "agent.toml"
         cfg_file.write_text("""\
 [model]
@@ -260,7 +260,7 @@ region = "us-east5"
 
 
 class TestLoadDotenvFile:
-    def test_load_dotenv_file_parses_values(self, tmp_path):
+    def test_load_dotenv_file_parses_values(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         env_file = tmp_path / ".env"
         env_file.write_text("""\
 # comment
@@ -276,14 +276,14 @@ EMPTY=
             assert os.environ["GOOGLE_API_KEY"] == "google-key"
             assert os.environ["EMPTY"] == ""
 
-    def test_load_dotenv_file_does_not_override_existing(self, tmp_path):
+    def test_load_dotenv_file_does_not_override_existing(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         env_file = tmp_path / ".env"
         env_file.write_text("OPENAI_API_KEY=from-file")
         with patch.dict("os.environ", {"OPENAI_API_KEY": "existing"}, clear=True):
             _load_dotenv_file(env_file)
             assert os.environ["OPENAI_API_KEY"] == "existing"
 
-    def test_load_dotenv_file_strips_inline_comments(self, tmp_path):
+    def test_load_dotenv_file_strips_inline_comments(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         # python-dotenv strips trailing inline comments on unquoted values, but
         # preserves a '#' inside quotes (the prior hand-rolled parser did neither).
         env_file = tmp_path / ".env"
@@ -293,14 +293,14 @@ EMPTY=
             assert os.environ["PLAIN"] == "value"
             assert os.environ["QUOTED"] == "val # hash"
 
-    def test_load_dotenv_file_missing_file_is_noop(self, tmp_path):
+    def test_load_dotenv_file_missing_file_is_noop(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         with patch.dict("os.environ", {}, clear=True):
             _load_dotenv_file(tmp_path / "does-not-exist.env")  # no error
 
 
 class TestLoadConfigThinking:
     @pytest.mark.parametrize("budget", [-1, 0, 2048])
-    def test_thinking_budget_parsed(self, tmp_path, budget):
+    def test_thinking_budget_parsed(self, tmp_path, budget):  # noqa: ANN001, ANN201  # tracked: #288
         cfg_file = tmp_path / "agent.toml"
         cfg_file.write_text(f"""\
 [model]
@@ -313,7 +313,7 @@ budget = {budget}
         assert config.thinking.level is None
         assert config.thinking.budget == budget
 
-    def test_thinking_level_and_budget_are_rejected(self, tmp_path):
+    def test_thinking_level_and_budget_are_rejected(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         cfg_file = tmp_path / "agent.toml"
         cfg_file.write_text("""\
 [model]
@@ -327,7 +327,7 @@ budget = 2048
         with pytest.raises(ValueError, match=r"thinking\.level.*thinking\.budget"):
             load_config(cfg_file)
 
-    def test_thinking_budget_below_dynamic_sentinel_is_rejected(self, tmp_path):
+    def test_thinking_budget_below_dynamic_sentinel_is_rejected(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         cfg_file = tmp_path / "agent.toml"
         cfg_file.write_text("""\
 [model]
@@ -342,7 +342,7 @@ budget = -2
 
 
 class TestLoadConfigAgentSection:
-    def test_agent_section_preserved(self, tmp_path):
+    def test_agent_section_preserved(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         # The [agent] table drives build_agent_runner (cli_timeout, backend,
         # cli_provider). load_config must carry it through; the previous
         # allowlist loader silently dropped it.
@@ -361,7 +361,7 @@ cli_timeout = 1800
         assert config.agent.backend == "cli"
         assert config.agent.cli_provider == "claude"
 
-    def test_agent_section_defaults_to_empty(self, tmp_path):
+    def test_agent_section_defaults_to_empty(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         cfg_file = tmp_path / "agent.toml"
         cfg_file.write_text('[model]\nname = "claude-sonnet-4-6"\n')
         config = load_config(cfg_file)
@@ -370,7 +370,7 @@ cli_timeout = 1800
         assert config.agent.cli_timeout is None
 
     @pytest.mark.parametrize("cli_timeout", [0, -1])
-    def test_non_positive_cli_timeout_is_rejected(self, tmp_path, cli_timeout):
+    def test_non_positive_cli_timeout_is_rejected(self, tmp_path, cli_timeout):  # noqa: ANN001, ANN201  # tracked: #288
         cfg_file = tmp_path / "agent.toml"
         cfg_file.write_text(f"""\
 [model]
@@ -385,7 +385,7 @@ cli_timeout = {cli_timeout}
 
 
 class TestLoadConfigRepositorySection:
-    def test_repository_defaults_are_typed(self, tmp_path):
+    def test_repository_defaults_are_typed(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         cfg_file = tmp_path / "agent.toml"
         cfg_file.write_text(
             """\
@@ -404,7 +404,7 @@ visibility = "internal"
         assert config.repository.visibility == "internal"
 
     @pytest.mark.parametrize("owner", ["owner/name", "spaces are bad", ""])
-    def test_invalid_repository_owner_is_rejected(self, tmp_path, owner):
+    def test_invalid_repository_owner_is_rejected(self, tmp_path, owner):  # noqa: ANN001, ANN201  # tracked: #288
         cfg_file = tmp_path / "agent.toml"
         cfg_file.write_text(f'[model]\nname = "gpt-5.5"\n\n[repository]\nowner = "{owner}"\n')
 
@@ -413,7 +413,7 @@ visibility = "internal"
 
 
 class TestLoadConfigTui:
-    def test_theme_defaults_to_dark(self, tmp_path):
+    def test_theme_defaults_to_dark(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         cfg_file = tmp_path / "agent.toml"
         cfg_file.write_text('[model]\nname = "gpt-5.5"\n')
 
@@ -422,7 +422,7 @@ class TestLoadConfigTui:
         assert config.tui.theme is TuiTheme.DARK
 
     @pytest.mark.parametrize("theme", [theme.value for theme in TuiTheme])
-    def test_every_registered_theme_is_selectable(self, tmp_path, theme):
+    def test_every_registered_theme_is_selectable(self, tmp_path, theme):  # noqa: ANN001, ANN201  # tracked: #288
         cfg_file = tmp_path / "agent.toml"
         cfg_file.write_text(f'[model]\nname = "gpt-5.5"\n\n[tui]\ntheme = "{theme}"\n')
 
@@ -431,23 +431,23 @@ class TestLoadConfigTui:
         assert config.tui.theme == theme
 
     @pytest.mark.parametrize("theme", ["monokai", "Dark", "", "solarized"])
-    def test_unknown_theme_is_rejected(self, tmp_path, theme):
+    def test_unknown_theme_is_rejected(self, tmp_path, theme):  # noqa: ANN001, ANN201  # tracked: #288
         cfg_file = tmp_path / "agent.toml"
         cfg_file.write_text(f'[model]\nname = "gpt-5.5"\n\n[tui]\ntheme = "{theme}"\n')
 
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError):  # noqa: PT011  # tracked: #288
             load_config(cfg_file)
 
-    def test_unknown_tui_key_is_rejected(self, tmp_path):
+    def test_unknown_tui_key_is_rejected(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         cfg_file = tmp_path / "agent.toml"
         cfg_file.write_text('[model]\nname = "gpt-5.5"\n\n[tui]\nthme = "dark"\n')
 
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError):  # noqa: PT011  # tracked: #288
             load_config(cfg_file)
 
 
 class TestLoadConfigPerfEval:
-    def test_load_levels_preserved(self, tmp_path):
+    def test_load_levels_preserved(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         # [perf_eval].load_levels feeds the perf_eval prompt template; the
         # allowlist loader dropped this section entirely.
         cfg_file = tmp_path / "agent.toml"
@@ -471,7 +471,7 @@ max_tokens = 256
         assert [lvl.rate for lvl in levels] == [1, 8]
         assert levels[1].max_tokens == 256
 
-    def test_perf_eval_defaults_to_none(self, tmp_path):
+    def test_perf_eval_defaults_to_none(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         cfg_file = tmp_path / "agent.toml"
         cfg_file.write_text('[model]\nname = "claude-sonnet-4-6"\n')
         config = load_config(cfg_file)
@@ -479,7 +479,7 @@ max_tokens = 256
 
     @pytest.mark.parametrize("field", ["rate", "duration", "max_tokens"])
     @pytest.mark.parametrize("value", [0, -1])
-    def test_non_positive_load_level_value_is_rejected(self, tmp_path, field, value):
+    def test_non_positive_load_level_value_is_rejected(self, tmp_path, field, value):  # noqa: ANN001, ANN201  # tracked: #288
         load_level = {"rate": 1, "duration": 20, "max_tokens": 128}
         load_level[field] = value
         cfg_file = tmp_path / "agent.toml"

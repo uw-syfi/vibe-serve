@@ -33,8 +33,8 @@ from pydantic import BaseModel, ConfigDict, Field, FiniteFloat, field_validator
 # ===========================================================================
 
 
-class Verdict(StrEnum):
-    PASS = "pass"
+class Verdict(StrEnum):  # noqa: D101  # tracked: #288
+    PASS = "pass"  # noqa: S105  # tracked: #288
     FAIL = "fail"
 
 
@@ -73,7 +73,7 @@ class CandidateDisposition(StrEnum):
     PARETO_FRONTIER = "pareto_frontier"
 
 
-class PerfTrend(StrEnum):
+class PerfTrend(StrEnum):  # noqa: D101  # tracked: #288
     IMPROVED = "improved"
     REGRESSED = "regressed"
     MIXED = "mixed"
@@ -108,7 +108,7 @@ class SkillResourceSelection(BaseModel):
     def _strip_required_text(cls, value: str) -> str:
         value = value.strip()
         if not value:
-            raise ValueError("must contain non-whitespace text")
+            raise ValueError("must contain non-whitespace text")  # noqa: TRY003  # tracked: #288
         return value
 
 
@@ -163,7 +163,7 @@ class ValidationRecipe(BaseModel):
     def _strip_recipe_text(cls, value: str) -> str:
         value = value.strip()
         if not value:
-            raise ValueError("must contain non-whitespace text")
+            raise ValueError("must contain non-whitespace text")  # noqa: TRY003  # tracked: #288
         return value
 
     @field_validator("input_paths")
@@ -174,13 +174,13 @@ class ValidationRecipe(BaseModel):
             value = raw.strip()
             path = PurePosixPath(value)
             if not value or path.is_absolute() or value == "." or ".." in path.parts:
-                raise ValueError(
+                raise ValueError(  # noqa: TRY003  # tracked: #288
                     "input_paths must contain non-empty workspace-relative paths "
                     "without parent traversal"
                 )
             normalized.append(path.as_posix())
         if len(set(normalized)) != len(normalized):
-            raise ValueError("input_paths must not contain duplicates")
+            raise ValueError("input_paths must not contain duplicates")  # noqa: TRY003  # tracked: #288
         return normalized
 
 

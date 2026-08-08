@@ -23,7 +23,7 @@ from vibesys.run.git_tracker import GitTracker
 T = TypeVar("T", bound=BaseModel)
 
 
-class LoopContext(Protocol):
+class LoopContext(Protocol):  # noqa: D101  # tracked: #288
     # -- run identity / configuration -----------------------------------------
     backend: ComputeBackend
     model_name: str
@@ -43,39 +43,39 @@ class LoopContext(Protocol):
 
     # -- paths ----------------------------------------------------------------
     @property
-    def exp_dir(self) -> Path: ...
+    def exp_dir(self) -> Path: ...  # noqa: D102  # tracked: #288
 
     @property
-    def log_dir(self) -> Path: ...
+    def log_dir(self) -> Path: ...  # noqa: D102  # tracked: #288
 
     @property
-    def workspace(self) -> Path: ...
+    def workspace(self) -> Path: ...  # noqa: D102  # tracked: #288
 
     @property
-    def run_log_path(self) -> Path: ...
+    def run_log_path(self) -> Path: ...  # noqa: D102  # tracked: #288
 
     @property
-    def skill_source_paths(self) -> list[Path]: ...
+    def skill_source_paths(self) -> list[Path]: ...  # noqa: D102  # tracked: #288
 
     # -- agent-facing commands ------------------------------------------------
     @property
-    def objective_location(self) -> str: ...
+    def objective_location(self) -> str: ...  # noqa: D102  # tracked: #288
 
     @property
-    def judge_accuracy_command(self) -> str | None: ...
+    def judge_accuracy_command(self) -> str | None: ...  # noqa: D102  # tracked: #288
 
     @property
-    def judge_benchmark_command(self) -> str | None: ...
+    def judge_benchmark_command(self) -> str | None: ...  # noqa: D102  # tracked: #288
 
     @property
-    def profiler_benchmark_command(self) -> str | None: ...
+    def profiler_benchmark_command(self) -> str | None: ...  # noqa: D102  # tracked: #288
 
     # -- services -------------------------------------------------------------
-    def lprint(self, text: str) -> None: ...
+    def lprint(self, text: str) -> None: ...  # noqa: D102  # tracked: #288
 
-    def switch_log_file(self, label: int | str) -> None: ...
+    def switch_log_file(self, label: int | str) -> None: ...  # noqa: D102  # tracked: #288
 
-    def invoke(
+    def invoke(  # noqa: D102, PLR0913  # tracked: #288
         self,
         *,
         kind: str,
@@ -85,17 +85,17 @@ class LoopContext(Protocol):
         fallback_factory: Callable[[], T],
         round_label: str = "",
         progress: AgentProgress | None = None,
-        **extra: Any,
+        **extra: Any,  # noqa: ANN401  # tracked: #288
     ) -> T: ...
 
-    def progress(self, progress: AgentProgress) -> AbstractContextManager[None]: ...
+    def progress(self, progress: AgentProgress) -> AbstractContextManager[None]: ...  # noqa: D102  # tracked: #288
 
-    def snapshot_workspace(self, label: str) -> None: ...
+    def snapshot_workspace(self, label: str) -> None: ...  # noqa: D102  # tracked: #288
 
-    def trusted_input_changes(self) -> list[str]: ...
+    def trusted_input_changes(self) -> list[str]: ...  # noqa: D102  # tracked: #288
 
-    def reselect_gpu(self) -> None: ...
+    def reselect_gpu(self) -> None: ...  # noqa: D102  # tracked: #288
 
-    def wait_for_debug(self, step: str) -> None: ...
+    def wait_for_debug(self, step: str) -> None: ...  # noqa: D102  # tracked: #288
 
-    def close(self) -> None: ...
+    def close(self) -> None: ...  # noqa: D102  # tracked: #288

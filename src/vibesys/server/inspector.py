@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import re
-from pathlib import Path
+from pathlib import Path  # noqa: TC003  # tracked: #288
 from typing import TYPE_CHECKING
 
 from vibesys.server.events import ConfigurationFailedData, EventStatus, EventType, RunEvent
@@ -16,10 +16,10 @@ if TYPE_CHECKING:
 class RunInspector:
     """Answer operator questions without mutating agent behavior."""
 
-    def __init__(self, supervisor: RunSupervisor):
+    def __init__(self, supervisor: RunSupervisor):  # noqa: ANN204, D107  # tracked: #288
         self.supervisor = supervisor
 
-    def answer(self, question: str) -> str:
+    def answer(self, question: str) -> str:  # noqa: D102, PLR0911  # tracked: #288
         configuration_failure = self._latest_configuration_failure()
         if configuration_failure is not None:
             return self._status_answer(question, configuration_failure)
@@ -64,7 +64,7 @@ class RunInspector:
             "use /history for the event timeline."
         )
 
-    def round_detail(self, number: int) -> str:
+    def round_detail(self, number: int) -> str:  # noqa: D102  # tracked: #288
         pattern = re.compile(rf"(?i)(round|iter(?:ation)?)\D*{number}\b")
         chunks = []
         for path in self._history_files():
@@ -76,7 +76,7 @@ class RunInspector:
                 chunks.append(f"--- {path.name} ---\n" + "\n".join(lines[start : start + 80]))
         return "\n\n".join(chunks) or f"No persisted detail found for round {number}."
 
-    def latest_run_log(self) -> Path | None:
+    def latest_run_log(self) -> Path | None:  # noqa: D102  # tracked: #288
         log_dir = self.supervisor.log_dir
         if log_dir is None:
             return None

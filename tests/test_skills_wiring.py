@@ -37,7 +37,7 @@ NKI_SKILL_NAMES = {
 }
 
 
-def _args(tmp_path, backend, *, no_skills=False, skills_dir=None):
+def _args(tmp_path, backend, *, no_skills=False, skills_dir=None):  # noqa: ANN001, ANN202  # tracked: #288
     cfg = tmp_path / "agent.toml"
     cfg.write_text('[model]\nname = "gpt-5.5"\n')
     if skills_dir is None:
@@ -67,7 +67,7 @@ def _write_sidecar(root: Path, content: str) -> Path:
     return path
 
 
-def test_trainium_loads_nki_skills_from_sidecar_metadata(tmp_path):
+def test_trainium_loads_nki_skills_from_sidecar_metadata(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     _, skills, backend = load_config_and_skills(
         _args(tmp_path, ComputeBackend.TRAINIUM), domain=DomainName.LLM_SERVING
     )
@@ -77,7 +77,7 @@ def test_trainium_loads_nki_skills_from_sidecar_metadata(tmp_path):
     assert names >= NKI_SKILL_NAMES
 
 
-def test_cuda_filters_out_trainium_scoped_nki_skills(tmp_path):
+def test_cuda_filters_out_trainium_scoped_nki_skills(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     _, skills, _ = load_config_and_skills(
         _args(tmp_path, ComputeBackend.CUDA), domain=DomainName.LLM_SERVING
     )
@@ -87,13 +87,13 @@ def test_cuda_filters_out_trainium_scoped_nki_skills(tmp_path):
 
 
 @pytest.mark.parametrize("domain", [DomainName.GENERIC, DomainName.MICROSERVICES])
-def test_non_serving_domains_filter_out_serving_systems(tmp_path, domain):
+def test_non_serving_domains_filter_out_serving_systems(tmp_path, domain):  # noqa: ANN001, ANN201  # tracked: #288
     _, skills, _ = load_config_and_skills(_args(tmp_path, ComputeBackend.CUDA), domain=domain)
 
     assert "serving-systems" not in _skill_names(skills)
 
 
-def test_no_skills_disables_even_compatible_skills(tmp_path):
+def test_no_skills_disables_even_compatible_skills(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     _, skills, _ = load_config_and_skills(
         _args(tmp_path, ComputeBackend.TRAINIUM, no_skills=True),
         domain=DomainName.LLM_SERVING,
@@ -101,7 +101,7 @@ def test_no_skills_disables_even_compatible_skills(tmp_path):
     assert skills is None
 
 
-def test_sidecar_rule_filters_descendant_skill_subtree_by_backend(tmp_path):
+def test_sidecar_rule_filters_descendant_skill_subtree_by_backend(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     root = tmp_path / "skills"
     _write_skill(root, "portable")
     _write_skill(root / "vendor" / "skills", "trainium-only")
@@ -119,7 +119,7 @@ def test_sidecar_rule_filters_descendant_skill_subtree_by_backend(tmp_path):
     assert _skill_names(trainium) == {"portable", "trainium-only"}
 
 
-def test_sidecar_rule_filters_skill_by_domain(tmp_path):
+def test_sidecar_rule_filters_skill_by_domain(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     root = tmp_path / "skills"
     _write_skill(root, "portable")
     _write_skill(root, "serving-only")
@@ -139,7 +139,7 @@ def test_sidecar_rule_filters_skill_by_domain(tmp_path):
     assert _skill_names(serving) == {"portable", "serving-only"}
 
 
-def test_more_specific_sidecar_rule_wins(tmp_path):
+def test_more_specific_sidecar_rule_wins(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     root = tmp_path / "skills"
     _write_skill(root / "vendor" / "skills" / "common", "cuda-too")
     _write_sidecar(
@@ -160,7 +160,7 @@ def test_more_specific_sidecar_rule_wins(tmp_path):
     assert _skill_names(trainium) == {"cuda-too"}
 
 
-def test_conflicting_same_specificity_rules_fail(tmp_path):
+def test_conflicting_same_specificity_rules_fail(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     root = tmp_path / "skills"
     skill_dir = _write_skill(root / "vendor" / "skills", "ambiguous")
     _write_sidecar(
@@ -168,7 +168,7 @@ def test_conflicting_same_specificity_rules_fail(tmp_path):
         '[[rule]]\npath = "skills"\nbackends = ["trainium"]\n',
     )
     rules = discover_sidecar_rules(root / "vendor")
-    duplicate_rules = rules + [
+    duplicate_rules = rules + [  # noqa: RUF005  # tracked: #288
         type(rules[0])(
             sidecar_path=rules[0].sidecar_path,
             raw_path=rules[0].raw_path,
@@ -177,13 +177,13 @@ def test_conflicting_same_specificity_rules_fail(tmp_path):
             domains=None,
         )
     ]
-    from vibesys.skills import effective_skill_metadata
+    from vibesys.skills import effective_skill_metadata  # noqa: PLC0415  # tracked: #288
 
     with pytest.raises(SkillMetadataError, match="conflicting VibeSys rules"):
         effective_skill_metadata(skill_dir, duplicate_rules)
 
 
-def test_duplicate_skill_dirs_are_deduped(tmp_path):
+def test_duplicate_skill_dirs_are_deduped(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     root = tmp_path / "skills"
     skill_dir = _write_skill(root, "portable")
 
@@ -194,7 +194,7 @@ def test_duplicate_skill_dirs_are_deduped(tmp_path):
     assert [Path(s).name for s in skills] == ["portable"]
 
 
-def test_discovery_ignores_hidden_skill_directories(tmp_path):
+def test_discovery_ignores_hidden_skill_directories(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     root = tmp_path / "skills"
     visible = _write_skill(root, "portable")
     hidden = root / ".claude" / "skills" / "foreign"
@@ -207,7 +207,7 @@ def test_discovery_ignores_hidden_skill_directories(tmp_path):
     ) == [str(visible)]
 
 
-def test_hidden_dir_check_treats_external_paths_as_visible(tmp_path):
+def test_hidden_dir_check_treats_external_paths_as_visible(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     assert not _is_in_hidden_dir(tmp_path / "other" / ".hidden" / "SKILL.md", tmp_path / "skills")
 
 
@@ -232,7 +232,7 @@ def test_hidden_dir_check_treats_external_paths_as_visible(tmp_path):
         ),
     ],
 )
-def test_invalid_sidecar_metadata_fails_with_sidecar_path(tmp_path, content, message):
+def test_invalid_sidecar_metadata_fails_with_sidecar_path(tmp_path, content, message):  # noqa: ANN001, ANN201  # tracked: #288
     sidecar = _write_sidecar(tmp_path, content)
 
     with pytest.raises(SkillMetadataError) as exc:
@@ -242,7 +242,7 @@ def test_invalid_sidecar_metadata_fails_with_sidecar_path(tmp_path, content, mes
     assert message in str(exc.value)
 
 
-def test_missing_skill_frontmatter_is_invalid(tmp_path):
+def test_missing_skill_frontmatter_is_invalid(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     skill_dir = tmp_path / "bad-skill"
     skill_dir.mkdir()
     skill_dir.joinpath("SKILL.md").write_text("# bad\n", encoding="utf-8")
@@ -251,7 +251,7 @@ def test_missing_skill_frontmatter_is_invalid(tmp_path):
         load_skill_frontmatter(skill_dir)
 
 
-def test_all_repository_skill_metadata_is_valid():
+def test_all_repository_skill_metadata_is_valid():  # noqa: ANN201  # tracked: #288
     metadata = {
         item.skill_dir.name: item
         for item in validate_skill_tree(PROJECT_ROOT / "resources" / "skills")
@@ -260,14 +260,14 @@ def test_all_repository_skill_metadata_is_valid():
     assert set(metadata) >= NKI_SKILL_NAMES
 
 
-def test_all_nki_skills_inherit_trainium_scope_from_wrapper_sidecar():
+def test_all_nki_skills_inherit_trainium_scope_from_wrapper_sidecar():  # noqa: ANN201  # tracked: #288
     metadata = {m.skill_dir.name: m for m in validate_skill_tree(NKI_WRAPPER_DIR)}
     assert set(metadata) == NKI_SKILL_NAMES
     assert all(m.backends == (ComputeBackend.TRAINIUM,) for m in metadata.values())
     assert all(m.domains is None for m in metadata.values())
 
 
-def test_discover_skill_dirs_accepts_single_skill_root(tmp_path):
+def test_discover_skill_dirs_accepts_single_skill_root(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     skill_dir = _write_skill(tmp_path, "portable")
 
     assert discover_skill_dirs(skill_dir) == [skill_dir]
@@ -276,7 +276,7 @@ def test_discover_skill_dirs_accepts_single_skill_root(tmp_path):
 # -- references/platforms/ layout ------------------------------------------
 
 
-def _write_platform(skill_dir: Path, backend: str, *, skeleton=PLATFORM_SKELETON) -> Path:
+def _write_platform(skill_dir: Path, backend: str, *, skeleton=PLATFORM_SKELETON) -> Path:  # noqa: ANN001  # tracked: #288
     platform_dir = skill_dir / "references" / "platforms" / backend
     platform_dir.mkdir(parents=True)
     for name in skeleton:
@@ -284,13 +284,13 @@ def _write_platform(skill_dir: Path, backend: str, *, skeleton=PLATFORM_SKELETON
     return platform_dir
 
 
-def test_skill_without_platforms_tree_still_validates(tmp_path):
+def test_skill_without_platforms_tree_still_validates(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     skill_dir = _write_skill(tmp_path, "portable")
 
     validate_platform_layout(skill_dir)  # no references/platforms/ — nothing to check
 
 
-def test_complete_platform_skeleton_validates(tmp_path):
+def test_complete_platform_skeleton_validates(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     skill_dir = _write_skill(tmp_path, "multi")
     _write_platform(skill_dir, "cuda")
     _write_platform(skill_dir, "trainium")
@@ -299,7 +299,7 @@ def test_complete_platform_skeleton_validates(tmp_path):
 
 
 @pytest.mark.parametrize("missing", PLATFORM_SKELETON)
-def test_platform_missing_a_skeleton_file_fails(tmp_path, missing):
+def test_platform_missing_a_skeleton_file_fails(tmp_path, missing):  # noqa: ANN001, ANN201  # tracked: #288
     skill_dir = _write_skill(tmp_path, "gappy")
     _write_platform(skill_dir, "metal", skeleton=[n for n in PLATFORM_SKELETON if n != missing])
 
@@ -307,7 +307,7 @@ def test_platform_missing_a_skeleton_file_fails(tmp_path, missing):
         validate_platform_layout(skill_dir)
 
 
-def test_platform_dir_must_be_a_known_compute_backend(tmp_path):
+def test_platform_dir_must_be_a_known_compute_backend(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     skill_dir = _write_skill(tmp_path, "typo")
     _write_platform(skill_dir, "nvidia")  # vendor name, not a ComputeBackend value
 
@@ -315,7 +315,7 @@ def test_platform_dir_must_be_a_known_compute_backend(tmp_path):
         validate_platform_layout(skill_dir)
 
 
-def test_validate_skill_tree_enforces_platform_layout(tmp_path):
+def test_validate_skill_tree_enforces_platform_layout(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     skill_dir = _write_skill(tmp_path, "gappy")
     _write_platform(skill_dir, "cuda", skeleton=["floor.md"])
 
@@ -323,7 +323,7 @@ def test_validate_skill_tree_enforces_platform_layout(tmp_path):
         validate_skill_tree(tmp_path)
 
 
-def test_serving_systems_platform_dirs_cover_every_compute_backend():
+def test_serving_systems_platform_dirs_cover_every_compute_backend():  # noqa: ANN201  # tracked: #288
     """Every backend a run can select must have its own guidance.
 
     Without this, selecting a backend silently falls back to reading another
@@ -350,7 +350,7 @@ def _portable_reference_files() -> list[Path]:
     return sorted(f for tier in PORTABLE_TIERS for f in (refs / tier).rglob("*.md"))
 
 
-def test_portable_references_never_link_into_a_platform_dir():
+def test_portable_references_never_link_into_a_platform_dir():  # noqa: ANN201  # tracked: #288
     """Materialization prunes every non-selected platform directory, so a
     markdown link from a portable file into ``platforms/<backend>/<file>``
     dangles on every other backend. Link the directory or name the library as
@@ -367,7 +367,7 @@ def test_portable_references_never_link_into_a_platform_dir():
     )
 
 
-def test_portable_references_have_no_links_to_removed_tiers():
+def test_portable_references_have_no_links_to_removed_tiers():  # noqa: ANN201  # tracked: #288
     """`backends/` and `hardware/` dissolved into `platforms/`; a leftover link
     to either is a dead path in every workspace, not just foreign ones."""
     stale = re.compile(r"\]\((?:\.{1,2}/)*(?:backends|hardware)/[^)]*\)")
@@ -395,7 +395,7 @@ def _strip_code_blocks(text: str) -> str:
     return "\n".join(out)
 
 
-def test_serving_systems_internal_links_resolve():
+def test_serving_systems_internal_links_resolve():  # noqa: ANN201  # tracked: #288
     """Every relative markdown link inside the skill points at a real file.
 
     ``CLAUDE.md`` is excluded: as the authoring guide it cites illustrative
@@ -419,7 +419,7 @@ def test_serving_systems_internal_links_resolve():
     assert not broken, "broken internal links:\n" + "\n".join(broken)
 
 
-def test_skill_selection_resolves_zero_to_many_resources_with_stable_deduplication(tmp_path):
+def test_skill_selection_resolves_zero_to_many_resources_with_stable_deduplication(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     root = tmp_path / "skills"
     skill = _write_skill(root, "portable")
     references = skill / "references"
@@ -457,7 +457,7 @@ def test_skill_selection_resolves_zero_to_many_resources_with_stable_deduplicati
     assert resolve_skill_selections([], catalog) == ([], [])
 
 
-def test_skill_selection_omits_unknown_skills_and_unsafe_resources(tmp_path):
+def test_skill_selection_omits_unknown_skills_and_unsafe_resources(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     root = tmp_path / "skills"
     skill = _write_skill(root, "portable")
     references = skill / "references"
@@ -501,7 +501,7 @@ def test_skill_selection_omits_unknown_skills_and_unsafe_resources(tmp_path):
     assert any("POSIX separators" in diagnostic for diagnostic in diagnostics)
 
 
-def test_skill_selection_rejects_symlink_escape(tmp_path):
+def test_skill_selection_rejects_symlink_escape(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     root = tmp_path / "skills"
     skill = _write_skill(root, "portable")
     references = skill / "references"
@@ -527,7 +527,7 @@ def test_skill_selection_rejects_symlink_escape(tmp_path):
     assert "escapes the skill root" in diagnostics[0]
 
 
-def test_skill_catalog_matches_materialization_last_writer_wins(tmp_path):
+def test_skill_catalog_matches_materialization_last_writer_wins(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     first = _write_skill(tmp_path / "first", "portable")
     second = _write_skill(tmp_path / "second", "portable")
 
@@ -536,7 +536,7 @@ def test_skill_catalog_matches_materialization_last_writer_wins(tmp_path):
     assert catalog["portable"].source_dir == second.resolve()
 
 
-def test_skill_catalog_rejects_frontmatter_name_that_cannot_be_materialized(tmp_path):
+def test_skill_catalog_rejects_frontmatter_name_that_cannot_be_materialized(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     skill = _write_skill(tmp_path, "portable")
     skill.joinpath("SKILL.md").write_text(
         "---\nname: different\ndescription: mismatch\n---\n",

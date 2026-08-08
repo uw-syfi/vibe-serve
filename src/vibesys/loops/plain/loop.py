@@ -26,7 +26,7 @@ import os
 import shutil
 from dataclasses import asdict, dataclass
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path  # noqa: TC003  # tracked: #288
 from typing import Any
 
 from vibesys.agents.progress import RoundProgress
@@ -34,7 +34,7 @@ from vibesys.config import Config, as_config
 from vibesys.constants import DEFAULT_COMPUTE_BACKEND, ComputeBackend
 from vibesys.context import create_run_context
 from vibesys.domains.llm_serving.hooks import LLMServingEnvironmentHooks
-from vibesys.input_manifest import WorkspaceSource
+from vibesys.input_manifest import WorkspaceSource  # noqa: TC001  # tracked: #288
 from vibesys.loops.plain.render import render_all
 from vibesys.loops.plain.runner_ext import PlainLoopAgentRunner
 from vibesys.profilers import ProfilerKind
@@ -87,10 +87,10 @@ def _save_state(log_dir: Path, state: PlainLoopState) -> None:
     target = log_dir / "state.json"
     tmp = log_dir / "state.json.tmp"
     tmp.write_text(json.dumps(asdict(state), indent=2), encoding="utf-8")
-    os.replace(tmp, target)
+    os.replace(tmp, target)  # noqa: PTH105  # tracked: #288
 
 
-def load_state(log_dir: Path) -> PlainLoopState | None:
+def load_state(log_dir: Path) -> PlainLoopState | None:  # noqa: D103  # tracked: #288
     path = log_dir / "state.json"
     if not path.is_file():
         return None
@@ -207,7 +207,7 @@ def _save_perf_metrics(
     existing = json.loads(perf_metrics_path.read_text(encoding="utf-8"))
     entry = {
         "iteration": iteration,
-        "timestamp": datetime.now().isoformat(),
+        "timestamp": datetime.now().isoformat(),  # noqa: DTZ005  # tracked: #288
         "throughput_trend": response.throughput_trend.value,
         "latency_trend": response.latency_trend.value,
         "metrics": response.metrics.model_dump(),
@@ -255,7 +255,7 @@ def _sync_workspace_files(
     The canonical ``issues.json`` lives in the workspace root so the MCP
     server, the loop's ``IssueBoard``, and a human inspecting the workspace
     all see the same file. We do not copy it here.
-    """
+    """  # noqa: D205  # tracked: #288
     shutil.copy2(progress_path, workspace / "progress.md")
     shutil.copy2(perf_metrics_path, workspace / "perf_metrics.json")
     if issues_dir.is_dir():
@@ -341,7 +341,7 @@ def _ensure_bootstrap_issue(
 # ---------------------------------------------------------------------------
 
 
-def run_plain_loop(
+def run_plain_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
     config: Config,
     exp_name: str,
     input_path: str,
@@ -420,7 +420,7 @@ def run_plain_loop(
         store_path = ctx.workspace / "issues.json"
         log_link = ctx.log_dir / "issues.json"
         if not log_link.exists() and not log_link.is_symlink():
-            try:
+            try:  # noqa: SIM105  # tracked: #288
                 log_link.symlink_to(os.path.relpath(store_path, ctx.log_dir))
             except OSError:
                 pass  # symlink is convenience-only
@@ -697,7 +697,7 @@ def run_plain_loop(
                 # PERF_EVAL phase (after drain complete)
                 # ---------------------------------------------------------------
                 # Bail-out check: if every remaining issue is BLOCKED, we're stuck.
-                remaining = [iss for iss in store.list() if iss.status not in (IssueStatus.CLOSED,)]
+                remaining = [iss for iss in store.list() if iss.status not in (IssueStatus.CLOSED,)]  # noqa: FURB171  # tracked: #288
                 blocked_only = remaining and all(
                     iss.status == IssueStatus.BLOCKED for iss in remaining
                 )

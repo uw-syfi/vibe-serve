@@ -5,9 +5,9 @@ from __future__ import annotations
 import json
 import random
 import shutil
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable, Iterator  # noqa: TC003  # tracked: #288
 from importlib.metadata import version
-from pathlib import Path
+from pathlib import Path  # noqa: TC003  # tracked: #288
 
 import pytest
 
@@ -70,17 +70,17 @@ def test_dependency_is_pinned_to_requested_release() -> None:
     assert version("openevolve") == "0.3.1"
 
 
-def test_initialization_persists_empty_policy_for_bootstrap_resume(tmp_path) -> None:
+def test_initialization_persists_empty_policy_for_bootstrap_resume(tmp_path) -> None:  # noqa: ANN001  # tracked: #288
     config = _config()
     OpenEvolveSearchPolicy(state_dir=tmp_path, seed=7, config=config)
 
     assert OpenEvolveSearchPolicy.has_state(tmp_path)
     assert OpenEvolveSearchPolicy.persisted_config(tmp_path) == config
     resumed = OpenEvolveSearchPolicy(state_dir=tmp_path, seed=999, config=None)
-    assert resumed._database.programs == {}
+    assert resumed._database.programs == {}  # noqa: SLF001  # tracked: #288
 
 
-def test_openevolve_selection_maps_programs_back_to_vibesys_individuals(tmp_path) -> None:
+def test_openevolve_selection_maps_programs_back_to_vibesys_individuals(tmp_path) -> None:  # noqa: ANN001  # tracked: #288
     population = Population([_individual(1)])
     policy = OpenEvolveSearchPolicy(state_dir=tmp_path, seed=7, config=_config())
     seed = population.passed[0]
@@ -94,7 +94,7 @@ def test_openevolve_selection_maps_programs_back_to_vibesys_individuals(tmp_path
 
     selection = policy.select(
         population,
-        rng=random.Random(99),
+        rng=random.Random(99),  # noqa: S311  # tracked: #288
         k_top_inspirations=1,
         k_random_inspirations=1,
         selection_temperature=0.5,
@@ -111,7 +111,7 @@ def test_openevolve_selection_maps_programs_back_to_vibesys_individuals(tmp_path
     assert (persisted / "programs" / "vibesys-1.json").is_file()
 
 
-def test_migrants_keep_vibesys_identity_and_state_resumes(tmp_path) -> None:
+def test_migrants_keep_vibesys_identity_and_state_resumes(tmp_path) -> None:  # noqa: ANN001  # tracked: #288
     seed = _individual(1)
     population = Population([seed])
     policy = OpenEvolveSearchPolicy(state_dir=tmp_path, seed=3, config=_config())
@@ -133,10 +133,10 @@ def test_migrants_keep_vibesys_identity_and_state_resumes(tmp_path) -> None:
     )
 
     resumed = OpenEvolveSearchPolicy(state_dir=tmp_path, seed=3, config=_config())
-    resumed._database.set_current_island(1)
+    resumed._database.set_current_island(1)  # noqa: SLF001  # tracked: #288
     selection = resumed.select(
         population,
-        rng=random.Random(1),
+        rng=random.Random(1),  # noqa: S311  # tracked: #288
         k_top_inspirations=0,
         k_random_inspirations=0,
         selection_temperature=0.5,
@@ -147,12 +147,12 @@ def test_migrants_keep_vibesys_identity_and_state_resumes(tmp_path) -> None:
     assert selection is not None
     assert selection.parent.id in {seed.id, child.id}
     assert selection.target_island == 1
-    selected_program = resumed._database.programs[selection.policy_parent_id]
+    selected_program = resumed._database.programs[selection.policy_parent_id]  # noqa: SLF001  # tracked: #288
     assert selected_program.metadata["vibesys_individual_id"] == selection.parent.id
     assert selected_program.metadata["migrant"] is True
 
 
-def test_resume_prunes_programs_evicted_before_save(tmp_path) -> None:
+def test_resume_prunes_programs_evicted_before_save(tmp_path) -> None:  # noqa: ANN001  # tracked: #288
     config = _config(population_size=2, archive_size=2, num_islands=1)
     policy = OpenEvolveSearchPolicy(state_dir=tmp_path, seed=4, config=config)
     for individual_id in range(1, 6):
@@ -164,17 +164,17 @@ def test_resume_prunes_programs_evicted_before_save(tmp_path) -> None:
             objectives=None,
         )
 
-    active_ids = set(policy._database.programs)
+    active_ids = set(policy._database.programs)  # noqa: SLF001  # tracked: #288
     resumed = OpenEvolveSearchPolicy(state_dir=tmp_path, seed=4, config=config)
 
     assert len(active_ids) <= 2
-    assert set(resumed._database.programs) == active_ids
+    assert set(resumed._database.programs) == active_ids  # noqa: SLF001  # tracked: #288
     assert {
         path.stem for path in (_persisted_dir(tmp_path) / "programs").glob("*.json")
     } == active_ids
 
 
-def test_replaying_population_does_not_readmit_evicted_individuals(tmp_path) -> None:
+def test_replaying_population_does_not_readmit_evicted_individuals(tmp_path) -> None:  # noqa: ANN001  # tracked: #288
     config = _config(
         population_size=2,
         archive_size=2,
@@ -194,8 +194,8 @@ def test_replaying_population_does_not_readmit_evicted_individuals(tmp_path) -> 
             target_island=0,
             objectives=None,
         )
-    expected_programs = set(policy._database.programs)
-    expected_generations = list(policy._database.island_generations)
+    expected_programs = set(policy._database.programs)  # noqa: SLF001  # tracked: #288
+    expected_generations = list(policy._database.island_generations)  # noqa: SLF001  # tracked: #288
 
     resumed = OpenEvolveSearchPolicy(state_dir=tmp_path, seed=4, config=None)
     for individual in individuals:
@@ -207,11 +207,11 @@ def test_replaying_population_does_not_readmit_evicted_individuals(tmp_path) -> 
             objectives=None,
         )
 
-    assert set(resumed._database.programs) == expected_programs
-    assert resumed._database.island_generations == expected_generations
+    assert set(resumed._database.programs) == expected_programs  # noqa: SLF001  # tracked: #288
+    assert resumed._database.island_generations == expected_generations  # noqa: SLF001  # tracked: #288
 
 
-def test_resume_rejects_changed_database_topology(tmp_path) -> None:
+def test_resume_rejects_changed_database_topology(tmp_path) -> None:  # noqa: ANN001  # tracked: #288
     policy = OpenEvolveSearchPolicy(state_dir=tmp_path, seed=4, config=_config(num_islands=2))
     policy.record(
         _individual(1),
@@ -225,7 +225,7 @@ def test_resume_rejects_changed_database_topology(tmp_path) -> None:
         OpenEvolveSearchPolicy(state_dir=tmp_path, seed=4, config=_config(num_islands=3))
 
 
-def test_resume_rejects_changed_fitness_objective(tmp_path) -> None:
+def test_resume_rejects_changed_fitness_objective(tmp_path) -> None:  # noqa: ANN001  # tracked: #288
     objectives = [Objective("latency_ms", "min")]
     policy = OpenEvolveSearchPolicy(
         state_dir=tmp_path,
@@ -250,7 +250,7 @@ def test_resume_rejects_changed_fitness_objective(tmp_path) -> None:
         )
 
 
-def test_finish_generation_keeps_iteration_monotonic(tmp_path) -> None:
+def test_finish_generation_keeps_iteration_monotonic(tmp_path) -> None:  # noqa: ANN001  # tracked: #288
     policy = OpenEvolveSearchPolicy(state_dir=tmp_path, seed=4, config=_config())
     policy.record(
         _individual(20),
@@ -262,13 +262,13 @@ def test_finish_generation_keeps_iteration_monotonic(tmp_path) -> None:
 
     policy.finish_generation(1)
 
-    assert policy._database.last_iteration == 20
+    assert policy._database.last_iteration == 20  # noqa: SLF001  # tracked: #288
     assert (
         json.loads((_persisted_dir(tmp_path) / "metadata.json").read_text())["last_iteration"] == 20
     )
 
 
-def test_zero_migration_rate_disables_upstream_minimum_migrant(tmp_path) -> None:
+def test_zero_migration_rate_disables_upstream_minimum_migrant(tmp_path) -> None:  # noqa: ANN001  # tracked: #288
     config = _config(migration_rate=0.0)
     policy = OpenEvolveSearchPolicy(state_dir=tmp_path, seed=4, config=config)
     policy.record(
@@ -287,11 +287,12 @@ def test_zero_migration_rate_disables_upstream_minimum_migrant(tmp_path) -> None
     )
 
     assert not any(
-        program.metadata.get("migrant") for program in policy._database.programs.values()
+        program.metadata.get("migrant")
+        for program in policy._database.programs.values()  # noqa: SLF001  # tracked: #288
     )
 
 
-def test_empty_island_copy_resolves_through_vibesys_ancestry(tmp_path) -> None:
+def test_empty_island_copy_resolves_through_vibesys_ancestry(tmp_path) -> None:  # noqa: ANN001  # tracked: #288
     config = _config(migration_interval=50, migration_rate=0.0)
     seed = _individual(1)
     population = Population([seed])
@@ -303,13 +304,13 @@ def test_empty_island_copy_resolves_through_vibesys_ancestry(tmp_path) -> None:
         target_island=0,
         objectives=None,
     )
-    policy._database.set_current_island(1)
-    policy._database.config.exploration_ratio = 1.0
-    policy._database.config.exploitation_ratio = 0.0
+    policy._database.set_current_island(1)  # noqa: SLF001  # tracked: #288
+    policy._database.config.exploration_ratio = 1.0  # noqa: SLF001  # tracked: #288
+    policy._database.config.exploitation_ratio = 0.0  # noqa: SLF001  # tracked: #288
 
     selection = policy.select(
         population,
-        rng=random.Random(1),
+        rng=random.Random(1),  # noqa: S311  # tracked: #288
         k_top_inspirations=0,
         k_random_inspirations=0,
         selection_temperature=0.5,
@@ -320,11 +321,11 @@ def test_empty_island_copy_resolves_through_vibesys_ancestry(tmp_path) -> None:
     assert selection is not None
     assert selection.parent.id == seed.id
     assert selection.target_island == 1
-    copy = policy._database.programs[selection.policy_parent_id]
+    copy = policy._database.programs[selection.policy_parent_id]  # noqa: SLF001  # tracked: #288
     assert copy.metadata["vibesys_individual_id"] == seed.id
 
 
-def test_empty_island_copy_has_same_identity_after_resume(tmp_path) -> None:
+def test_empty_island_copy_has_same_identity_after_resume(tmp_path) -> None:  # noqa: ANN001  # tracked: #288
     config = _config(migration_interval=50, migration_rate=0.0)
     seed = _individual(1)
     population = Population([seed])
@@ -332,12 +333,12 @@ def test_empty_island_copy_has_same_identity_after_resume(tmp_path) -> None:
     policy.record(seed, code="seed", policy_parent_id=None, target_island=0, objectives=None)
     resumed = OpenEvolveSearchPolicy(state_dir=tmp_path, seed=999, config=None)
     for candidate in (policy, resumed):
-        candidate._database.set_current_island(1)
-        candidate._database.config.exploration_ratio = 1.0
-        candidate._database.config.exploitation_ratio = 0.0
+        candidate._database.set_current_island(1)  # noqa: SLF001  # tracked: #288
+        candidate._database.config.exploration_ratio = 1.0  # noqa: SLF001  # tracked: #288
+        candidate._database.config.exploitation_ratio = 0.0  # noqa: SLF001  # tracked: #288
 
     selection_args = {
-        "rng": random.Random(1),
+        "rng": random.Random(1),  # noqa: S311  # tracked: #288
         "k_top_inspirations": 0,
         "k_random_inspirations": 0,
         "selection_temperature": 0.5,
@@ -347,11 +348,11 @@ def test_empty_island_copy_has_same_identity_after_resume(tmp_path) -> None:
     uninterrupted_selection = policy.select(population, **selection_args)
     resumed_selection = resumed.select(population, **selection_args)
 
-    assert uninterrupted_selection is not None and resumed_selection is not None
+    assert uninterrupted_selection is not None and resumed_selection is not None  # noqa: PT018  # tracked: #288
     assert resumed_selection.policy_parent_id == uninterrupted_selection.policy_parent_id
 
 
-def test_migration_has_same_program_identity_after_resume(tmp_path) -> None:
+def test_migration_has_same_program_identity_after_resume(tmp_path) -> None:  # noqa: ANN001  # tracked: #288
     initial_dir = tmp_path / "initial"
     config = _config(num_islands=2, migration_interval=1, migration_rate=1.0)
     seed = _individual(1)
@@ -380,13 +381,14 @@ def test_migration_has_same_program_identity_after_resume(tmp_path) -> None:
         objectives=None,
     )
 
-    assert set(uninterrupted._database.programs) == set(resumed._database.programs)
+    assert set(uninterrupted._database.programs) == set(resumed._database.programs)  # noqa: SLF001  # tracked: #288
     assert {
-        program.id: program.timestamp for program in uninterrupted._database.programs.values()
-    } == {program.id: program.timestamp for program in resumed._database.programs.values()}
+        program.id: program.timestamp
+        for program in uninterrupted._database.programs.values()  # noqa: SLF001  # tracked: #288
+    } == {program.id: program.timestamp for program in resumed._database.programs.values()}  # noqa: SLF001  # tracked: #288
 
 
-def test_resume_continues_upstream_random_stream_without_touching_global_rng(tmp_path) -> None:
+def test_resume_continues_upstream_random_stream_without_touching_global_rng(tmp_path) -> None:  # noqa: ANN001  # tracked: #288
     config = _config(num_islands=1, migration_rate=0.0)
     population = Population([_individual(individual_id) for individual_id in range(1, 6)])
     policy = OpenEvolveSearchPolicy(state_dir=tmp_path, seed=19, config=config)
@@ -401,7 +403,7 @@ def test_resume_continues_upstream_random_stream_without_touching_global_rng(tmp
 
     global_state = random.getstate()
     selection_args = {
-        "rng": random.Random(1),
+        "rng": random.Random(1),  # noqa: S311  # tracked: #288
         "k_top_inspirations": 0,
         "k_random_inspirations": 0,
         "selection_temperature": 0.5,
@@ -410,23 +412,23 @@ def test_resume_continues_upstream_random_stream_without_touching_global_rng(tmp
     }
     policy.select(population, **selection_args)
     resumed = OpenEvolveSearchPolicy(state_dir=tmp_path, seed=19, config=None)
-    program_ids = sorted(policy._database.programs)
-    policy._database.config.exploration_ratio = 1.0
-    resumed._database.config.exploration_ratio = 1.0
-    policy._database.islands[0] = _IterationOrderSet(program_ids, program_ids)
-    resumed._database.islands[0] = _IterationOrderSet(
+    program_ids = sorted(policy._database.programs)  # noqa: SLF001  # tracked: #288
+    policy._database.config.exploration_ratio = 1.0  # noqa: SLF001  # tracked: #288
+    resumed._database.config.exploration_ratio = 1.0  # noqa: SLF001  # tracked: #288
+    policy._database.islands[0] = _IterationOrderSet(program_ids, program_ids)  # noqa: SLF001  # tracked: #288
+    resumed._database.islands[0] = _IterationOrderSet(  # noqa: SLF001  # tracked: #288
         program_ids,
         program_ids[1:] + program_ids[:1],
     )
     uninterrupted_next = policy.select(population, **selection_args)
     resumed_next = resumed.select(population, **selection_args)
 
-    assert uninterrupted_next is not None and resumed_next is not None
+    assert uninterrupted_next is not None and resumed_next is not None  # noqa: PT018  # tracked: #288
     assert resumed_next.policy_parent_id == uninterrupted_next.policy_parent_id
     assert random.getstate() == global_state
 
 
-def test_selection_uses_lightweight_checkpoint_without_rewriting_programs(tmp_path) -> None:
+def test_selection_uses_lightweight_checkpoint_without_rewriting_programs(tmp_path) -> None:  # noqa: ANN001  # tracked: #288
     config = _config(num_islands=1, migration_rate=0.0)
     seed = _individual(1)
     population = Population([seed])
@@ -442,7 +444,7 @@ def test_selection_uses_lightweight_checkpoint_without_rewriting_programs(tmp_pa
 
     selection = policy.select(
         population,
-        rng=random.Random(1),
+        rng=random.Random(1),  # noqa: S311  # tracked: #288
         k_top_inspirations=0,
         k_random_inspirations=0,
         selection_temperature=0.5,
@@ -455,7 +457,7 @@ def test_selection_uses_lightweight_checkpoint_without_rewriting_programs(tmp_pa
     assert (tmp_path / "selection.json").is_file()
 
 
-def test_primary_min_objective_is_signed_for_openevolve_fitness(tmp_path) -> None:
+def test_primary_min_objective_is_signed_for_openevolve_fitness(tmp_path) -> None:  # noqa: ANN001  # tracked: #288
     objectives = [Objective("latency_ms", "min")]
     individual = _individual(1, perf=20.0, metrics={"latency_ms": 20.0})
     policy = OpenEvolveSearchPolicy(
@@ -472,7 +474,7 @@ def test_primary_min_objective_is_signed_for_openevolve_fitness(tmp_path) -> Non
         objectives=objectives,
     )
 
-    assert policy._database.programs["vibesys-1"].metrics["combined_score"] == -20.0
+    assert policy._database.programs["vibesys-1"].metrics["combined_score"] == -20.0  # noqa: SLF001  # tracked: #288
 
 
 @pytest.mark.parametrize(
@@ -486,6 +488,6 @@ def test_primary_min_objective_is_signed_for_openevolve_fitness(tmp_path) -> Non
         {"migration_rate": 1.1},
     ],
 )
-def test_openevolve_config_rejects_invalid_values(kwargs) -> None:
-    with pytest.raises(ValueError):
+def test_openevolve_config_rejects_invalid_values(kwargs) -> None:  # noqa: ANN001  # tracked: #288
+    with pytest.raises(ValueError):  # noqa: PT011  # tracked: #288
         _config(**kwargs)

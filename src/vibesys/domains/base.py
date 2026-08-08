@@ -4,18 +4,18 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
-from pathlib import Path
+from pathlib import Path  # noqa: TC003  # tracked: #288
 
-from vibesys.domains.environment import EnvironmentHooks
+from vibesys.domains.environment import EnvironmentHooks  # noqa: TC001  # tracked: #288
 
 
-class DomainName(StrEnum):
+class DomainName(StrEnum):  # noqa: D101  # tracked: #288
     LLM_SERVING = "llm-serving"
     GENERIC = "generic"
     MICROSERVICES = "microservices"
 
 
-class DomainRole(StrEnum):
+class DomainRole(StrEnum):  # noqa: D101  # tracked: #288
     IMPLEMENTER = "implementer"
     JUDGE = "judge"
     SINGLE_AGENT = "single_agent"
@@ -30,7 +30,7 @@ DOMAIN_ROLES: tuple[DomainRole, ...] = tuple(DomainRole)
 
 
 @dataclass(frozen=True)
-class DomainDefinition:
+class DomainDefinition:  # noqa: D101  # tracked: #288
     name: DomainName
     prompt_dir: Path
     environment_hooks: EnvironmentHooks

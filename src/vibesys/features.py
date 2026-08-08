@@ -12,7 +12,7 @@ from enum import StrEnum
 from vs_feature_flags import FeatureDefinition, FeatureRegistry
 
 
-class FeatureFlag(StrEnum):
+class FeatureFlag(StrEnum):  # noqa: D101  # tracked: #288
     EXAMPLE_FEATURE = "example_feature"
     OMNIGENT_AGENT_BACKEND = "omnigent_agent_backend"
 
@@ -37,7 +37,7 @@ FEATURES = FeatureRegistry(
 )
 
 
-def is_feature_enabled(
+def is_feature_enabled(  # noqa: D103  # tracked: #288
     flag: FeatureFlag,
     config: object | None = None,
 ) -> bool:
@@ -55,6 +55,6 @@ def _feature_flag_overrides(config: object | None) -> Mapping[FeatureFlag, bool]
     if raw_overrides is None:
         raw_overrides = {}
     if not isinstance(raw_overrides, Mapping):
-        raise ValueError("config.feature_flags must be a mapping")
+        raise ValueError("config.feature_flags must be a mapping")  # noqa: TRY003, TRY004  # tracked: #288
 
     return raw_overrides

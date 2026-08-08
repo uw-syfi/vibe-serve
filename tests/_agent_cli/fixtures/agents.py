@@ -29,7 +29,7 @@ class StubAgent(CodingAgent):
     succeeds without extra mocking.
     """
 
-    def __init__(self, response: str = "stub response", model=None):
+    def __init__(self, response: str = "stub response", model=None):  # noqa: ANN001, ANN204  # tracked: #288
         """Initialize the stub agent.
 
         Args:
@@ -41,7 +41,7 @@ class StubAgent(CodingAgent):
         self.calls: list[dict[str, Any]] = []
         self.generate_calls: list[dict[str, Any]] = []
 
-    def generate(self, prompt: str, cwd=None, timeout=300, silent=False, **kwargs) -> str:
+    def generate(self, prompt: str, cwd=None, timeout=300, silent=False, **kwargs) -> str:  # noqa: ANN001, ANN003, FBT002  # tracked: #288
         """Return a stub response and record the call.
 
         When the prompt looks like a health assessment request, returns a
@@ -67,11 +67,11 @@ class StubAgent(CodingAgent):
             return HEALTH_VERDICT_HEALTHY
         return self.response
 
-    def run(self, *args, **kwargs):
+    def run(self, *args, **kwargs):  # noqa: ANN002, ANN003, ANN202, ARG002  # tracked: #288
         """No-op run method for operator tests."""
         return {}
 
-    def start_event_stream(self, *args, **kwargs):
+    def start_event_stream(self, *args, **kwargs):  # noqa: ANN002, ANN003, ANN202  # tracked: #288
         """No-op event stream for operator tests."""
 
 
@@ -81,7 +81,7 @@ class ErrorAgent(CodingAgent):
     Use this to test error handling paths.
     """
 
-    def __init__(self, error_message: str = "Simulated agent error"):
+    def __init__(self, error_message: str = "Simulated agent error"):  # noqa: ANN204  # tracked: #288
         """Initialize the error agent.
 
         Args:
@@ -89,7 +89,7 @@ class ErrorAgent(CodingAgent):
         """
         self.error_message = error_message
 
-    def generate(self, prompt: str, **kwargs) -> str:  # type: ignore[override]
+    def generate(self, prompt: str, **kwargs) -> str:  # type: ignore[override]  # noqa: ANN003, ARG002  # tracked: #288
         """Raise a RuntimeError.
 
         Args:
@@ -108,7 +108,7 @@ class TimeoutAgent(CodingAgent):
     Use this to test timeout handling.
     """
 
-    def __init__(self, sleep_duration: float = 999999):
+    def __init__(self, sleep_duration: float = 999999):  # noqa: ANN204  # tracked: #288
         """Initialize the timeout agent.
 
         Args:
@@ -116,7 +116,7 @@ class TimeoutAgent(CodingAgent):
         """
         self.sleep_duration = sleep_duration
 
-    def generate(self, prompt: str, timeout: int = 300, **kwargs) -> str:  # type: ignore[override]
+    def generate(self, prompt: str, timeout: int = 300, **kwargs) -> str:  # type: ignore[override]  # noqa: ANN003, ARG002  # tracked: #288
         """Sleep longer than the timeout.
 
         Args:
@@ -137,7 +137,7 @@ class TrackingAgent(CodingAgent):
     Use this to verify agent interactions without relying on mocks.
     """
 
-    def __init__(self, response: str = "tracking response"):
+    def __init__(self, response: str = "tracking response"):  # noqa: ANN204  # tracked: #288
         """Initialize the tracking agent.
 
         Args:
@@ -148,7 +148,7 @@ class TrackingAgent(CodingAgent):
         self.generation_count = 0
         self.response = response
 
-    def generate(self, prompt: str, **kwargs) -> str:  # type: ignore[override]
+    def generate(self, prompt: str, **kwargs) -> str:  # type: ignore[override]  # noqa: ANN003  # tracked: #288
         """Track the call and return a response.
 
         Args:
@@ -169,7 +169,7 @@ class TrackingAgent(CodingAgent):
             return HEALTH_VERDICT_HEALTHY
         return self.response
 
-    def reset(self):
+    def reset(self):  # noqa: ANN202  # tracked: #288
         """Reset all tracking state."""
         self.calls.clear()
         self.fix_request_count = 0
@@ -183,13 +183,13 @@ class ConfigurableAgent(CodingAgent):
     for different prompts.
     """
 
-    def __init__(self):
+    def __init__(self):  # noqa: ANN204  # tracked: #288
         """Initialize the configurable agent."""
         self.responses: dict[str, str] = {}
         self.default_response = "default response"
         self.calls: list[dict[str, Any]] = []
 
-    def set_response(self, keyword: str, response: str):
+    def set_response(self, keyword: str, response: str):  # noqa: ANN202  # tracked: #288
         """Configure a response for prompts containing a keyword.
 
         Args:
@@ -198,7 +198,7 @@ class ConfigurableAgent(CodingAgent):
         """
         self.responses[keyword.lower()] = response
 
-    def set_default_response(self, response: str):
+    def set_default_response(self, response: str):  # noqa: ANN202  # tracked: #288
         """Set the default response for unmatched prompts.
 
         Args:
@@ -206,7 +206,7 @@ class ConfigurableAgent(CodingAgent):
         """
         self.default_response = response
 
-    def generate(self, prompt: str, **kwargs) -> str:  # type: ignore[override]
+    def generate(self, prompt: str, **kwargs) -> str:  # type: ignore[override]  # noqa: ANN003  # tracked: #288
         """Return a configured response based on the prompt.
 
         Args:
@@ -234,9 +234,9 @@ class ScriptGeneratingAgent(CodingAgent):
     integration testing the deployment flow.
     """
 
-    def __init__(
+    def __init__(  # noqa: ANN204  # tracked: #288
         self,
-        generate_valid_scripts: bool = True,
+        generate_valid_scripts: bool = True,  # noqa: FBT001, FBT002  # tracked: #288
         responses: list[str] | None = None,
     ):
         """Initialize the script generating agent.
@@ -254,7 +254,7 @@ class ScriptGeneratingAgent(CodingAgent):
         ]
         self.call_count = 0
 
-    def generate(self, prompt: str, cwd: str | None = None, timeout: int = 300, **kwargs) -> str:  # type: ignore[override]
+    def generate(self, prompt: str, cwd: str | None = None, timeout: int = 300, **kwargs) -> str:  # type: ignore[override]  # noqa: ANN003, ARG002  # tracked: #288
         """Generate scripts based on the prompt.
 
         Args:
@@ -271,7 +271,7 @@ class ScriptGeneratingAgent(CodingAgent):
         if cwd is None:
             return "No working directory specified"
 
-        from pathlib import Path
+        from pathlib import Path  # noqa: PLC0415  # tracked: #288
 
         cwd_path = Path(cwd)
         sds_dir = cwd_path / ".sds"

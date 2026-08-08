@@ -62,7 +62,7 @@ _LLM_SERVING_DOMAIN = resolve_domain(DomainName.LLM_SERVING)
 
 
 @pytest.fixture
-def ref_file(tmp_path):
+def ref_file(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     """Reference *file* + sibling OBJECTIVE.md.
 
     A single-file reference avoids the model-weight resolution that a
@@ -77,7 +77,7 @@ def ref_file(tmp_path):
     return str(ref)
 
 
-def _make_runner(
+def _make_runner(  # noqa: ANN202, C901, PLR0913  # tracked: #288
     *,
     judge_verdicts: list[str] | None = None,
     profiler_responses: list[ProfilerSummary] | None = None,
@@ -100,7 +100,7 @@ def _make_runner(
     runner = MagicMock(spec=AgentRunner)
     runner.backend_name = "deepagents"
 
-    def _invoke(*, kind, response_cls, fallback_factory, system_prompt="", **kwargs):
+    def _invoke(*, kind, response_cls, fallback_factory, system_prompt="", **kwargs):  # noqa: ANN001, ANN003, ANN202, ARG001  # tracked: #288
         if response_cls is MutatorResponse:
             counters["mutator"] += 1
             if capture_mutator_prompts is not None:
@@ -144,7 +144,7 @@ def _make_runner(
                 perf_metric=10.0 + idx,
                 perf_unit="tok/s",
             )
-        raise AssertionError(
+        raise AssertionError(  # noqa: TRY003  # tracked: #288
             f"unexpected agent_runner.invoke call: kind={kind} response_cls={response_cls}"
         )
 
@@ -153,14 +153,14 @@ def _make_runner(
     return runner
 
 
-def _invoke_loop(tmp_path, ref_file, runner, **kwargs):
+def _invoke_loop(tmp_path, ref_file, runner, **kwargs):  # noqa: ANN001, ANN003, ANN202  # tracked: #288
     """Shared plumbing — patch context globals, run the loop, return result."""
     accuracy_gate_feedbacks = kwargs.pop("_accuracy_gate_feedbacks", None)
     accuracy_gate = MagicMock(return_value=None)
     if accuracy_gate_feedbacks is not None:
         accuracy_gate.side_effect = list(accuracy_gate_feedbacks)
     runner.accuracy_gate = accuracy_gate
-    defaults = dict(
+    defaults = dict(  # noqa: C408  # tracked: #288
         config={"model": {"name": "claude-sonnet-4-6"}},
         exp_name="test-evolve",
         input_path=str(Path(ref_file).parent),
@@ -186,7 +186,7 @@ def _invoke_loop(tmp_path, ref_file, runner, **kwargs):
         return run_evolve_loop(**defaults)
 
 
-def _load_population(tmp_path) -> Population:
+def _load_population(tmp_path) -> Population:  # noqa: ANN001  # tracked: #288
     """Find the population.json the loop wrote and load it back.
 
     The exp_dir is named ``<timestamp>-<exp_name>`` so we glob for the
@@ -208,7 +208,7 @@ def _load_population(tmp_path) -> Population:
 # bootstrap round (one mutator + one judge + one profiler) in front.
 
 
-def test_bootstrap_succeeds_first_try(tmp_path, ref_file):
+def test_bootstrap_succeeds_first_try(tmp_path, ref_file):  # noqa: ANN001, ANN201  # tracked: #288
     """Bootstrap produces the first passing implementation as a generation-0
     seed with parent_id=None and a perf_metric from the profiler."""
     runner = _make_runner()
@@ -232,7 +232,7 @@ def test_bootstrap_succeeds_first_try(tmp_path, ref_file):
     assert seed.commit  # an actual git SHA was recorded
 
 
-def test_bootstrap_fails_all_attempts_returns_false(tmp_path, ref_file):
+def test_bootstrap_fails_all_attempts_returns_false(tmp_path, ref_file):  # noqa: ANN001, ANN201  # tracked: #288
     """When every bootstrap attempt fails the judge, the run aborts before the
     generation loop and returns False. Failed attempts are never profiled, and
     with no mutator edits they record no commit."""
@@ -258,7 +258,7 @@ def test_bootstrap_fails_all_attempts_returns_false(tmp_path, ref_file):
     assert "needs work" in pop.all[0].feedback
 
 
-def test_bootstrap_failed_attempt_records_wip_seed_commit(tmp_path, ref_file):
+def test_bootstrap_failed_attempt_records_wip_seed_commit(tmp_path, ref_file):  # noqa: ANN001, ANN201  # tracked: #288
     """A failed bootstrap attempt whose mutator actually edited the workspace is
     snapshotted to a WIP commit, so a later attempt can repair it in place."""
     runner = _make_runner(judge_verdicts=["fail"], mutator_writes=True)
@@ -280,7 +280,7 @@ def test_bootstrap_failed_attempt_records_wip_seed_commit(tmp_path, ref_file):
     assert failed.commit  # WIP snapshot recorded because the tree changed
 
 
-def test_bootstrap_repairs_wip_seed_across_attempts(tmp_path, ref_file):
+def test_bootstrap_repairs_wip_seed_across_attempts(tmp_path, ref_file):  # noqa: ANN001, ANN201  # tracked: #288
     """A second bootstrap attempt fix-forwards from the most-recent WIP seed:
     it checks that commit out and mutates on top, yielding a fresh WIP commit
     distinct from the first."""
@@ -297,15 +297,15 @@ def test_bootstrap_repairs_wip_seed_across_attempts(tmp_path, ref_file):
     pop = _load_population(tmp_path)
     assert len(pop) == 2
     first, second = pop.all
-    assert first.passed is False and second.passed is False
-    assert first.generation == 0 and second.generation == 0
-    assert first.parent_id is None and second.parent_id is None
+    assert first.passed is False and second.passed is False  # noqa: PT018  # tracked: #288
+    assert first.generation == 0 and second.generation == 0  # noqa: PT018  # tracked: #288
+    assert first.parent_id is None and second.parent_id is None  # noqa: PT018  # tracked: #288
     # Both attempts snapshotted their (distinct) trees.
-    assert first.commit and second.commit
+    assert first.commit and second.commit  # noqa: PT018  # tracked: #288
     assert first.commit != second.commit
 
 
-def test_bootstrap_succeeds_after_repair(tmp_path, ref_file):
+def test_bootstrap_succeeds_after_repair(tmp_path, ref_file):  # noqa: ANN001, ANN201  # tracked: #288
     """Bootstrap that fails once then passes: the failed attempt is snapshotted,
     the passing attempt repairs it in place and becomes the gen-0 seed. Only the
     passing attempt is profiled."""
@@ -323,15 +323,15 @@ def test_bootstrap_succeeds_after_repair(tmp_path, ref_file):
     pop = _load_population(tmp_path)
     assert len(pop) == 2
     failed, seed = pop.all
-    assert failed.passed is False and failed.commit
+    assert failed.passed is False and failed.commit  # noqa: PT018  # tracked: #288
     assert seed.passed is True
     assert seed.generation == 0
     assert seed.parent_id is None
     # The passing seed built on the repaired WIP tree → distinct commit.
-    assert seed.commit and seed.commit != failed.commit
+    assert seed.commit and seed.commit != failed.commit  # noqa: PT018  # tracked: #288
 
 
-def test_bootstrap_repairs_after_framework_accuracy_failure(tmp_path, ref_file):
+def test_bootstrap_repairs_after_framework_accuracy_failure(tmp_path, ref_file):  # noqa: ANN001, ANN201  # tracked: #288
     """An LLM-approved seed still fails when the trusted oracle rejects it.
 
     The failed seed is never profiled, its oracle feedback is retained for the
@@ -365,7 +365,7 @@ def test_bootstrap_repairs_after_framework_accuracy_failure(tmp_path, ref_file):
     assert seed.passed is True
 
 
-def test_bootstrap_prompt_uses_cold_start_section(tmp_path, ref_file):
+def test_bootstrap_prompt_uses_cold_start_section(tmp_path, ref_file):  # noqa: ANN001, ANN201  # tracked: #288
     """The bootstrap attempt sees the cold-start branch of the mutator prompt
     (no parent block)."""
     captured: list[str] = []
@@ -383,7 +383,7 @@ def test_bootstrap_prompt_uses_cold_start_section(tmp_path, ref_file):
     assert "LLM-serving implementation invariants" in prompt
 
 
-def test_evolve_with_preexisting_passing_seed_skips_bootstrap(tmp_path, ref_file):
+def test_evolve_with_preexisting_passing_seed_skips_bootstrap(tmp_path, ref_file):  # noqa: ANN001, ANN201  # tracked: #288
     """A resumed run whose population already has a passing seed skips the
     bootstrap phase entirely and evolves straight off the seed."""
     # First run: bootstrap-only, creates a passing gen-0 seed with a real commit.
@@ -410,7 +410,7 @@ def test_evolve_with_preexisting_passing_seed_skips_bootstrap(tmp_path, ref_file
     pop = _load_population(tmp_path)
     assert len(pop) == 2  # gen-0 seed + one gen-1 child (same exp dir, resumed)
     seed, child = pop.all
-    assert seed.generation == 0 and seed.parent_id is None
+    assert seed.generation == 0 and seed.parent_id is None  # noqa: PT018  # tracked: #288
     assert child.parent_id == seed.id
 
 
@@ -419,7 +419,7 @@ def test_evolve_with_preexisting_passing_seed_skips_bootstrap(tmp_path, ref_file
 # ---------------------------------------------------------------------------
 
 
-def test_first_generation_uses_bootstrap_seed_as_parent(tmp_path, ref_file):
+def test_first_generation_uses_bootstrap_seed_as_parent(tmp_path, ref_file):  # noqa: ANN001, ANN201  # tracked: #288
     """Gen 1's child must be tagged with parent_id pointing at the bootstrap
     seed."""
     runner = _make_runner()
@@ -443,7 +443,7 @@ def test_first_generation_uses_bootstrap_seed_as_parent(tmp_path, ref_file):
     assert {seed.perf_metric, child.perf_metric} == {10.0, 11.0}
 
 
-def test_failed_child_excluded_from_future_parent_pool(tmp_path, ref_file):
+def test_failed_child_excluded_from_future_parent_pool(tmp_path, ref_file):  # noqa: ANN001, ANN201  # tracked: #288
     """Bootstrap: pass (the seed). Gen 1: fail (no commit, not eligible as
     parent). Gen 2: must still parent off the seed — never off the failed
     Gen 1 child."""
@@ -472,7 +472,7 @@ def test_failed_child_excluded_from_future_parent_pool(tmp_path, ref_file):
     assert g2.parent_id == seed.id
 
 
-def test_accuracy_rejected_child_is_not_profiled_or_selected(tmp_path, ref_file):
+def test_accuracy_rejected_child_is_not_profiled_or_selected(tmp_path, ref_file):  # noqa: ANN001, ANN201  # tracked: #288
     """The framework oracle can overrule an LLM PASS for an offspring."""
     failure = "Framework accuracy gate failed.\nbooking response diverged"
     runner = _make_runner()
@@ -509,7 +509,7 @@ def test_accuracy_rejected_child_is_not_profiled_or_selected(tmp_path, ref_file)
 # ---------------------------------------------------------------------------
 
 
-def test_pareto_mode_records_metrics_dict_on_individuals(tmp_path, ref_file):
+def test_pareto_mode_records_metrics_dict_on_individuals(tmp_path, ref_file):  # noqa: ANN001, ANN201  # tracked: #288
     """When objectives are configured the loop should pass `objectives` through
     to selection AND copy `ProfilerSummary.metrics` onto every passing
     Individual so the frontier can be computed across the run."""
@@ -558,12 +558,12 @@ def test_pareto_mode_records_metrics_dict_on_individuals(tmp_path, ref_file):
     assert front_ids == {seed.id, child.id}
 
 
-def test_pareto_addendum_appears_in_profiler_prompt(tmp_path, ref_file):
+def test_pareto_addendum_appears_in_profiler_prompt(tmp_path, ref_file):  # noqa: ANN001, ANN201  # tracked: #288
     """When Pareto mode is on, the profiler system prompt gets an addendum
     explicitly listing the metric keys to emit. The judge stays unaffected."""
     captured_profiler_prompts: list[str] = []
 
-    def _make_runner_with_profiler_capture():
+    def _make_runner_with_profiler_capture():  # noqa: ANN202  # tracked: #288
         runner = _make_runner(
             profiler_responses=[
                 ProfilerSummary(
@@ -578,7 +578,7 @@ def test_pareto_addendum_appears_in_profiler_prompt(tmp_path, ref_file):
         )
         original = runner.invoke.side_effect
 
-        def spy(*, kind, response_cls, system_prompt="", **kwargs):
+        def spy(*, kind, response_cls, system_prompt="", **kwargs):  # noqa: ANN001, ANN003, ANN202  # tracked: #288
             if kind == "profiler":
                 captured_profiler_prompts.append(system_prompt)
             return original(
@@ -608,7 +608,7 @@ def test_pareto_addendum_appears_in_profiler_prompt(tmp_path, ref_file):
     assert "`lat_ms`" in prompt
 
 
-def test_no_objectives_keeps_metrics_empty_and_legacy_behavior(tmp_path, ref_file):
+def test_no_objectives_keeps_metrics_empty_and_legacy_behavior(tmp_path, ref_file):  # noqa: ANN001, ANN201  # tracked: #288
     """Single-objective mode (no objectives passed) keeps `Individual.metrics`
     empty even if the profiler stub doesn't supply one — preserves the
     pre-Pareto behavior."""
@@ -626,7 +626,7 @@ def test_no_objectives_keeps_metrics_empty_and_legacy_behavior(tmp_path, ref_fil
     assert pop.all[0].metrics == {}
 
 
-def test_second_child_prompt_includes_parent_block(tmp_path, ref_file):
+def test_second_child_prompt_includes_parent_block(tmp_path, ref_file):  # noqa: ANN001, ANN201  # tracked: #288
     """Gen 1's mutator prompt mentions the parent (bootstrap seed) perf_metric —
     one of the few signals the mutator has to ground its change in fitness."""
     captured: list[str] = []
@@ -647,7 +647,7 @@ def test_second_child_prompt_includes_parent_block(tmp_path, ref_file):
     assert "10.0" in gen1_prompt
 
 
-def test_generic_domain_prompts_exclude_llm_serving_contracts(tmp_path, ref_file):
+def test_generic_domain_prompts_exclude_llm_serving_contracts(tmp_path, ref_file):  # noqa: ANN001, ANN201  # tracked: #288
     """The evolve loop uses registered domain sections instead of baking the
     LLM-serving contract into its mutator and judge base prompts."""
     mutator_prompts: list[str] = []
@@ -678,7 +678,7 @@ def test_generic_domain_prompts_exclude_llm_serving_contracts(tmp_path, ref_file
     assert "OpenAI-compatible" not in combined
 
 
-def test_openevolve_policy_persists_multi_file_search_state(tmp_path, ref_file):
+def test_openevolve_policy_persists_multi_file_search_state(tmp_path, ref_file):  # noqa: ANN001, ANN201  # tracked: #288
     runner = _make_runner(mutator_writes=True)
 
     result = _invoke_loop(
@@ -716,7 +716,7 @@ def test_openevolve_policy_persists_multi_file_search_state(tmp_path, ref_file):
     assert child["policy_target_island"] == 0
 
 
-def test_candidate_code_is_multi_file_but_excludes_runtime_logs(tmp_path):
+def test_candidate_code_is_multi_file_but_excludes_runtime_logs(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     tracker = GitTracker(tmp_path, log=lambda _message: None)
     (tmp_path / "src").mkdir()
     (tmp_path / "logs").mkdir()
@@ -738,7 +738,7 @@ def test_candidate_code_is_multi_file_but_excludes_runtime_logs(tmp_path):
     assert "logs/profile.txt" not in code
 
 
-def test_search_policy_initialization_failure_closes_context(tmp_path):
+def test_search_policy_initialization_failure_closes_context(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     log_dir = tmp_path / "logs"
     log_dir.mkdir()
     ctx = MagicMock(
@@ -770,7 +770,7 @@ def test_search_policy_initialization_failure_closes_context(tmp_path):
     ctx.close.assert_called_once_with()
 
 
-def test_programmatic_openevolve_config_infers_policy(tmp_path):
+def test_programmatic_openevolve_config_infers_policy(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     ctx = SimpleNamespace(log_dir=tmp_path)
     config = OpenEvolveSearchConfig(num_islands=1)
 
@@ -788,7 +788,7 @@ def test_programmatic_openevolve_config_infers_policy(tmp_path):
     assert policy.config == config
 
 
-def test_programmatic_openevolve_config_rejects_vibesys_policy(tmp_path):
+def test_programmatic_openevolve_config_rejects_vibesys_policy(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     ctx = SimpleNamespace(log_dir=tmp_path)
 
     with pytest.raises(ValueError, match="requires the OpenEvolve search policy"):
@@ -807,7 +807,7 @@ def test_programmatic_openevolve_config_rejects_vibesys_policy(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def _ind(id_, *, passed=False, parent_id=None, commit=None, feedback=""):
+def _ind(id_, *, passed=False, parent_id=None, commit=None, feedback=""):  # noqa: ANN001, ANN202  # tracked: #288
     return Individual(
         id=id_,
         generation=1,
@@ -818,7 +818,7 @@ def _ind(id_, *, passed=False, parent_id=None, commit=None, feedback=""):
     )
 
 
-def test_recent_failure_lessons_dedupes_and_orders_most_recent_first():
+def test_recent_failure_lessons_dedupes_and_orders_most_recent_first():  # noqa: ANN201  # tracked: #288
     pop = Population()
     pop.add(_ind(1, feedback="crash: CUDA out of memory"))
     pop.add(_ind(2, feedback="crash: CUDA out of memory"))  # duplicate → collapsed
@@ -829,7 +829,7 @@ def test_recent_failure_lessons_dedupes_and_orders_most_recent_first():
     assert lessons == ["server never bound to port", "crash: CUDA out of memory"]
 
 
-def test_recent_failure_lessons_truncates_long_feedback():
+def test_recent_failure_lessons_truncates_long_feedback():  # noqa: ANN201  # tracked: #288
     pop = Population()
     pop.add(_ind(1, feedback="x" * 5000))
     (lesson,) = _recent_failure_lessons(pop, limit=1, max_chars=100)
@@ -837,7 +837,7 @@ def test_recent_failure_lessons_truncates_long_feedback():
     assert len(lesson) <= 102  # 100 chars + space + ellipsis
 
 
-def test_latest_wip_seed_returns_most_recent_failed_seed_with_commit():
+def test_latest_wip_seed_returns_most_recent_failed_seed_with_commit():  # noqa: ANN201  # tracked: #288
     pop = Population()
     pop.add(_ind(1, commit="aaa"))  # failed cold-start seed
     pop.add(_ind(2, commit="bbb"))  # newer failed cold-start seed
@@ -845,17 +845,17 @@ def test_latest_wip_seed_returns_most_recent_failed_seed_with_commit():
     pop.add(_ind(4, parent_id=2, commit="ddd"))  # has a parent → not cold-start
 
     seed = _latest_wip_seed(pop)
-    assert seed is not None and seed.id == 2
+    assert seed is not None and seed.id == 2  # noqa: PT018  # tracked: #288
 
 
-def test_latest_wip_seed_none_when_no_snapshotted_failure():
+def test_latest_wip_seed_none_when_no_snapshotted_failure():  # noqa: ANN201  # tracked: #288
     pop = Population()
     pop.add(_ind(1, commit=None))  # failed but never snapshotted
     pop.add(_ind(2, passed=True, commit="ccc"))
     assert _latest_wip_seed(pop) is None
 
 
-def test_candidate_runtime_notes_delegates_deployment_naming_to_environment():
+def test_candidate_runtime_notes_delegates_deployment_naming_to_environment():  # noqa: ANN201  # tracked: #288
     base = "run-20260720-abcd1234-llama3"
     ctx = SimpleNamespace(
         run_environment_view=SimpleNamespace(
@@ -863,7 +863,7 @@ def test_candidate_runtime_notes_delegates_deployment_naming_to_environment():
             prompt_notes=f"Deploy to Modal app {base}; endpoint {base}-web.",
         ),
         run_environment=SimpleNamespace(
-            candidate_runtime=lambda view, generation, child_idx: CandidateRuntime(
+            candidate_runtime=lambda view, generation, child_idx: CandidateRuntime(  # noqa: ARG005  # tracked: #288
                 prompt_notes="provider-owned candidate instructions",
                 deployment_name=f"candidate-{generation}-{child_idx}",
             )
@@ -874,12 +874,12 @@ def test_candidate_runtime_notes_delegates_deployment_naming_to_environment():
     assert notes == "provider-owned candidate instructions"
 
 
-def test_candidate_runtime_notes_noop_without_named_deployment():
+def test_candidate_runtime_notes_noop_without_named_deployment():  # noqa: ANN201  # tracked: #288
     notes_in = "Local run; no named deployment."
     ctx = SimpleNamespace(
         run_environment_view=SimpleNamespace(deployment_namespace=None, prompt_notes=notes_in),
         run_environment=SimpleNamespace(
-            candidate_runtime=lambda view, generation, child_idx: CandidateRuntime(
+            candidate_runtime=lambda view, generation, child_idx: CandidateRuntime(  # noqa: ARG005  # tracked: #288
                 prompt_notes=view.prompt_notes
             )
         ),
@@ -894,7 +894,7 @@ def test_candidate_runtime_notes_noop_without_named_deployment():
 # ---------------------------------------------------------------------------
 
 
-def test_teardown_candidate_deployment_delegates_to_run_environment():
+def test_teardown_candidate_deployment_delegates_to_run_environment():  # noqa: ANN201  # tracked: #288
     """The loop stays backend-agnostic: it hands the deployment name to the run
     environment, which decides how to release it."""
     run_env = MagicMock()
@@ -905,7 +905,7 @@ def test_teardown_candidate_deployment_delegates_to_run_environment():
     run_env.teardown_deployment.assert_called_once_with("vibesys-run-g1c2", log=ctx.lprint)
 
 
-def test_teardown_candidate_deployment_noop_when_kept_or_absent():
+def test_teardown_candidate_deployment_noop_when_kept_or_absent():  # noqa: ANN201  # tracked: #288
     run_env = MagicMock()
     ctx = SimpleNamespace(run_environment=run_env, lprint=lambda _: None)
 
@@ -936,9 +936,9 @@ def _passing_seed(commit: str = "seedsha", perf: float = 1.0) -> Individual:
     )
 
 
-def test_plan_candidate_falls_back_to_latest_passer_then_none():
+def test_plan_candidate_falls_back_to_latest_passer_then_none():  # noqa: ANN201  # tracked: #288
     ctx = SimpleNamespace(lprint=lambda _msg: None)
-    rng = random.Random(0)
+    rng = random.Random(0)  # noqa: S311  # tracked: #288
 
     # No passers at all → None (candidate skipped).
     empty = Population([])
@@ -972,7 +972,7 @@ def test_plan_candidate_falls_back_to_latest_passer_then_none():
     assert plan.parent.id == 1
 
 
-def test_run_generation_parallel_bounds_concurrency_and_records_all(tmp_path, monkeypatch):
+def test_run_generation_parallel_bounds_concurrency_and_records_all(tmp_path, monkeypatch):  # noqa: ANN001, ANN201  # tracked: #288
     """Candidates run concurrently up to the cap; every result is recorded once,
     in child order, on the orchestrator thread (population never races)."""
     population = Population([_passing_seed()])
@@ -984,7 +984,7 @@ def test_run_generation_parallel_bounds_concurrency_and_records_all(tmp_path, mo
     peak = 0
     lock = threading.Lock()
 
-    def fake_eval(parent_ctx, *, generation, child_idx, parent, inspirations, **_kw):
+    def fake_eval(parent_ctx, *, generation, child_idx, parent, inspirations, **_kw):  # noqa: ANN001, ANN003, ANN202, ARG001  # tracked: #288
         nonlocal live, peak
         with lock:
             live += 1
@@ -1016,7 +1016,7 @@ def test_run_generation_parallel_bounds_concurrency_and_records_all(tmp_path, mo
         children_per_generation=5,
         population=population,
         population_path=population_path,
-        rng=random.Random(0),
+        rng=random.Random(0),  # noqa: S311  # tracked: #288
         k_top_inspirations=1,
         k_random_inspirations=1,
         selection_temperature=0.5,
@@ -1025,7 +1025,7 @@ def test_run_generation_parallel_bounds_concurrency_and_records_all(tmp_path, mo
         frontier_bias=0.7,
         modality="text_generation",
         domain_definition=_LLM_SERVING_DOMAIN,
-        pass_criteria="crit",
+        pass_criteria="crit",  # noqa: S106  # tracked: #288
         keep_deployments=False,
         search_policy=VibeSysSearchPolicy(),
     )
@@ -1040,7 +1040,7 @@ def test_run_generation_parallel_bounds_concurrency_and_records_all(tmp_path, mo
     assert population_path.exists()
 
 
-def test_run_generation_parallel_skips_parent_without_commit(tmp_path, monkeypatch):
+def test_run_generation_parallel_skips_parent_without_commit(tmp_path, monkeypatch):  # noqa: ANN001, ANN201  # tracked: #288
     """A parent with no commit can't be isolated into a worktree → skipped, not
     dispatched."""
     seed = _passing_seed()
@@ -1054,14 +1054,14 @@ def test_run_generation_parallel_skips_parent_without_commit(tmp_path, monkeypat
     monkeypatch.setattr(
         evolve_loop,
         "_plan_candidate",
-        lambda *a, **k: SearchSelection(parent=seed, inspirations=[]),
+        lambda *a, **k: SearchSelection(parent=seed, inspirations=[]),  # noqa: ARG005  # tracked: #288
     )
     called = False
 
-    def fake_eval(*a, **k):
+    def fake_eval(*a, **k):  # noqa: ANN002, ANN003, ANN202, ARG001  # tracked: #288
         nonlocal called
         called = True
-        return _CandidateOutcome(True, seed.id, [], "s", "")
+        return _CandidateOutcome(True, seed.id, [], "s", "")  # noqa: FBT003  # tracked: #288
 
     monkeypatch.setattr(evolve_loop, "_evaluate_in_subcontext", fake_eval)
 
@@ -1075,7 +1075,7 @@ def test_run_generation_parallel_skips_parent_without_commit(tmp_path, monkeypat
         children_per_generation=2,
         population=population,
         population_path=population_path,
-        rng=random.Random(0),
+        rng=random.Random(0),  # noqa: S311  # tracked: #288
         k_top_inspirations=1,
         k_random_inspirations=1,
         selection_temperature=0.5,
@@ -1084,7 +1084,7 @@ def test_run_generation_parallel_skips_parent_without_commit(tmp_path, monkeypat
         frontier_bias=0.7,
         modality="text_generation",
         domain_definition=_LLM_SERVING_DOMAIN,
-        pass_criteria="crit",
+        pass_criteria="crit",  # noqa: S106  # tracked: #288
         keep_deployments=False,
         search_policy=VibeSysSearchPolicy(),
     )
@@ -1098,7 +1098,7 @@ def test_run_generation_parallel_skips_parent_without_commit(tmp_path, monkeypat
 # ---------------------------------------------------------------------------
 
 
-def test_evaluate_in_subcontext_skips_parent_without_commit():
+def test_evaluate_in_subcontext_skips_parent_without_commit():  # noqa: ANN201  # tracked: #288
     """A parent with no commit can't seed a worktree — folded into a failed
     outcome without ever building a sub-context."""
     logs: list[str] = []
@@ -1118,7 +1118,7 @@ def test_evaluate_in_subcontext_skips_parent_without_commit():
         objectives=None,
         modality="text_generation",
         domain_definition=_LLM_SERVING_DOMAIN,
-        pass_criteria="crit",
+        pass_criteria="crit",  # noqa: S106  # tracked: #288
         keep_deployments=False,
         policy_parent_id=None,
         target_island=None,
@@ -1131,7 +1131,7 @@ def test_evaluate_in_subcontext_skips_parent_without_commit():
     assert any("no parent commit" in line for line in logs)
 
 
-def test_evaluate_in_subcontext_builds_worktree_and_evaluates(tmp_path, ref_file):
+def test_evaluate_in_subcontext_builds_worktree_and_evaluates(tmp_path, ref_file):  # noqa: ANN001, ANN201  # tracked: #288
     """End-to-end: a real parent context spawns an isolated candidate sub-context
     (git worktree at the parent commit + its own logger/agent-runner), evaluates
     it, and the offspring commit lands in the parent's shared object store."""
@@ -1180,7 +1180,7 @@ def test_evaluate_in_subcontext_builds_worktree_and_evaluates(tmp_path, ref_file
             objectives=None,
             modality="text_generation",
             domain_definition=_LLM_SERVING_DOMAIN,
-            pass_criteria="be faster",
+            pass_criteria="be faster",  # noqa: S106  # tracked: #288
             keep_deployments=False,
             policy_parent_id=None,
             target_island=None,
@@ -1190,7 +1190,7 @@ def test_evaluate_in_subcontext_builds_worktree_and_evaluates(tmp_path, ref_file
         assert outcome.passed is True
         assert outcome.parent_id == 1
         assert outcome.perf_metric == 10.0
-        assert outcome.commit and outcome.commit != base_commit
+        assert outcome.commit and outcome.commit != base_commit  # noqa: PT018  # tracked: #288
         # The offspring commit is reachable from the parent repo — the worktree
         # shared its object store, so the candidate joins the one lineage.
         assert (
@@ -1201,13 +1201,13 @@ def test_evaluate_in_subcontext_builds_worktree_and_evaluates(tmp_path, ref_file
         assert not cand_ws.exists()
 
 
-def test_max_parallelism_ignored_without_environment_capability(tmp_path, ref_file, monkeypatch):
+def test_max_parallelism_ignored_without_environment_capability(tmp_path, ref_file, monkeypatch):  # noqa: ANN001, ANN201  # tracked: #288
     """An environment without isolated evaluation support stays serial."""
     called = {"parallel": False}
     monkeypatch.setattr(
         evolve_loop,
         "_run_generation_parallel",
-        lambda *a, **k: called.__setitem__("parallel", True),
+        lambda *a, **k: called.__setitem__("parallel", True),  # noqa: ARG005, FBT003  # tracked: #288
     )
     runner = _make_runner(judge_verdicts=["pass", "pass", "pass"])
     _invoke_loop(
@@ -1223,7 +1223,7 @@ def test_max_parallelism_ignored_without_environment_capability(tmp_path, ref_fi
     assert len(pop) == 2  # bootstrap seed + one serial gen-1 candidate
 
 
-def test_loop_tears_down_candidate_on_pass_and_fail_paths(tmp_path, ref_file):
+def test_loop_tears_down_candidate_on_pass_and_fail_paths(tmp_path, ref_file):  # noqa: ANN001, ANN201  # tracked: #288
     """Teardown fires exactly once per candidate on every exit path — the
     fails the judge."""
     # bootstrap passes (1 attempt), gen-1 candidate passes, gen-2 candidate fails.

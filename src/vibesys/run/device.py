@@ -18,8 +18,8 @@ if TYPE_CHECKING:
     from vibesys.sandbox.run_environment import RunEnvironmentView
 
 
-class DeviceLease:
-    def __init__(
+class DeviceLease:  # noqa: D101  # tracked: #288
+    def __init__(  # noqa: D107  # tracked: #288
         self,
         backend: "ComputeBackendImpl",
         *,
@@ -32,7 +32,7 @@ class DeviceLease:
         self.monitor: ContentionMonitor | None = None
 
     @property
-    def selected_device(self):
+    def selected_device(self):  # noqa: ANN201, D102  # tracked: #288
         return getattr(self._backend, "selected_device", None)
 
     def start_monitor(self) -> None:
@@ -82,10 +82,10 @@ class DeviceLease:
 
         data["contention_detected"] = contention_events > 0
         data["contention_events"] = contention_events
-        data["finished_at"] = datetime.now().isoformat()
+        data["finished_at"] = datetime.now().isoformat()  # noqa: DTZ005  # tracked: #288
         gpu_json.write_text(json.dumps(data, indent=2))
 
-    def close(self) -> None:
+    def close(self) -> None:  # noqa: D102  # tracked: #288
         if self.monitor is not None:
             self.monitor.stop()
         self._finalize_metadata()

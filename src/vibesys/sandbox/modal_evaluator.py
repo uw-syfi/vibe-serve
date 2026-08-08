@@ -19,7 +19,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
-from collections.abc import Generator, Sequence
+from collections.abc import Generator, Sequence  # noqa: TC003  # tracked: #288
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -30,8 +30,8 @@ _MODAL_DEPLOYMENT = re.compile(
     r"https://modal\.com/apps/[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+/deployed/"
     r"([a-zA-Z0-9_.-]+)"
 )
-_LOCK_PATH = "/tmp/vibesys-modal-evaluator.lock"
-_DEPLOYMENT_LEASE_PATH = Path("/tmp/vibesys-modal-evaluator-deployment.json")
+_LOCK_PATH = "/tmp/vibesys-modal-evaluator.lock"  # noqa: S108  # tracked: #288
+_DEPLOYMENT_LEASE_PATH = Path("/tmp/vibesys-modal-evaluator-deployment.json")  # noqa: S108  # tracked: #288
 _CANDIDATE_REVISION_ENV = "VIBESYS_CANDIDATE_REVISION"
 _RELEASE_DEPLOYMENT_ENV = "VIBESYS_RELEASE_MODAL_DEPLOYMENT"
 _MAX_DIAGNOSTIC_CHARS = 20_000
@@ -57,7 +57,7 @@ def _compact_rich_output(output: str) -> str:
 @contextmanager
 def _exclusive_evaluation() -> Generator[None]:
     """Serialize deploy-and-evaluate callers sharing the editor container."""
-    with open(_LOCK_PATH, "w") as lock_file:
+    with open(_LOCK_PATH, "w") as lock_file:  # noqa: PTH123  # tracked: #288
         fcntl.flock(lock_file, fcntl.LOCK_EX)
         try:
             yield
@@ -73,7 +73,7 @@ def extract_modal_web_url(output: str) -> str:
     compact = _compact_rich_output(output)
     matches = _MODAL_WEB_URL.findall(compact)
     if not matches:
-        raise ValueError("modal deploy did not print a *.modal.run web endpoint")
+        raise ValueError("modal deploy did not print a *.modal.run web endpoint")  # noqa: TRY003  # tracked: #288
     return matches[-1]
 
 
@@ -82,15 +82,15 @@ def extract_modal_app_identifier(output: str) -> str:
     compact = _compact_rich_output(output)
     matches = _MODAL_DEPLOYMENT.findall(compact)
     if not matches:
-        raise ValueError("modal deploy did not print a deployment URL")
+        raise ValueError("modal deploy did not print a deployment URL")  # noqa: TRY003  # tracked: #288
     return matches[-1]
 
 
 def recent_modal_logs(app_identifier: str, *, workspace: str) -> str:
     """Fetch a bounded recent-log excerpt for a failed readiness check."""
     try:
-        result = subprocess.run(
-            [
+        result = subprocess.run(  # noqa: S603  # tracked: #288
+            [  # noqa: S607  # tracked: #288
                 "uv",
                 "run",
                 "modal",
@@ -127,21 +127,21 @@ def wait_for_health(base_url: str, *, timeout_seconds: float) -> None:
     last_error = "no response"
     while time.monotonic() < deadline:
         try:
-            with urllib.request.urlopen(health_url, timeout=10) as response:
-                if response.status == 200:
+            with urllib.request.urlopen(health_url, timeout=10) as response:  # noqa: S310  # tracked: #288
+                if response.status == 200:  # noqa: PLR2004  # tracked: #288
                     return
                 last_error = f"HTTP {response.status}"
         except (OSError, urllib.error.URLError) as exc:
             last_error = f"{type(exc).__name__}: {exc}"
         time.sleep(2)
-    raise TimeoutError(f"{health_url} did not become ready: {last_error}")
+    raise TimeoutError(f"{health_url} did not become ready: {last_error}")  # noqa: TRY003  # tracked: #288
 
 
 def _healthy_now(base_url: str) -> bool:
     """Return whether an existing deployment is immediately reusable."""
     try:
-        with urllib.request.urlopen(f"{base_url.rstrip('/')}/health", timeout=5) as response:
-            return response.status == 200
+        with urllib.request.urlopen(f"{base_url.rstrip('/')}/health", timeout=5) as response:  # noqa: S310  # tracked: #288
+            return response.status == 200  # noqa: PLR2004  # tracked: #288
     except (OSError, urllib.error.URLError):
         return False
 
@@ -184,8 +184,8 @@ def _release_requested() -> bool:
 def _stop_modal_app(app_identifier: str, *, workspace: str) -> bool:
     """Stop a deployed app without prompting, returning whether it succeeded."""
     try:
-        result = subprocess.run(
-            ["uv", "run", "modal", "app", "stop", app_identifier, "--yes"],
+        result = subprocess.run(  # noqa: S603  # tracked: #288
+            ["uv", "run", "modal", "app", "stop", app_identifier, "--yes"],  # noqa: S607  # tracked: #288
             cwd=workspace,
             capture_output=True,
             text=True,
@@ -193,16 +193,16 @@ def _stop_modal_app(app_identifier: str, *, workspace: str) -> bool:
             timeout=60,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
-        print(
+        print(  # noqa: T201  # tracked: #288
             f"Could not stop Modal app {app_identifier}: {type(exc).__name__}: {exc}",
             file=sys.stderr,
         )
         return False
     if result.returncode == 0:
-        print(f"Stopped Modal app {app_identifier}.", file=sys.stderr)
+        print(f"Stopped Modal app {app_identifier}.", file=sys.stderr)  # noqa: T201  # tracked: #288
         return True
     output = f"{result.stdout}\n{result.stderr}".strip()
-    print(
+    print(  # noqa: T201  # tracked: #288
         f"Could not stop Modal app {app_identifier} (exit {result.returncode}): {output[-2000:]}",
         file=sys.stderr,
     )
@@ -224,7 +224,7 @@ def run_evaluator(
 ) -> int:
     """Deploy the candidate and run ``command`` against its live URL."""
     if not command:
-        raise ValueError("missing evaluator command after '--'")
+        raise ValueError("missing evaluator command after '--'")  # noqa: TRY003  # tracked: #288
 
     with _exclusive_evaluation():
         return _run_evaluator_unlocked(
@@ -234,7 +234,7 @@ def run_evaluator(
         )
 
 
-def _run_evaluator_unlocked(
+def _run_evaluator_unlocked(  # noqa: C901, PLR0912  # tracked: #288
     command: Sequence[str],
     *,
     workspace: str,
@@ -245,13 +245,13 @@ def _run_evaluator_unlocked(
         lease = _read_deployment_lease()
         if lease is not None:
             if lease.candidate_revision == candidate_revision and _healthy_now(lease.base_url):
-                print(
+                print(  # noqa: T201  # tracked: #288
                     "Reusing healthy Modal deployment for candidate revision "
                     f"{candidate_revision}.",
                     file=sys.stderr,
                 )
                 try:
-                    result = subprocess.run(
+                    result = subprocess.run(  # noqa: S603  # tracked: #288
                         [*command, "--url", lease.base_url],
                         cwd=workspace,
                         check=False,
@@ -262,8 +262,8 @@ def _run_evaluator_unlocked(
                         _retire_deployment(lease, workspace=workspace)
             _retire_deployment(lease, workspace=workspace)
 
-    deploy = subprocess.run(
-        ["uv", "run", "modal", "deploy", f"{workspace}/main.py"],
+    deploy = subprocess.run(  # noqa: S603  # tracked: #288
+        ["uv", "run", "modal", "deploy", f"{workspace}/main.py"],  # noqa: S607  # tracked: #288
         cwd=workspace,
         capture_output=True,
         text=True,
@@ -271,26 +271,26 @@ def _run_evaluator_unlocked(
     )
     deploy_output = f"{deploy.stdout}\n{deploy.stderr}".strip()
     if deploy_output:
-        print(deploy_output, file=sys.stderr)
+        print(deploy_output, file=sys.stderr)  # noqa: T201  # tracked: #288
     if deploy.returncode != 0:
         return deploy.returncode
 
     app_identifier: str | None = None
     try:
         base_url = extract_modal_web_url(deploy_output)
-        try:
+        try:  # noqa: SIM105  # tracked: #288
             app_identifier = extract_modal_app_identifier(deploy_output)
         except ValueError:
             pass
         wait_for_health(base_url, timeout_seconds=readiness_timeout_seconds)
     except (TimeoutError, ValueError) as exc:
-        print(f"Modal evaluator setup failed: {exc}", file=sys.stderr)
+        print(f"Modal evaluator setup failed: {exc}", file=sys.stderr)  # noqa: T201  # tracked: #288
         try:
             app_identifier = extract_modal_app_identifier(deploy_output)
         except ValueError:
             pass
         else:
-            print(
+            print(  # noqa: T201  # tracked: #288
                 f"Recent Modal logs:\n{recent_modal_logs(app_identifier, workspace=workspace)}",
                 file=sys.stderr,
             )
@@ -301,7 +301,7 @@ def _run_evaluator_unlocked(
         _write_deployment_lease(candidate_revision, base_url, app_identifier)
 
     try:
-        result = subprocess.run(
+        result = subprocess.run(  # noqa: S603  # tracked: #288
             [*command, "--url", base_url],
             cwd=workspace,
             check=False,
@@ -328,7 +328,7 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: Sequence[str] | None = None) -> int:
+def main(argv: Sequence[str] | None = None) -> int:  # noqa: D103  # tracked: #288
     args = _parser().parse_args(argv)
     command = list(args.command)
     if command[:1] == ["--"]:

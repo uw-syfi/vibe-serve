@@ -21,38 +21,38 @@ from vibesys.prompts import PROMPTS_DIR, render_template
 _TEMPLATE_DIR = PROMPTS_DIR / "loops" / "agent"
 
 
-def test_domain_module_has_no_language_axis():
-    import vibesys.domains.base as domain
+def test_domain_module_has_no_language_axis():  # noqa: ANN201  # tracked: #288
+    import vibesys.domains.base as domain  # noqa: PLC0415  # tracked: #288
 
     assert not hasattr(domain, "DEFAULT_LANGUAGE")
     assert not hasattr(domain, "LANGUAGE_DIR")
     assert not hasattr(domain, "DEFAULT_DOMAIN")
 
 
-def test_no_language_pack_directory():
+def test_no_language_pack_directory():  # noqa: ANN201  # tracked: #288
     assert not (_TEMPLATE_DIR / "_language").exists()
 
 
-def test_cli_exposes_only_process_boundary_modes():
-    from vibesys.main import _build_agent_parser
+def test_cli_exposes_only_process_boundary_modes():  # noqa: ANN201  # tracked: #288
+    from vibesys.main import _build_agent_parser  # noqa: PLC0415  # tracked: #288
 
     parser = _build_agent_parser()
-    action = next(action for action in parser._actions if action.dest == "interface")
+    action = next(action for action in parser._actions if action.dest == "interface")  # noqa: SLF001  # tracked: #288
     assert set(action.choices) == {"inprocess", "service"}
     assert action.default == "inprocess"
-    assert all(action.dest != "language" for action in parser._actions)
+    assert all(action.dest != "language" for action in parser._actions)  # noqa: SLF001  # tracked: #288
 
 
-def test_cli_default_interface_is_inprocess():
-    from vibesys.main import _build_agent_parser
+def test_cli_default_interface_is_inprocess():  # noqa: ANN201  # tracked: #288
+    from vibesys.main import _build_agent_parser  # noqa: PLC0415  # tracked: #288
 
     args = _build_agent_parser().parse_args(["--input", "/x", "--exp-name", "e"])
     assert args.interface == "inprocess"
 
 
 @pytest.mark.parametrize("interface", ["native", "rust"])
-def test_cli_rejects_unknown_interface(interface):
-    from vibesys.main import _build_agent_parser
+def test_cli_rejects_unknown_interface(interface):  # noqa: ANN001, ANN201  # tracked: #288
+    from vibesys.main import _build_agent_parser  # noqa: PLC0415  # tracked: #288
 
     with pytest.raises(ConfigurationError):
         _build_agent_parser().parse_args(
@@ -60,8 +60,8 @@ def test_cli_rejects_unknown_interface(interface):
         )
 
 
-def test_loop_constants_and_rejects_unknown_interface():
-    from vibesys.loops.agent.loop import (
+def test_loop_constants_and_rejects_unknown_interface():  # noqa: ANN201  # tracked: #288
+    from vibesys.loops.agent.loop import (  # noqa: PLC0415  # tracked: #288
         _INTERFACES,
         DEFAULT_INTERFACE,
         run_agent_loop,
@@ -81,8 +81,8 @@ def test_loop_constants_and_rejects_unknown_interface():
         )
 
 
-def test_torch_profiler_honors_resolved_environment_capability():
-    from vibesys.loops.agent.loop import _profiler_prompt_template
+def test_torch_profiler_honors_resolved_environment_capability():  # noqa: ANN201  # tracked: #288
+    from vibesys.loops.agent.loop import _profiler_prompt_template  # noqa: PLC0415  # tracked: #288
 
     assert (
         _profiler_prompt_template(
@@ -98,22 +98,22 @@ def test_torch_profiler_honors_resolved_environment_capability():
         )
 
 
-def test_non_torch_profilers_use_the_resolved_kind():
-    from vibesys.loops.agent.loop import _profiler_prompt_template
+def test_non_torch_profilers_use_the_resolved_kind():  # noqa: ANN201  # tracked: #288
+    from vibesys.loops.agent.loop import _profiler_prompt_template  # noqa: PLC0415  # tracked: #288
 
     assert _profiler_prompt_template(ProfilerKind.NEURON) == "profilers/neuron.j2"
     assert _profiler_prompt_template(ProfilerKind.NSYS) == "profilers/nsys.j2"
 
 
-def test_standalone_profiler_none_has_no_prompt_template():
-    from vibesys.loops.agent.loop import _profiler_prompt_template
+def test_standalone_profiler_none_has_no_prompt_template():  # noqa: ANN201  # tracked: #288
+    from vibesys.loops.agent.loop import _profiler_prompt_template  # noqa: PLC0415  # tracked: #288
 
     with pytest.raises(ValueError, match="disabled"):
         _profiler_prompt_template(ProfilerKind.NONE)
 
 
-def test_standalone_profiler_rejects_unknown_kind():
-    from vibesys.loops.agent.loop import _profiler_prompt_template
+def test_standalone_profiler_rejects_unknown_kind():  # noqa: ANN201  # tracked: #288
+    from vibesys.loops.agent.loop import _profiler_prompt_template  # noqa: PLC0415  # tracked: #288
 
     with pytest.raises(TypeError, match="ProfilerKind"):
         _profiler_prompt_template("bogus")
@@ -127,14 +127,14 @@ def _render_implementer(interface: str, *, modality: str | None = None) -> str:
         interface=interface,
         domain_implementer="",
         task="TASK",
-        pass_criteria="PC",
+        pass_criteria="PC",  # noqa: S106  # tracked: #288
         reference_path="/ref",
         runtime_notes="",
         feedback=None,
     )
 
 
-def test_inprocess_prompt_describes_direct_invocation_without_language_assumptions():
+def test_inprocess_prompt_describes_direct_invocation_without_language_assumptions():  # noqa: ANN201  # tracked: #288
     output = _render_implementer("inprocess")
 
     assert "invokes the candidate directly" in output
@@ -144,7 +144,7 @@ def test_inprocess_prompt_describes_direct_invocation_without_language_assumptio
     assert "native artifact" not in output
 
 
-def test_service_prompt_describes_network_boundary_without_language_assumptions():
+def test_service_prompt_describes_network_boundary_without_language_assumptions():  # noqa: ANN201  # tracked: #288
     output = _render_implementer("service")
 
     assert "running candidate service" in output
@@ -153,7 +153,7 @@ def test_service_prompt_describes_network_boundary_without_language_assumptions(
     assert "VibeServeModel" not in output
 
 
-def test_inprocess_implementer_handles_missing_reference_explicitly():
+def test_inprocess_implementer_handles_missing_reference_explicitly():  # noqa: ANN201  # tracked: #288
     output = render_template(
         "implementer_prompt.j2",
         template_dir=_TEMPLATE_DIR,
@@ -161,7 +161,7 @@ def test_inprocess_implementer_handles_missing_reference_explicitly():
         interface="inprocess",
         domain_implementer="",
         task="TASK",
-        pass_criteria="PC",
+        pass_criteria="PC",  # noqa: S106  # tracked: #288
         reference_path=".",
         runtime_notes="",
         feedback=None,
@@ -170,7 +170,7 @@ def test_inprocess_implementer_handles_missing_reference_explicitly():
     assert "Reference implementation is at `.`" not in output
 
 
-def test_default_interface_matches_inprocess_for_implementer():
+def test_default_interface_matches_inprocess_for_implementer():  # noqa: ANN201  # tracked: #288
     explicit = _render_implementer("inprocess")
     implied = render_template(
         "implementer_prompt.j2",
@@ -178,7 +178,7 @@ def test_default_interface_matches_inprocess_for_implementer():
         modality=None,
         domain_implementer="",
         task="TASK",
-        pass_criteria="PC",
+        pass_criteria="PC",  # noqa: S106  # tracked: #288
         reference_path="/ref",
         runtime_notes="",
         feedback=None,
@@ -186,7 +186,7 @@ def test_default_interface_matches_inprocess_for_implementer():
     assert explicit == implied
 
 
-def test_llm_domain_owns_python_tooling():
+def test_llm_domain_owns_python_tooling():  # noqa: ANN201  # tracked: #288
     llm_domain = resolve_domain(DomainName.LLM_SERVING)
     generic_domain = resolve_domain(DomainName.GENERIC)
 
@@ -214,7 +214,7 @@ def _render_judge(interface: str) -> str:
         domain_judge="",
         accuracy_command="accuracy-checker",
         benchmark_command="benchmark",
-        pass_criteria="PC",
+        pass_criteria="PC",  # noqa: S106  # tracked: #288
         retry=1,
         runtime_notes="",
         profile_execution="local",
@@ -222,11 +222,11 @@ def _render_judge(interface: str) -> str:
     )
 
 
-def test_text_generation_use_case_owns_inprocess_python_contract():
+def test_text_generation_use_case_owns_inprocess_python_contract():  # noqa: ANN201  # tracked: #288
     assert "VibeServeModel" in _render_judge("inprocess")
 
 
-def test_service_judge_drops_direct_import_contract():
+def test_service_judge_drops_direct_import_contract():  # noqa: ANN201  # tracked: #288
     output = _render_judge("service")
     assert "VibeServeModel" not in output
     assert "Decode invariants" in output
@@ -255,7 +255,7 @@ def _render_single_agent(
         domain_single_agent="",
         domain_profiler="",
         task="TASK",
-        pass_criteria="PC",
+        pass_criteria="PC",  # noqa: S106  # tracked: #288
         retry=1,
         feedback=None,
         objective="OBJ",
@@ -271,7 +271,7 @@ def _render_single_agent(
     )
 
 
-def test_inprocess_single_agent_uses_torch_only_for_supporting_domain():
+def test_inprocess_single_agent_uses_torch_only_for_supporting_domain():  # noqa: ANN201  # tracked: #288
     supported = _render_single_agent(
         "inprocess",
         supports_torch_profiler=True,
@@ -284,7 +284,7 @@ def test_inprocess_single_agent_uses_torch_only_for_supporting_domain():
         )
 
 
-def test_service_single_agent_honors_environment_resolved_torch():
+def test_service_single_agent_honors_environment_resolved_torch():  # noqa: ANN201  # tracked: #288
     output = _render_single_agent(
         "service",
         supports_torch_profiler=True,
@@ -293,7 +293,7 @@ def test_service_single_agent_honors_environment_resolved_torch():
     assert "nsys" not in output
 
 
-def test_single_agent_profiler_none_avoids_profiler_tools():
+def test_single_agent_profiler_none_avoids_profiler_tools():  # noqa: ANN201  # tracked: #288
     output = _render_single_agent("inprocess", profiler_kind=ProfilerKind.NONE)
     assert "Standalone profiling is disabled" in output
     assert "nsys_profiler" not in output

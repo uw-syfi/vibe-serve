@@ -17,8 +17,8 @@ Add a new backend by:
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from pathlib import Path
+from collections.abc import Callable  # noqa: TC003  # tracked: #288
+from pathlib import Path  # noqa: TC003  # tracked: #288
 
 from vibesys.backends.base import (
     ComputeBackendImpl,
@@ -35,7 +35,7 @@ from vibesys.constants import ComputeBackend
 _REGISTRY: dict[ComputeBackend, Callable[..., ComputeBackendImpl]] = {}
 
 
-def register(backend: ComputeBackend, factory: Callable[..., ComputeBackendImpl]) -> None:
+def register(backend: ComputeBackend, factory: Callable[..., ComputeBackendImpl]) -> None:  # noqa: D103  # tracked: #288
     _REGISTRY[backend] = factory
 
 
@@ -48,7 +48,7 @@ def get(
 ) -> ComputeBackendImpl:
     """Construct the ComputeBackendImpl for *backend*."""
     if backend not in _REGISTRY:
-        raise ValueError(f"No backend impl registered for {backend!r}")
+        raise ValueError(f"No backend impl registered for {backend!r}")  # noqa: TRY003  # tracked: #288
     return _REGISTRY[backend](
         log_dir=log_dir,
         log=log,
@@ -59,10 +59,10 @@ def get(
 # Default registration.  Imported lazily to avoid pulling deepagents/Modal
 # into modules that just want the protocol types.
 def _register_defaults() -> None:
-    from vibesys.backends.cuda import CudaBackend
-    from vibesys.backends.local import cpu_backend, metal_backend
-    from vibesys.backends.rocm import RocmBackend
-    from vibesys.backends.trainium import TrainiumBackend
+    from vibesys.backends.cuda import CudaBackend  # noqa: PLC0415  # tracked: #288
+    from vibesys.backends.local import cpu_backend, metal_backend  # noqa: PLC0415  # tracked: #288
+    from vibesys.backends.rocm import RocmBackend  # noqa: PLC0415  # tracked: #288
+    from vibesys.backends.trainium import TrainiumBackend  # noqa: PLC0415  # tracked: #288
 
     register(ComputeBackend.CUDA, CudaBackend)
     register(ComputeBackend.METAL, metal_backend)

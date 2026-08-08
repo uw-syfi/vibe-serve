@@ -45,9 +45,9 @@ __all__ = [
 ]
 
 
-def __getattr__(name: str) -> Any:
+def __getattr__(name: str) -> Any:  # noqa: ANN401  # tracked: #288
     if name == "DockerSandbox":
-        from vs_sandbox.docker_sandbox import DockerSandbox
+        from vs_sandbox.docker_sandbox import DockerSandbox  # noqa: PLC0415  # tracked: #288
 
         return DockerSandbox
     if name in {
@@ -57,23 +57,25 @@ def __getattr__(name: str) -> Any:
         "HostResourceDeclarer",
         "declare_resources",
     }:
-        from vs_sandbox import host_resources
+        from vs_sandbox import host_resources  # noqa: PLC0415  # tracked: #288
 
         return getattr(host_resources, name)
     if name in {"HostSandbox", "SeatbeltSandbox", "WorkspaceSandbox"}:
-        from vs_sandbox import host_sandbox
+        from vs_sandbox import host_sandbox  # noqa: PLC0415  # tracked: #288
 
         return getattr(host_sandbox, name)
     if name == "build_host_sandbox":
-        from vs_sandbox.host_sandbox import build
+        from vs_sandbox.host_sandbox import build  # noqa: PLC0415  # tracked: #288
 
         return build
     if name == "ModalSandbox":
-        from vs_sandbox.modal_sandbox import ModalSandbox
+        from vs_sandbox.modal_sandbox import ModalSandbox  # noqa: PLC0415  # tracked: #288
 
         return ModalSandbox
     if name == "ensure_model_volume":
-        from vs_sandbox.modal_model_setup import ensure_model_volume
+        from vs_sandbox.modal_model_setup import (  # noqa: PLC0415  # tracked: #288
+            ensure_model_volume,
+        )
 
         return ensure_model_volume
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")  # noqa: TRY003  # tracked: #288

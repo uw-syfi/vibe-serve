@@ -35,20 +35,20 @@ from vibesys.profilers import ProfilerKind
 from vs_github import GitHubCLI
 
 
-def _patch_loop_runner(loop_name: str, runner: Mock):
+def _patch_loop_runner(loop_name: str, runner: Mock):  # noqa: ANN202  # tracked: #288
     """Swap the dispatch entry's ``run`` function for *runner*.
 
     ``_LOOP_COMMANDS`` holds direct function references, so patching the
     module-level function name no longer affects dispatch — patch the
     command record instead.
     """
-    import dataclasses
+    import dataclasses  # noqa: PLC0415  # tracked: #288
 
-    import vibesys.main as cli
+    import vibesys.main as cli  # noqa: PLC0415  # tracked: #288
 
-    command = cli._LOOP_COMMANDS[loop_name]
+    command = cli._LOOP_COMMANDS[loop_name]  # noqa: SLF001  # tracked: #288
     patched = dataclasses.replace(command, run=runner)
-    return patch.dict(cli._LOOP_COMMANDS, {loop_name: patched})
+    return patch.dict(cli._LOOP_COMMANDS, {loop_name: patched})  # noqa: SLF001  # tracked: #288
 
 
 TARGET_ARGS = ["--input", "examples/model-serving/Llama-3-8B"]
@@ -94,25 +94,25 @@ def _write_resume_event(
 # ---------------------------------------------------------------------------
 
 
-def test_extract_flag_space_form():
+def test_extract_flag_space_form():  # noqa: ANN201  # tracked: #288
     val, rest = _extract_flag(["--outer-loop", "agent", "--input", "x"], "--outer-loop")
     assert val == "agent"
     assert rest == ["--input", "x"]
 
 
-def test_extract_flag_equals_form():
+def test_extract_flag_equals_form():  # noqa: ANN201  # tracked: #288
     val, rest = _extract_flag(["--input", "x", "--outer-loop=evolve"], "--outer-loop")
     assert val == "evolve"
     assert rest == ["--input", "x"]
 
 
-def test_extract_flag_missing_returns_none():
+def test_extract_flag_missing_returns_none():  # noqa: ANN201  # tracked: #288
     val, rest = _extract_flag(["--input", "x"], "--outer-loop")
     assert val is None
     assert rest == ["--input", "x"]
 
 
-def test_extract_flag_dangling_exits():
+def test_extract_flag_dangling_exits():  # noqa: ANN201  # tracked: #288
     with pytest.raises(ConfigurationError) as exc:
         _extract_flag(["--outer-loop"], "--outer-loop")
     assert exc.value.diagnostic.code == "invalid_arguments"
@@ -124,33 +124,33 @@ def test_extract_flag_dangling_exits():
 
 
 @pytest.mark.parametrize(
-    "argv,expected_kind,expected_rest",
+    "argv,expected_kind,expected_rest",  # noqa: PT006  # tracked: #288
     [
         (["--outer-loop", "agent", "--input", "x"], "agent", ["--input", "x"]),
         (["--outer-loop", "plain", "--exp-name", "e"], "plain", ["--exp-name", "e"]),
         (["--outer-loop", "evolve", "--seed", "1"], "evolve", ["--seed", "1"]),
     ],
 )
-def test_extract_loop_selection(argv: list[str], expected_kind: str, expected_rest: list[str]):
+def test_extract_loop_selection(argv: list[str], expected_kind: str, expected_rest: list[str]):  # noqa: ANN201  # tracked: #288
     kind, rest = _extract_loop_selection(argv)
     assert kind == expected_kind
     assert rest == expected_rest
 
 
-def test_extract_loop_selection_defaults_to_agent():
+def test_extract_loop_selection_defaults_to_agent():  # noqa: ANN201  # tracked: #288
     kind, rest = _extract_loop_selection(["--input", "x"])
     assert kind == "agent"
     assert rest == ["--input", "x"]
 
 
-def test_extract_loop_selection_unknown_outer_loop_exits():
+def test_extract_loop_selection_unknown_outer_loop_exits():  # noqa: ANN201  # tracked: #288
     with pytest.raises(ConfigurationError) as exc:
         _extract_loop_selection(["--outer-loop", "nope"])
     assert exc.value.diagnostic.stage == "argument_parsing"
 
 
-def test_target_input_defaults_to_none():
-    from vibesys.main import _build_agent_parser
+def test_target_input_defaults_to_none():  # noqa: ANN201  # tracked: #288
+    from vibesys.main import _build_agent_parser  # noqa: PLC0415  # tracked: #288
 
     args = _build_agent_parser().parse_args([])
 
@@ -167,8 +167,8 @@ def test_target_input_defaults_to_none():
     "obsolete_flag",
     ["--profiler-support", "--nsys-profiler", "--torch-profiler", "--neuron-profiler"],
 )
-def test_profiler_support_override_flags_are_rejected(obsolete_flag):
-    from vibesys.main import _build_agent_parser
+def test_profiler_support_override_flags_are_rejected(obsolete_flag):  # noqa: ANN001, ANN201  # tracked: #288
+    from vibesys.main import _build_agent_parser  # noqa: PLC0415  # tracked: #288
 
     with pytest.raises(ConfigurationError, match="unrecognized arguments"):
         _build_agent_parser().parse_args([obsolete_flag, "support"])
@@ -182,8 +182,8 @@ def test_profiler_support_override_flags_are_rejected(obsolete_flag):
         "_build_plain_parser",
     ],
 )
-def test_input_arg_is_available_on_all_loop_parsers(builder_name):
-    import vibesys.main as cli
+def test_input_arg_is_available_on_all_loop_parsers(builder_name):  # noqa: ANN001, ANN201  # tracked: #288
+    import vibesys.main as cli  # noqa: PLC0415  # tracked: #288
 
     parser = getattr(cli, builder_name)()
     args = parser.parse_args(["--input", "examples/data-structures/queue-spsc"])
@@ -191,9 +191,9 @@ def test_input_arg_is_available_on_all_loop_parsers(builder_name):
     assert args.input == Path("examples/data-structures/queue-spsc")
 
 
-def test_remote_repository_options_are_user_configurable():
-    from vibesys.main import _build_agent_parser
-    from vibesys.run import RepositoryVisibility
+def test_remote_repository_options_are_user_configurable():  # noqa: ANN201  # tracked: #288
+    from vibesys.main import _build_agent_parser  # noqa: PLC0415  # tracked: #288
+    from vibesys.run import RepositoryVisibility  # noqa: PLC0415  # tracked: #288
 
     args = _build_agent_parser().parse_args(
         ["--repo", "my-lab/trial", "--repo-visibility", "internal"]
@@ -203,9 +203,9 @@ def test_remote_repository_options_are_user_configurable():
     assert args.repo_visibility is RepositoryVisibility.INTERNAL
 
 
-def test_short_repository_name_uses_configured_owner(tmp_path):
-    from vibesys.main import _build_agent_parser
-    from vibesys.run import RepositoryVisibility
+def test_short_repository_name_uses_configured_owner(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+    from vibesys.main import _build_agent_parser  # noqa: PLC0415  # tracked: #288
+    from vibesys.run import RepositoryVisibility  # noqa: PLC0415  # tracked: #288
 
     config_path = tmp_path / "agent.toml"
     config_path.write_text(
@@ -228,12 +228,12 @@ visibility = "internal"
     assert args.repo_visibility is RepositoryVisibility.INTERNAL
 
 
-def test_fresh_runs_default_to_authenticated_github_account(tmp_path, monkeypatch):
-    import vibesys.main as cli
+def test_fresh_runs_default_to_authenticated_github_account(tmp_path, monkeypatch):  # noqa: ANN001, ANN201  # tracked: #288
+    import vibesys.main as cli  # noqa: PLC0415  # tracked: #288
 
     bundle = _write_input_bundle(tmp_path)
-    args = cli._build_agent_parser().parse_args(["--input", str(bundle), "--no-skills"])
-    cli._validate_target_inputs(args)
+    args = cli._build_agent_parser().parse_args(["--input", str(bundle), "--no-skills"])  # noqa: SLF001  # tracked: #288
+    cli._validate_target_inputs(args)  # noqa: SLF001  # tracked: #288
     config = cli.Config.model_validate({"model": {"name": "gpt-5.5"}})
     github = Mock()
     github.current_user.return_value = "octocat"
@@ -246,12 +246,12 @@ def test_fresh_runs_default_to_authenticated_github_account(tmp_path, monkeypatc
     github.current_user.assert_called_once_with()
 
 
-def test_repository_owner_override_does_not_query_gh(tmp_path, monkeypatch):
-    import vibesys.main as cli
+def test_repository_owner_override_does_not_query_gh(tmp_path, monkeypatch):  # noqa: ANN001, ANN201  # tracked: #288
+    import vibesys.main as cli  # noqa: PLC0415  # tracked: #288
 
     bundle = _write_input_bundle(tmp_path)
-    args = cli._build_agent_parser().parse_args(["--input", str(bundle), "--no-skills"])
-    cli._validate_target_inputs(args)
+    args = cli._build_agent_parser().parse_args(["--input", str(bundle), "--no-skills"])  # noqa: SLF001  # tracked: #288
+    cli._validate_target_inputs(args)  # noqa: SLF001  # tracked: #288
     config = cli.Config.model_validate(
         {"model": {"name": "gpt-5.5"}, "repository": {"owner": "my-org"}}
     )
@@ -264,12 +264,12 @@ def test_repository_owner_override_does_not_query_gh(tmp_path, monkeypatch):
     github.current_user.assert_not_called()
 
 
-def test_local_runs_keep_generated_name_and_skip_github(tmp_path, monkeypatch):
-    import vibesys.main as cli
+def test_local_runs_keep_generated_name_and_skip_github(tmp_path, monkeypatch):  # noqa: ANN001, ANN201  # tracked: #288
+    import vibesys.main as cli  # noqa: PLC0415  # tracked: #288
 
     bundle = _write_input_bundle(tmp_path)
-    args = cli._build_agent_parser().parse_args(["--input", str(bundle), "--local", "--no-skills"])
-    cli._validate_target_inputs(args)
+    args = cli._build_agent_parser().parse_args(["--input", str(bundle), "--local", "--no-skills"])  # noqa: SLF001  # tracked: #288
+    cli._validate_target_inputs(args)  # noqa: SLF001  # tracked: #288
     config = cli.Config.model_validate({"model": {"name": "gpt-5.5"}})
     github = Mock()
     monkeypatch.setattr(cli, "GitHubCLI", Mock(return_value=github))
@@ -281,8 +281,8 @@ def test_local_runs_keep_generated_name_and_skip_github(tmp_path, monkeypatch):
     github.current_user.assert_not_called()
 
 
-def test_missing_gh_credentials_report_repository_setup_error(monkeypatch):
-    import vibesys.main as cli
+def test_missing_gh_credentials_report_repository_setup_error(monkeypatch):  # noqa: ANN001, ANN201  # tracked: #288
+    import vibesys.main as cli  # noqa: PLC0415  # tracked: #288
 
     config = cli.Config.model_validate({"model": {"name": "gpt-5.5"}})
     github = Mock()
@@ -290,15 +290,15 @@ def test_missing_gh_credentials_report_repository_setup_error(monkeypatch):
     monkeypatch.setattr(cli, "GitHubCLI", Mock(return_value=github))
 
     with pytest.raises(ConfigurationError) as exc:
-        cli._resolve_repository_owner(config)
+        cli._resolve_repository_owner(config)  # noqa: SLF001  # tracked: #288
 
     assert exc.value.diagnostic.code == "repository_setup_failed"
     assert exc.value.diagnostic.stage == "repository_setup"
     assert "gh auth login" in exc.value.diagnostic.message
 
 
-def test_local_and_repo_are_mutually_exclusive(tmp_path):
-    from vibesys.main import _build_agent_parser
+def test_local_and_repo_are_mutually_exclusive(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+    from vibesys.main import _build_agent_parser  # noqa: PLC0415  # tracked: #288
 
     bundle = _write_input_bundle(tmp_path)
     config_path = tmp_path / "agent.toml"
@@ -321,15 +321,15 @@ def test_local_and_repo_are_mutually_exclusive(tmp_path):
 
 
 @pytest.mark.parametrize(
-    "builder_name,validator_name",
+    "builder_name,validator_name",  # noqa: PT006  # tracked: #288
     [
         ("_build_agent_parser", "_validate_agent"),
         ("_build_evolve_parser", "_validate_evolve"),
         ("_build_plain_parser", "_validate_plain"),
     ],
 )
-def test_profiler_none_is_valid_with_modal(builder_name, validator_name, tmp_path):
-    import vibesys.main as cli
+def test_profiler_none_is_valid_with_modal(builder_name, validator_name, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+    import vibesys.main as cli  # noqa: PLC0415  # tracked: #288
 
     bundle = _write_input_bundle(tmp_path)
     parser = getattr(cli, builder_name)()
@@ -341,14 +341,14 @@ def test_profiler_none_is_valid_with_modal(builder_name, validator_name, tmp_pat
     assert args.input_bundle.root == bundle.resolve()
 
 
-def test_profiler_validation_uses_selected_environment_capabilities(tmp_path, monkeypatch):
-    import vibesys.main as cli
+def test_profiler_validation_uses_selected_environment_capabilities(tmp_path, monkeypatch):  # noqa: ANN001, ANN201  # tracked: #288
+    import vibesys.main as cli  # noqa: PLC0415  # tracked: #288
 
     bundle = _write_input_bundle(tmp_path)
-    args = cli._build_agent_parser().parse_args(["--profiler", "nsys", "--input", str(bundle)])
+    args = cli._build_agent_parser().parse_args(["--profiler", "nsys", "--input", str(bundle)])  # noqa: SLF001  # tracked: #288
     selected_specs = []
 
-    def fake_environment(spec):
+    def fake_environment(spec):  # noqa: ANN001, ANN202  # tracked: #288
         selected_specs.append(spec)
         return Mock(
             supported_profiler_kinds=frozenset(
@@ -359,28 +359,28 @@ def test_profiler_validation_uses_selected_environment_capabilities(tmp_path, mo
     monkeypatch.setattr(cli, "build_run_environment", fake_environment)
 
     with pytest.raises(ConfigurationError, match="run environment 'local'"):
-        cli._validate_agent(args)
+        cli._validate_agent(args)  # noqa: SLF001  # tracked: #288
     assert [spec.name for spec in selected_specs] == ["local"]
 
 
-def test_validate_evolve_rejects_nonpositive_bootstrap_attempts(tmp_path):
+def test_validate_evolve_rejects_nonpositive_bootstrap_attempts(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     """--bootstrap-max-attempts must be >= 1; 0 is a configuration error."""
-    import vibesys.main as cli
+    import vibesys.main as cli  # noqa: PLC0415  # tracked: #288
 
     bundle = _write_input_bundle(tmp_path)
-    parser = cli._build_evolve_parser()
+    parser = cli._build_evolve_parser()  # noqa: SLF001  # tracked: #288
     args = parser.parse_args(["--bootstrap-max-attempts", "0", "--input", str(bundle)])
     assert args.bootstrap_max_attempts == 0
     with pytest.raises(ConfigurationError):
-        cli._validate_evolve(args)
+        cli._validate_evolve(args)  # noqa: SLF001  # tracked: #288
 
 
-def test_keep_deployments_flag_and_modal_alias_default_off_and_parse(tmp_path):
+def test_keep_deployments_flag_and_modal_alias_default_off_and_parse(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     """The generic flag and compatibility alias select the same behavior."""
-    import vibesys.main as cli
+    import vibesys.main as cli  # noqa: PLC0415  # tracked: #288
 
     bundle = _write_input_bundle(tmp_path)
-    parser = cli._build_evolve_parser()
+    parser = cli._build_evolve_parser()  # noqa: SLF001  # tracked: #288
 
     assert parser.parse_args(["--input", str(bundle)]).keep_deployments is False
     assert (
@@ -389,21 +389,21 @@ def test_keep_deployments_flag_and_modal_alias_default_off_and_parse(tmp_path):
     assert parser.parse_args(["--keep-modal-apps", "--input", str(bundle)]).keep_deployments is True
 
 
-def test_evolve_modality_defaults_to_domain_resolution(tmp_path):
+def test_evolve_modality_defaults_to_domain_resolution(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     """A non-serving domain must not inherit the text-generation modality."""
-    import vibesys.main as cli
+    import vibesys.main as cli  # noqa: PLC0415  # tracked: #288
 
     bundle = _write_input_bundle(tmp_path)
-    parser = cli._build_evolve_parser()
+    parser = cli._build_evolve_parser()  # noqa: SLF001  # tracked: #288
 
     assert parser.parse_args(["--input", str(bundle)]).modality is None
 
 
-def test_evolve_search_policy_defaults_and_openevolve_overrides(tmp_path):
-    import vibesys.main as cli
+def test_evolve_search_policy_defaults_and_openevolve_overrides(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+    import vibesys.main as cli  # noqa: PLC0415  # tracked: #288
 
     bundle = _write_input_bundle(tmp_path)
-    parser = cli._build_evolve_parser()
+    parser = cli._build_evolve_parser()  # noqa: SLF001  # tracked: #288
 
     defaults = parser.parse_args(["--input", str(bundle)])
     assert defaults.search_policy is None
@@ -435,9 +435,9 @@ def test_evolve_search_policy_defaults_and_openevolve_overrides(tmp_path):
     assert configured.openevolve_migration_rate == 0.25
 
 
-def test_openevolve_partial_resume_options_merge_with_saved_config(tmp_path):
-    import vibesys.main as cli
-    from vibesys.loops.evolve.search_policy import (
+def test_openevolve_partial_resume_options_merge_with_saved_config(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+    import vibesys.main as cli  # noqa: PLC0415  # tracked: #288
+    from vibesys.loops.evolve.search_policy import (  # noqa: PLC0415  # tracked: #288
         OpenEvolveSearchConfig,
         OpenEvolveSearchPolicy,
     )
@@ -456,12 +456,12 @@ def test_openevolve_partial_resume_options_merge_with_saved_config(tmp_path):
         seed=1,
         config=saved,
     )
-    args = cli._build_evolve_parser().parse_args(
+    args = cli._build_evolve_parser().parse_args(  # noqa: SLF001  # tracked: #288
         ["--input", str(bundle), "--openevolve-migration-rate", "0.25"]
     )
 
     with patch.object(cli, "_resume_exp_dir", return_value=run_dir):
-        policy_name, resolved = cli._resolve_openevolve_options(
+        policy_name, resolved = cli._resolve_openevolve_options(  # noqa: SLF001  # tracked: #288
             args,
             existing=True,
             exp_name="run",
@@ -471,10 +471,12 @@ def test_openevolve_partial_resume_options_merge_with_saved_config(tmp_path):
     assert resolved == saved
 
 
-def test_openevolve_resume_restores_flag_defined_objectives(tmp_path):
-    import vibesys.main as cli
-    from vibesys.loops.evolve.population import Objective
-    from vibesys.loops.evolve.search_policy import OpenEvolveSearchPolicy
+def test_openevolve_resume_restores_flag_defined_objectives(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+    import vibesys.main as cli  # noqa: PLC0415  # tracked: #288
+    from vibesys.loops.evolve.population import Objective  # noqa: PLC0415  # tracked: #288
+    from vibesys.loops.evolve.search_policy import (  # noqa: PLC0415  # tracked: #288
+        OpenEvolveSearchPolicy,
+    )
 
     run_dir = tmp_path / "run"
     expected = [Objective("latency_ms", "min"), Objective("throughput", "max")]
@@ -486,7 +488,7 @@ def test_openevolve_resume_restores_flag_defined_objectives(tmp_path):
     )
 
     with patch.object(cli, "_resume_exp_dir", return_value=run_dir):
-        restored = cli._restore_openevolve_objectives(
+        restored = cli._restore_openevolve_objectives(  # noqa: SLF001  # tracked: #288
             [],
             existing=True,
             exp_name="run",
@@ -495,15 +497,15 @@ def test_openevolve_resume_restores_flag_defined_objectives(tmp_path):
     assert restored == expected
 
 
-def test_openevolve_override_selects_policy_on_new_run(tmp_path):
-    import vibesys.main as cli
+def test_openevolve_override_selects_policy_on_new_run(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+    import vibesys.main as cli  # noqa: PLC0415  # tracked: #288
 
     bundle = _write_input_bundle(tmp_path)
-    args = cli._build_evolve_parser().parse_args(
+    args = cli._build_evolve_parser().parse_args(  # noqa: SLF001  # tracked: #288
         ["--input", str(bundle), "--openevolve-num-islands", "3"]
     )
 
-    policy_name, resolved = cli._resolve_openevolve_options(
+    policy_name, resolved = cli._resolve_openevolve_options(  # noqa: SLF001  # tracked: #288
         args,
         existing=False,
         exp_name="new",
@@ -514,11 +516,11 @@ def test_openevolve_override_selects_policy_on_new_run(tmp_path):
     assert resolved.num_islands == 3
 
 
-def test_validate_evolve_rejects_openevolve_knob_with_vibesys_policy(tmp_path):
-    import vibesys.main as cli
+def test_validate_evolve_rejects_openevolve_knob_with_vibesys_policy(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+    import vibesys.main as cli  # noqa: PLC0415  # tracked: #288
 
     bundle = _write_input_bundle(tmp_path)
-    args = cli._build_evolve_parser().parse_args(
+    args = cli._build_evolve_parser().parse_args(  # noqa: SLF001  # tracked: #288
         [
             "--input",
             str(bundle),
@@ -530,11 +532,11 @@ def test_validate_evolve_rejects_openevolve_knob_with_vibesys_policy(tmp_path):
     )
 
     with pytest.raises(ConfigurationError):
-        cli._validate_evolve(args)
+        cli._validate_evolve(args)  # noqa: SLF001  # tracked: #288
 
 
 @pytest.mark.parametrize(
-    "flag,value",
+    "flag,value",  # noqa: PT006  # tracked: #288
     [
         ("--openevolve-population-size", "0"),
         ("--openevolve-archive-size", "0"),
@@ -544,24 +546,24 @@ def test_validate_evolve_rejects_openevolve_knob_with_vibesys_policy(tmp_path):
         ("--openevolve-migration-rate", "1.1"),
     ],
 )
-def test_validate_evolve_rejects_invalid_openevolve_config(tmp_path, flag, value):
-    import vibesys.main as cli
+def test_validate_evolve_rejects_invalid_openevolve_config(tmp_path, flag, value):  # noqa: ANN001, ANN201  # tracked: #288
+    import vibesys.main as cli  # noqa: PLC0415  # tracked: #288
 
     bundle = _write_input_bundle(tmp_path)
-    args = cli._build_evolve_parser().parse_args(
+    args = cli._build_evolve_parser().parse_args(  # noqa: SLF001  # tracked: #288
         ["--input", str(bundle), "--search-policy", "openevolve", flag, value]
     )
 
     with pytest.raises(ConfigurationError):
-        cli._validate_evolve(args)
+        cli._validate_evolve(args)  # noqa: SLF001  # tracked: #288
 
 
-def test_max_parallelism_defaults_to_one_and_parses(tmp_path):
+def test_max_parallelism_defaults_to_one_and_parses(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     """--max-parallelism is serial (1) by default and accepts an int override."""
-    import vibesys.main as cli
+    import vibesys.main as cli  # noqa: PLC0415  # tracked: #288
 
     bundle = _write_input_bundle(tmp_path)
-    parser = cli._build_evolve_parser()
+    parser = cli._build_evolve_parser()  # noqa: SLF001  # tracked: #288
 
     assert parser.parse_args(["--input", str(bundle)]).max_parallelism == 1
     assert (
@@ -569,34 +571,34 @@ def test_max_parallelism_defaults_to_one_and_parses(tmp_path):
     )
 
 
-def test_validate_evolve_rejects_nonpositive_parallelism(tmp_path):
+def test_validate_evolve_rejects_nonpositive_parallelism(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     """--max-parallelism < 1 is a configuration error."""
-    import vibesys.main as cli
+    import vibesys.main as cli  # noqa: PLC0415  # tracked: #288
 
     bundle = _write_input_bundle(tmp_path)
-    parser = cli._build_evolve_parser()
+    parser = cli._build_evolve_parser()  # noqa: SLF001  # tracked: #288
     args = parser.parse_args(["--max-parallelism", "0", "--input", str(bundle)])
     with pytest.raises(ConfigurationError):
-        cli._validate_evolve(args)
+        cli._validate_evolve(args)  # noqa: SLF001  # tracked: #288
 
 
-def test_validate_evolve_defers_parallelism_support_to_environment(tmp_path):
+def test_validate_evolve_defers_parallelism_support_to_environment(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     """CLI validation does not hard-code one parallel-capable provider."""
-    import vibesys.main as cli
+    import vibesys.main as cli  # noqa: PLC0415  # tracked: #288
 
     bundle = _write_input_bundle(tmp_path)
-    parser = cli._build_evolve_parser()
+    parser = cli._build_evolve_parser()  # noqa: SLF001  # tracked: #288
 
     # The loop reads the selected environment capability and may downgrade to
     # serial; the CLI must not assume which providers support isolation.
     args = parser.parse_args(["--max-parallelism", "4", "--input", str(bundle)])
-    cli._validate_evolve(args)
+    cli._validate_evolve(args)  # noqa: SLF001  # tracked: #288
 
     # Modal remains one supported adapter, not a special loop policy.
     args = parser.parse_args(
         ["--max-parallelism", "4", "--modal", "--profiler", "torch", "--input", str(bundle)]
     )
-    cli._validate_evolve(args)
+    cli._validate_evolve(args)  # noqa: SLF001  # tracked: #288
 
 
 @pytest.mark.parametrize(
@@ -605,8 +607,8 @@ def test_validate_evolve_defers_parallelism_support_to_environment(tmp_path):
         ["--profiler", "bogus"],
     ],
 )
-def test_agent_parser_rejects_invalid_enum_args(argv):
-    from vibesys.main import _build_agent_parser
+def test_agent_parser_rejects_invalid_enum_args(argv):  # noqa: ANN001, ANN201  # tracked: #288
+    from vibesys.main import _build_agent_parser  # noqa: PLC0415  # tracked: #288
 
     with pytest.raises(ConfigurationError) as exc:
         _build_agent_parser().parse_args(argv)
@@ -614,15 +616,15 @@ def test_agent_parser_rejects_invalid_enum_args(argv):
     assert exc.value.diagnostic.code == "invalid_arguments"
 
 
-def test_agent_parser_rejects_obsolete_target_flags():
-    from vibesys.main import _build_agent_parser
+def test_agent_parser_rejects_obsolete_target_flags():  # noqa: ANN201  # tracked: #288
+    from vibesys.main import _build_agent_parser  # noqa: PLC0415  # tracked: #288
 
     with pytest.raises(ConfigurationError):
         _build_agent_parser().parse_args(["--ref", "examples/Llama-3-8B/reference"])
 
 
-def test_validate_target_inputs_loads_manifest(tmp_path):
-    from vibesys.main import _build_agent_parser
+def test_validate_target_inputs_loads_manifest(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+    from vibesys.main import _build_agent_parser  # noqa: PLC0415  # tracked: #288
 
     bundle = _write_input_bundle(tmp_path)
     args = _build_agent_parser().parse_args(["--input", str(bundle)])
@@ -635,15 +637,15 @@ def test_validate_target_inputs_loads_manifest(tmp_path):
     assert args.input_bundle.benchmark_command_display == "uv run python benchmark/benchmark.py"
 
 
-def test_agent_parser_rejects_domain_override_flag():
-    from vibesys.main import _build_agent_parser
+def test_agent_parser_rejects_domain_override_flag():  # noqa: ANN201  # tracked: #288
+    from vibesys.main import _build_agent_parser  # noqa: PLC0415  # tracked: #288
 
     with pytest.raises(ConfigurationError):
         _build_agent_parser().parse_args(["--domain", "llm-serving"])
 
 
-def test_validate_target_inputs_loads_trusted_benchmark_result_contract(tmp_path):
-    from vibesys.main import _build_agent_parser
+def test_validate_target_inputs_loads_trusted_benchmark_result_contract(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+    from vibesys.main import _build_agent_parser  # noqa: PLC0415  # tracked: #288
 
     bundle = _write_input_bundle(tmp_path)
     manifest = bundle / "vibesys.input.toml"
@@ -660,8 +662,8 @@ def test_validate_target_inputs_loads_trusted_benchmark_result_contract(tmp_path
     assert args.input_bundle.benchmark_result.metric == "ops_per_sec"
 
 
-def test_validate_target_inputs_rejects_missing_input_dir(tmp_path):
-    from vibesys.main import _build_agent_parser
+def test_validate_target_inputs_rejects_missing_input_dir(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+    from vibesys.main import _build_agent_parser  # noqa: PLC0415  # tracked: #288
 
     missing = tmp_path / "missing"
     args = _build_agent_parser().parse_args(["--input", str(missing)])
@@ -672,8 +674,8 @@ def test_validate_target_inputs_rejects_missing_input_dir(tmp_path):
     assert "--input path does not exist" in exc.value.diagnostic.message
 
 
-def test_validate_target_inputs_reports_missing_manifest(tmp_path):
-    from vibesys.main import _build_agent_parser
+def test_validate_target_inputs_reports_missing_manifest(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+    from vibesys.main import _build_agent_parser  # noqa: PLC0415  # tracked: #288
 
     bundle = tmp_path / "incomplete"
     bundle.mkdir()
@@ -687,8 +689,8 @@ def test_validate_target_inputs_reports_missing_manifest(tmp_path):
     assert "vibesys.input.toml" in exc.value.diagnostic.message
 
 
-def test_validate_target_inputs_reports_missing_command(tmp_path):
-    from vibesys.main import _build_agent_parser
+def test_validate_target_inputs_reports_missing_command(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+    from vibesys.main import _build_agent_parser  # noqa: PLC0415  # tracked: #288
 
     bundle = _write_input_bundle(tmp_path)
     tools = bundle / "tools"
@@ -717,8 +719,8 @@ command = ["./tools/bench"]
     assert "benchmark.command executable does not exist" in exc.value.diagnostic.message
 
 
-def test_validate_target_inputs_requires_input():
-    from vibesys.main import _build_agent_parser
+def test_validate_target_inputs_requires_input():  # noqa: ANN201  # tracked: #288
+    from vibesys.main import _build_agent_parser  # noqa: PLC0415  # tracked: #288
 
     args = _build_agent_parser().parse_args([])
 
@@ -728,8 +730,8 @@ def test_validate_target_inputs_requires_input():
     assert "missing required target input: --input" in exc.value.diagnostic.message
 
 
-def test_trusted_input_baseline_requires_resume(tmp_path):
-    from vibesys.main import _build_agent_parser, _validate_agent
+def test_trusted_input_baseline_requires_resume(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+    from vibesys.main import _build_agent_parser, _validate_agent  # noqa: PLC0415  # tracked: #288
 
     bundle = _write_input_bundle(tmp_path)
     args = _build_agent_parser().parse_args(
@@ -742,8 +744,8 @@ def test_trusted_input_baseline_requires_resume(tmp_path):
     assert "--trusted-input-baseline requires --resume" in exc.value.diagnostic.message
 
 
-def test_validate_agent_rejects_nonpositive_judge_cadence(tmp_path):
-    from vibesys.main import _build_agent_parser, _validate_agent
+def test_validate_agent_rejects_nonpositive_judge_cadence(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+    from vibesys.main import _build_agent_parser, _validate_agent  # noqa: PLC0415  # tracked: #288
 
     bundle = _write_input_bundle(tmp_path)
     args = _build_agent_parser().parse_args(["--input", str(bundle), "--judge-every", "0"])
@@ -754,8 +756,8 @@ def test_validate_agent_rejects_nonpositive_judge_cadence(tmp_path):
     assert "--judge-every must be >= 1" in exc.value.diagnostic.message
 
 
-def test_validate_agent_rejects_nonpositive_official_evaluation_cadence(tmp_path):
-    from vibesys.main import _build_agent_parser, _validate_agent
+def test_validate_agent_rejects_nonpositive_official_evaluation_cadence(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+    from vibesys.main import _build_agent_parser, _validate_agent  # noqa: PLC0415  # tracked: #288
 
     bundle = _write_input_bundle(tmp_path)
     args = _build_agent_parser().parse_args(["--input", str(bundle), "--official-eval-every", "0"])
@@ -766,8 +768,8 @@ def test_validate_agent_rejects_nonpositive_official_evaluation_cadence(tmp_path
     assert "--official-eval-every must be >= 1" in exc.value.diagnostic.message
 
 
-def test_agent_operator_constraints_are_repeatable_and_do_not_mutate_objective():
-    from vibesys.main import _build_agent_parser
+def test_agent_operator_constraints_are_repeatable_and_do_not_mutate_objective():  # noqa: ANN201  # tracked: #288
+    from vibesys.main import _build_agent_parser  # noqa: PLC0415  # tracked: #288
 
     args = _build_agent_parser().parse_args(
         ["--constraint", "No quantization.", "--constraint", "  One H100 only.  "]
@@ -780,7 +782,7 @@ def test_agent_operator_constraints_are_repeatable_and_do_not_mutate_objective()
     assert effective.endswith("## Operator constraints\n\n- No quantization.\n- One H100 only.\n")
 
 
-def test_stub_agent_smoke_defaults_supply_input_and_unique_exp_name():
+def test_stub_agent_smoke_defaults_supply_input_and_unique_exp_name():  # noqa: ANN201  # tracked: #288
     argv = _prepare_stub_agent_smoke_defaults(["--stub-agent", "--max-rounds", "1"])
 
     assert argv[:2] == ["--input", str(Path("examples/data-structures/queue-spsc").resolve())]
@@ -789,14 +791,14 @@ def test_stub_agent_smoke_defaults_supply_input_and_unique_exp_name():
     assert argv[-2:] == ["--max-rounds", "1"]
 
 
-def test_stub_agent_smoke_defaults_preserve_explicit_input():
+def test_stub_agent_smoke_defaults_preserve_explicit_input():  # noqa: ANN201  # tracked: #288
     argv = ["--stub-agent", "--input", "examples/kv-store"]
 
     assert _prepare_stub_agent_smoke_defaults(argv) == argv
 
 
-def test_stub_agent_can_run_without_agent_toml(tmp_path):
-    from vibesys.main import _build_agent_parser
+def test_stub_agent_can_run_without_agent_toml(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+    from vibesys.main import _build_agent_parser  # noqa: PLC0415  # tracked: #288
 
     bundle = _write_input_bundle(tmp_path)
     args = _build_agent_parser().parse_args(
@@ -817,8 +819,8 @@ def test_stub_agent_can_run_without_agent_toml(tmp_path):
     assert skills is None
 
 
-def test_missing_config_reports_configuration_error(tmp_path):
-    from vibesys.main import _build_agent_parser
+def test_missing_config_reports_configuration_error(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+    from vibesys.main import _build_agent_parser  # noqa: PLC0415  # tracked: #288
 
     bundle = _write_input_bundle(tmp_path)
     args = _build_agent_parser().parse_args(
@@ -842,8 +844,8 @@ def test_missing_config_reports_configuration_error(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_tui_defaults_uses_repository_config_and_generated_name(tmp_path, capsys):
-    import json
+def test_tui_defaults_uses_repository_config_and_generated_name(tmp_path, capsys):  # noqa: ANN001, ANN201  # tracked: #288
+    import json  # noqa: PLC0415  # tracked: #288
 
     config_path = tmp_path / "agent.toml"
     config_path.write_text(
@@ -878,7 +880,7 @@ visibility = "private"
     assert defaults["theme"] == "dark"
 
 
-def _write_theme_config(tmp_path, theme: str | None) -> Path:
+def _write_theme_config(tmp_path, theme: str | None) -> Path:  # noqa: ANN001  # tracked: #288
     config_path = tmp_path / "agent.toml"
     tui_section = f'\n[tui]\ntheme = "{theme}"\n' if theme is not None else ""
     # An explicit owner keeps the theme assertions off the `gh auth` fallback
@@ -889,8 +891,8 @@ def _write_theme_config(tmp_path, theme: str | None) -> Path:
     return config_path
 
 
-def test_tui_defaults_reports_the_configured_theme(tmp_path, capsys):
-    import json
+def test_tui_defaults_reports_the_configured_theme(tmp_path, capsys):  # noqa: ANN001, ANN201  # tracked: #288
+    import json  # noqa: PLC0415  # tracked: #288
 
     argv = [
         "vibesys",
@@ -905,8 +907,8 @@ def test_tui_defaults_reports_the_configured_theme(tmp_path, capsys):
     assert json.loads(capsys.readouterr().out)["theme"] == "catppuccin-latte"
 
 
-def test_tui_defaults_theme_flag_overrides_the_configured_theme(tmp_path, capsys):
-    import json
+def test_tui_defaults_theme_flag_overrides_the_configured_theme(tmp_path, capsys):  # noqa: ANN001, ANN201  # tracked: #288
+    import json  # noqa: PLC0415  # tracked: #288
 
     argv = [
         "vibesys",
@@ -923,7 +925,7 @@ def test_tui_defaults_theme_flag_overrides_the_configured_theme(tmp_path, capsys
     assert json.loads(capsys.readouterr().out)["theme"] == "high-contrast-dark"
 
 
-def test_tui_defaults_rejects_an_unknown_theme(tmp_path):
+def test_tui_defaults_rejects_an_unknown_theme(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     argv = [
         "vibesys",
         "tui-defaults",
@@ -939,7 +941,7 @@ def test_tui_defaults_rejects_an_unknown_theme(tmp_path):
     assert excinfo.value.code == 2
 
 
-def test_validate_command_defaults_to_current_input_bundle(monkeypatch, tmp_path, capsys):
+def test_validate_command_defaults_to_current_input_bundle(monkeypatch, tmp_path, capsys):  # noqa: ANN001, ANN201  # tracked: #288
     bundle = _write_input_bundle(tmp_path)
     monkeypatch.chdir(bundle)
     monkeypatch.setattr(sys, "argv", ["vibesys", "validate"])
@@ -953,7 +955,7 @@ def test_validate_command_defaults_to_current_input_bundle(monkeypatch, tmp_path
     assert "benchmark command: uv run python benchmark/benchmark.py" in output
 
 
-def test_validate_command_accepts_input_bundle_path(tmp_path, capsys):
+def test_validate_command_accepts_input_bundle_path(tmp_path, capsys):  # noqa: ANN001, ANN201  # tracked: #288
     bundle = _write_input_bundle(tmp_path)
     argv = ["vibesys", "validate", str(bundle)]
 
@@ -965,7 +967,7 @@ def test_validate_command_accepts_input_bundle_path(tmp_path, capsys):
     assert f"objective: {bundle / 'OBJECTIVE.md'}" in output
 
 
-def test_validate_command_rejects_run_input_flag(tmp_path, capsys):
+def test_validate_command_rejects_run_input_flag(tmp_path, capsys):  # noqa: ANN001, ANN201  # tracked: #288
     bundle = _write_input_bundle(tmp_path)
     argv = ["vibesys", "validate", "--input", str(bundle)]
 
@@ -976,7 +978,7 @@ def test_validate_command_rejects_run_input_flag(tmp_path, capsys):
     assert "unrecognized arguments" in capsys.readouterr().err
 
 
-def test_all_example_input_bundles_pass_validate(example_input_bundles: tuple[Path, ...], capsys):
+def test_all_example_input_bundles_pass_validate(example_input_bundles: tuple[Path, ...], capsys):  # noqa: ANN001, ANN201  # tracked: #288
     for input_bundle in example_input_bundles:
         argv = ["vibesys", "validate", str(input_bundle)]
         with patch.object(sys, "argv", argv):
@@ -986,7 +988,7 @@ def test_all_example_input_bundles_pass_validate(example_input_bundles: tuple[Pa
     assert output.count("VibeSys validation passed") == len(example_input_bundles)
 
 
-def test_validate_command_reports_invalid_harness_without_running_agent(tmp_path, capsys):
+def test_validate_command_reports_invalid_harness_without_running_agent(tmp_path, capsys):  # noqa: ANN001, ANN201  # tracked: #288
     bundle = _write_input_bundle(tmp_path)
     (bundle / "OBJECTIVE.md").unlink()
     argv = ["vibesys", "validate", str(bundle)]
@@ -1006,8 +1008,8 @@ def test_validate_command_reports_invalid_harness_without_running_agent(tmp_path
     assert "OBJECTIVE.md not found" in error
 
 
-def test_resume_without_input_infers_original_input(monkeypatch, tmp_path):
-    import vibesys.main as cli
+def test_resume_without_input_infers_original_input(monkeypatch, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+    import vibesys.main as cli  # noqa: PLC0415  # tracked: #288
 
     bundle = _write_input_bundle(tmp_path)
     run_dir = tmp_path / "exp_env" / "20260716-180256-test"
@@ -1021,8 +1023,8 @@ def test_resume_without_input_infers_original_input(monkeypatch, tmp_path):
     assert invocation.args.input_bundle.root == bundle.resolve()
 
 
-def test_resume_accepts_exp_env_path_without_input(monkeypatch, tmp_path):
-    import vibesys.main as cli
+def test_resume_accepts_exp_env_path_without_input(monkeypatch, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+    import vibesys.main as cli  # noqa: PLC0415  # tracked: #288
 
     bundle = _write_input_bundle(tmp_path)
     run_dir = tmp_path / "exp_env" / "20260716-180256-test"
@@ -1037,8 +1039,8 @@ def test_resume_accepts_exp_env_path_without_input(monkeypatch, tmp_path):
     assert invocation.args.input_bundle.root == bundle.resolve()
 
 
-def test_resume_accepts_external_local_clone_and_materialized_input(monkeypatch, tmp_path):
-    import vibesys.main as cli
+def test_resume_accepts_external_local_clone_and_materialized_input(monkeypatch, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+    import vibesys.main as cli  # noqa: PLC0415  # tracked: #288
 
     run_dir = tmp_path / "clone"
     workspace = _write_input_bundle(run_dir)
@@ -1063,13 +1065,13 @@ def test_resume_accepts_external_local_clone_and_materialized_input(monkeypatch,
     assert invocation.args.input_bundle.evaluator_path is None
 
 
-def test_resume_github_repo_clones_into_exp_env(monkeypatch, tmp_path):
-    import vibesys.main as cli
+def test_resume_github_repo_clones_into_exp_env(monkeypatch, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+    import vibesys.main as cli  # noqa: PLC0415  # tracked: #288
 
     monkeypatch.setattr(cli, "PROJECT_ROOT", tmp_path)
     commands: list[list[str]] = []
 
-    def fake_run(command, **_kwargs):
+    def fake_run(command, **_kwargs):  # noqa: ANN001, ANN003, ANN202  # tracked: #288
         commands.append(command)
         if command[:3] == ["gh", "repo", "clone"]:
             Path(command[-1]).mkdir(parents=True)
@@ -1084,14 +1086,14 @@ def test_resume_github_repo_clones_into_exp_env(monkeypatch, tmp_path):
     ]
 
 
-def test_resume_github_repo_reuses_matching_local_clone(monkeypatch, tmp_path):
-    import vibesys.main as cli
+def test_resume_github_repo_reuses_matching_local_clone(monkeypatch, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+    import vibesys.main as cli  # noqa: PLC0415  # tracked: #288
 
     destination = tmp_path / "exp_env" / "trial"
     destination.mkdir(parents=True)
     monkeypatch.setattr(cli, "PROJECT_ROOT", tmp_path)
 
-    def fake_run(command, **_kwargs):
+    def fake_run(command, **_kwargs):  # noqa: ANN001, ANN003, ANN202  # tracked: #288
         assert command == ["git", "remote", "get-url", "origin"]
         return subprocess.CompletedProcess(
             command,
@@ -1110,12 +1112,12 @@ def test_resume_github_repo_reuses_matching_local_clone(monkeypatch, tmp_path):
     assert _resolve_run_dir("vibesys-playground/trial") == "trial"
 
 
-def test_resume_github_repo_explains_missing_authentication(monkeypatch, tmp_path):
-    import vibesys.main as cli
+def test_resume_github_repo_explains_missing_authentication(monkeypatch, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+    import vibesys.main as cli  # noqa: PLC0415  # tracked: #288
 
     monkeypatch.setattr(cli, "PROJECT_ROOT", tmp_path)
 
-    def fake_run(command, **_kwargs):
+    def fake_run(command, **_kwargs):  # noqa: ANN001, ANN003, ANN202  # tracked: #288
         return subprocess.CompletedProcess(command, 1, "", "not logged into any GitHub hosts")
 
     monkeypatch.setattr(cli, "GitHubCLI", lambda: GitHubCLI(_runner=fake_run))
@@ -1128,7 +1130,7 @@ def test_resume_github_repo_explains_missing_authentication(monkeypatch, tmp_pat
     assert "not logged into any GitHub hosts" in exc.value.diagnostic.message
 
 
-def test_resume_rejects_creating_a_second_repository(tmp_path):
+def test_resume_rejects_creating_a_second_repository(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     bundle = _write_input_bundle(tmp_path)
 
     with pytest.raises(ConfigurationError) as exc:
@@ -1148,8 +1150,8 @@ def test_resume_rejects_creating_a_second_repository(tmp_path):
     assert exc.value.diagnostic.code == "invalid_arguments"
 
 
-def test_resume_latest_without_input_uses_latest_run_metadata(monkeypatch, tmp_path):
-    import vibesys.main as cli
+def test_resume_latest_without_input_uses_latest_run_metadata(monkeypatch, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+    import vibesys.main as cli  # noqa: PLC0415  # tracked: #288
 
     older_bundle = _write_input_bundle(tmp_path / "older")
     latest_bundle = _write_input_bundle(tmp_path / "latest")
@@ -1165,8 +1167,8 @@ def test_resume_latest_without_input_uses_latest_run_metadata(monkeypatch, tmp_p
     assert invocation.args.input_bundle.root == latest_bundle.resolve()
 
 
-def test_resume_latest_reports_missing_exp_env(monkeypatch, tmp_path):
-    import vibesys.main as cli
+def test_resume_latest_reports_missing_exp_env(monkeypatch, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+    import vibesys.main as cli  # noqa: PLC0415  # tracked: #288
 
     monkeypatch.setattr(cli, "PROJECT_ROOT", tmp_path)
 
@@ -1176,8 +1178,8 @@ def test_resume_latest_reports_missing_exp_env(monkeypatch, tmp_path):
     assert exc.value.diagnostic.code == "resume_not_found"
 
 
-def test_resume_latest_reports_empty_exp_env(monkeypatch, tmp_path):
-    import vibesys.main as cli
+def test_resume_latest_reports_empty_exp_env(monkeypatch, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+    import vibesys.main as cli  # noqa: PLC0415  # tracked: #288
 
     (tmp_path / "exp_env").mkdir()
     monkeypatch.setattr(cli, "PROJECT_ROOT", tmp_path)
@@ -1188,8 +1190,8 @@ def test_resume_latest_reports_empty_exp_env(monkeypatch, tmp_path):
     assert exc.value.diagnostic.code == "resume_not_found"
 
 
-def test_resume_without_input_reports_missing_metadata(monkeypatch, tmp_path):
-    import vibesys.main as cli
+def test_resume_without_input_reports_missing_metadata(monkeypatch, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+    import vibesys.main as cli  # noqa: PLC0415  # tracked: #288
 
     (tmp_path / "exp_env" / "20260716-180256-test" / "logs").mkdir(parents=True)
     monkeypatch.setattr(cli, "PROJECT_ROOT", tmp_path)
@@ -1201,7 +1203,7 @@ def test_resume_without_input_reports_missing_metadata(monkeypatch, tmp_path):
     assert exc.value.diagnostic.stage == "resume_resolution"
 
 
-def test_resume_input_ignores_blank_and_non_run_events(tmp_path):
+def test_resume_input_ignores_blank_and_non_run_events(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     bundle = _write_input_bundle(tmp_path)
     run_dir = tmp_path / "exp_env" / "run"
     logs = run_dir / "logs"
@@ -1215,7 +1217,7 @@ def test_resume_input_ignores_blank_and_non_run_events(tmp_path):
     assert _infer_resume_input(run_dir) == bundle
 
 
-def test_resume_input_reports_invalid_json(tmp_path):
+def test_resume_input_reports_invalid_json(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     run_dir = tmp_path / "exp_env" / "run"
     logs = run_dir / "logs"
     logs.mkdir(parents=True)
@@ -1234,8 +1236,8 @@ def test_resume_input_reports_invalid_json(tmp_path):
         {"type": "run_started", "data": {}},
     ],
 )
-def test_resume_input_reports_missing_input_in_run_started(tmp_path, event):
-    import json
+def test_resume_input_reports_missing_input_in_run_started(tmp_path, event):  # noqa: ANN001, ANN201  # tracked: #288
+    import json  # noqa: PLC0415  # tracked: #288
 
     run_dir = tmp_path / "exp_env" / "run"
     logs = run_dir / "logs"
@@ -1248,7 +1250,7 @@ def test_resume_input_reports_missing_input_in_run_started(tmp_path, event):
     assert exc.value.diagnostic.code == "resume_input_not_found"
 
 
-def test_resume_round_defaults_when_rounds_json_missing_or_invalid(tmp_path):
+def test_resume_round_defaults_when_rounds_json_missing_or_invalid(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     exp_dir = tmp_path / "run"
 
     assert _detect_resume_round(exp_dir) == 1
@@ -1260,7 +1262,7 @@ def test_resume_round_defaults_when_rounds_json_missing_or_invalid(tmp_path):
     assert _detect_resume_round(exp_dir) == 1
 
 
-def test_resume_round_counts_round_entries_and_prunes_later_rounds(tmp_path):
+def test_resume_round_counts_round_entries_and_prunes_later_rounds(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     rounds_json = tmp_path / "run" / "logs" / "rounds.json"
     rounds_json.parent.mkdir(parents=True)
     rounds_json.write_text('[{"round": 1}, {"round": 2}, {"round": 3}]')
@@ -1276,21 +1278,21 @@ def test_resume_round_counts_round_entries_and_prunes_later_rounds(tmp_path):
 
 
 @pytest.mark.parametrize(
-    "spec,message",
+    "spec,message",  # noqa: PT006  # tracked: #288
     [
         ("latency", "must be 'name:max' or 'name:min'"),
         (":max", "metric name is empty"),
         ("latency:avg", "direction must be 'max' or 'min'"),
     ],
 )
-def test_parse_cli_objective_rejects_malformed_specs(spec, message):
-    with pytest.raises(Exception) as exc:
+def test_parse_cli_objective_rejects_malformed_specs(spec, message):  # noqa: ANN001, ANN201  # tracked: #288
+    with pytest.raises(Exception) as exc:  # noqa: PT011  # tracked: #288
         _parse_cli_objective(spec)
 
     assert message in str(exc.value)
 
 
-def test_load_objectives_toml_reports_malformed_entries(tmp_path):
+def test_load_objectives_toml_reports_malformed_entries(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     (tmp_path / "objectives.toml").write_text(
         """
 [[objective]]
@@ -1303,7 +1305,7 @@ direction = "avg"
         _load_objectives_toml(tmp_path)
 
 
-def test_load_pareto_relative_noise_toml_is_opt_in(tmp_path):
+def test_load_pareto_relative_noise_toml_is_opt_in(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     assert _load_pareto_relative_noise_toml(tmp_path) == 0.0
 
     (tmp_path / "objectives.toml").write_text("[pareto]\nrelative_noise = 0.03\n")
@@ -1312,19 +1314,19 @@ def test_load_pareto_relative_noise_toml_is_opt_in(tmp_path):
 
 
 @pytest.mark.parametrize("value", ["true", "-0.1", "1.0", '"noisy"'])
-def test_load_pareto_relative_noise_toml_rejects_invalid_values(tmp_path, value):
+def test_load_pareto_relative_noise_toml_rejects_invalid_values(tmp_path, value):  # noqa: ANN001, ANN201  # tracked: #288
     (tmp_path / "objectives.toml").write_text(f"[pareto]\nrelative_noise = {value}\n")
 
-    with pytest.raises(ValueError, match="pareto.relative_noise"):
+    with pytest.raises(ValueError, match="pareto.relative_noise"):  # noqa: RUF043  # tracked: #288
         _load_pareto_relative_noise_toml(tmp_path)
 
 
-def test_control_socket_from_argv_handles_empty_equals_and_space_form():
+def test_control_socket_from_argv_handles_empty_equals_and_space_form():  # noqa: ANN201  # tracked: #288
     assert _control_socket_from_argv(["--control-socket="]) is None
-    assert _control_socket_from_argv(["--control-socket", "/tmp/vs.sock"]) == Path("/tmp/vs.sock")
+    assert _control_socket_from_argv(["--control-socket", "/tmp/vs.sock"]) == Path("/tmp/vs.sock")  # noqa: S108  # tracked: #288
 
 
-def test_render_configuration_error_prints_usage(capsys):
+def test_render_configuration_error_prints_usage(capsys):  # noqa: ANN001, ANN201  # tracked: #288
     diagnostic = ConfigurationError(
         diagnostic=ConfigurationDiagnostic(
             code="invalid_arguments",
@@ -1347,7 +1349,7 @@ def test_render_configuration_error_prints_usage(capsys):
 
 
 @pytest.mark.parametrize("loop_name", ["agent", "evolve", "plain"])
-def test_main_routes_to_runner(loop_name: str):
+def test_main_routes_to_runner(loop_name: str):  # noqa: ANN201  # tracked: #288
     argv = ["vibesys", "--outer-loop", loop_name, "--exp-name", "x", *TARGET_ARGS]
     runner = Mock()
     with patch.object(sys, "argv", argv), _patch_loop_runner(loop_name, runner):
@@ -1358,7 +1360,7 @@ def test_main_routes_to_runner(loop_name: str):
         assert args.input_bundle.root.name == "Llama-3-8B"
 
 
-def test_main_tty_run_stays_in_python_cli():
+def test_main_tty_run_stays_in_python_cli():  # noqa: ANN201  # tracked: #288
     argv = [
         "vibesys",
         "--outer-loop",
@@ -1379,7 +1381,7 @@ def test_main_tty_run_stays_in_python_cli():
     runner.assert_called_once()
 
 
-def test_main_headless_skips_tui():
+def test_main_headless_skips_tui():  # noqa: ANN201  # tracked: #288
     argv = [
         "vibesys",
         "--outer-loop",

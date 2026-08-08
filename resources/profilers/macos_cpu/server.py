@@ -1,4 +1,4 @@
-"""MCP tools for collecting a separate macOS native CPU profile."""
+"""MCP tools for collecting a separate macOS native CPU profile."""  # noqa: INP001  # tracked: #288
 
 from pathlib import Path
 
@@ -7,7 +7,7 @@ from mcp.server.fastmcp import FastMCP
 from vibesys.macos_cpu_profiler import collect, detect_capability, parse_command
 
 
-def build_server() -> FastMCP:
+def build_server() -> FastMCP:  # noqa: D103  # tracked: #288
     mcp = FastMCP("vibesys-macos_cpu-profiler")
 
     @mcp.tool()

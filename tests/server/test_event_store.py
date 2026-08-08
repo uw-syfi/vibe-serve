@@ -25,7 +25,7 @@ def _write_events(path: Path, events: list[RunEvent]) -> None:
 
 
 class TestEventStore:
-    def test_startup_replay_cursor_and_next_sequence(self, tmp_path):
+    def test_startup_replay_cursor_and_next_sequence(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         path = tmp_path / "events.jsonl"
         _write_events(path, [_persisted_event(1, "one"), _persisted_event(2, "two")])
 
@@ -39,7 +39,7 @@ class TestEventStore:
         assert appended.run_id == "active-run"
         assert [event.sequence for event in store.read(after_sequence=1)] == [2, 3]
 
-    def test_legacy_out_of_order_sequences_keep_file_order_filtering(self, tmp_path):
+    def test_legacy_out_of_order_sequences_keep_file_order_filtering(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         path = tmp_path / "events.jsonl"
         _write_events(
             path,
@@ -52,14 +52,14 @@ class TestEventStore:
         assert store.append(make_event(EventType.OUTPUT, "four")).sequence == 4
         assert [event.text for event in store.read(after_sequence=2)] == ["three", "four"]
 
-    def test_repeated_tail_reads_do_not_reparse_history(self, tmp_path, monkeypatch):
+    def test_repeated_tail_reads_do_not_reparse_history(self, tmp_path, monkeypatch):  # noqa: ANN001, ANN201  # tracked: #288
         path = tmp_path / "events.jsonl"
         event_count = 1_000
         _write_events(path, [_persisted_event(index) for index in range(1, event_count + 1)])
         parse_count = 0
         parse = RunEvent.model_validate_json
 
-        def counting_parse(raw):
+        def counting_parse(raw):  # noqa: ANN001, ANN202  # tracked: #288
             nonlocal parse_count
             parse_count += 1
             return parse(raw)
@@ -74,7 +74,7 @@ class TestEventStore:
 
         assert parse_count == event_count
 
-    def test_ignores_only_a_malformed_final_record(self, tmp_path):
+    def test_ignores_only_a_malformed_final_record(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         path = tmp_path / "events.jsonl"
         valid = _persisted_event(1, "complete").model_dump_json()
         path.write_text(valid + "\n" + '{"protocol_version":1')
@@ -84,7 +84,7 @@ class TestEventStore:
         assert [event.text for event in store.read()] == ["complete"]
 
     @pytest.mark.parametrize("tail", ['{"protocol_version":1', '{"protocol_version":1\n'])
-    def test_append_repairs_ignored_malformed_tail_before_writing(self, tmp_path, tail):
+    def test_append_repairs_ignored_malformed_tail_before_writing(self, tmp_path, tail):  # noqa: ANN001, ANN201  # tracked: #288
         path = tmp_path / "events.jsonl"
         valid = _persisted_event(1, "complete").model_dump_json()
         path.write_text(valid + "\n" + tail)
@@ -98,16 +98,16 @@ class TestEventStore:
             (2, "after repair"),
         ]
 
-    def test_rejects_a_malformed_record_before_the_tail(self, tmp_path):
+    def test_rejects_a_malformed_record_before_the_tail(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         path = tmp_path / "events.jsonl"
         first = _persisted_event(1).model_dump_json()
         last = _persisted_event(2).model_dump_json()
         path.write_text(first + "\nnot-json\n" + last + "\n")
 
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError):  # noqa: PT011  # tracked: #288
             EventStore(path, run_id="active-run")
 
-    def test_append_wakes_multiple_independent_readers(self, tmp_path):
+    def test_append_wakes_multiple_independent_readers(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         store = EventStore(tmp_path / "events.jsonl", run_id="active-run")
         ready = threading.Barrier(3)
 
@@ -125,7 +125,7 @@ class TestEventStore:
         assert all(batch[0] == appended for batch in batches)
         assert batches[0][0] is not batches[1][0]
 
-    def test_cached_events_are_isolated_from_reader_mutation(self, tmp_path):
+    def test_cached_events_are_isolated_from_reader_mutation(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         store = EventStore(tmp_path / "events.jsonl", run_id="active-run")
         appended = store.append(make_event(EventType.OUTPUT, "durable"))
 
@@ -135,22 +135,22 @@ class TestEventStore:
         assert appended.text == "durable"
         assert store.read()[0].text == "durable"
 
-    def test_append_does_not_publish_cache_state_when_file_close_fails(self, tmp_path, monkeypatch):
+    def test_append_does_not_publish_cache_state_when_file_close_fails(self, tmp_path, monkeypatch):  # noqa: ANN001, ANN201  # tracked: #288
         path = tmp_path / "events.jsonl"
         store = EventStore(path, run_id="active-run")
         real_open = Path.open
 
         class FailingCloseStream:
-            def __enter__(self):
+            def __enter__(self):  # noqa: ANN204  # tracked: #288
                 return self
 
-            def write(self, _text):
+            def write(self, _text):  # noqa: ANN001, ANN202  # tracked: #288
                 return None
 
-            def __exit__(self, *_args):
-                raise OSError("close failed")
+            def __exit__(self, *_args):  # noqa: ANN002, ANN204  # tracked: #288
+                raise OSError("close failed")  # noqa: TRY003  # tracked: #288
 
-        def open_with_close_failure(target, mode="r", *args, **kwargs):
+        def open_with_close_failure(target, mode="r", *args, **kwargs):  # noqa: ANN001, ANN002, ANN003, ANN202  # tracked: #288
             if target == path and mode == "a":
                 return FailingCloseStream()
             return real_open(target, mode, *args, **kwargs)

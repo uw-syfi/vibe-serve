@@ -63,11 +63,11 @@ class _HungProcess(_FakeProcess):
         return self.returncode
 
 
-def test_docker_executor_runs_command_request_and_streams_to_sink(monkeypatch):
+def test_docker_executor_runs_command_request_and_streams_to_sink(monkeypatch):  # noqa: ANN001, ANN202  # tracked: #288
     process = _FakeProcess()
     popen_calls = []
 
-    def fake_popen(cmd, **kwargs):
+    def fake_popen(cmd, **kwargs):  # noqa: ANN001, ANN003, ANN202  # tracked: #288
         popen_calls.append((cmd, kwargs))
         return process
 
@@ -113,10 +113,10 @@ def test_docker_executor_runs_command_request_and_streams_to_sink(monkeypatch):
     assert result.stderr == "err\n"
 
 
-def test_docker_executor_repairs_workspace_ownership(monkeypatch):
+def test_docker_executor_repairs_workspace_ownership(monkeypatch):  # noqa: ANN001, ANN202  # tracked: #288
     calls = []
 
-    def fake_run(cmd, **kwargs):
+    def fake_run(cmd, **kwargs):  # noqa: ANN001, ANN003, ANN202  # tracked: #288
         calls.append((cmd, kwargs))
         return subprocess.CompletedProcess(cmd, 0, "", "")
 
@@ -152,7 +152,7 @@ def test_docker_executor_repairs_workspace_ownership(monkeypatch):
     ]
 
 
-def test_docker_executor_recovers_stable_completed_codex_rollout(monkeypatch):
+def test_docker_executor_recovers_stable_completed_codex_rollout(monkeypatch):  # noqa: ANN001, ANN202  # tracked: #288
     process = _HungProcess()
     thread_id = "019fc654-87f2-7702-8bf2-05b6f4f006dc"
     completion = _CodexRolloutCompletion(
@@ -160,16 +160,16 @@ def test_docker_executor_recovers_stable_completed_codex_rollout(monkeypatch):
         message='{"hypothesis_outcome":"inconclusive"}',
     )
     executor = DockerCommandExecutor("container-123")
-    executor._CODEX_ROLLOUT_POLL_SECONDS = 0
-    executor._CODEX_COMPLETION_GRACE_SECONDS = 0
+    executor._CODEX_ROLLOUT_POLL_SECONDS = 0  # noqa: SLF001  # tracked: #288
+    executor._CODEX_COMPLETION_GRACE_SECONDS = 0  # noqa: SLF001  # tracked: #288
 
     monkeypatch.setattr(
         "vibesys.agents.docker_executor.subprocess.Popen",
-        lambda *args, **kwargs: process,
+        lambda *args, **kwargs: process,  # noqa: ARG005  # tracked: #288
     )
     monkeypatch.setattr(
         "vibesys.agents.docker_executor.subprocess.run",
-        lambda cmd, **kwargs: subprocess.CompletedProcess(cmd, 0, "24190\n", ""),
+        lambda cmd, **kwargs: subprocess.CompletedProcess(cmd, 0, "24190\n", ""),  # noqa: ARG005  # tracked: #288
     )
     monkeypatch.setattr(executor, "_read_codex_rollout_completion", lambda _: completion)
 
@@ -213,25 +213,25 @@ def test_docker_executor_recovers_stable_completed_codex_rollout(monkeypatch):
     ]
 
 
-def test_codex_rollout_watchdog_requires_resumed_json_thread():
+def test_codex_rollout_watchdog_requires_resumed_json_thread():  # noqa: ANN202  # tracked: #288
     thread_id = "019fc654-87f2-7702-8bf2-05b6f4f006dc"
 
     assert (
-        DockerCommandExecutor._codex_resume_thread_id(
+        DockerCommandExecutor._codex_resume_thread_id(  # noqa: SLF001  # tracked: #288
             ["codex", "exec", "resume", thread_id, "-", "--json"]
         )
         == thread_id
     )
-    assert DockerCommandExecutor._codex_resume_thread_id(["codex", "exec", "--json"]) is None
+    assert DockerCommandExecutor._codex_resume_thread_id(["codex", "exec", "--json"]) is None  # noqa: SLF001  # tracked: #288
     assert (
-        DockerCommandExecutor._codex_resume_thread_id(
+        DockerCommandExecutor._codex_resume_thread_id(  # noqa: SLF001  # tracked: #288
             ["claude", "exec", "resume", thread_id, "--json"]
         )
         is None
     )
 
 
-def test_codex_rollout_watchdog_learns_fresh_thread_from_stream():
+def test_codex_rollout_watchdog_learns_fresh_thread_from_stream():  # noqa: ANN202  # tracked: #288
     thread_id = "019fc654-87f2-7702-8bf2-05b6f4f006dc"
     stdout_lines = [
         "not-json\n",
@@ -239,9 +239,9 @@ def test_codex_rollout_watchdog_learns_fresh_thread_from_stream():
         json.dumps({"type": "turn.started"}) + "\n",
     ]
 
-    assert DockerCommandExecutor._codex_started_thread_id(stdout_lines) == thread_id
+    assert DockerCommandExecutor._codex_started_thread_id(stdout_lines) == thread_id  # noqa: SLF001  # tracked: #288
     assert (
-        DockerCommandExecutor._codex_started_thread_id(
+        DockerCommandExecutor._codex_started_thread_id(  # noqa: SLF001  # tracked: #288
             [json.dumps({"type": "thread.started", "thread_id": "../../unsafe"})]
         )
         is None

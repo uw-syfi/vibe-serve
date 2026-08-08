@@ -8,7 +8,7 @@ packs against an existing keyword set.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path  # noqa: TC003  # tracked: #288
 
 import pytest
 
@@ -239,7 +239,7 @@ def _render_prompt_bundle(domain: DomainName, *, modality: str | None) -> dict[s
 
 
 @pytest.mark.parametrize("leak_check", DOMAIN_LEAK_CHECKS, ids=lambda check: check.source_domain)
-def test_domain_specific_keywords_do_not_leak_to_vetted_domains(
+def test_domain_specific_keywords_do_not_leak_to_vetted_domains(  # noqa: ANN201  # tracked: #288
     leak_check: DomainLeakCheck,
 ):
     failures: list[str] = []
@@ -258,7 +258,7 @@ def test_domain_specific_keywords_do_not_leak_to_vetted_domains(
     )
 
 
-def test_profiler_prompts_calibrate_observer_effects():
+def test_profiler_prompts_calibrate_observer_effects():  # noqa: ANN201  # tracked: #288
     prompts = _render_prompt_bundle(DomainName.LLM_SERVING, modality="text_generation")
 
     for prompt_name in (

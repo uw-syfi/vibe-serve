@@ -35,7 +35,7 @@ class CodexCodingAgent(CLICodingAgent[CodexGenerationSession]):
 
     supports_native_output_schema = True
 
-    def __init__(
+    def __init__(  # noqa: ANN204  # tracked: #288
         self,
         model: str | None = None,
         event_handler: AgentEventHandler | None = None,
@@ -87,7 +87,7 @@ class CodexCodingAgent(CLICodingAgent[CodexGenerationSession]):
         """Return the log prefix for this agent."""
         return "[Codex]"
 
-    def _get_command(self, prompt: str) -> list[str]:
+    def _get_command(self, prompt: str) -> list[str]:  # noqa: ARG002  # tracked: #288
         cmd = [
             self.binary_path,
             "exec",
@@ -104,7 +104,7 @@ class CodexCodingAgent(CLICodingAgent[CodexGenerationSession]):
         self._append_output_schema(cmd)
         return cmd
 
-    def _get_resume_command(self, prompt: str, session_id: str) -> list[str]:
+    def _get_resume_command(self, prompt: str, session_id: str) -> list[str]:  # noqa: ARG002  # tracked: #288
         # ``codex exec resume`` does NOT fall back to stdin when the ``[PROMPT]``
         # positional is omitted — only the literal ``-`` sentinel makes it read
         # from stdin. Pass ``-`` so the prompt we write to the subprocess's
@@ -134,7 +134,7 @@ class CodexCodingAgent(CLICodingAgent[CodexGenerationSession]):
         cmd: list[str],
         cwd: str | None = None,
         timeout: int | None = None,
-        silent: bool = False,
+        silent: bool = False,  # noqa: FBT001, FBT002  # tracked: #288
     ) -> CodexGenerationSession:
         return CodexGenerationSession(
             binary_name=self.binary_name,
@@ -152,7 +152,7 @@ class CodexCodingAgent(CLICodingAgent[CodexGenerationSession]):
     def _extract_session_id(self, session: CodexGenerationSession) -> str | None:
         return session.session_id
 
-    def install_mcp_servers(self, workspace: Path, servers: list[MCPServerSpec]) -> None:
+    def install_mcp_servers(self, workspace: Path, servers: list[MCPServerSpec]) -> None:  # noqa: ARG002  # tracked: #288
         """Stash ``--config mcp_servers.<name>.<key>=<value>`` flags on the
         instance for the next ``codex exec`` invocation.
 
@@ -165,7 +165,7 @@ class CodexCodingAgent(CLICodingAgent[CodexGenerationSession]):
 
         TOML table keys are snake_case by convention, so ``"vibesys-issues"``
         becomes ``mcp_servers.vibesys_issues``.
-        """
+        """  # noqa: D205  # tracked: #288
         flags: list[str] = []
         for s in servers:
             key = s.name.replace("-", "_")
@@ -186,6 +186,6 @@ class CodexCodingAgent(CLICodingAgent[CodexGenerationSession]):
                 )
         self.extra_config_args = flags
 
-    def uninstall_mcp_servers(self, workspace: Path, servers: list[MCPServerSpec]) -> None:
+    def uninstall_mcp_servers(self, workspace: Path, servers: list[MCPServerSpec]) -> None:  # noqa: ARG002  # tracked: #288
         """Clear the runtime ``--config`` flags. Idempotent."""
         self.extra_config_args = []

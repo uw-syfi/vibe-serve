@@ -12,19 +12,19 @@ import json
 import math
 import shlex
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path  # noqa: TC003  # tracked: #288
 from typing import Any
 
 from vibesys.agents.progress import RoundProgress
-from vibesys.config import Config
+from vibesys.config import Config  # noqa: TC001  # tracked: #288
 from vibesys.constants import DEFAULT_COMPUTE_BACKEND, ComputeBackend
 from vibesys.context import create_run_context
 from vibesys.domains.base import DomainDefinition, DomainName, DomainRole
 from vibesys.domains.registry import resolve_domain
 from vibesys.domains.rendering import render_domain_section
-from vibesys.input_manifest import BenchmarkResult, WorkspaceSource
+from vibesys.input_manifest import BenchmarkResult, WorkspaceSource  # noqa: TC001  # tracked: #288
 from vibesys.loops.agent import issue_board
-from vibesys.loops.evolve.population import Objective
+from vibesys.loops.evolve.population import Objective  # noqa: TC001  # tracked: #288
 from vibesys.loops.gates import run_accuracy_gate
 from vibesys.loops.profiler import mcp_spec as profiler_mcp_spec
 from vibesys.profilers import (
@@ -614,7 +614,7 @@ def _pareto_archive_summary(
     if frontier:
         lines.append("Trusted frontier parents:")
         for record in frontier:
-            assert record.commit is not None
+            assert record.commit is not None  # noqa: S101  # tracked: #288
             evidence = "official" if record.official_evaluation else "reviewed provisional"
             operating_point = record.candidate_operating_point or "canonical workload row"
             artifact = record.candidate_evaluation_artifact or record.evaluation_artifact
@@ -643,7 +643,7 @@ def _pareto_archive_summary(
             "do not treat it as a trusted parent until its hard invariants pass):"
         )
         for record in pending[-8:]:
-            assert record.commit is not None
+            assert record.commit is not None  # noqa: S101  # tracked: #288
             lines.append(
                 f"- round {record.round_number}, commit {record.commit[:12]}: "
                 f"{_format_metric_row(record.candidate_metrics, objectives)}; "
@@ -710,7 +710,7 @@ def _detect_plateau(
 
     The orchestrator gets this verbatim in its prompt; phrasing is
     user-facing.
-    """
+    """  # noqa: D205  # tracked: #288
     fresh = [
         r
         for r in records
@@ -738,7 +738,7 @@ def _detect_plateau(
     rounds = [r.round_number for r in tail]
     return (
         f"The last {min_streak} rounds with a fresh perf measurement (rounds "
-        f"{rounds[0]}–{rounds[-1]}) all landed in {lo:.2f}–{hi:.2f}{unit_suffix} "
+        f"{rounds[0]}–{rounds[-1]}) all landed in {lo:.2f}–{hi:.2f}{unit_suffix} "  # noqa: RUF001  # tracked: #288
         f"— a {spread_pct:.2f}% spread, well within bench noise. Whatever you've "
         f"been working on for those rounds is not actually moving the headline "
         f"metric."
@@ -820,7 +820,7 @@ def _provisional_candidates_since_official(records: list[_RoundRecord]) -> int:
     return count
 
 
-def _official_evaluation_reason(
+def _official_evaluation_reason(  # noqa: PLR0913  # tracked: #288
     *,
     records: list[_RoundRecord],
     round_number: int,
@@ -950,8 +950,8 @@ def _invoke_read_only_role(
     role: str,
     checkpoint_label: str,
     allowed_workspace_paths: tuple[str, ...] = (),
-    **invoke_kwargs: Any,
-) -> Any:
+    **invoke_kwargs: Any,  # noqa: ANN401  # tracked: #288
+) -> Any:  # noqa: ANN401  # tracked: #288
     """Invoke an evidence-reading role and undo unauthorized mutations.
 
     Prompt-level role boundaries are useful guidance, but they are not an
@@ -964,7 +964,7 @@ def _invoke_read_only_role(
     ctx.snapshot_workspace(checkpoint_label)
     checkpoint = ctx.git.current_sha()
     if checkpoint is None:
-        raise RuntimeError(f"Cannot isolate {role}: workspace checkpoint is unavailable")
+        raise RuntimeError(f"Cannot isolate {role}: workspace checkpoint is unavailable")  # noqa: TRY003  # tracked: #288
 
     try:
         return ctx.invoke(**invoke_kwargs)
@@ -983,18 +983,18 @@ def _invoke_read_only_role(
             if allowed_workspace_paths:
                 checkout_kwargs["preserve_paths"] = allowed_workspace_paths
             if not ctx.git.checkout_tree(checkpoint, **checkout_kwargs):
-                raise RuntimeError(
+                raise RuntimeError(  # noqa: TRY003  # tracked: #288
                     f"Cannot isolate {role}: failed to restore workspace checkpoint "
                     f"{checkpoint[:12]}"
                 )
             remaining = [path for path in ctx.git.pending_changes() if not is_allowed(path)]
             if remaining:
-                raise RuntimeError(
+                raise RuntimeError(  # noqa: TRY003  # tracked: #288
                     f"Cannot isolate {role}: workspace is still modified after restore: "
                     f"{', '.join(remaining[:8])}"
                 )
             shown = ", ".join(unauthorized[:8])
-            suffix = "" if len(unauthorized) <= 8 else f", ... (+{len(unauthorized) - 8} more)"
+            suffix = "" if len(unauthorized) <= 8 else f", ... (+{len(unauthorized) - 8} more)"  # noqa: PLR2004  # tracked: #288
             ctx.lprint(
                 f"[role-isolation] reverted {len(unauthorized)} workspace change(s) "
                 f"attempted by {role}: {shown}{suffix}"
@@ -1006,7 +1006,7 @@ def _is_fresh_cold_start(round_number: int, records: list[_RoundRecord]) -> bool
     return round_number == 1 and not records
 
 
-def _run_pre_round_decision(
+def _run_pre_round_decision(  # noqa: PLR0913  # tracked: #288
     ctx: LoopContext,
     *,
     round_number: int,
@@ -1061,7 +1061,7 @@ def _profiler_prompt_template(
     ).prompt_template
 
 
-def _effective_profiler_definition(
+def _effective_profiler_definition(  # noqa: ANN202  # tracked: #288
     profiler_kind: ProfilerKind,
     *,
     supports_torch_profiler: bool = False,
@@ -1075,14 +1075,14 @@ def _effective_profiler_definition(
     """
     kind = require_profiler_kind(profiler_kind)
     if kind is ProfilerKind.NONE:
-        raise ValueError("No profiler prompt exists when profiling is disabled.")
+        raise ValueError("No profiler prompt exists when profiling is disabled.")  # noqa: TRY003  # tracked: #288
     definition = profiler_definition(kind)
     if definition.requires_domain_torch_support and not supports_torch_profiler:
-        raise ValueError("The selected domain does not provide Torch profiler support.")
+        raise ValueError("The selected domain does not provide Torch profiler support.")  # noqa: TRY003  # tracked: #288
     return definition
 
 
-def _run_profiler(
+def _run_profiler(  # noqa: PLR0913  # tracked: #288
     ctx: LoopContext,
     *,
     round_number: int,
@@ -1168,7 +1168,7 @@ Write bounded durable profile evidence only below
             round_label=f"round-{round_number}-profiler",
             mcp_servers=[spec] if spec is not None else None,
         )
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # tracked: #288
         ctx.lprint(f"[warn] profiler failed: {exc}")
         return None
     if summary is None:
@@ -1204,7 +1204,7 @@ def _domain_render_context(
     }
 
 
-def _run_orchestrator_plan(
+def _run_orchestrator_plan(  # noqa: PLR0913  # tracked: #288
     ctx: LoopContext,
     *,
     round_number: int,
@@ -1264,7 +1264,7 @@ def _run_orchestrator_plan(
         response_cls=OrchestratorPlan,
         fallback_factory=lambda: OrchestratorPlan(
             task="Re-check minimal server boots and /health returns 200.",
-            pass_criteria="/health returns 200.",
+            pass_criteria="/health returns 200.",  # noqa: S106  # tracked: #288
             reasoning="fallback: orchestrator produced no structured response",
         ),
         round_label=f"round-{round_number}-plan",
@@ -1334,7 +1334,7 @@ def _validate_skill_selections(
     return validated, resolved
 
 
-def _run_implementer(
+def _run_implementer(  # noqa: PLR0913  # tracked: #288
     ctx: LoopContext,
     *,
     round_number: int,
@@ -1447,7 +1447,7 @@ def _run_implementer(
     return response
 
 
-def _run_judge(
+def _run_judge(  # noqa: PLR0913  # tracked: #288
     ctx: LoopContext,
     *,
     round_number: int,
@@ -1600,7 +1600,7 @@ def _run_judge(
     return response
 
 
-def _run_single_agent_round(
+def _run_single_agent_round(  # noqa: PLR0913  # tracked: #288
     ctx: LoopContext,
     *,
     round_number: int,
@@ -1765,12 +1765,12 @@ def _validation_input_digest(workspace: Path, recipe: ValidationRecipe) -> str:
     for relative in sorted(recipe.input_paths):
         unresolved = workspace / relative
         if unresolved.is_symlink():
-            raise ValueError(f"validation input must not be a symlink: {relative}")
+            raise ValueError(f"validation input must not be a symlink: {relative}")  # noqa: TRY003  # tracked: #288
         path = unresolved.resolve()
         if not path.is_relative_to(workspace_root):
-            raise ValueError(f"validation input escapes workspace: {relative}")
+            raise ValueError(f"validation input escapes workspace: {relative}")  # noqa: TRY003  # tracked: #288
         if not path.exists():
-            raise ValueError(f"validation input does not exist: {relative}")
+            raise ValueError(f"validation input does not exist: {relative}")  # noqa: TRY003  # tracked: #288
         digest.update(relative.encode("utf-8"))
         digest.update(b"\0dir\0" if path.is_dir() else b"\0file\0")
         entries = [path]
@@ -1778,11 +1778,11 @@ def _validation_input_digest(workspace: Path, recipe: ValidationRecipe) -> str:
             entries = sorted(candidate for candidate in path.rglob("*") if candidate.is_file())
         for entry in entries:
             if entry.is_symlink():
-                raise ValueError(f"validation input must not be a symlink: {relative}")
+                raise ValueError(f"validation input must not be a symlink: {relative}")  # noqa: TRY003  # tracked: #288
             total_files += 1
             total_bytes += entry.stat().st_size
-            if total_files > 4096 or total_bytes > 256 * 1024 * 1024:
-                raise ValueError("validation inputs exceed the 4096-file/256-MiB reuse-hash limit")
+            if total_files > 4096 or total_bytes > 256 * 1024 * 1024:  # noqa: PLR2004  # tracked: #288
+                raise ValueError("validation inputs exceed the 4096-file/256-MiB reuse-hash limit")  # noqa: TRY003  # tracked: #288
             entry_relative = entry.relative_to(workspace_root).as_posix()
             digest.update(entry_relative.encode("utf-8"))
             digest.update(b"\0")
@@ -1821,20 +1821,20 @@ def _load_validation_recipes(workspace: Path, artifact: str) -> list[ValidationR
     workspace_root = workspace.resolve()
     path = (workspace / artifact).resolve()
     if not path.is_relative_to(workspace_root):
-        raise ValueError("validation recipe artifact escapes the workspace")
+        raise ValueError("validation recipe artifact escapes the workspace")  # noqa: TRY003  # tracked: #288
     if not path.is_file():
-        raise ValueError(f"validation recipe artifact does not exist: {artifact}")
+        raise ValueError(f"validation recipe artifact does not exist: {artifact}")  # noqa: TRY003  # tracked: #288
     try:
         payload = json.loads(path.read_text())
     except (OSError, json.JSONDecodeError) as exc:
-        raise ValueError(f"validation recipe artifact is not valid JSON: {exc}") from exc
+        raise ValueError(f"validation recipe artifact is not valid JSON: {exc}") from exc  # noqa: TRY003  # tracked: #288
     try:
         return ValidationRecipeArtifact.model_validate(payload).recipes
     except (TypeError, ValueError) as exc:
-        raise ValueError(f"validation recipe artifact does not match version 1: {exc}") from exc
+        raise ValueError(f"validation recipe artifact does not match version 1: {exc}") from exc  # noqa: TRY003  # tracked: #288
 
 
-def _run_framework_validation_gate(
+def _run_framework_validation_gate(  # noqa: C901, PLR0912, PLR0915  # tracked: #288
     ctx: LoopContext,
     *,
     recipe_artifact: str | None,
@@ -1904,7 +1904,7 @@ def _run_framework_validation_gate(
                 output=output[-8000:],
                 error=None if passed else "command exited nonzero",
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # tracked: #288
             result = FrameworkValidationResult(
                 recipe=recipe,
                 input_digest=input_digest,
@@ -1916,7 +1916,7 @@ def _run_framework_validation_gate(
         if changes:
             restore_required = True
             shown = ", ".join(changes[:8])
-            suffix = "" if len(changes) <= 8 else f", ... (+{len(changes) - 8} more)"
+            suffix = "" if len(changes) <= 8 else f", ... (+{len(changes) - 8} more)"  # noqa: PLR2004  # tracked: #288
             result = result.model_copy(
                 update={
                     "passed": False,
@@ -1927,7 +1927,7 @@ def _run_framework_validation_gate(
         if not result.passed:
             break
 
-    if restore_required:
+    if restore_required:  # noqa: SIM102  # tracked: #288
         if not ctx.git.checkout_tree(checkpoint, clean=True):
             results[-1] = results[-1].model_copy(
                 update={
@@ -1996,7 +1996,7 @@ def _with_candidate_revision(
     return f"env {' '.join(environment)} {command}"
 
 
-def _run_framework_accuracy_gate(
+def _run_framework_accuracy_gate(  # noqa: PLR0913  # tracked: #288
     ctx: LoopContext,
     *,
     round_number: int,
@@ -2059,7 +2059,7 @@ def _metric_values(value: object, metric: str) -> list[object]:
     return []
 
 
-def _run_framework_benchmark(
+def _run_framework_benchmark(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
     ctx: LoopContext,
     *,
     result_spec: BenchmarkResult | None,
@@ -2080,7 +2080,7 @@ def _run_framework_benchmark(
     if not base_command:
         return "Benchmark result contract is configured without a benchmark command.", None
 
-    output_path = f"/tmp/vibesys-framework-benchmark-{round_number}-{retry}.json"
+    output_path = f"/tmp/vibesys-framework-benchmark-{round_number}-{retry}.json"  # noqa: S108  # tracked: #288
     execution_base = _with_candidate_revision(
         base_command,
         candidate_revision,
@@ -2115,7 +2115,7 @@ def _run_framework_benchmark(
                 process_kind="benchmark",
                 content=result.output,
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # tracked: #288
             output = f"benchmark command could not be executed: {exc}"
             passed = False
 
@@ -2137,15 +2137,15 @@ def _run_framework_benchmark(
                 else:
                     values = _metric_values(payload, result_spec.metric)
                 if len(values) != 1:
-                    raise ValueError(
+                    raise ValueError(  # noqa: TRY003, TRY301  # tracked: #288
                         f"expected exactly one {result_spec.metric!r} field, found {len(values)}"
                     )
                 value = values[0]
                 if isinstance(value, bool) or not isinstance(value, int | float):
-                    raise ValueError(f"{result_spec.metric!r} is not numeric")
+                    raise ValueError(f"{result_spec.metric!r} is not numeric")  # noqa: TRY003, TRY004, TRY301  # tracked: #288
                 metric_value = float(value)
                 if not math.isfinite(metric_value):
-                    raise ValueError(f"{result_spec.metric!r} is not finite")
+                    raise ValueError(f"{result_spec.metric!r} is not finite")  # noqa: TRY003, TRY301  # tracked: #288
             except (ValueError, TypeError, json.JSONDecodeError) as exc:
                 output = f"{output}\ninvalid benchmark result: {exc}".strip()
                 passed = False
@@ -2190,7 +2190,7 @@ def _run_framework_benchmark(
     return feedback, None
 
 
-def _run_framework_gates(
+def _run_framework_gates(  # noqa: PLR0913  # tracked: #288
     ctx: LoopContext,
     *,
     benchmark_result: BenchmarkResult | None,
@@ -2247,7 +2247,7 @@ def _run_framework_gates(
 # ---------------------------------------------------------------------------
 
 
-def run_agent_loop(
+def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
     config: Config,
     exp_name: str,
     input_path: str,
@@ -2312,28 +2312,28 @@ def run_agent_loop(
     bundle rather than the process-boundary mode.
     """
     if inner_loop not in _INNER_LOOPS:
-        raise ValueError(
+        raise ValueError(  # noqa: TRY003  # tracked: #288
             f"Unknown inner_loop {inner_loop!r}; choose from {', '.join(_INNER_LOOPS)}"
         )
     if max_retries_per_round < 1:
         # Guard against a zero-iteration retry loop: with no attempts the
         # round bookkeeping below would reference an unbound loop variable.
-        raise ValueError(f"max_retries_per_round must be >= 1, got {max_retries_per_round}")
+        raise ValueError(f"max_retries_per_round must be >= 1, got {max_retries_per_round}")  # noqa: TRY003  # tracked: #288
     if judge_every < 1:
-        raise ValueError(f"judge_every must be >= 1, got {judge_every}")
+        raise ValueError(f"judge_every must be >= 1, got {judge_every}")  # noqa: TRY003  # tracked: #288
     if official_eval_every < 1:
-        raise ValueError(f"official_eval_every must be >= 1, got {official_eval_every}")
+        raise ValueError(f"official_eval_every must be >= 1, got {official_eval_every}")  # noqa: TRY003  # tracked: #288
     if not 0 <= pareto_relative_noise < 1:
-        raise ValueError(f"pareto_relative_noise must be in [0, 1), got {pareto_relative_noise}")
+        raise ValueError(f"pareto_relative_noise must be in [0, 1), got {pareto_relative_noise}")  # noqa: TRY003  # tracked: #288
     if memory_layout not in issue_board.MEMORY_LAYOUTS:
-        raise ValueError(
+        raise ValueError(  # noqa: TRY003  # tracked: #288
             f"Unknown memory_layout {memory_layout!r}; "
             f"choose from {', '.join(issue_board.MEMORY_LAYOUTS)}"
         )
     if interface not in _INTERFACES:
-        raise ValueError(f"Unknown interface {interface!r}; choose from {', '.join(_INTERFACES)}")
+        raise ValueError(f"Unknown interface {interface!r}; choose from {', '.join(_INTERFACES)}")  # noqa: TRY003  # tracked: #288
     if domain is None:
-        raise ValueError("domain is required; declare [agent].domain in vibesys.input.toml")
+        raise ValueError("domain is required; declare [agent].domain in vibesys.input.toml")  # noqa: TRY003  # tracked: #288
     # Resolve the registered domain once (fail fast on an unknown name). The
     # per-role files carry language, tooling, and use-case-specific contracts.
     domain_definition = resolve_domain(domain)
@@ -2523,7 +2523,7 @@ def run_agent_loop(
                         rollback_commit, failed_child_round = _resolve_rollback_commit(
                             target, records
                         )
-                        assert rollback_commit is not None
+                        assert rollback_commit is not None  # noqa: S101  # tracked: #288
                         # Restore the tree without moving HEAD so subsequent
                         # commits land on the current branch as new commits
                         # after the reverted state.
@@ -2581,7 +2581,7 @@ def run_agent_loop(
                 retry = 0
                 first_retry = issue_board.next_implementer_attempt(progress_path, round_number)
                 if first_retry > max_retries_per_round:
-                    raise RuntimeError(
+                    raise RuntimeError(  # noqa: TRY003  # tracked: #288
                         f"Round {round_number} already persisted "
                         f"{first_retry - 1} implementer attempts, exhausting "
                         f"max_retries_per_round={max_retries_per_round}; refusing "
@@ -3223,7 +3223,7 @@ def run_agent_loop(
                     continuation_rounds=active_hypothesis.continuation_rounds,
                 ):
                     active_hypothesis.feedback = feedback if reviewed and not passed else None
-                    assert implementation is not None
+                    assert implementation is not None  # noqa: S101  # tracked: #288
                     active_hypothesis.next_step = implementation.next_step
                     active_hypothesis.continuation_rounds += 1
                 elif passed:

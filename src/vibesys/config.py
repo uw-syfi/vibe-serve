@@ -14,7 +14,7 @@ allowlist loader suffered from.
 
 import os
 import tomllib
-from collections.abc import Mapping
+from collections.abc import Mapping  # noqa: TC003  # tracked: #288
 from pathlib import Path
 from typing import Any, Literal, Self
 
@@ -36,7 +36,7 @@ class _Strict(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-class ModelCfg(_Strict):
+class ModelCfg(_Strict):  # noqa: D101  # tracked: #288
     name: str = Field(description="Model identifier, e.g. 'claude-sonnet-4-6'. Required.")
     provider: Provider | None = Field(
         default=None,
@@ -48,7 +48,7 @@ class ModelCfg(_Strict):
     )
 
 
-class ThinkingCfg(_Strict):
+class ThinkingCfg(_Strict):  # noqa: D101  # tracked: #288
     level: str | None = Field(
         default=None,
         description=(
@@ -68,11 +68,11 @@ class ThinkingCfg(_Strict):
     @model_validator(mode="after")
     def _one_thinking_control(self) -> Self:
         if self.level is not None and self.budget is not None:
-            raise ValueError("thinking.level and thinking.budget are mutually exclusive")
+            raise ValueError("thinking.level and thinking.budget are mutually exclusive")  # noqa: TRY003  # tracked: #288
         return self
 
 
-class VertexCfg(_Strict):
+class VertexCfg(_Strict):  # noqa: D101  # tracked: #288
     # The attribute is ``json_path`` to avoid shadowing ``BaseModel.json``; the
     # TOML key stays ``json`` via the alias.
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
@@ -98,7 +98,7 @@ class VertexCfg(_Strict):
     )
 
 
-class OpenAICompatCfg(_Strict):
+class OpenAICompatCfg(_Strict):  # noqa: D101  # tracked: #288
     base_url: str | None = Field(
         default=None,
         description=(
@@ -121,7 +121,7 @@ class _CredEnvProviderCfg(_Strict):
     """
 
 
-class ProvidersCfg(_Strict):
+class ProvidersCfg(_Strict):  # noqa: D101  # tracked: #288
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
     vertex_ai: VertexCfg | None = Field(
@@ -149,7 +149,7 @@ class ProvidersCfg(_Strict):
     )
 
 
-class BackendCfg(_Strict):
+class BackendCfg(_Strict):  # noqa: D101  # tracked: #288
     name: ComputeBackend = Field(
         default=DEFAULT_COMPUTE_BACKEND,
         description=(
@@ -175,7 +175,7 @@ class AgentRoleCfg(_Strict):
     )
 
 
-class AgentCfg(_Strict):
+class AgentCfg(_Strict):  # noqa: D101  # tracked: #288
     backend: str | None = Field(
         default=None,
         description=(
@@ -207,7 +207,7 @@ class AgentCfg(_Strict):
     )
 
 
-class RepositoryCfg(_Strict):
+class RepositoryCfg(_Strict):  # noqa: D101  # tracked: #288
     owner: str | None = Field(
         default=None,
         description=(
@@ -227,11 +227,11 @@ class RepositoryCfg(_Strict):
             return None
         owner = value.strip()
         if not REPOSITORY_COMPONENT.fullmatch(owner):
-            raise ValueError("repository owner must be one GitHub user or organization name")
+            raise ValueError("repository owner must be one GitHub user or organization name")  # noqa: TRY003  # tracked: #288
         return owner
 
 
-class TuiCfg(_Strict):
+class TuiCfg(_Strict):  # noqa: D101  # tracked: #288
     theme: TuiTheme = Field(
         default=DEFAULT_TUI_THEME,
         description=(
@@ -253,7 +253,7 @@ class LoadLevelCfg(_Strict):
     max_tokens: int = Field(gt=0, description="Max output tokens per request at this load level.")
 
 
-class PerfEvalCfg(_Strict):
+class PerfEvalCfg(_Strict):  # noqa: D101  # tracked: #288
     load_levels: list[LoadLevelCfg] | None = Field(
         default=None,
         description=(
@@ -263,7 +263,7 @@ class PerfEvalCfg(_Strict):
     )
 
 
-class Config(_Strict):
+class Config(_Strict):  # noqa: D101  # tracked: #288
     model_config = ConfigDict(extra="forbid", protected_namespaces=())
 
     model: ModelCfg = Field(description="[model] — model name and provider. Required.")
@@ -344,7 +344,7 @@ def load_config(path: Path) -> Config:
     """Load, validate, and env-override a TOML agent config file."""
     _load_dotenv_file()
     path = Path(path)
-    with open(path, "rb") as f:
+    with open(path, "rb") as f:  # noqa: PTH123  # tracked: #288
         raw = tomllib.load(f)
 
     config = Config.model_validate(raw)

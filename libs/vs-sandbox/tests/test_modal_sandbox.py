@@ -6,11 +6,11 @@ import pytest
 
 
 @pytest.fixture
-def mock_modal(monkeypatch):
+def mock_modal(monkeypatch):  # noqa: ANN001, ANN201  # tracked: #288
     """Patch modal.Sandbox.create, Image.from_registry, App.lookup, Volume.from_name/delete."""
-    import modal
+    import modal  # noqa: PLC0415  # tracked: #288
 
-    from vs_sandbox.modal_sandbox import _live_sandboxes
+    from vs_sandbox.modal_sandbox import _live_sandboxes  # noqa: PLC0415  # tracked: #288
 
     _live_sandboxes.clear()
 
@@ -53,8 +53,8 @@ def mock_modal(monkeypatch):
 
 
 @pytest.fixture
-def sandbox(tmp_path, mock_modal):
-    from vs_sandbox.modal_sandbox import ModalSandbox
+def sandbox(tmp_path, mock_modal):  # noqa: ANN001, ANN201, ARG001  # tracked: #288
+    from vs_sandbox.modal_sandbox import ModalSandbox  # noqa: PLC0415  # tracked: #288
 
     ws = tmp_path / "workspace"
     ws.mkdir()
@@ -70,30 +70,30 @@ def sandbox(tmp_path, mock_modal):
 
 
 class TestVpath:
-    def test_rewrites_virtual_root_paths(self, sandbox):
-        assert sandbox._vpath("/foo/bar.py") == "/workspace/foo/bar.py"
+    def test_rewrites_virtual_root_paths(self, sandbox):  # noqa: ANN001, ANN201  # tracked: #288
+        assert sandbox._vpath("/foo/bar.py") == "/workspace/foo/bar.py"  # noqa: SLF001  # tracked: #288
 
-    def test_preserves_container_root_paths(self, sandbox):
-        assert sandbox._vpath("/workspace/foo") == "/workspace/foo"
+    def test_preserves_container_root_paths(self, sandbox):  # noqa: ANN001, ANN201  # tracked: #288
+        assert sandbox._vpath("/workspace/foo") == "/workspace/foo"  # noqa: SLF001  # tracked: #288
 
-    def test_preserves_passthrough(self, tmp_path, mock_modal):
-        from vs_sandbox.modal_sandbox import ModalSandbox
+    def test_preserves_passthrough(self, tmp_path, mock_modal):  # noqa: ANN001, ANN201, ARG002  # tracked: #288
+        from vs_sandbox.modal_sandbox import ModalSandbox  # noqa: PLC0415  # tracked: #288
 
         sb = ModalSandbox(
             host_workspace=str(tmp_path),
             image="nvcr.io/nvidia/pytorch:25.04-py3",
             passthrough_paths=["/model"],
         )
-        assert sb._vpath("/model/weights.bin") == "/model/weights.bin"
-        assert sb._vpath("/foo") == "/workspace/foo"
+        assert sb._vpath("/model/weights.bin") == "/model/weights.bin"  # noqa: SLF001  # tracked: #288
+        assert sb._vpath("/foo") == "/workspace/foo"  # noqa: SLF001  # tracked: #288
 
-    def test_relative_paths_untouched(self, sandbox):
-        assert sandbox._vpath("foo/bar.py") == "foo/bar.py"
+    def test_relative_paths_untouched(self, sandbox):  # noqa: ANN001, ANN201  # tracked: #288
+        assert sandbox._vpath("foo/bar.py") == "foo/bar.py"  # noqa: SLF001  # tracked: #288
 
 
 class TestStart:
-    def test_start_creates_sandbox_with_gpu_and_timeout(self, sandbox, mock_modal):
-        import modal
+    def test_start_creates_sandbox_with_gpu_and_timeout(self, sandbox, mock_modal):  # noqa: ANN001, ANN201, ARG002  # tracked: #288
+        import modal  # noqa: PLC0415  # tracked: #288
 
         sandbox.start()
         modal.Sandbox.create.assert_called_once()
@@ -102,10 +102,10 @@ class TestStart:
         assert kwargs["workdir"] == "/workspace"
         assert "/workspace" in kwargs["volumes"]
 
-    def test_start_mounts_model_volume_when_name_given(self, tmp_path, mock_modal):
-        import modal
+    def test_start_mounts_model_volume_when_name_given(self, tmp_path, mock_modal):  # noqa: ANN001, ANN201, ARG002  # tracked: #288
+        import modal  # noqa: PLC0415  # tracked: #288
 
-        from vs_sandbox.modal_sandbox import ModalSandbox
+        from vs_sandbox.modal_sandbox import ModalSandbox  # noqa: PLC0415  # tracked: #288
 
         with ModalSandbox(
             host_workspace=str(tmp_path),
@@ -115,12 +115,12 @@ class TestStart:
             kwargs = modal.Sandbox.create.call_args.kwargs
             assert "/model" in kwargs["volumes"]
 
-    def test_start_uploads_bind_mounts_into_workspace_volume(
+    def test_start_uploads_bind_mounts_into_workspace_volume(  # noqa: ANN201  # tracked: #288
         self,
-        tmp_path,
-        mock_modal,
+        tmp_path,  # noqa: ANN001  # tracked: #288
+        mock_modal,  # noqa: ANN001  # tracked: #288
     ):
-        from vs_sandbox.modal_sandbox import ModalSandbox
+        from vs_sandbox.modal_sandbox import ModalSandbox  # noqa: PLC0415  # tracked: #288
 
         ws = tmp_path / "ws"
         ws.mkdir()
@@ -136,12 +136,12 @@ class TestStart:
             calls = upload_cm.put_directory.call_args_list
             assert any("bench" in str(c) and "'/bench'" in str(c) for c in calls)
 
-    def test_start_skips_model_bind_mount_from_workspace_volume(
+    def test_start_skips_model_bind_mount_from_workspace_volume(  # noqa: ANN201  # tracked: #288
         self,
-        tmp_path,
-        mock_modal,
+        tmp_path,  # noqa: ANN001  # tracked: #288
+        mock_modal,  # noqa: ANN001  # tracked: #288
     ):
-        from vs_sandbox.modal_sandbox import ModalSandbox
+        from vs_sandbox.modal_sandbox import ModalSandbox  # noqa: PLC0415  # tracked: #288
 
         ws = tmp_path / "ws"
         ws.mkdir()
@@ -154,12 +154,12 @@ class TestStart:
             for c in upload_cm.put_directory.call_args_list:
                 assert "/host/model" not in str(c)
 
-    def test_start_skips_hf_cache_bind_mount_from_workspace_volume(
+    def test_start_skips_hf_cache_bind_mount_from_workspace_volume(  # noqa: ANN201  # tracked: #288
         self,
-        tmp_path,
-        mock_modal,
+        tmp_path,  # noqa: ANN001  # tracked: #288
+        mock_modal,  # noqa: ANN001  # tracked: #288
     ):
-        from vs_sandbox.modal_sandbox import ModalSandbox
+        from vs_sandbox.modal_sandbox import ModalSandbox  # noqa: PLC0415  # tracked: #288
 
         ws = tmp_path / "ws"
         ws.mkdir()
@@ -177,12 +177,12 @@ class TestStart:
             for c in upload_cm.put_directory.call_args_list:
                 assert ".hf_cache" not in str(c)
 
-    def test_start_excludes_local_runtime_dirs_from_workspace_upload(
+    def test_start_excludes_local_runtime_dirs_from_workspace_upload(  # noqa: ANN201  # tracked: #288
         self,
-        tmp_path,
-        mock_modal,
+        tmp_path,  # noqa: ANN001  # tracked: #288
+        mock_modal,  # noqa: ANN001  # tracked: #288
     ):
-        from vs_sandbox.modal_sandbox import ModalSandbox
+        from vs_sandbox.modal_sandbox import ModalSandbox  # noqa: PLC0415  # tracked: #288
 
         ws = tmp_path / "ws"
         ws.mkdir()
@@ -207,12 +207,12 @@ class TestStart:
             assert not any(".venv" in c for c in uploaded)
             assert not any(".git" in c for c in uploaded)
 
-    def test_start_uploads_minimal_codex_auth_snapshot(
+    def test_start_uploads_minimal_codex_auth_snapshot(  # noqa: ANN201  # tracked: #288
         self,
-        tmp_path,
-        mock_modal,
+        tmp_path,  # noqa: ANN001  # tracked: #288
+        mock_modal,  # noqa: ANN001, ARG002  # tracked: #288
     ):
-        from vs_sandbox.modal_sandbox import ModalSandbox
+        from vs_sandbox.modal_sandbox import ModalSandbox  # noqa: PLC0415  # tracked: #288
 
         ws = tmp_path / "ws"
         ws.mkdir()
@@ -230,7 +230,7 @@ class TestStart:
             image="nvcr.io/nvidia/pytorch:25.04-py3",
         )
         snapshot = tmp_path / "snapshot"
-        sb._copy_bind_mount_snapshot(codex, snapshot)
+        sb._copy_bind_mount_snapshot(codex, snapshot)  # noqa: SLF001  # tracked: #288
 
         assert (snapshot / "auth.json").exists()
         assert (snapshot / "config.toml").exists()
@@ -240,7 +240,7 @@ class TestStart:
 
 
 class TestExecute:
-    def test_execute_runs_bash_command_in_workspace(self, sandbox, mock_modal):
+    def test_execute_runs_bash_command_in_workspace(self, sandbox, mock_modal):  # noqa: ANN001, ANN201  # tracked: #288
         sandbox.start()
         resp = sandbox.execute("ls")
         assert resp.exit_code == 0
@@ -253,42 +253,42 @@ class TestExecute:
             timeout=300,
         )
 
-    def test_execute_respects_custom_timeout(self, sandbox, mock_modal):
+    def test_execute_respects_custom_timeout(self, sandbox, mock_modal):  # noqa: ANN001, ANN201  # tracked: #288
         sandbox.start()
         sandbox.execute("sleep 1", timeout=42)
         # Last exec call should have timeout=42
         call = mock_modal["sandbox"].exec.call_args_list[-1]
         assert call.kwargs["timeout"] == 42
 
-    def test_execute_truncates_long_output(self, sandbox, mock_modal):
+    def test_execute_truncates_long_output(self, sandbox, mock_modal):  # noqa: ANN001, ANN201  # tracked: #288
         sandbox.start()
         mock_modal["proc"].stdout.read.return_value = "a" * 200_000
         mock_modal["proc"].stderr.read.return_value = ""
-        sandbox._max_output_bytes = 1000
+        sandbox._max_output_bytes = 1000  # noqa: SLF001  # tracked: #288
         resp = sandbox.execute("big")
         assert resp.truncated
         assert "truncated" in resp.output
 
-    def test_execute_handles_exception_gracefully(self, sandbox, mock_modal):
+    def test_execute_handles_exception_gracefully(self, sandbox, mock_modal):  # noqa: ANN001, ANN201  # tracked: #288
         sandbox.start()
         mock_modal["sandbox"].exec.side_effect = RuntimeError("boom")
         resp = sandbox.execute("x")
         assert resp.exit_code == -1
         assert "boom" in resp.output
 
-    def test_execute_raises_when_not_started(self, sandbox):
+    def test_execute_raises_when_not_started(self, sandbox):  # noqa: ANN001, ANN201  # tracked: #288
         with pytest.raises(RuntimeError, match="not started"):
             sandbox.execute("ls")
 
 
 class TestStop:
-    def test_stop_terminates_and_deletes_volume(self, sandbox, mock_modal):
+    def test_stop_terminates_and_deletes_volume(self, sandbox, mock_modal):  # noqa: ANN001, ANN201  # tracked: #288
         sandbox.start()
         sandbox.stop()
         mock_modal["sandbox"].terminate.assert_called_once()
         mock_modal["objects"].delete.assert_called_once()
 
-    def test_stop_is_idempotent(self, sandbox, mock_modal):
+    def test_stop_is_idempotent(self, sandbox, mock_modal):  # noqa: ANN001, ANN201  # tracked: #288
         sandbox.start()
         sandbox.stop()
         sandbox.stop()  # should not raise
@@ -296,10 +296,10 @@ class TestStop:
 
 
 class TestTransientRetry:
-    def test_is_transient_detects_dns_and_connection_errors(self):
-        import socket
+    def test_is_transient_detects_dns_and_connection_errors(self):  # noqa: ANN201  # tracked: #288
+        import socket  # noqa: PLC0415  # tracked: #288
 
-        from vs_sandbox.modal_sandbox import _is_transient
+        from vs_sandbox.modal_sandbox import _is_transient  # noqa: PLC0415  # tracked: #288
 
         assert _is_transient(socket.gaierror(-2, "Name or service not known"))
         assert _is_transient(ConnectionResetError("Connection reset"))
@@ -313,17 +313,17 @@ class TestTransientRetry:
         assert not _is_transient(FileNotFoundError("/nowhere"))
         assert not _is_transient(RuntimeError("something specific"))
 
-    def test_retry_recovers_after_transient_error(self, monkeypatch):
-        import socket
+    def test_retry_recovers_after_transient_error(self, monkeypatch):  # noqa: ANN001, ANN201  # tracked: #288
+        import socket  # noqa: PLC0415  # tracked: #288
 
-        from vs_sandbox.modal_sandbox import _retry_transient
+        from vs_sandbox.modal_sandbox import _retry_transient  # noqa: PLC0415  # tracked: #288
 
         # Avoid actual sleeping in the test.
         monkeypatch.setattr("vs_sandbox.modal_sandbox.time.sleep", lambda _: None)
 
         calls = {"n": 0}
 
-        def flaky():
+        def flaky():  # noqa: ANN202  # tracked: #288
             calls["n"] += 1
             if calls["n"] < 3:
                 raise socket.gaierror(-2, "Name or service not known")
@@ -332,29 +332,29 @@ class TestTransientRetry:
         assert _retry_transient(flaky, base_delay=0.01) == "ok"
         assert calls["n"] == 3
 
-    def test_retry_reraises_non_transient_immediately(self):
-        from vs_sandbox.modal_sandbox import _retry_transient
+    def test_retry_reraises_non_transient_immediately(self):  # noqa: ANN201  # tracked: #288
+        from vs_sandbox.modal_sandbox import _retry_transient  # noqa: PLC0415  # tracked: #288
 
         calls = {"n": 0}
 
-        def fatal():
+        def fatal():  # noqa: ANN202  # tracked: #288
             calls["n"] += 1
-            raise ValueError("real bug")
+            raise ValueError("real bug")  # noqa: TRY003  # tracked: #288
 
         with pytest.raises(ValueError, match="real bug"):
             _retry_transient(fatal, base_delay=0.01)
         assert calls["n"] == 1  # no retries for non-transient
 
-    def test_retry_gives_up_after_max_attempts(self, monkeypatch):
-        import socket
+    def test_retry_gives_up_after_max_attempts(self, monkeypatch):  # noqa: ANN001, ANN201  # tracked: #288
+        import socket  # noqa: PLC0415  # tracked: #288
 
-        from vs_sandbox.modal_sandbox import _retry_transient
+        from vs_sandbox.modal_sandbox import _retry_transient  # noqa: PLC0415  # tracked: #288
 
         monkeypatch.setattr("vs_sandbox.modal_sandbox.time.sleep", lambda _: None)
 
         calls = {"n": 0}
 
-        def always_fails():
+        def always_fails():  # noqa: ANN202  # tracked: #288
             calls["n"] += 1
             raise socket.gaierror(-2, "Name or service not known")
 
@@ -362,9 +362,9 @@ class TestTransientRetry:
             _retry_transient(always_fails, max_attempts=3, base_delay=0.01)
         assert calls["n"] == 3
 
-    def test_execute_retries_on_transient_then_succeeds(self, sandbox, mock_modal, monkeypatch):
+    def test_execute_retries_on_transient_then_succeeds(self, sandbox, mock_modal, monkeypatch):  # noqa: ANN001, ANN201  # tracked: #288
         """Integration: a flaky sandbox.exec should be transparently retried."""
-        import socket
+        import socket  # noqa: PLC0415  # tracked: #288
 
         monkeypatch.setattr("vs_sandbox.modal_sandbox.time.sleep", lambda _: None)
         sandbox.start()
@@ -376,7 +376,7 @@ class TestTransientRetry:
 
         attempt = {"n": 0}
 
-        def flaky_exec(*args, **kwargs):
+        def flaky_exec(*args, **kwargs):  # noqa: ANN002, ANN003, ANN202, ARG001  # tracked: #288
             attempt["n"] += 1
             if attempt["n"] < 3:
                 raise socket.gaierror(-2, "Name or service not known")
@@ -393,23 +393,23 @@ class TestTransientRetry:
 class TestSandboxFallbackRestart:
     """Verify the sandbox-dead fallback path: recreate + retry, preserving the volume."""
 
-    def test_is_sandbox_dead_recognizes_shutdown_messages(self):
-        from vs_sandbox.modal_sandbox import _is_sandbox_dead
+    def test_is_sandbox_dead_recognizes_shutdown_messages(self):  # noqa: ANN201  # tracked: #288
+        from vs_sandbox.modal_sandbox import _is_sandbox_dead  # noqa: PLC0415  # tracked: #288
 
         assert _is_sandbox_dead(RuntimeError("Sandbox has already shut down"))
         assert _is_sandbox_dead(Exception("Sandbox has exited"))
         assert _is_sandbox_dead(RuntimeError("sandbox is not running"))
         # Non-sandbox-dead errors must NOT trigger the restart path.
-        import socket
+        import socket  # noqa: PLC0415  # tracked: #288
 
         assert not _is_sandbox_dead(socket.gaierror(-2, "Name or service not known"))
         assert not _is_sandbox_dead(ValueError("bad argument"))
 
-    def test_execute_restarts_sandbox_on_death_and_retries(
+    def test_execute_restarts_sandbox_on_death_and_retries(  # noqa: ANN201  # tracked: #288
         self,
-        sandbox,
-        mock_modal,
-        monkeypatch,
+        sandbox,  # noqa: ANN001  # tracked: #288
+        mock_modal,  # noqa: ANN001  # tracked: #288
+        monkeypatch,  # noqa: ANN001  # tracked: #288
     ):
         """A dead sandbox should be recreated once, then the command re-run."""
         monkeypatch.setattr("vs_sandbox.modal_sandbox.time.sleep", lambda _: None)
@@ -422,10 +422,10 @@ class TestSandboxFallbackRestart:
 
         call = {"n": 0}
 
-        def flaky_exec(*args, **kwargs):
+        def flaky_exec(*args, **kwargs):  # noqa: ANN002, ANN003, ANN202, ARG001  # tracked: #288
             call["n"] += 1
             if call["n"] == 1:
-                raise RuntimeError("Sandbox has already shut down")
+                raise RuntimeError("Sandbox has already shut down")  # noqa: TRY003  # tracked: #288
             return proc_ok
 
         mock_modal["sandbox"].exec.side_effect = flaky_exec
@@ -436,19 +436,19 @@ class TestSandboxFallbackRestart:
         # 1 failing call (sandbox-dead) + init commands on restart + 1 successful call
         assert call["n"] >= 2
 
-    def test_restart_attempts_capped_by_max(self, sandbox, mock_modal, monkeypatch):
+    def test_restart_attempts_capped_by_max(self, sandbox, mock_modal, monkeypatch):  # noqa: ANN001, ANN201, ARG002  # tracked: #288
         """After max_restart_attempts, further restarts are refused."""
         monkeypatch.setattr("vs_sandbox.modal_sandbox.time.sleep", lambda _: None)
-        sandbox._max_restart_attempts = 1
+        sandbox._max_restart_attempts = 1  # noqa: SLF001  # tracked: #288
         sandbox.start()
 
         # First restart succeeds, a second attempted restart must be refused.
-        assert sandbox._restart_sandbox() is True
-        assert sandbox._restart_sandbox() is False  # capped
+        assert sandbox._restart_sandbox() is True  # noqa: SLF001  # tracked: #288
+        assert sandbox._restart_sandbox() is False  # capped  # noqa: SLF001  # tracked: #288
 
-    def test_restart_can_be_disabled(self, tmp_path, mock_modal, monkeypatch):
+    def test_restart_can_be_disabled(self, tmp_path, mock_modal, monkeypatch):  # noqa: ANN001, ANN201  # tracked: #288
         """enable_fallback_restart=False disables the recovery path entirely."""
-        from vs_sandbox.modal_sandbox import ModalSandbox
+        from vs_sandbox.modal_sandbox import ModalSandbox  # noqa: PLC0415  # tracked: #288
 
         with ModalSandbox(
             host_workspace=str(tmp_path),
@@ -459,9 +459,9 @@ class TestSandboxFallbackRestart:
 
             call = {"n": 0}
 
-            def dies(*args, **kwargs):
+            def dies(*args, **kwargs):  # noqa: ANN002, ANN003, ANN202, ARG001  # tracked: #288
                 call["n"] += 1
-                raise RuntimeError("Sandbox has already shut down")
+                raise RuntimeError("Sandbox has already shut down")  # noqa: TRY003  # tracked: #288
 
             mock_modal["sandbox"].exec.side_effect = dies
 
@@ -469,11 +469,11 @@ class TestSandboxFallbackRestart:
             assert resp.exit_code == -1
             assert "already shut down" in resp.output.lower()
 
-    def test_extra_readonly_volumes_are_mounted(self, tmp_path, mock_modal):
+    def test_extra_readonly_volumes_are_mounted(self, tmp_path, mock_modal):  # noqa: ANN001, ANN201, ARG002  # tracked: #288
         """Auxiliary volumes like /draft_model should be added to volumes dict."""
-        import modal
+        import modal  # noqa: PLC0415  # tracked: #288
 
-        from vs_sandbox.modal_sandbox import ModalSandbox
+        from vs_sandbox.modal_sandbox import ModalSandbox  # noqa: PLC0415  # tracked: #288
 
         with ModalSandbox(
             host_workspace=str(tmp_path),
@@ -485,10 +485,10 @@ class TestSandboxFallbackRestart:
 
 
 class TestPathOverrides:
-    def test_read_translates_virtual_path(self, sandbox, mock_modal):
+    def test_read_translates_virtual_path(self, sandbox, mock_modal):  # noqa: ANN001, ANN201  # tracked: #288
         sandbox.start()
         mock_modal["proc"].stdout.read.return_value = "     1\thello\n"
         sandbox.read("/foo.txt")
         # The base class builds a python3 heredoc command — check /workspace/foo.txt appears
         # (it gets base64-encoded; easier to check via _vpath directly).
-        assert sandbox._vpath("/foo.txt") == "/workspace/foo.txt"
+        assert sandbox._vpath("/foo.txt") == "/workspace/foo.txt"  # noqa: SLF001  # tracked: #288

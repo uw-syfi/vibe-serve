@@ -59,7 +59,7 @@ def _bwrap_works() -> bool:
             argv += ["--ro-bind", root, root]
     argv.append(probe)
     try:
-        proc = subprocess.run(argv, capture_output=True, timeout=15)
+        proc = subprocess.run(argv, capture_output=True, timeout=15)  # noqa: PLW1510, S603  # tracked: #288
     except (OSError, subprocess.SubprocessError):
         return False
     return proc.returncode == 0
@@ -88,32 +88,32 @@ requires_sandbox = pytest.mark.skipif(
 
 
 class TestBuild:
-    def test_disabled_via_env_returns_none(self, tmp_path):
+    def test_disabled_via_env_returns_none(self, tmp_path):  # noqa: ANN001, ANN202  # tracked: #288
         logs: list[str] = []
         sb = hostsandbox.build(tmp_path, env={hostsandbox.DISABLE_ENV: "0"}, log=logs.append)
         assert sb is None
         assert any("DISABLED" in m for m in logs)
 
     @pytest.mark.parametrize("value", ["0", "false", "off", "no", "FALSE", " Off "])
-    def test_disable_values(self, tmp_path, value):
+    def test_disable_values(self, tmp_path, value):  # noqa: ANN001, ANN202  # tracked: #288
         assert hostsandbox.build(tmp_path, env={hostsandbox.DISABLE_ENV: value}) is None
 
-    def test_missing_bwrap_returns_none(self, tmp_path, monkeypatch):
+    def test_missing_bwrap_returns_none(self, tmp_path, monkeypatch):  # noqa: ANN001, ANN202  # tracked: #288
         monkeypatch.setattr(hostsandbox.sys, "platform", "linux")
-        monkeypatch.setattr(hostsandbox.shutil, "which", lambda *a, **k: None)
+        monkeypatch.setattr(hostsandbox.shutil, "which", lambda *a, **k: None)  # noqa: ARG005  # tracked: #288
         logs: list[str] = []
         assert hostsandbox.build(tmp_path, env={}, log=logs.append) is None
         assert any("bwrap" in m for m in logs)
 
-    def test_unsupported_platform_returns_none(self, tmp_path, monkeypatch):
+    def test_unsupported_platform_returns_none(self, tmp_path, monkeypatch):  # noqa: ANN001, ANN202  # tracked: #288
         monkeypatch.setattr(hostsandbox.sys, "platform", "win32")
         logs: list[str] = []
         assert hostsandbox.build(tmp_path, env={}, log=logs.append) is None
         assert any("no host confinement backend" in m for m in logs)
 
-    def test_allow_ancestor_of_workspace_is_rejected(self, tmp_path, monkeypatch):
+    def test_allow_ancestor_of_workspace_is_rejected(self, tmp_path, monkeypatch):  # noqa: ANN001, ANN202  # tracked: #288
         monkeypatch.setattr(hostsandbox.sys, "platform", "linux")
-        monkeypatch.setattr(hostsandbox.shutil, "which", lambda *a, **k: "/usr/bin/bwrap")
+        monkeypatch.setattr(hostsandbox.shutil, "which", lambda *a, **k: "/usr/bin/bwrap")  # noqa: ARG005  # tracked: #288
         workspace = tmp_path / "exp_env" / "run" / "workspace"
         workspace.mkdir(parents=True)
         logs: list[str] = []
@@ -128,9 +128,9 @@ class TestBuild:
         assert tmp_path.resolve() not in sb.read_paths
         assert any("ancestor" in m for m in logs)
 
-    def test_allow_extra_path_is_bound(self, tmp_path, monkeypatch):
+    def test_allow_extra_path_is_bound(self, tmp_path, monkeypatch):  # noqa: ANN001, ANN202  # tracked: #288
         monkeypatch.setattr(hostsandbox.sys, "platform", "linux")
-        monkeypatch.setattr(hostsandbox.shutil, "which", lambda *a, **k: "/usr/bin/bwrap")
+        monkeypatch.setattr(hostsandbox.shutil, "which", lambda *a, **k: "/usr/bin/bwrap")  # noqa: ARG005  # tracked: #288
         workspace = tmp_path / "ws"
         workspace.mkdir()
         weights = tmp_path.parent / f"{tmp_path.name}-weights"
@@ -147,9 +147,9 @@ class TestBuild:
         finally:
             weights.rmdir()
 
-    def test_programmatic_resources_are_imported_by_access(self, tmp_path, monkeypatch):
+    def test_programmatic_resources_are_imported_by_access(self, tmp_path, monkeypatch):  # noqa: ANN001, ANN202  # tracked: #288
         monkeypatch.setattr(hostsandbox.sys, "platform", "linux")
-        monkeypatch.setattr(hostsandbox.shutil, "which", lambda *a, **k: "/usr/bin/bwrap")
+        monkeypatch.setattr(hostsandbox.shutil, "which", lambda *a, **k: "/usr/bin/bwrap")  # noqa: ARG005  # tracked: #288
         workspace = tmp_path / "workspace"
         readonly = tmp_path / "compiler"
         writable = tmp_path / "agent-state"
@@ -173,9 +173,9 @@ class TestBuild:
         assert readonly in sb.read_paths
         assert writable in sb.write_paths
 
-    def test_codex_auth_file_survives_nested_codex_worktree_filter(self, tmp_path, monkeypatch):
+    def test_codex_auth_file_survives_nested_codex_worktree_filter(self, tmp_path, monkeypatch):  # noqa: ANN001, ANN202  # tracked: #288
         monkeypatch.setattr(hostsandbox.sys, "platform", "linux")
-        monkeypatch.setattr(hostsandbox.shutil, "which", lambda *a, **k: "/usr/bin/bwrap")
+        monkeypatch.setattr(hostsandbox.shutil, "which", lambda *a, **k: "/usr/bin/bwrap")  # noqa: ARG005  # tracked: #288
         codex_home = tmp_path / ".codex"
         workspace = codex_home / "worktrees" / "run" / "workspace"
         workspace.mkdir(parents=True)
@@ -215,7 +215,7 @@ class TestWrap:
             gpu_device_nodes=(Path("/dev/nvidia0"),),
         )
 
-    def test_wrap_shape(self, tmp_path):
+    def test_wrap_shape(self, tmp_path):  # noqa: ANN001, ANN202  # tracked: #288
         sb = self._sandbox(tmp_path)
         argv = sb.wrap(["codex", "exec", "--json"])
         ws = str(tmp_path)
@@ -234,7 +234,7 @@ class TestWrap:
         sep = argv.index("--")
         assert argv[sep + 1 :] == ["codex", "exec", "--json"]
 
-    def test_workspace_bind_wins_over_readonly(self, tmp_path):
+    def test_workspace_bind_wins_over_readonly(self, tmp_path):  # noqa: ANN001, ANN202  # tracked: #288
         """The rw workspace bind must come after ro binds so it takes effect."""
         sb = self._sandbox(tmp_path)
         argv = sb.wrap(["agent"])
@@ -246,15 +246,15 @@ class TestWrap:
 class TestSharedAbstraction:
     """Both OS backends implement the one ``WorkspaceSandbox`` contract."""
 
-    def test_backends_subclass_workspace_sandbox(self):
+    def test_backends_subclass_workspace_sandbox(self):  # noqa: ANN202  # tracked: #288
         assert issubclass(hostsandbox.HostSandbox, hostsandbox.WorkspaceSandbox)
         assert issubclass(hostsandbox.SeatbeltSandbox, hostsandbox.WorkspaceSandbox)
 
-    def test_base_is_abstract(self):
+    def test_base_is_abstract(self):  # noqa: ANN202  # tracked: #288
         with pytest.raises(TypeError):
             hostsandbox.WorkspaceSandbox(workspace=Path("/x"))
 
-    def test_backends_share_fields_and_wrap(self):
+    def test_backends_share_fields_and_wrap(self):  # noqa: ANN202  # tracked: #288
         host = hostsandbox.HostSandbox(
             workspace=Path("/x"), bwrap_path="/usr/bin/bwrap", read_paths=(Path("/opt"),)
         )
@@ -280,11 +280,11 @@ def _has_pair(argv: list[str], flag: str, *operands: str) -> bool:
 
 
 class TestMacosBuild:
-    def _patch(self, monkeypatch, sandbox_exec="/usr/bin/sandbox-exec"):
+    def _patch(self, monkeypatch, sandbox_exec="/usr/bin/sandbox-exec"):  # noqa: ANN001, ANN202  # tracked: #288
         monkeypatch.setattr(hostsandbox.sys, "platform", "darwin")
-        monkeypatch.setattr(hostsandbox.shutil, "which", lambda *a, **k: sandbox_exec)
+        monkeypatch.setattr(hostsandbox.shutil, "which", lambda *a, **k: sandbox_exec)  # noqa: ARG005  # tracked: #288
 
-    def test_build_returns_seatbelt_on_darwin(self, tmp_path, monkeypatch):
+    def test_build_returns_seatbelt_on_darwin(self, tmp_path, monkeypatch):  # noqa: ANN001, ANN202  # tracked: #288
         self._patch(monkeypatch)
         workspace = tmp_path / "ws"
         workspace.mkdir()
@@ -292,13 +292,13 @@ class TestMacosBuild:
         assert isinstance(sb, hostsandbox.SeatbeltSandbox)
         assert sb.workspace == workspace.resolve()
 
-    def test_missing_sandbox_exec_returns_none(self, tmp_path, monkeypatch):
+    def test_missing_sandbox_exec_returns_none(self, tmp_path, monkeypatch):  # noqa: ANN001, ANN202  # tracked: #288
         self._patch(monkeypatch, sandbox_exec=None)
         logs: list[str] = []
         assert hostsandbox.build(tmp_path, env={}, log=logs.append) is None
         assert any("sandbox-exec" in m for m in logs)
 
-    def test_allow_ancestor_rejected_on_darwin(self, tmp_path, monkeypatch):
+    def test_allow_ancestor_rejected_on_darwin(self, tmp_path, monkeypatch):  # noqa: ANN001, ANN202  # tracked: #288
         self._patch(monkeypatch)
         workspace = tmp_path / "exp_env" / "run" / "workspace"
         workspace.mkdir(parents=True)
@@ -321,7 +321,7 @@ class TestSeatbeltProfile:
             write_paths=(Path("/home/u/.codex"),),
         )
 
-    def test_profile_write_confines_but_reads_broadly(self, tmp_path):
+    def test_profile_write_confines_but_reads_broadly(self, tmp_path):  # noqa: ANN001, ANN202  # tracked: #288
         prof = self._sandbox(tmp_path).profile()
         assert prof.startswith("(version 1)\n(deny default)")
         # Reads are broad (so the toolchain launches); the workspace is writable;
@@ -332,7 +332,7 @@ class TestSeatbeltProfile:
         assert f'(subpath "{tmp_path}")' in prof
         assert "(allow network*)" in prof
 
-    def test_profile_blinds_sibling_run_area(self, tmp_path):
+    def test_profile_blinds_sibling_run_area(self, tmp_path):  # noqa: ANN001, ANN202  # tracked: #288
         """The run-container tree is denied (read+write); the workspace is carved
         back out so sibling runs are hidden but the workspace still works."""
         workspace = tmp_path / "exp_env" / "run-A" / "workspace"
@@ -352,18 +352,19 @@ class TestSeatbeltProfile:
         assert reallow in prof
         assert prof.index(reallow) > deny_idx
 
-    def test_blind_roots_skip_system_dirs(self, tmp_path):
+    def test_blind_roots_skip_system_dirs(self, tmp_path):  # noqa: ANN001, ANN202, ARG002  # tracked: #288
         """A shallow workspace must never blind the filesystem root or a system
         dir (that would break the toolchain)."""
         sb = hostsandbox.SeatbeltSandbox(
-            sandbox_exec_path="/usr/bin/sandbox-exec", workspace=Path("/tmp/ws")
+            sandbox_exec_path="/usr/bin/sandbox-exec",
+            workspace=Path("/tmp/ws"),  # noqa: S108  # tracked: #288
         )
         # parent is /tmp, grandparent is / — root is skipped; no system root leaks.
         for r in sb.blind_roots():
             assert r != Path("/")
             assert not str(r).startswith("/usr")
 
-    def test_wrap_shape(self, tmp_path):
+    def test_wrap_shape(self, tmp_path):  # noqa: ANN001, ANN202  # tracked: #288
         sb = self._sandbox(tmp_path)
         argv = sb.wrap(["codex", "exec", "--json"])
         assert argv[0] == "/usr/bin/sandbox-exec"
@@ -371,10 +372,10 @@ class TestSeatbeltProfile:
         assert argv[2] == sb.profile()
         assert argv[3:] == ["codex", "exec", "--json"]
 
-    def test_sbpl_string_escapes_quotes_and_backslashes(self):
-        assert hostsandbox._sbpl_string(r'/a/"b"\c') == r'"/a/\"b\"\\c"'
+    def test_sbpl_string_escapes_quotes_and_backslashes(self):  # noqa: ANN202  # tracked: #288
+        assert hostsandbox._sbpl_string(r'/a/"b"\c') == r'"/a/\"b\"\\c"'  # noqa: SLF001  # tracked: #288
 
-    def test_profile_embeds_paths_safely(self, tmp_path):
+    def test_profile_embeds_paths_safely(self, tmp_path):  # noqa: ANN001, ANN202  # tracked: #288
         """A workspace path with SBPL-significant characters stays quoted."""
         workspace = tmp_path / 'weird ")name'
         workspace.mkdir()
@@ -383,7 +384,7 @@ class TestSeatbeltProfile:
         )
         prof = sb.profile()
         # The literal appears escaped, and the raw unescaped form does not leak.
-        assert hostsandbox._sbpl_string(str(workspace)) in prof
+        assert hostsandbox._sbpl_string(str(workspace)) in prof  # noqa: SLF001  # tracked: #288
         assert f'(subpath "{workspace}")' not in prof
 
 
@@ -396,8 +397,8 @@ class _StubAgent(CLICodingAgent[CLIGenerationSession]):
     """A concrete CLICodingAgent that runs a fixed script, skipping binary
     detection — mirrors the pattern in ``test_codex.py``."""
 
-    def __init__(self, script: str):
-        from agentshim.executor import HostCommandExecutor
+    def __init__(self, script: str):  # noqa: ANN204  # tracked: #288
+        from agentshim.executor import HostCommandExecutor  # noqa: PLC0415  # tracked: #288
 
         self.executor = HostCommandExecutor()
         self.env = dict(os.environ)
@@ -405,14 +406,14 @@ class _StubAgent(CLICodingAgent[CLIGenerationSession]):
         self.binary_path = script
         self.model = None
         self.event_handler = None
-        import loguru
+        import loguru  # noqa: PLC0415  # tracked: #288
 
         self.logger = loguru.logger
         self.session_id = None
         self.sandbox = None
         self._script = script
 
-    def _get_command(self, prompt: str) -> list[str]:
+    def _get_command(self, prompt: str) -> list[str]:  # noqa: ARG002  # tracked: #288
         return [self._script]
 
     def _create_session(
@@ -420,7 +421,7 @@ class _StubAgent(CLICodingAgent[CLIGenerationSession]):
         cmd: list[str],
         cwd: str | None = None,
         timeout: int | None = None,
-        silent: bool = False,
+        silent: bool = False,  # noqa: FBT001, FBT002  # tracked: #288
     ) -> CLIGenerationSession:
         return CLIGenerationSession(
             binary_name=self.binary_name,
@@ -436,7 +437,7 @@ class _StubAgent(CLICodingAgent[CLIGenerationSession]):
         )
 
 
-def _escape_probe(tmp_path_factory) -> tuple[_StubAgent, Path, Path]:
+def _escape_probe(tmp_path_factory) -> tuple[_StubAgent, Path, Path]:  # noqa: ANN001  # tracked: #288
     """Set up a workspace with a sibling secret and a stub agent (in a separate
     toolchain dir, like a real agent binary) that tries to read/write it."""
     host = tmp_path_factory.mktemp("host")
@@ -459,17 +460,17 @@ def _escape_probe(tmp_path_factory) -> tuple[_StubAgent, Path, Path]:
     return _StubAgent(str(script)), workspace, sibling
 
 
-def test_reproduces_escape_without_sandbox(tmp_path_factory):
+def test_reproduces_escape_without_sandbox(tmp_path_factory):  # noqa: ANN001, ANN202  # tracked: #288
     """Without confinement the stub agent reaches the sibling run — the #149 bug."""
     agent, workspace, _ = _escape_probe(tmp_path_factory)
     agent.sandbox = None  # legacy behavior
     out = agent.generate("stay in the workspace", cwd=str(workspace), silent=True)
-    assert "READ_OK" in out and "SECRET=leak" in out
+    assert "READ_OK" in out and "SECRET=leak" in out  # noqa: PT018  # tracked: #288
     assert "WRITE_OK" in out
 
 
 @requires_sandbox
-def test_sandbox_blocks_escape_but_allows_workspace(tmp_path_factory):
+def test_sandbox_blocks_escape_but_allows_workspace(tmp_path_factory):  # noqa: ANN001, ANN202  # tracked: #288
     """With confinement installed the same escape attempts fail, yet the agent
     can still read and write inside its own workspace."""
     agent, workspace, sibling = _escape_probe(tmp_path_factory)
@@ -481,7 +482,7 @@ def test_sandbox_blocks_escape_but_allows_workspace(tmp_path_factory):
     assert agent.sandbox is not None
     out = agent.generate("stay in the workspace", cwd=str(workspace), silent=True)
 
-    assert "READ_OK" not in out and "SECRET=leak" not in out
+    assert "READ_OK" not in out and "SECRET=leak" not in out  # noqa: PT018  # tracked: #288
     assert "WRITE_OK" not in out
     assert not (sibling / "pwn.txt").exists()
     # Legitimate workspace work is unaffected.
@@ -490,7 +491,7 @@ def test_sandbox_blocks_escape_but_allows_workspace(tmp_path_factory):
 
 
 @requires_sandbox
-def test_sandbox_exposes_codex_auth_but_not_sibling_worktrees(tmp_path):
+def test_sandbox_exposes_codex_auth_but_not_sibling_worktrees(tmp_path):  # noqa: ANN001, ANN202  # tracked: #288
     codex_home = tmp_path / ".codex"
     workspace = codex_home / "worktrees" / "run-A" / "workspace"
     sibling = codex_home / "worktrees" / "run-B" / "secret.txt"
@@ -517,12 +518,12 @@ def test_sandbox_exposes_codex_auth_but_not_sibling_worktrees(tmp_path):
             f'test "$(cat {auth})" = "auth token" && test ! -e {sibling}',
         ]
     )
-    result = subprocess.run(command, env=env, capture_output=True, text=True)
+    result = subprocess.run(command, env=env, capture_output=True, text=True)  # noqa: PLW1510, S603  # tracked: #288
     assert result.returncode == 0, result.stderr
 
 
 @requires_sandbox
-def test_generate_does_not_wrap_when_cwd_is_none(tmp_path_factory, monkeypatch):
+def test_generate_does_not_wrap_when_cwd_is_none(tmp_path_factory, monkeypatch):  # noqa: ANN001, ANN202  # tracked: #288
     """Container executors pass ``cwd=None``; the sandbox must not engage there
     (they are already externally sandboxed)."""
     agent, workspace, _ = _escape_probe(tmp_path_factory)
@@ -549,7 +550,7 @@ def _seatbelt_works() -> bool:
         return False
     probe = "/usr/bin/true" if Path("/usr/bin/true").exists() else "/bin/true"
     try:
-        proc = subprocess.run(
+        proc = subprocess.run(  # noqa: PLW1510, S603  # tracked: #288
             [sandbox_exec, "-p", "(version 1)(allow default)", probe],
             capture_output=True,
             timeout=15,
@@ -566,7 +567,7 @@ requires_seatbelt = pytest.mark.skipif(
 
 
 @requires_seatbelt
-def test_seatbelt_blocks_escape_but_allows_workspace(tmp_path_factory):
+def test_seatbelt_blocks_escape_but_allows_workspace(tmp_path_factory):  # noqa: ANN001, ANN202  # tracked: #288
     """macOS counterpart of the Linux regression: the Seatbelt profile denies the
     sibling read/write while the workspace stays usable."""
     agent, workspace, sibling = _escape_probe(tmp_path_factory)
@@ -580,7 +581,7 @@ def test_seatbelt_blocks_escape_but_allows_workspace(tmp_path_factory):
     # Sanity-check that the profile lets an ordinary binary launch at all before
     # asserting on the escape. A dyld-startup denial shows up as an abort with no
     # stderr, so surface sandbox-exec's own output to make such failures legible.
-    probe = subprocess.run(agent.sandbox.wrap(["/usr/bin/true"]), capture_output=True, text=True)
+    probe = subprocess.run(agent.sandbox.wrap(["/usr/bin/true"]), capture_output=True, text=True)  # noqa: PLW1510, S603  # tracked: #288
     assert probe.returncode == 0, (
         f"profile blocks a trivial launch (rc={probe.returncode}); "
         f"stderr={probe.stderr!r}\n--- profile ---\n{agent.sandbox.profile()}"
@@ -588,7 +589,7 @@ def test_seatbelt_blocks_escape_but_allows_workspace(tmp_path_factory):
 
     out = agent.generate("stay in the workspace", cwd=str(workspace), silent=True)
 
-    assert "READ_OK" not in out and "SECRET=leak" not in out
+    assert "READ_OK" not in out and "SECRET=leak" not in out  # noqa: PT018  # tracked: #288
     assert "WRITE_OK" not in out
     assert not (sibling / "pwn.txt").exists()
     assert "WS_OK" in out

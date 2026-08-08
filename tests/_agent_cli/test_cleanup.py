@@ -57,10 +57,10 @@ class RecordingExecutor:
 
 
 class DummyAgent(CLICodingAgent[CLIGenerationSession]):
-    def __init__(self, executor: RecordingExecutor):
+    def __init__(self, executor: RecordingExecutor):  # noqa: ANN204  # tracked: #288
         super().__init__("dummy", executor=executor)
 
-    def _get_command(self, prompt: str) -> list[str]:
+    def _get_command(self, prompt: str) -> list[str]:  # noqa: ARG002  # tracked: #288
         return [self.binary_path, "run"]
 
     def _create_session(
@@ -68,7 +68,7 @@ class DummyAgent(CLICodingAgent[CLIGenerationSession]):
         cmd: list[str],
         cwd: str | None = None,
         timeout: int | None = None,
-        silent: bool = False,
+        silent: bool = False,  # noqa: FBT001, FBT002  # tracked: #288
     ) -> CLIGenerationSession:
         return CLIGenerationSession(
             binary_name=self.binary_name,
@@ -84,7 +84,7 @@ class DummyAgent(CLICodingAgent[CLIGenerationSession]):
         )
 
 
-def test_agent_initialization_uses_command_executor():
+def test_agent_initialization_uses_command_executor():  # noqa: ANN202  # tracked: #288
     executor = RecordingExecutor()
 
     agent = DummyAgent(executor)
@@ -94,13 +94,13 @@ def test_agent_initialization_uses_command_executor():
     assert executor.check_calls == [("/usr/bin/dummy", agent.env, 10)]
 
 
-def test_generate_routes_command_through_executor():
+def test_generate_routes_command_through_executor():  # noqa: ANN202  # tracked: #288
     executor = RecordingExecutor(stdout=["hello\n", "world\n"])
     agent = DummyAgent(executor)
 
     result = agent.generate(
         "prompt text",
-        cwd="/tmp/workspace",
+        cwd="/tmp/workspace",  # noqa: S108  # tracked: #288
         timeout=123,
         silent=True,
     )
@@ -109,12 +109,12 @@ def test_generate_routes_command_through_executor():
     call = executor.run_calls[0]
     assert call.argv == ["/usr/bin/dummy", "run"]
     assert call.stdin == "prompt text"
-    assert call.cwd == "/tmp/workspace"
+    assert call.cwd == "/tmp/workspace"  # noqa: S108  # tracked: #288
     assert call.env is agent.env
     assert call.timeout == 123
 
 
-def test_generate_raises_on_nonzero_executor_result():
+def test_generate_raises_on_nonzero_executor_result():  # noqa: ANN202  # tracked: #288
     executor = RecordingExecutor(stderr=["bad\n"], returncode=17)
     agent = DummyAgent(executor)
 
@@ -122,7 +122,7 @@ def test_generate_raises_on_nonzero_executor_result():
         agent.generate("prompt", silent=True)
 
 
-def test_generate_propagates_executor_timeout():
+def test_generate_propagates_executor_timeout():  # noqa: ANN202  # tracked: #288
     timeout = subprocess.TimeoutExpired(cmd=["dummy"], timeout=1)
     executor = RecordingExecutor(run_error=timeout)
     agent = DummyAgent(executor)
@@ -131,7 +131,7 @@ def test_generate_propagates_executor_timeout():
         agent.generate("prompt", timeout=1, silent=True)
 
 
-def test_multiple_generates_reuse_executor():
+def test_multiple_generates_reuse_executor():  # noqa: ANN202  # tracked: #288
     executor = RecordingExecutor()
     agent = DummyAgent(executor)
 
@@ -149,7 +149,7 @@ def test_multiple_generates_reuse_executor():
         ("gemini", GeminiCodingAgent),
     ],
 )
-def test_provider_agents_accept_command_executor(binary_name, agent_class):
+def test_provider_agents_accept_command_executor(binary_name, agent_class):  # noqa: ANN001, ANN202  # tracked: #288
     executor = RecordingExecutor()
 
     agent = agent_class(executor=executor)

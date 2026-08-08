@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable  # noqa: TC003  # tracked: #288
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path  # noqa: TC003  # tracked: #288
 
 from vs_sandbox.host_resources import HostResource, HostResourceAccess
 

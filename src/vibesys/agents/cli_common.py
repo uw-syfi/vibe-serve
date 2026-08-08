@@ -18,14 +18,14 @@ import json
 import os
 import shutil
 import tempfile
-from collections.abc import Callable
+from collections.abc import Callable  # noqa: TC003  # tracked: #288
 from pathlib import Path
 from typing import TextIO
 
-from pydantic import BaseModel
+from pydantic import BaseModel  # noqa: TC002  # tracked: #288
 
 from vibesys.agent_runner import log_and_print
-from vibesys.constants import ComputeBackend
+from vibesys.constants import ComputeBackend  # noqa: TC001  # tracked: #288
 from vibesys.skills import foreign_platform_names, is_platforms_parent
 
 # Per-provider CLI skill-discovery paths, matching upstream
@@ -73,7 +73,7 @@ _UNSUPPORTED_NATIVE_SCHEMA_KEYWORDS = frozenset(
 )
 
 
-def _validate_native_output_schema(schema: object) -> dict[str, object]:
+def _validate_native_output_schema(schema: object) -> dict[str, object]:  # noqa: C901  # tracked: #288
     """Normalize and validate the strict JSON Schema subset used by Codex.
 
     Native structured output requires every declared object property and
@@ -83,9 +83,9 @@ def _validate_native_output_schema(schema: object) -> dict[str, object]:
     falls back to the portable prompt contract.
     """
     if not isinstance(schema, dict) or schema.get("type") != "object":
-        raise ValueError("native output schema must have an object root")
+        raise ValueError("native output schema must have an object root")  # noqa: TRY003  # tracked: #288
 
-    def visit(node: object, location: str) -> None:
+    def visit(node: object, location: str) -> None:  # noqa: C901, PLR0912  # tracked: #288
         if isinstance(node, list):
             for index, value in enumerate(node):
                 visit(value, f"{location}/{index}")
@@ -95,7 +95,7 @@ def _validate_native_output_schema(schema: object) -> dict[str, object]:
         reference = node.get("$ref")
         if reference is not None:
             if not isinstance(reference, str) or not reference.startswith("#/"):
-                raise ValueError(f"native output schema uses a non-local $ref at {location}")
+                raise ValueError(f"native output schema uses a non-local $ref at {location}")  # noqa: TRY003  # tracked: #288
             # Codex follows the older strict subset where a reference may not
             # have annotation or validation siblings.
             node.clear()
@@ -105,27 +105,27 @@ def _validate_native_output_schema(schema: object) -> dict[str, object]:
         properties = node.get("properties")
         if properties is not None:
             if not isinstance(properties, dict):
-                raise ValueError(f"native output schema {location}/properties must be an object")
+                raise ValueError(f"native output schema {location}/properties must be an object")  # noqa: TRY003  # tracked: #288
             additional = node.get("additionalProperties")
             if additional not in (None, False):
-                raise ValueError(f"native output schema uses arbitrary object keys at {location}")
+                raise ValueError(f"native output schema uses arbitrary object keys at {location}")  # noqa: TRY003  # tracked: #288
             node["additionalProperties"] = False
             node["required"] = list(properties)
         elif node.get("type") == "object":
             additional = node.get("additionalProperties")
             if additional not in (None, False):
-                raise ValueError(f"native output schema uses arbitrary object keys at {location}")
+                raise ValueError(f"native output schema uses arbitrary object keys at {location}")  # noqa: TRY003  # tracked: #288
             node["additionalProperties"] = False
             node["required"] = []
         for key, value in node.items():
             if key in {"properties", "$defs", "definitions"}:
                 if not isinstance(value, dict):
-                    raise ValueError(f"native output schema {location}/{key} must be an object")
+                    raise ValueError(f"native output schema {location}/{key} must be an object")  # noqa: TRY003  # tracked: #288
                 for name, subschema in value.items():
                     visit(subschema, f"{location}/{key}/{name}")
                 continue
             if key in _UNSUPPORTED_NATIVE_SCHEMA_KEYWORDS:
-                raise ValueError(
+                raise ValueError(  # noqa: TRY003  # tracked: #288
                     f"native output schema uses unsupported keyword {key!r} at {location}"
                 )
             visit(value, f"{location}/{key}")
@@ -149,7 +149,7 @@ def materialize_native_output_schema(workspace: Path, response_cls: type[BaseMod
             stream.write(encoded)
             stream.flush()
             os.fsync(stream.fileno())
-        os.replace(temporary, target)
+        os.replace(temporary, target)  # noqa: PTH105  # tracked: #288
     finally:
         temporary.unlink(missing_ok=True)
     return relative.as_posix()
@@ -189,7 +189,7 @@ def _platform_prune_ignore(
     return _ignore
 
 
-def materialize_skills(
+def materialize_skills(  # noqa: C901  # tracked: #288
     workspace: Path,
     skill_dirs: list[Path],
     *,

@@ -100,22 +100,22 @@ exchange, and investigate the refreshed trajectory evidence before making claims
 def setup_exp_dir(
     exp_name: str,
     project_root: Path = PROJECT_ROOT,
-    existing: bool = False,
+    existing: bool = False,  # noqa: FBT001, FBT002  # tracked: #288
 ) -> Path:
     """Create or validate exp_env/<timestamp>-<exp_name>/ directory with git init."""
     if existing:
         exp_dir = project_root / "exp_env" / exp_name
     else:
-        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")  # noqa: DTZ005  # tracked: #288
         exp_dir = project_root / "exp_env" / f"{timestamp}-{uuid.uuid4().hex[:8]}-{exp_name}"
     if existing:
         if not exp_dir.is_dir():
-            raise FileNotFoundError(f"Experiment directory not found: {exp_dir}")
+            raise FileNotFoundError(f"Experiment directory not found: {exp_dir}")  # noqa: TRY003  # tracked: #288
         return exp_dir
     exp_dir.mkdir(parents=True, exist_ok=False)
     if not (exp_dir / ".git").is_dir():
         subprocess.run(
-            ["git", "init", "-b", "main"],
+            ["git", "init", "-b", "main"],  # noqa: S607  # tracked: #288
             cwd=exp_dir,
             capture_output=True,
             check=True,
@@ -128,9 +128,9 @@ def _coerce_dir(raw: str | Path | None, label: str) -> Path | None:
         return None
     p = Path(raw).expanduser().resolve()
     if not p.exists():
-        raise ValueError(f"{label} path does not exist: {raw}")
+        raise ValueError(f"{label} path does not exist: {raw}")  # noqa: TRY003  # tracked: #288
     if not p.is_dir():
-        raise ValueError(f"{label} path is not a directory: {raw}")
+        raise ValueError(f"{label} path is not a directory: {raw}")  # noqa: TRY003  # tracked: #288
     return p
 
 
@@ -224,14 +224,14 @@ def _coerce_skills_dirs(raw_dirs: list[str] | None) -> list[Path]:
             p = PROJECT_ROOT / p
         p = p.resolve()
         if not p.exists():
-            raise ValueError(f"--skills-dir path does not exist: {raw}")
+            raise ValueError(f"--skills-dir path does not exist: {raw}")  # noqa: TRY003  # tracked: #288
         if not p.is_dir():
-            raise ValueError(f"--skills-dir path is not a directory: {raw}")
+            raise ValueError(f"--skills-dir path is not a directory: {raw}")  # noqa: TRY003  # tracked: #288
         result.append(p)
     return result
 
 
-def create_run_context(
+def create_run_context(  # noqa: PLR0913  # tracked: #288
     config: Config,
     exp_name: str,
     input_path: str,
@@ -242,14 +242,14 @@ def create_run_context(
     evaluator_path: Path | None = None,
     hidden_evaluator_path: Path | None = None,
     objective: str | None = None,
-    existing: bool = False,
+    existing: bool = False,  # noqa: FBT001, FBT002  # tracked: #288
     trusted_input_baseline: str | None = None,
-    debug: bool = False,
+    debug: bool = False,  # noqa: FBT001, FBT002  # tracked: #288
     profiler_kind: ProfilerKind = ProfilerKind.AUTO,
     profiler_domain: DomainName = DomainName.LLM_SERVING,
     skills_dirs: list[str] | None = None,
     run_environment: RunEnvironmentSpec | None = None,
-    git_tracking: bool = False,
+    git_tracking: bool = False,  # noqa: FBT001, FBT002  # tracked: #288
     agent_backend: str | None = None,
     cli_provider: str | None = None,
     backend: ComputeBackend = DEFAULT_COMPUTE_BACKEND,
@@ -305,14 +305,14 @@ def _close_after_construction_failure(
     """Unwind partial construction without replacing its root-cause error."""
     try:
         teardown_stack.close()
-    except BaseException as cleanup_error:
+    except BaseException as cleanup_error:  # noqa: BLE001  # tracked: #288
         construction_error.add_note(
             "Additional error while cleaning up partial context construction: "
             f"{type(cleanup_error).__name__}: {cleanup_error}"
         )
 
 
-def _assemble_run_context(
+def _assemble_run_context(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
     *,
     teardown_stack: ExitStack,
     config: Config,
@@ -369,7 +369,7 @@ def _assemble_run_context(
 
     log_dir = exp_dir / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
-    from vibesys.server.registry import active_supervisor
+    from vibesys.server.registry import active_supervisor  # noqa: PLC0415  # tracked: #288
 
     supervisor = active_supervisor()
     if supervisor is not None:
@@ -487,7 +487,7 @@ def _assemble_run_context(
     ref_dir: Path | None = input_dir / "reference"
     if ref_dir.exists():
         if not ref_dir.is_dir():
-            raise ValueError(f"reference path is not a directory: {ref_dir}")
+            raise ValueError(f"reference path is not a directory: {ref_dir}")  # noqa: TRY003  # tracked: #288
         reference_py = sorted(ref_dir.glob("*.py"))
         ref_name = f"reference/{reference_py[0].name}" if len(reference_py) == 1 else "reference"
     else:
@@ -525,7 +525,7 @@ def _assemble_run_context(
     def _teardown_environment_hooks() -> None:
         try:
             hooks.teardown(environment_context)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # tracked: #288
             logger.lprint(f"[warn] environment hook teardown failed: {exc}")
 
     teardown_stack.callback(_teardown_environment_hooks)
@@ -677,7 +677,7 @@ def _assemble_run_context(
     )
 
 
-def create_candidate_context(
+def create_candidate_context(  # noqa: PLR0913  # tracked: #288
     parent: "_RunContext",
     *,
     config: Config,
@@ -722,7 +722,7 @@ def create_candidate_context(
         raise
 
 
-def _assemble_candidate_context(
+def _assemble_candidate_context(  # noqa: PLR0913  # tracked: #288
     *,
     teardown_stack: ExitStack,
     parent: "_RunContext",
@@ -897,7 +897,7 @@ class _RunContext:
     sandbox session.
     """
 
-    def __init__(
+    def __init__(  # noqa: ANN204, PLR0913  # tracked: #288
         self,
         *,
         backend: ComputeBackend,
@@ -908,14 +908,14 @@ class _RunContext:
         debug: bool,
         git_tracking: bool,
         backend_impl: ComputeBackendImpl,
-        model: Any,
+        model: Any,  # noqa: ANN401  # tracked: #288
         model_name: str,
         input_path: str | None,
         workspace_seed_path: Path | None,
         workspace_sources: tuple[WorkspaceSource, ...],
         evaluator_path: Path | None,
         hidden_evaluator_path: Path | None,
-        framework_judge_backend: Any,
+        framework_judge_backend: Any,  # noqa: ANN401  # tracked: #288
         effective_objective: str | None,
         accuracy_command: str,
         benchmark_command: str,
@@ -1047,7 +1047,7 @@ class _RunContext:
             return None
         return self._progress_stack[-1]
 
-    def invoke(
+    def invoke(  # noqa: PLR0913  # tracked: #288
         self,
         *,
         kind: str,
@@ -1057,7 +1057,7 @@ class _RunContext:
         fallback_factory: Callable[[], T],
         round_label: str = "",
         progress: AgentProgress | None = None,
-        **extra: Any,
+        **extra: Any,  # noqa: ANN401  # tracked: #288
     ) -> T:
         """Invoke an agent through ``self.agent_runner`` with workspace+env defaults.
 
@@ -1085,7 +1085,7 @@ class _RunContext:
                 progress=progress if progress is not None else self.current_progress(),
                 **extra,
             )
-            return result
+            return result  # noqa: RET504, TRY300  # tracked: #288
         except BaseException as exc:
             error = exc
             raise
@@ -1095,17 +1095,17 @@ class _RunContext:
 
     def chat(self, question: str) -> str:
         """Ask a read-only peer agent about the live experiment."""
-        from vibesys.server.inspector import RunInspector
+        from vibesys.server.inspector import RunInspector  # noqa: PLC0415  # tracked: #288
 
         with self._chat_lock:
             self._sync_chat_trajectory()
 
             def fallback() -> str:
-                assert self.supervisor is not None
+                assert self.supervisor is not None  # noqa: S101  # tracked: #288
                 diagnostic = RunInspector(self.supervisor).answer(question)
                 return f"Chat agent did not return an answer.\n\nFallback diagnostic:\n{diagnostic}"
 
-            assert self.supervisor is not None
+            assert self.supervisor is not None  # noqa: S101  # tracked: #288
             invocation_id = uuid.uuid4().hex
             system_prompt = (
                 _EXPERIMENT_CHAT_CONTINUATION_PROMPT
@@ -1129,7 +1129,7 @@ class _RunContext:
                         progress=self.current_progress(),
                     )
                 except Exception as exc:
-                    raise RuntimeError(f"Chat agent failed: {type(exc).__name__}: {exc}") from exc
+                    raise RuntimeError(f"Chat agent failed: {type(exc).__name__}: {exc}") from exc  # noqa: TRY003  # tracked: #288
             if not answer.strip():
                 answer = fallback()
             self._chat_history.append((question, answer))
@@ -1218,7 +1218,7 @@ class _RunContext:
         if self._experiment_repository is not None:
             try:
                 self._experiment_repository.sync()
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001  # tracked: #288
                 self.lprint(f"[warn] experiment repository checkpoint push failed: {exc}")
 
     def trusted_input_changes(self) -> list[str]:
@@ -1267,7 +1267,7 @@ class _RunContext:
         # Update the agent runner's log file handle so subsequent
         # invoke() calls write to the new step log.
         if hasattr(self, "agent_runner") and hasattr(self.agent_runner, "_run_log_file"):
-            self.agent_runner._run_log_file = self.logger.writer  # pyright: ignore[reportAttributeAccessIssue]
+            self.agent_runner._run_log_file = self.logger.writer  # pyright: ignore[reportAttributeAccessIssue]  # noqa: SLF001  # tracked: #288
 
     def reselect_gpu(self) -> None:
         """Delegate mid-run device rebalance — see :meth:`DeviceLease.reselect`."""

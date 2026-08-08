@@ -152,7 +152,7 @@ def _render_prompt(case: _Case, role: str) -> str:
             "judge_prompt.j2",
             **common,
             domain_judge=_domain_section(case, DomainRole.JUDGE),
-            pass_criteria="The candidate passes correctness and improves the headline metric.",
+            pass_criteria="The candidate passes correctness and improves the headline metric.",  # noqa: S106  # tracked: #288
         )
     if role == "profiler":
         definition = profiler_definition(case.profiler)
@@ -164,7 +164,7 @@ def _render_prompt(case: _Case, role: str) -> str:
             profiler_support_name=definition.support_name,
             profiler_mcp_name=definition.mcp_name,
         )
-    raise AssertionError(f"unknown prompt role: {role}")
+    raise AssertionError(f"unknown prompt role: {role}")  # noqa: TRY003  # tracked: #288
 
 
 def _snapshot_path(case: _Case, role: str) -> Path:

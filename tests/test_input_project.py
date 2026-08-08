@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import shutil
-from pathlib import Path
+from pathlib import Path  # noqa: TC003  # tracked: #288
 
 import pytest
 
@@ -16,7 +16,7 @@ def _copy_dir(src: Path, dst: Path) -> None:
     shutil.copytree(src, dst, dirs_exist_ok=True)
 
 
-def test_discover_input_project_finds_pyproject_next_to_reference(tmp_path):
+def test_discover_input_project_finds_pyproject_next_to_reference(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     input_dir = tmp_path / "queue-spsc"
     reference_dir = input_dir / "reference"
     reference_dir.mkdir(parents=True)
@@ -27,7 +27,7 @@ def test_discover_input_project_finds_pyproject_next_to_reference(tmp_path):
     assert discover_input_project(None) is None
 
 
-def test_materialize_input_project_copies_and_rewrites_explicit_lib_path_deps(tmp_path):
+def test_materialize_input_project_copies_and_rewrites_explicit_lib_path_deps(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     project_root = tmp_path / "project"
     input_core = project_root / "examples" / "libs" / "queue-input-core"
     input_core.mkdir(parents=True)
@@ -68,7 +68,7 @@ def test_materialize_input_project_copies_and_rewrites_explicit_lib_path_deps(tm
     assert (input_dir / "pyproject.toml").read_text() == source_pyproject
 
 
-def test_materialize_input_project_copies_transitive_examples_lib_deps(tmp_path):
+def test_materialize_input_project_copies_transitive_examples_lib_deps(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     project_root = tmp_path / "project"
     libs = project_root / "examples" / "libs"
     common = libs / "queue-common"
@@ -119,7 +119,7 @@ def test_materialize_input_project_copies_transitive_examples_lib_deps(tmp_path)
     )
 
 
-def test_materialize_input_project_rejects_path_deps_outside_examples_libs(tmp_path):
+def test_materialize_input_project_rejects_path_deps_outside_examples_libs(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     project_root = tmp_path / "project"
     input_dir = project_root / "examples" / "data-structures" / "queue-spsc"
     input_dir.mkdir(parents=True)

@@ -10,11 +10,11 @@ from vs_sandbox import (
 )
 
 
-def test_declaration_sdk_collects_resources_without_importing_them(tmp_path):
+def test_declaration_sdk_collects_resources_without_importing_them(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     toolchain = tmp_path / "toolchain"
     context = HostResourceContext(env={"PROFILE": "test"})
 
-    def declare(ctx: HostResourceContext):
+    def declare(ctx: HostResourceContext):  # noqa: ANN202  # tracked: #288
         assert ctx == context
         return (HostResource(toolchain, purpose="test toolchain"),)
 

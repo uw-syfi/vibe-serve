@@ -40,7 +40,7 @@ def _ctx(
     )
 
 
-def test_noop_environment_hooks_return_empty_patch(tmp_path):
+def test_noop_environment_hooks_return_empty_patch(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     ref_dir = tmp_path / "reference"
     ref_dir.mkdir()
 
@@ -50,7 +50,7 @@ def test_noop_environment_hooks_return_empty_patch(tmp_path):
     assert patch.bind_mounts == ()
 
 
-def test_llm_serving_hooks_require_model_artifacts_for_reference_dir(tmp_path):
+def test_llm_serving_hooks_require_model_artifacts_for_reference_dir(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     ref_dir = tmp_path / "reference"
     ref_dir.mkdir()
     (ref_dir / "reference.py").write_text("pass\n")
@@ -59,7 +59,7 @@ def test_llm_serving_hooks_require_model_artifacts_for_reference_dir(tmp_path):
         LLMServingEnvironmentHooks().prepare(_ctx(ref_dir, tmp_path))
 
 
-def test_llm_serving_hooks_return_model_mount_and_isolated_copy_excludes(tmp_path):
+def test_llm_serving_hooks_return_model_mount_and_isolated_copy_excludes(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     ref_dir = tmp_path / "reference"
     model_dir = ref_dir / "model"
     model_dir.mkdir(parents=True)
@@ -70,10 +70,10 @@ def test_llm_serving_hooks_return_model_mount_and_isolated_copy_excludes(tmp_pat
     )
 
     assert patch.copy_excludes == frozenset({"model", "draft_model"})
-    assert patch.bind_mounts == (EnvironmentBindMount(model_dir, "/model", True),)
+    assert patch.bind_mounts == (EnvironmentBindMount(model_dir, "/model", True),)  # noqa: FBT003  # tracked: #288
 
 
-def test_llm_serving_hooks_keep_model_in_local_workspace_copy(tmp_path):
+def test_llm_serving_hooks_keep_model_in_local_workspace_copy(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     ref_dir = tmp_path / "reference"
     (ref_dir / "model").mkdir(parents=True)
     (ref_dir / "reference.py").write_text("pass\n")

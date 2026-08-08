@@ -11,11 +11,11 @@ from vs_sandbox import HostResourceAccess
 class TestInstallRoot:
     """Agent packages may need binaries from sibling installation paths."""
 
-    def test_node_package_imports_whole_package_tree(self):
+    def test_node_package_imports_whole_package_tree(self):  # noqa: ANN201  # tracked: #288
         launcher = Path(
             "/home/u/.nvm/versions/node/v24/lib/node_modules/@openai/codex/bin/codex.js"
         )
-        root = host_resource_declarations._install_root(launcher)
+        root = host_resource_declarations._install_root(launcher)  # noqa: SLF001  # tracked: #288
 
         assert root == Path("/home/u/.nvm/versions/node/v24/lib")
         platform_bin = Path(
@@ -24,13 +24,13 @@ class TestInstallRoot:
         )
         assert platform_bin.is_relative_to(root)
 
-    def test_plain_binary_imports_its_directory(self):
-        assert host_resource_declarations._install_root(Path("/opt/tool/bin/agent")) == Path(
+    def test_plain_binary_imports_its_directory(self):  # noqa: ANN201  # tracked: #288
+        assert host_resource_declarations._install_root(Path("/opt/tool/bin/agent")) == Path(  # noqa: SLF001  # tracked: #288
             "/opt/tool/bin"
         )
 
 
-def test_defaults_declare_path_rust_and_shell_resources(tmp_path):
+def test_defaults_declare_path_rust_and_shell_resources(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     home = tmp_path / "home"
     tool_bin = home / "tools" / "bin"
     cargo_bin = home / ".cargo" / "bin"
@@ -60,7 +60,7 @@ def test_defaults_declare_path_rust_and_shell_resources(tmp_path):
         ("opencode", ".config/opencode", ".codex/auth.json"),
     ],
 )
-def test_provider_state_is_scoped_to_selected_agent(tmp_path, provider, expected, forbidden):
+def test_provider_state_is_scoped_to_selected_agent(tmp_path, provider, expected, forbidden):  # noqa: ANN001, ANN201  # tracked: #288
     declarations = host_resource_declarations.declare_agent_host_resources(
         {"HOME": str(tmp_path)},
         binary_path=None,

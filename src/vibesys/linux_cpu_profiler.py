@@ -16,12 +16,12 @@ from pathlib import Path
 from typing import Any
 
 
-class LinuxProfilerTool(StrEnum):
+class LinuxProfilerTool(StrEnum):  # noqa: D101  # tracked: #288
     PERF = "perf"
     NONE = "none"
 
 
-class DiagnosticCode(StrEnum):
+class DiagnosticCode(StrEnum):  # noqa: D101  # tracked: #288
     NOT_LINUX = "not_linux"
     PERF_UNAVAILABLE = "perf_unavailable"
     PERF_STAT_UNAVAILABLE = "perf_stat_unavailable"
@@ -33,7 +33,7 @@ class DiagnosticCode(StrEnum):
 
 
 @dataclass(frozen=True)
-class Capability:
+class Capability:  # noqa: D101  # tracked: #288
     tool: LinuxProfilerTool
     perf_path: str | None
     perf_version: str | None
@@ -43,7 +43,7 @@ class Capability:
 
 
 @dataclass(frozen=True)
-class CollectionResult:
+class CollectionResult:  # noqa: D101  # tracked: #288
     status: str
     tool: LinuxProfilerTool
     output_dir: str
@@ -90,7 +90,7 @@ def detect_capability(
     kptr_restrict = _read_int(Path("/proc/sys/kernel/kptr_restrict"))
     diagnostics: list[DiagnosticCode] = []
 
-    if perf_event_paranoid is not None and perf_event_paranoid > 2:
+    if perf_event_paranoid is not None and perf_event_paranoid > 2:  # noqa: PLR2004  # tracked: #288
         diagnostics.append(DiagnosticCode.PERF_EVENT_PARANOID_RESTRICTIVE)
     if kptr_restrict is not None and kptr_restrict > 0:
         diagnostics.append(DiagnosticCode.KERNEL_SYMBOLS_RESTRICTED)
@@ -147,7 +147,7 @@ def _run_text(
     *,
     timeout: int | None,
 ) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(command, capture_output=True, text=True, timeout=timeout)
+    return subprocess.run(command, capture_output=True, text=True, timeout=timeout)  # noqa: PLW1510, S603  # tracked: #288
 
 
 def _parse_perf_stat_csv(path: Path) -> tuple[dict[str, str], ...]:
@@ -156,7 +156,7 @@ def _parse_perf_stat_csv(path: Path) -> tuple[dict[str, str], ...]:
     counters: list[dict[str, str]] = []
     with path.open(newline="", encoding="utf-8", errors="replace") as fh:
         for row in csv.reader(fh):
-            if len(row) < 3:
+            if len(row) < 3:  # noqa: PLR2004  # tracked: #288
                 continue
             value, unit, event = (item.strip() for item in row[:3])
             if not event or value.startswith("#"):
@@ -180,7 +180,7 @@ def _extract_hot_symbols(report_text: str, *, limit: int = 20) -> tuple[str, ...
     return tuple(hot)
 
 
-def collect(
+def collect(  # noqa: PLR0913  # tracked: #288
     command: list[str],
     output_dir: Path,
     *,
@@ -348,7 +348,7 @@ def collect(
     )
 
 
-def _write_metadata(
+def _write_metadata(  # noqa: PLR0913  # tracked: #288
     output_dir: Path,
     *,
     command: list[str],

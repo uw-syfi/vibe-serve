@@ -30,9 +30,9 @@ from __future__ import annotations
 
 import json
 import math
-import random
+import random  # noqa: TC003  # tracked: #288
 from dataclasses import asdict, dataclass, field
-from pathlib import Path
+from pathlib import Path  # noqa: TC003  # tracked: #288
 from typing import Any
 
 # ---------------------------------------------------------------------------
@@ -53,9 +53,9 @@ class Objective:
     name: str
     direction: str  # "max" or "min"
 
-    def __post_init__(self) -> None:
+    def __post_init__(self) -> None:  # noqa: D105  # tracked: #288
         if self.direction not in ("max", "min"):
-            raise ValueError(f"Objective.direction must be 'max' or 'min', got {self.direction!r}")
+            raise ValueError(f"Objective.direction must be 'max' or 'min', got {self.direction!r}")  # noqa: TRY003  # tracked: #288
 
     def signed(self, value: float) -> float:
         """Return *value* flipped to "higher is better" semantics.
@@ -129,7 +129,7 @@ class Individual:
     policy_parent_id: str | None = None
     policy_target_island: int | None = None
 
-    def __post_init__(self) -> None:
+    def __post_init__(self) -> None:  # noqa: D105  # tracked: #288
         self.validate_fitness()
 
     def validate_fitness(self) -> None:
@@ -138,11 +138,11 @@ class Individual:
         for name, value in self.metrics.items():
             _require_finite_metric(value, f"metrics[{name!r}]")
 
-    def to_json(self) -> dict[str, Any]:
+    def to_json(self) -> dict[str, Any]:  # noqa: D102  # tracked: #288
         return asdict(self)
 
     @classmethod
-    def from_json(cls, data: dict[str, Any]) -> Individual:
+    def from_json(cls, data: dict[str, Any]) -> Individual:  # noqa: D102  # tracked: #288
         return cls(
             id=int(data["id"]),
             generation=int(data["generation"]),
@@ -171,37 +171,37 @@ class Population:
 
     Failed individuals (``passed=False``) are kept but excluded from
     selection so the mutator only ever evolves from a working baseline.
-    """
+    """  # noqa: D205  # tracked: #288
 
-    def __init__(self, individuals: list[Individual] | None = None) -> None:
+    def __init__(self, individuals: list[Individual] | None = None) -> None:  # noqa: D107  # tracked: #288
         self._individuals: list[Individual] = list(individuals or [])
 
     # -- accessors -----------------------------------------------------------
 
     @property
-    def all(self) -> list[Individual]:
+    def all(self) -> list[Individual]:  # noqa: D102  # tracked: #288
         return list(self._individuals)
 
     @property
-    def passed(self) -> list[Individual]:
+    def passed(self) -> list[Individual]:  # noqa: D102  # tracked: #288
         passed = [i for i in self._individuals if i.passed and i.commit]
         for individual in passed:
             individual.validate_fitness()
         return passed
 
-    def __len__(self) -> int:
+    def __len__(self) -> int:  # noqa: D105  # tracked: #288
         return len(self._individuals)
 
-    def next_id(self) -> int:
+    def next_id(self) -> int:  # noqa: D102  # tracked: #288
         return (max((i.id for i in self._individuals), default=0)) + 1
 
-    def get(self, ind_id: int) -> Individual | None:
+    def get(self, ind_id: int) -> Individual | None:  # noqa: D102  # tracked: #288
         for i in self._individuals:
             if i.id == ind_id:
                 return i
         return None
 
-    def add(self, ind: Individual) -> None:
+    def add(self, ind: Individual) -> None:  # noqa: D102  # tracked: #288
         ind.validate_fitness()
         self._individuals.append(ind)
 
@@ -239,7 +239,7 @@ class Population:
             if not any(
                 _dominates(other, cand, objectives) for other in eligible if other.id != cand.id
             ):
-                non_dominated.append(cand)
+                non_dominated.append(cand)  # noqa: PERF401  # tracked: #288
         return non_dominated
 
     # -- selection -----------------------------------------------------------
@@ -285,7 +285,7 @@ class Population:
             return ranked[0]
         perfs = [i.perf_metric for i in ranked if i.perf_metric is not None]
         lo, hi = min(perfs), max(perfs)
-        if hi - lo < 1e-12:
+        if hi - lo < 1e-12:  # noqa: PLR2004  # tracked: #288
             return rng.choice(ranked)
         normed = [(p - lo) / (hi - lo) for p in perfs]
         t = max(temperature, 1e-6)
@@ -362,7 +362,7 @@ class Population:
 
     # -- persistence ---------------------------------------------------------
 
-    def save(self, path: Path) -> None:
+    def save(self, path: Path) -> None:  # noqa: D102  # tracked: #288
         for individual in self._individuals:
             individual.validate_fitness()
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -371,7 +371,7 @@ class Population:
         )
 
     @classmethod
-    def load(cls, path: Path) -> Population:
+    def load(cls, path: Path) -> Population:  # noqa: D102  # tracked: #288
         if not path.exists():
             return cls()
         data = json.loads(path.read_text())
@@ -382,4 +382,4 @@ def _require_finite_metric(value: float | None, field_name: str) -> None:
     if value is None:
         return
     if isinstance(value, bool) or not math.isfinite(value):
-        raise ValueError(f"{field_name} must be a finite number")
+        raise ValueError(f"{field_name} must be a finite number")  # noqa: TRY003  # tracked: #288

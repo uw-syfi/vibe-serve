@@ -8,11 +8,11 @@ runner classes are imported, so the public API of this package is::
 
 from __future__ import annotations
 
-from collections.abc import Iterable
-from pathlib import Path
+from collections.abc import Iterable  # noqa: TC003  # tracked: #288
+from pathlib import Path  # noqa: TC003  # tracked: #288
 from typing import TYPE_CHECKING, Any, TextIO
 
-from vibesys.config import Config
+from vibesys.config import Config  # noqa: TC001  # tracked: #288
 from vibesys.constants import DEFAULT_AGENT_BACKEND, ComputeBackend
 from vibesys.features import FeatureFlag, is_feature_enabled
 
@@ -44,19 +44,19 @@ __all__ = [
 ]
 
 
-def __getattr__(name: str) -> Any:
+def __getattr__(name: str) -> Any:  # noqa: ANN401  # tracked: #288
     if name == "CliAgentRunner":
-        from .cli_runner import CliAgentRunner
+        from .cli_runner import CliAgentRunner  # noqa: PLC0415  # tracked: #288
 
         return CliAgentRunner
     if name == "DeepAgentsRunner":
-        from .deepagents_runner import DeepAgentsRunner
+        from .deepagents_runner import DeepAgentsRunner  # noqa: PLC0415  # tracked: #288
 
         return DeepAgentsRunner
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")  # noqa: TRY003  # tracked: #288
 
 
-def build_agent_runner(
+def build_agent_runner(  # noqa: D417, PLR0913  # tracked: #288
     config: Config,
     *,
     agent_backend: str | None,
@@ -65,7 +65,7 @@ def build_agent_runner(
     skills: list[str],
     skill_source_dirs: list[Path],
     compute_backend: ComputeBackend | None = None,
-    model: Any,
+    model: Any,  # noqa: ANN401  # tracked: #288
     model_name: str,
     run_log_file: TextIO | None,
     use_docker: bool,
@@ -118,11 +118,11 @@ def build_agent_runner(
 
     if backend == "deepagents":
         if backends is None:
-            raise SystemExit(
+            raise SystemExit(  # noqa: TRY003  # tracked: #288
                 "internal error: build_agent_runner called with backend='deepagents' "
                 "but no backends dict was provided"
             )
-        from .deepagents_runner import DeepAgentsRunner
+        from .deepagents_runner import DeepAgentsRunner  # noqa: PLC0415  # tracked: #288
 
         return DeepAgentsRunner(
             model=model,
@@ -133,7 +133,7 @@ def build_agent_runner(
         )
 
     if backend == "stub":
-        from .stub_runner import StubAgentRunner
+        from .stub_runner import StubAgentRunner  # noqa: PLC0415  # tracked: #288
 
         return StubAgentRunner()
 
@@ -146,10 +146,13 @@ def build_agent_runner(
             # so an unsupported provider or a missing optional dependency
             # fails before the loop starts. With the flag off (the default)
             # this branch is never entered and nothing imports omnigent.
-            from .omnigent.runner import OmnigentAgentRunner, OmnigentUnavailableError
+            from .omnigent.runner import (  # noqa: PLC0415  # tracked: #288
+                OmnigentAgentRunner,
+                OmnigentUnavailableError,
+            )
 
             if use_docker:
-                raise OmnigentUnavailableError(
+                raise OmnigentUnavailableError(  # noqa: TRY003  # tracked: #288
                     "feature flag 'omnigent_agent_backend' is not supported with "
                     "--docker; this integration has no container-launcher "
                     "support. Drop --docker or disable the flag."
@@ -162,7 +165,7 @@ def build_agent_runner(
                 # translate them, so honouring the request is impossible and
                 # dropping it silently would weaken a security boundary the
                 # caller asked for.
-                raise OmnigentUnavailableError(
+                raise OmnigentUnavailableError(  # noqa: TRY003  # tracked: #288
                     "the Omnigent backend cannot honour the requested host "
                     f"resource grants ({[str(r.path) for r in extra_resources]}); "
                     "it confines the agent to the workspace only. Disable "
@@ -184,10 +187,10 @@ def build_agent_runner(
             # The Docker CLI path reuses the DOCKER_PROVIDER_ENV registry for
             # per-provider install + env requirements (node/npm, codex binary,
             # PYTHONPATH, etc).
-            from .cli_docker import DOCKER_PROVIDER_ENV
+            from .cli_docker import DOCKER_PROVIDER_ENV  # noqa: PLC0415  # tracked: #288
 
             if provider not in DOCKER_PROVIDER_ENV:
-                raise SystemExit(
+                raise SystemExit(  # noqa: TRY003  # tracked: #288
                     f"--cli-provider {provider!r} is not yet supported with --docker; "
                     f"supported: {sorted(DOCKER_PROVIDER_ENV)}"
                 )
@@ -196,7 +199,7 @@ def build_agent_runner(
         # it's the single source of truth for the model. model.name is a
         # required field (and always validated by build_model), so it is
         # always a non-empty string here.
-        from .cli_runner import CliAgentRunner
+        from .cli_runner import CliAgentRunner  # noqa: PLC0415  # tracked: #288
 
         return CliAgentRunner(
             provider=provider,
@@ -228,4 +231,4 @@ def build_agent_runner(
             },
         )
 
-    raise SystemExit(f"unknown agent backend: {backend!r}")
+    raise SystemExit(f"unknown agent backend: {backend!r}")  # noqa: TRY003  # tracked: #288

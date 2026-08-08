@@ -15,7 +15,7 @@ Usage:
     python analyze_nsys.py step-timeline profile.sqlite    # Per-decode-step breakdown
     python analyze_nsys.py query profile.sqlite "SQL"      # Run arbitrary SQL
     python analyze_nsys.py summary profile.sqlite          # All-in-one (legacy)
-"""
+"""  # noqa: EXE001  # tracked: #288
 
 from __future__ import annotations
 
@@ -35,7 +35,7 @@ def _open_db(path: str) -> tuple[sqlite3.Connection, dict[int, str]]:
     """Open the SQLite file and build the string map."""
     conn = sqlite3.connect(path)
     strings: dict[int, str] = {}
-    try:
+    try:  # noqa: SIM105  # tracked: #288
         strings = dict(conn.execute("SELECT id, value FROM StringIds").fetchall())
     except sqlite3.OperationalError:
         pass
@@ -72,12 +72,12 @@ def _short_kernel_name(raw: str) -> str:
             result.append(ch)
     name = "".join(result).strip()
     parts = name.split("::")
-    if len(parts) > 2:
+    if len(parts) > 2:  # noqa: PLR2004  # tracked: #288
         name = "::".join(parts[-2:])
     return name
 
 
-def _resolve_name(name_val, strings: dict[int, str]) -> str:
+def _resolve_name(name_val, strings: dict[int, str]) -> str:  # noqa: ANN001  # tracked: #288
     if isinstance(name_val, int) and name_val in strings:
         return _short_kernel_name(strings[name_val])
     if isinstance(name_val, str):
@@ -99,8 +99,8 @@ def _ensure_sqlite(path: str) -> str:
         sqlite_path = p.with_suffix(".sqlite")
         if sqlite_path.exists():
             sqlite_path.unlink()
-        subprocess.run(
-            ["nsys", "export", "--type=sqlite", f"--output={sqlite_path}", str(p)],
+        subprocess.run(  # noqa: S603  # tracked: #288
+            ["nsys", "export", "--type=sqlite", f"--output={sqlite_path}", str(p)],  # noqa: S607  # tracked: #288
             check=True,
             capture_output=True,
             text=True,
@@ -110,22 +110,24 @@ def _ensure_sqlite(path: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Subcommand: export
+# tracked: #288
+# Subcommand: export  # noqa: ERA001
 # ---------------------------------------------------------------------------
 
 
-def cmd_export(args):
+def cmd_export(args):  # noqa: ANN001, ANN201  # tracked: #288
     """Export .nsys-rep to .sqlite."""
     out = _ensure_sqlite(args.report)
-    print(f"Exported to: {out}")
+    print(f"Exported to: {out}")  # noqa: T201  # tracked: #288
 
 
 # ---------------------------------------------------------------------------
-# Subcommand: tables
+# tracked: #288
+# Subcommand: tables  # noqa: ERA001
 # ---------------------------------------------------------------------------
 
 
-def cmd_tables(args):
+def cmd_tables(args):  # noqa: ANN001, ANN201  # tracked: #288
     """List non-empty tables in the SQLite export."""
     conn, _ = _open_db(_ensure_sqlite(args.report))
     tables = conn.execute(
@@ -133,61 +135,63 @@ def cmd_tables(args):
     ).fetchall()
     for (name,) in tables:
         try:
-            cnt = conn.execute(f"SELECT COUNT(*) FROM [{name}]").fetchone()[0]
+            cnt = conn.execute(f"SELECT COUNT(*) FROM [{name}]").fetchone()[0]  # noqa: S608  # tracked: #288
         except sqlite3.OperationalError:
             cnt = "?"
         if cnt and cnt != "?" and int(cnt) > 0:
-            print(f"  {name}: {cnt} rows")
+            print(f"  {name}: {cnt} rows")  # noqa: T201  # tracked: #288
 
 
 # ---------------------------------------------------------------------------
-# Subcommand: kernels
+# tracked: #288
+# Subcommand: kernels  # noqa: ERA001
 # ---------------------------------------------------------------------------
 
 
-def cmd_kernels(args):
+def cmd_kernels(args):  # noqa: ANN001, ANN201  # tracked: #288
     """Top GPU kernels by total execution time."""
     conn, strings = _open_db(_ensure_sqlite(args.report))
     if not _table_exists(conn, "CUPTI_ACTIVITY_KIND_KERNEL"):
-        print("(No kernel data found.)")
+        print("(No kernel data found.)")  # noqa: T201  # tracked: #288
         return
     name_col = _kernel_name_col(conn)
     if not name_col:
-        print("(No kernel name column found.)")
+        print("(No kernel name column found.)")  # noqa: T201  # tracked: #288
         return
 
     rows = conn.execute(
         f"""SELECT {name_col}, COUNT(*), SUM(end-start), AVG(end-start)
             FROM CUPTI_ACTIVITY_KIND_KERNEL
-            GROUP BY {name_col} ORDER BY SUM(end-start) DESC LIMIT ?""",
+            GROUP BY {name_col} ORDER BY SUM(end-start) DESC LIMIT ?""",  # noqa: S608  # tracked: #288
         (args.top,),
     ).fetchall()
     if not rows:
-        print("(No kernels recorded.)")
+        print("(No kernels recorded.)")  # noqa: T201  # tracked: #288
         return
 
     total_ns = sum(r[2] for r in rows)
-    print(f"{'Kernel':<55s} {'Count':>7s} {'Total(us)':>11s} {'Avg(us)':>9s} {'%GPU':>6s}")
-    print("-" * 92)
+    print(f"{'Kernel':<55s} {'Count':>7s} {'Total(us)':>11s} {'Avg(us)':>9s} {'%GPU':>6s}")  # noqa: T201  # tracked: #288
+    print("-" * 92)  # noqa: T201  # tracked: #288
     for name_id, cnt, tot, avg in rows:
         name = _resolve_name(name_id, strings)
         pct = tot / total_ns * 100 if total_ns else 0
-        print(f"{name:<55s} {cnt:>7d} {tot / 1000:>11.1f} {avg / 1000:>9.1f} {pct:>5.1f}%")
+        print(f"{name:<55s} {cnt:>7d} {tot / 1000:>11.1f} {avg / 1000:>9.1f} {pct:>5.1f}%")  # noqa: T201  # tracked: #288
     total_launches = sum(r[1] for r in rows)
-    print(f"\nTotal GPU kernel time: {total_ns / 1e6:.2f} ms")
-    print(f"Total kernel launches: {total_launches}")
+    print(f"\nTotal GPU kernel time: {total_ns / 1e6:.2f} ms")  # noqa: T201  # tracked: #288
+    print(f"Total kernel launches: {total_launches}")  # noqa: T201  # tracked: #288
 
 
 # ---------------------------------------------------------------------------
-# Subcommand: cpu-overhead
+# tracked: #288
+# Subcommand: cpu-overhead  # noqa: ERA001
 # ---------------------------------------------------------------------------
 
 
-def cmd_cpu_overhead(args):
+def cmd_cpu_overhead(args):  # noqa: ANN001, ANN201, C901  # tracked: #288
     """CPU-side CUDA runtime overhead and launch-bound detection."""
-    conn, strings = _open_db(_ensure_sqlite(args.report))
+    conn, strings = _open_db(_ensure_sqlite(args.report))  # noqa: RUF059  # tracked: #288
     if not _table_exists(conn, "CUPTI_ACTIVITY_KIND_RUNTIME"):
-        print("(No CUDA runtime data.)")
+        print("(No CUDA runtime data.)")  # noqa: T201  # tracked: #288
         return
 
     row = conn.execute(
@@ -195,11 +199,11 @@ def cmd_cpu_overhead(args):
     ).fetchone()
     total_calls, total_ns = row or (0, 0)
     total_ns = total_ns or 0
-    print(f"Total CUDA runtime API calls: {total_calls}")
-    print(f"Total CPU time in CUDA APIs:  {total_ns / 1e6:.2f} ms")
+    print(f"Total CUDA runtime API calls: {total_calls}")  # noqa: T201  # tracked: #288
+    print(f"Total CPU time in CUDA APIs:  {total_ns / 1e6:.2f} ms")  # noqa: T201  # tracked: #288
 
     has_cbid = _column_exists(conn, "CUPTI_ACTIVITY_KIND_RUNTIME", "cbid")
-    has_nameId = _column_exists(conn, "CUPTI_ACTIVITY_KIND_RUNTIME", "nameId")
+    has_nameId = _column_exists(conn, "CUPTI_ACTIVITY_KIND_RUNTIME", "nameId")  # noqa: N806  # tracked: #288
 
     if has_nameId:
         api_rows = conn.execute(
@@ -209,10 +213,10 @@ def cmd_cpu_overhead(args):
                GROUP BY r.nameId ORDER BY SUM(r.end-r.start) DESC LIMIT 10"""
         ).fetchall()
         if api_rows:
-            print(f"\n{'API Function':<40s} {'Count':>8s} {'Total(us)':>11s} {'Avg(us)':>9s}")
-            print("-" * 72)
+            print(f"\n{'API Function':<40s} {'Count':>8s} {'Total(us)':>11s} {'Avg(us)':>9s}")  # noqa: T201  # tracked: #288
+            print("-" * 72)  # noqa: T201  # tracked: #288
             for name, cnt, tot, avg in api_rows:
-                print(f"{(name or '?'):<40s} {cnt:>8d} {tot / 1000:>11.1f} {avg / 1000:>9.1f}")
+                print(f"{(name or '?'):<40s} {cnt:>8d} {tot / 1000:>11.1f} {avg / 1000:>9.1f}")  # noqa: T201  # tracked: #288
 
         # Sync stalls
         sync_rows = conn.execute(
@@ -226,7 +230,7 @@ def cmd_cpu_overhead(args):
         ).fetchall()
         sync_total = sum(r[2] for r in sync_rows) if sync_rows else 0
         sync_count = sum(r[1] for r in sync_rows) if sync_rows else 0
-        print(f"\nSynchronization stalls: {sync_count} calls, {sync_total / 1e6:.2f} ms")
+        print(f"\nSynchronization stalls: {sync_count} calls, {sync_total / 1e6:.2f} ms")  # noqa: T201  # tracked: #288
 
         # Launch overhead ratio
         launch_filter = (
@@ -249,20 +253,20 @@ def cmd_cpu_overhead(args):
             "FROM CUPTI_ACTIVITY_KIND_RUNTIME GROUP BY cbid ORDER BY SUM(end-start) DESC LIMIT 10"
         ).fetchall()
         if api_rows:
-            print(f"\n{'API Function':<40s} {'Count':>8s} {'Total(us)':>11s} {'Avg(us)':>9s}")
-            print("-" * 72)
+            print(f"\n{'API Function':<40s} {'Count':>8s} {'Total(us)':>11s} {'Avg(us)':>9s}")  # noqa: T201  # tracked: #288
+            print("-" * 72)  # noqa: T201  # tracked: #288
             for cbid, cnt, tot, avg in api_rows:
-                print(
+                print(  # noqa: T201  # tracked: #288
                     f"{cbid_names.get(cbid, f'cbid_{cbid}'):<40s} {cnt:>8d} {tot / 1000:>11.1f} {avg / 1000:>9.1f}"
                 )
         sync_cbids = {162, 163, 164}
         sync_rows = conn.execute(
-            f"SELECT cbid, COUNT(*), SUM(end-start) FROM CUPTI_ACTIVITY_KIND_RUNTIME "
+            f"SELECT cbid, COUNT(*), SUM(end-start) FROM CUPTI_ACTIVITY_KIND_RUNTIME "  # noqa: S608  # tracked: #288
             f"WHERE cbid IN ({','.join(str(c) for c in sync_cbids)}) GROUP BY cbid"
         ).fetchall()
         sync_total = sum(r[2] for r in sync_rows) if sync_rows else 0
         sync_count = sum(r[1] for r in sync_rows) if sync_rows else 0
-        print(f"\nSynchronization stalls: {sync_count} calls, {sync_total / 1e6:.2f} ms")
+        print(f"\nSynchronization stalls: {sync_count} calls, {sync_total / 1e6:.2f} ms")  # noqa: T201  # tracked: #288
         launch_filter = "r.cbid IN (33, 211)"
     else:
         return
@@ -272,39 +276,40 @@ def cmd_cpu_overhead(args):
             f"""SELECT AVG(r.end-r.start), AVG(k.end-k.start), COUNT(*)
                 FROM CUPTI_ACTIVITY_KIND_KERNEL k
                 JOIN CUPTI_ACTIVITY_KIND_RUNTIME r ON k.correlationId = r.correlationId
-                WHERE {launch_filter}"""
+                WHERE {launch_filter}"""  # noqa: S608  # tracked: #288
         ).fetchone()
         if joined and joined[2] > 0:
             avg_cpu = joined[0] / 1000
             avg_gpu = joined[1] / 1000
-            print(f"\nKernel launch overhead ({joined[2]} matched):")
-            print(f"  Avg CPU launch: {avg_cpu:.1f} us")
-            print(f"  Avg GPU exec:   {avg_gpu:.1f} us")
+            print(f"\nKernel launch overhead ({joined[2]} matched):")  # noqa: T201  # tracked: #288
+            print(f"  Avg CPU launch: {avg_cpu:.1f} us")  # noqa: T201  # tracked: #288
+            print(f"  Avg GPU exec:   {avg_gpu:.1f} us")  # noqa: T201  # tracked: #288
             if avg_gpu > 0:
                 ratio = avg_cpu / avg_gpu
-                print(f"  CPU/GPU ratio:  {ratio:.2f}x")
+                print(f"  CPU/GPU ratio:  {ratio:.2f}x")  # noqa: T201  # tracked: #288
                 if ratio > 1.0:
-                    print("  *** LAUNCH-BOUND — CPU slower than GPU ***")
+                    print("  *** LAUNCH-BOUND — CPU slower than GPU ***")  # noqa: T201  # tracked: #288
 
 
 # ---------------------------------------------------------------------------
-# Subcommand: idle-gaps
+# tracked: #288
+# Subcommand: idle-gaps  # noqa: ERA001
 # ---------------------------------------------------------------------------
 
 
-def cmd_idle_gaps(args):
+def cmd_idle_gaps(args):  # noqa: ANN001, ANN201, C901  # tracked: #288
     """Find largest GPU idle gaps between kernels."""
     conn, strings = _open_db(_ensure_sqlite(args.report))
     if not _table_exists(conn, "CUPTI_ACTIVITY_KIND_KERNEL"):
-        print("(No kernel data.)")
+        print("(No kernel data.)")  # noqa: T201  # tracked: #288
         return
     name_col = _kernel_name_col(conn)
 
     rows = conn.execute(
-        f"SELECT {name_col}, start, end, deviceId FROM CUPTI_ACTIVITY_KIND_KERNEL ORDER BY deviceId, start"
+        f"SELECT {name_col}, start, end, deviceId FROM CUPTI_ACTIVITY_KIND_KERNEL ORDER BY deviceId, start"  # noqa: S608  # tracked: #288
     ).fetchall()
-    if len(rows) < 2:
-        print("(Fewer than 2 kernels.)")
+    if len(rows) < 2:  # noqa: PLR2004  # tracked: #288
+        print("(Fewer than 2 kernels.)")  # noqa: T201  # tracked: #288
         return
 
     by_device: dict[int, list] = defaultdict(list)
@@ -312,7 +317,7 @@ def cmd_idle_gaps(args):
         by_device[r[3]].append(r)
 
     gaps, total_idle, total_busy = [], 0, 0
-    for _device_id, kernels in by_device.items():
+    for _device_id, kernels in by_device.items():  # noqa: PERF102  # tracked: #288
         intervals = sorted((k[1], k[2]) for k in kernels)
         merged = []
         for s, e in intervals:
@@ -326,7 +331,7 @@ def cmd_idle_gaps(args):
         start_map = {k[1]: k for k in kernels}
         for i in range(1, len(merged)):
             gap = merged[i][0] - merged[i - 1][1]
-            if gap > 1000:
+            if gap > 1000:  # noqa: PLR2004  # tracked: #288
                 total_idle += gap
                 prev = end_map.get(merged[i - 1][1])
                 nxt = start_map.get(merged[i][0])
@@ -337,23 +342,24 @@ def cmd_idle_gaps(args):
     gaps.sort(key=lambda x: -x[2])
     total = total_busy + total_idle
     pct = total_idle / total * 100 if total else 0
-    print(f"GPU busy: {total_busy / 1e6:.2f} ms")
-    print(f"GPU idle: {total_idle / 1e6:.2f} ms ({pct:.1f}%)")
-    print(f"Idle gaps (>1us): {len(gaps)}")
+    print(f"GPU busy: {total_busy / 1e6:.2f} ms")  # noqa: T201  # tracked: #288
+    print(f"GPU idle: {total_idle / 1e6:.2f} ms ({pct:.1f}%)")  # noqa: T201  # tracked: #288
+    print(f"Idle gaps (>1us): {len(gaps)}")  # noqa: T201  # tracked: #288
     if gaps[: args.top]:
-        print(f"\nTop {min(args.top, len(gaps))} gaps:")
-        print(f"  {'Gap(us)':>10s}  {'After':<40s} → {'Before':<40s}")
-        print("  " + "-" * 95)
+        print(f"\nTop {min(args.top, len(gaps))} gaps:")  # noqa: T201  # tracked: #288
+        print(f"  {'Gap(us)':>10s}  {'After':<40s} → {'Before':<40s}")  # noqa: T201  # tracked: #288
+        print("  " + "-" * 95)  # noqa: T201  # tracked: #288
         for pn, nn, g in gaps[: args.top]:
-            print(f"  {g / 1000:>10.1f}  {pn:<40s} → {nn:<40s}")
+            print(f"  {g / 1000:>10.1f}  {pn:<40s} → {nn:<40s}")  # noqa: T201  # tracked: #288
 
 
 # ---------------------------------------------------------------------------
-# Subcommand: memory
+# tracked: #288
+# Subcommand: memory  # noqa: ERA001
 # ---------------------------------------------------------------------------
 
 
-def cmd_memory(args):
+def cmd_memory(args):  # noqa: ANN001, ANN201  # tracked: #288
     """Memory copy and allocation operations."""
     conn, _ = _open_db(_ensure_sqlite(args.report))
 
@@ -364,17 +370,17 @@ def cmd_memory(args):
             "FROM CUPTI_ACTIVITY_KIND_MEMCPY GROUP BY copyKind ORDER BY SUM(end-start) DESC"
         ).fetchall()
         if rows:
-            print(f"{'Dir':<8s} {'Count':>8s} {'Total(us)':>11s} {'Bytes':>14s}")
-            print("-" * 45)
+            print(f"{'Dir':<8s} {'Count':>8s} {'Total(us)':>11s} {'Bytes':>14s}")  # noqa: T201  # tracked: #288
+            print("-" * 45)  # noqa: T201  # tracked: #288
             for kind, cnt, tot, byt in rows:
-                print(
+                print(  # noqa: T201  # tracked: #288
                     f"{kinds.get(kind, f'k{kind}'):<8s} {cnt:>8d} {tot / 1000:>11.1f} {byt:>14,d}"
                 )
     else:
-        print("(No memcpy data.)")
+        print("(No memcpy data.)")  # noqa: T201  # tracked: #288
 
     if _table_exists(conn, "CUPTI_ACTIVITY_KIND_RUNTIME"):
-        has_nameId = _column_exists(conn, "CUPTI_ACTIVITY_KIND_RUNTIME", "nameId")
+        has_nameId = _column_exists(conn, "CUPTI_ACTIVITY_KIND_RUNTIME", "nameId")  # noqa: N806  # tracked: #288
         if has_nameId:
             rows = conn.execute(
                 """SELECT s.value, COUNT(*), SUM(r.end-r.start)
@@ -384,48 +390,49 @@ def cmd_memory(args):
                    GROUP BY s.value"""
             ).fetchall()
             if rows:
-                print(f"\n{'Alloc API':<25s} {'Count':>8s} {'Total(us)':>11s}")
-                print("-" * 48)
+                print(f"\n{'Alloc API':<25s} {'Count':>8s} {'Total(us)':>11s}")  # noqa: T201  # tracked: #288
+                print("-" * 48)  # noqa: T201  # tracked: #288
                 for name, cnt, tot in rows:
-                    print(f"{name:<25s} {cnt:>8d} {tot / 1000:>11.1f}")
+                    print(f"{name:<25s} {cnt:>8d} {tot / 1000:>11.1f}")  # noqa: T201  # tracked: #288
 
 
 # ---------------------------------------------------------------------------
-# Subcommand: graph-replays
+# tracked: #288
+# Subcommand: graph-replays  # noqa: ERA001
 # ---------------------------------------------------------------------------
 
 
-def cmd_graph_replays(args):
+def cmd_graph_replays(args):  # noqa: ANN001, ANN201  # tracked: #288
     """CUDA graph replay statistics from CUPTI_ACTIVITY_KIND_GRAPH_TRACE."""
-    conn, strings = _open_db(_ensure_sqlite(args.report))
+    conn, strings = _open_db(_ensure_sqlite(args.report))  # noqa: RUF059  # tracked: #288
 
     if not _table_exists(conn, "CUPTI_ACTIVITY_KIND_GRAPH_TRACE"):
-        print("(No graph trace data — CUDA graphs may not be active.)")
+        print("(No graph trace data — CUDA graphs may not be active.)")  # noqa: T201  # tracked: #288
         return
 
     traces = conn.execute(
         "SELECT start, end, graphId, graphExecId FROM CUPTI_ACTIVITY_KIND_GRAPH_TRACE ORDER BY start"
     ).fetchall()
     if not traces:
-        print("(Graph trace table is empty.)")
+        print("(Graph trace table is empty.)")  # noqa: T201  # tracked: #288
         return
 
-    print(f"Total graph replays: {len(traces)}")
+    print(f"Total graph replays: {len(traces)}")  # noqa: T201  # tracked: #288
 
     # Per-graphExecId stats
     by_exec: dict[int, list[int]] = defaultdict(list)
     for s, e, _gid, geid in traces:
         by_exec[geid].append(e - s)
 
-    print(
+    print(  # noqa: T201  # tracked: #288
         f"\n{'GraphExec':>10s} {'Replays':>8s} {'Avg(us)':>10s} {'Min(us)':>10s} {'Max(us)':>10s}"
     )
-    print("-" * 52)
+    print("-" * 52)  # noqa: T201  # tracked: #288
     for geid, durs in sorted(by_exec.items()):
         avg = sum(durs) / len(durs) / 1000
         mn = min(durs) / 1000
         mx = max(durs) / 1000
-        print(f"{geid:>10d} {len(durs):>8d} {avg:>10.1f} {mn:>10.1f} {mx:>10.1f}")
+        print(f"{geid:>10d} {len(durs):>8d} {avg:>10.1f} {mn:>10.1f} {mx:>10.1f}")  # noqa: T201  # tracked: #288
 
     # Match with CPU-side cudaGraphLaunch
     if _table_exists(conn, "CUPTI_ACTIVITY_KIND_RUNTIME") and _column_exists(
@@ -440,31 +447,32 @@ def cmd_graph_replays(args):
         ).fetchall()
         if launch_rows:
             cpu_durs = [(r[1] - r[0]) / 1000 for r in launch_rows]
-            print(f"\ncudaGraphLaunch calls: {len(cpu_durs)}")
-            print(f"  CPU launch avg: {sum(cpu_durs) / len(cpu_durs):.1f} us")
-            print(f"  CPU launch min: {min(cpu_durs):.1f} us")
-            print(f"  CPU launch max: {max(cpu_durs):.1f} us")
+            print(f"\ncudaGraphLaunch calls: {len(cpu_durs)}")  # noqa: T201  # tracked: #288
+            print(f"  CPU launch avg: {sum(cpu_durs) / len(cpu_durs):.1f} us")  # noqa: T201  # tracked: #288
+            print(f"  CPU launch min: {min(cpu_durs):.1f} us")  # noqa: T201  # tracked: #288
+            print(f"  CPU launch max: {max(cpu_durs):.1f} us")  # noqa: T201  # tracked: #288
 
     # Gap between consecutive replays (scheduling overhead)
-    if len(traces) >= 2:
+    if len(traces) >= 2:  # noqa: PLR2004  # tracked: #288
         replay_gaps = [traces[i][0] - traces[i - 1][1] for i in range(1, len(traces))]
         replay_gaps = [g for g in replay_gaps if g > 0]
         if replay_gaps:
             avg_gap = sum(replay_gaps) / len(replay_gaps) / 1000
             med_gap = sorted(replay_gaps)[len(replay_gaps) // 2] / 1000
-            print("\nGap between replays (scheduling overhead):")
-            print(f"  Avg: {avg_gap:.1f} us")
-            print(f"  Median: {med_gap:.1f} us")
-            print(f"  Min: {min(replay_gaps) / 1000:.1f} us")
-            print(f"  Max: {max(replay_gaps) / 1000:.1f} us")
+            print("\nGap between replays (scheduling overhead):")  # noqa: T201  # tracked: #288
+            print(f"  Avg: {avg_gap:.1f} us")  # noqa: T201  # tracked: #288
+            print(f"  Median: {med_gap:.1f} us")  # noqa: T201  # tracked: #288
+            print(f"  Min: {min(replay_gaps) / 1000:.1f} us")  # noqa: T201  # tracked: #288
+            print(f"  Max: {max(replay_gaps) / 1000:.1f} us")  # noqa: T201  # tracked: #288
 
 
 # ---------------------------------------------------------------------------
-# Subcommand: step-timeline
+# tracked: #288
+# Subcommand: step-timeline  # noqa: ERA001
 # ---------------------------------------------------------------------------
 
 
-def cmd_step_timeline(args):
+def cmd_step_timeline(args):  # noqa: ANN001, ANN201, C901, PLR0912, PLR0915  # tracked: #288
     """Per-decode-step kernel breakdown.
 
     Detects repeating kernel patterns to identify individual decode steps,
@@ -474,22 +482,22 @@ def cmd_step_timeline(args):
     """
     conn, strings = _open_db(_ensure_sqlite(args.report))
     if not _table_exists(conn, "CUPTI_ACTIVITY_KIND_KERNEL"):
-        print("(No kernel data.)")
+        print("(No kernel data.)")  # noqa: T201  # tracked: #288
         return
     name_col = _kernel_name_col(conn)
     if not name_col:
-        print("(No kernel name column.)")
+        print("(No kernel name column.)")  # noqa: T201  # tracked: #288
         return
 
     # Load steady-state kernels (skip first 60% which is likely warmup/loading)
     total = conn.execute("SELECT COUNT(*) FROM CUPTI_ACTIVITY_KIND_KERNEL").fetchone()[0]
     offset = max(0, int(total * 0.6))
     rows = conn.execute(
-        f"SELECT {name_col}, start, end FROM CUPTI_ACTIVITY_KIND_KERNEL ORDER BY start LIMIT 5000 OFFSET ?",
+        f"SELECT {name_col}, start, end FROM CUPTI_ACTIVITY_KIND_KERNEL ORDER BY start LIMIT 5000 OFFSET ?",  # noqa: S608  # tracked: #288
         (offset,),
     ).fetchall()
-    if len(rows) < 100:
-        print("(Not enough steady-state kernels to detect decode steps.)")
+    if len(rows) < 100:  # noqa: PLR2004  # tracked: #288
+        print("(Not enough steady-state kernels to detect decode steps.)")  # noqa: T201  # tracked: #288
         return
 
     # Find decode step boundaries: gaps > threshold
@@ -499,7 +507,7 @@ def cmd_step_timeline(args):
         reverse=True,
     )
     if not all_gaps:
-        print("(No gaps between kernels.)")
+        print("(No gaps between kernels.)")  # noqa: T201  # tracked: #288
         return
 
     # Use the largest gap cluster as step boundaries
@@ -508,7 +516,7 @@ def cmd_step_timeline(args):
     for pct in [0.01, 0.02, 0.05, 0.1]:
         thresh = all_gaps[max(0, int(len(all_gaps) * pct))]
         boundaries = [i for i in range(1, len(rows)) if rows[i][1] - rows[i - 1][2] > thresh]
-        if len(boundaries) >= 3:
+        if len(boundaries) >= 3:  # noqa: PLR2004  # tracked: #288
             sizes = [boundaries[j + 1] - boundaries[j] for j in range(len(boundaries) - 1)]
             # Check consistency: most steps should be similar size
             if sizes and max(sizes) < 3 * min(sizes):
@@ -517,11 +525,11 @@ def cmd_step_timeline(args):
 
     if best_thresh is None:
         # Fallback: use a fixed threshold
-        best_thresh = all_gaps[min(5, len(all_gaps) - 1)] if len(all_gaps) > 5 else 100000
+        best_thresh = all_gaps[min(5, len(all_gaps) - 1)] if len(all_gaps) > 5 else 100000  # noqa: PLR2004  # tracked: #288
 
     boundaries = [i for i in range(1, len(rows)) if rows[i][1] - rows[i - 1][2] > best_thresh]
-    if len(boundaries) < 2:
-        print(
+    if len(boundaries) < 2:  # noqa: PLR2004  # tracked: #288
+        print(  # noqa: T201  # tracked: #288
             "(Could not detect decode step boundaries. Try graph-replays if CUDA graphs are active.)"
         )
         return
@@ -538,13 +546,13 @@ def cmd_step_timeline(args):
     gap_time = sum(max(0, step_rows[i][1] - step_rows[i - 1][2]) for i in range(1, len(step_rows)))
 
     sizes = [boundaries[j + 1] - boundaries[j] for j in range(min(5, len(boundaries) - 1))]
-    print(f"Detected {len(boundaries)} decode steps (threshold: {best_thresh / 1000:.0f} us)")
-    print(f"Kernels per step: {sizes}")
-    print(f"\n=== Decode step {step_idx} ({n_kernels} kernels) ===")
-    print(f"GPU time:  {gpu_time / 1000:.0f} us")
-    print(f"Gap time:  {gap_time / 1000:.0f} us")
-    print(f"Wall time: {wall_time / 1000:.0f} us")
-    print(f"GPU util:  {gpu_time / wall_time * 100:.0f}%" if wall_time else "")
+    print(f"Detected {len(boundaries)} decode steps (threshold: {best_thresh / 1000:.0f} us)")  # noqa: T201  # tracked: #288
+    print(f"Kernels per step: {sizes}")  # noqa: T201  # tracked: #288
+    print(f"\n=== Decode step {step_idx} ({n_kernels} kernels) ===")  # noqa: T201  # tracked: #288
+    print(f"GPU time:  {gpu_time / 1000:.0f} us")  # noqa: T201  # tracked: #288
+    print(f"Gap time:  {gap_time / 1000:.0f} us")  # noqa: T201  # tracked: #288
+    print(f"Wall time: {wall_time / 1000:.0f} us")  # noqa: T201  # tracked: #288
+    print(f"GPU util:  {gpu_time / wall_time * 100:.0f}%" if wall_time else "")  # noqa: T201  # tracked: #288
 
     # Kernel breakdown
     kstats = defaultdict(lambda: {"count": 0, "total": 0})
@@ -553,11 +561,11 @@ def cmd_step_timeline(args):
         kstats[name]["count"] += 1
         kstats[name]["total"] += r[2] - r[1]
 
-    print(f"\n{'Kernel':<50s} {'Cnt':>5s} {'Total(us)':>10s} {'Avg(us)':>8s} {'%step':>6s}")
-    print("-" * 83)
+    print(f"\n{'Kernel':<50s} {'Cnt':>5s} {'Total(us)':>10s} {'Avg(us)':>8s} {'%step':>6s}")  # noqa: T201  # tracked: #288
+    print("-" * 83)  # noqa: T201  # tracked: #288
     for name, s in sorted(kstats.items(), key=lambda x: -x[1]["total"]):
         pct = s["total"] / gpu_time * 100 if gpu_time else 0
-        print(
+        print(  # noqa: T201  # tracked: #288
             f"{name:<50s} {s['count']:>5d} {s['total'] / 1000:>10.1f} {s['total'] / s['count'] / 1000:>8.1f} {pct:>5.1f}%"
         )
 
@@ -571,13 +579,13 @@ def cmd_step_timeline(args):
             gstats[f"{pn:20s} → {nn}"]["count"] += 1
             gstats[f"{pn:20s} → {nn}"]["total"] += g
 
-    print(f"\n{'Gap transition':<45s} {'Cnt':>5s} {'Total(us)':>10s} {'Avg(us)':>8s}")
-    print("-" * 72)
+    print(f"\n{'Gap transition':<45s} {'Cnt':>5s} {'Total(us)':>10s} {'Avg(us)':>8s}")  # noqa: T201  # tracked: #288
+    print("-" * 72)  # noqa: T201  # tracked: #288
     for key, s in sorted(gstats.items(), key=lambda x: -x[1]["total"])[:10]:
-        print(
+        print(  # noqa: T201  # tracked: #288
             f"{key:<45s} {s['count']:>5d} {s['total'] / 1000:>10.1f} {s['total'] / s['count'] / 1000:>8.1f}"
         )
-    print(f"\nTotal intra-step gap: {gap_time / 1000:.0f} us")
+    print(f"\nTotal intra-step gap: {gap_time / 1000:.0f} us")  # noqa: T201  # tracked: #288
 
 
 # ---------------------------------------------------------------------------
@@ -593,10 +601,10 @@ def _build_string_map(conn: sqlite3.Connection) -> dict[int, str]:
         return {}
 
 
-def _capture_stdout(fn, *a, **kw) -> str:
+def _capture_stdout(fn, *a, **kw) -> str:  # noqa: ANN001, ANN002, ANN003  # tracked: #288
     """Run fn() and capture its stdout as a string."""
-    import contextlib
-    import io
+    import contextlib  # noqa: PLC0415  # tracked: #288
+    import io  # noqa: PLC0415  # tracked: #288
 
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
@@ -604,7 +612,7 @@ def _capture_stdout(fn, *a, **kw) -> str:
     return buf.getvalue()
 
 
-def analyze_kernels(conn, strings, top_n=15):
+def analyze_kernels(conn, strings, top_n=15):  # noqa: ANN001, ANN201  # tracked: #288
     """Legacy API — returns analysis as a string."""
 
     class _A:
@@ -613,44 +621,44 @@ def analyze_kernels(conn, strings, top_n=15):
 
     # Monkey-patch _open_db for this call
     saved = globals().get("_open_db")
-    globals()["_open_db"] = lambda p: (conn, strings)
+    globals()["_open_db"] = lambda p: (conn, strings)  # noqa: ARG005  # tracked: #288
     try:
         return _capture_stdout(cmd_kernels, _A())
     finally:
         globals()["_open_db"] = saved
 
 
-def analyze_cpu_overhead(conn, strings):
+def analyze_cpu_overhead(conn, strings):  # noqa: ANN001, ANN201, D103  # tracked: #288
     class _A:
         report = ":memory:"
 
     saved = globals().get("_open_db")
-    globals()["_open_db"] = lambda p: (conn, strings)
+    globals()["_open_db"] = lambda p: (conn, strings)  # noqa: ARG005  # tracked: #288
     try:
         return _capture_stdout(cmd_cpu_overhead, _A())
     finally:
         globals()["_open_db"] = saved
 
 
-def analyze_gpu_idle_gaps(conn, strings, top_n=10):
+def analyze_gpu_idle_gaps(conn, strings, top_n=10):  # noqa: ANN001, ANN201, D103  # tracked: #288
     class _A:
         report = ":memory:"
         top = top_n
 
     saved = globals().get("_open_db")
-    globals()["_open_db"] = lambda p: (conn, strings)
+    globals()["_open_db"] = lambda p: (conn, strings)  # noqa: ARG005  # tracked: #288
     try:
         return _capture_stdout(cmd_idle_gaps, _A())
     finally:
         globals()["_open_db"] = saved
 
 
-def analyze_memory_ops(conn):
+def analyze_memory_ops(conn):  # noqa: ANN001, ANN201, D103  # tracked: #288
     class _A:
         report = ":memory:"
 
     saved = globals().get("_open_db")
-    globals()["_open_db"] = lambda p: (conn, {})
+    globals()["_open_db"] = lambda p: (conn, {})  # noqa: ARG005  # tracked: #288
     try:
         return _capture_stdout(cmd_memory, _A())
     finally:
@@ -658,24 +666,25 @@ def analyze_memory_ops(conn):
 
 
 # ---------------------------------------------------------------------------
-# Subcommand: query
+# tracked: #288
+# Subcommand: query  # noqa: ERA001
 # ---------------------------------------------------------------------------
 
 
-def cmd_query(args):
+def cmd_query(args):  # noqa: ANN001, ANN201  # tracked: #288
     """Run arbitrary SQL against the nsys SQLite export."""
     conn, _ = _open_db(_ensure_sqlite(args.report))
     try:
         cur = conn.execute(args.sql)
         if cur.description:
             headers = [d[0] for d in cur.description]
-            print("\t".join(headers))
+            print("\t".join(headers))  # noqa: T201  # tracked: #288
             for row in cur.fetchall():
-                print("\t".join(str(v) for v in row))
+                print("\t".join(str(v) for v in row))  # noqa: T201  # tracked: #288
         else:
-            print("(No results.)")
+            print("(No results.)")  # noqa: T201  # tracked: #288
     except sqlite3.OperationalError as e:
-        print(f"SQL error: {e}", file=sys.stderr)
+        print(f"SQL error: {e}", file=sys.stderr)  # noqa: T201  # tracked: #288
         sys.exit(1)
 
 
@@ -684,24 +693,24 @@ def cmd_query(args):
 # ---------------------------------------------------------------------------
 
 
-def cmd_summary(args):
+def cmd_summary(args):  # noqa: ANN001, ANN201  # tracked: #288
     """All-in-one analysis (legacy mode)."""
     args.top = getattr(args, "top", 15)
     args.step = getattr(args, "step", 1)
-    print("=" * 70)
-    print("  NSYS PROFILE ANALYSIS")
-    print("=" * 70)
-    print("\n## GPU Kernel Summary\n")
+    print("=" * 70)  # noqa: T201  # tracked: #288
+    print("  NSYS PROFILE ANALYSIS")  # noqa: T201  # tracked: #288
+    print("=" * 70)  # noqa: T201  # tracked: #288
+    print("\n## GPU Kernel Summary\n")  # noqa: T201  # tracked: #288
     cmd_kernels(args)
-    print("\n## CPU Overhead Analysis\n")
+    print("\n## CPU Overhead Analysis\n")  # noqa: T201  # tracked: #288
     cmd_cpu_overhead(args)
-    print("\n## GPU Idle Gap Analysis\n")
+    print("\n## GPU Idle Gap Analysis\n")  # noqa: T201  # tracked: #288
     cmd_idle_gaps(args)
-    print("\n## Memory Operations\n")
+    print("\n## Memory Operations\n")  # noqa: T201  # tracked: #288
     cmd_memory(args)
-    print("\n## CUDA Graph Replays\n")
+    print("\n## CUDA Graph Replays\n")  # noqa: T201  # tracked: #288
     cmd_graph_replays(args)
-    print("\n## Decode Step Timeline\n")
+    print("\n## Decode Step Timeline\n")  # noqa: T201  # tracked: #288
     cmd_step_timeline(args)
 
 
@@ -710,7 +719,7 @@ def cmd_summary(args):
 # ---------------------------------------------------------------------------
 
 
-def main():
+def main():  # noqa: ANN201, D103  # tracked: #288
     parser = argparse.ArgumentParser(
         description="Nsys profile analysis toolkit.",
         formatter_class=argparse.RawDescriptionHelpFormatter,

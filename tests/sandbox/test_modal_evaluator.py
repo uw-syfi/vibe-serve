@@ -52,7 +52,7 @@ def test_extract_modal_app_identifier_handles_rich_line_wrapping() -> None:
     assert modal_evaluator.extract_modal_app_identifier(output) == "vibesys-long-candidate"
 
 
-def test_run_evaluator_deploys_waits_and_injects_url(monkeypatch) -> None:
+def test_run_evaluator_deploys_waits_and_injects_url(monkeypatch) -> None:  # noqa: ANN001  # tracked: #288
     deploy = SimpleNamespace(
         returncode=0,
         stdout="Web Function URL: https://workspace--candidate.modal.run\n",
@@ -98,8 +98,8 @@ def test_run_evaluator_deploys_waits_and_injects_url(monkeypatch) -> None:
 
 
 def test_run_evaluator_reuses_healthy_deployment_for_exact_revision(
-    monkeypatch,
-    tmp_path,
+    monkeypatch,  # noqa: ANN001  # tracked: #288
+    tmp_path,  # noqa: ANN001  # tracked: #288
 ) -> None:
     lease_path = tmp_path / "deployment.json"
     lease_path.write_text(
@@ -140,8 +140,8 @@ def test_run_evaluator_reuses_healthy_deployment_for_exact_revision(
 
 
 def test_run_evaluator_releases_reused_deployment_after_final_gate(
-    monkeypatch,
-    tmp_path,
+    monkeypatch,  # noqa: ANN001  # tracked: #288
+    tmp_path,  # noqa: ANN001  # tracked: #288
 ) -> None:
     lease_path = tmp_path / "deployment.json"
     lease_path.write_text(
@@ -180,8 +180,8 @@ def test_run_evaluator_releases_reused_deployment_after_final_gate(
 
 
 def test_run_evaluator_releases_new_deployment_after_final_gate(
-    monkeypatch,
-    tmp_path,
+    monkeypatch,  # noqa: ANN001  # tracked: #288
+    tmp_path,  # noqa: ANN001  # tracked: #288
 ) -> None:
     lease_path = tmp_path / "deployment.json"
     deploy = SimpleNamespace(
@@ -220,8 +220,8 @@ def test_run_evaluator_releases_new_deployment_after_final_gate(
 
 
 def test_run_evaluator_stops_mismatched_leased_app_before_redeploy(
-    monkeypatch,
-    tmp_path,
+    monkeypatch,  # noqa: ANN001  # tracked: #288
+    tmp_path,  # noqa: ANN001  # tracked: #288
 ) -> None:
     lease_path = tmp_path / "deployment.json"
     lease_path.write_text(
@@ -263,8 +263,8 @@ def test_run_evaluator_stops_mismatched_leased_app_before_redeploy(
 
 
 def test_run_evaluator_redeploys_and_replaces_mismatched_revision(
-    monkeypatch,
-    tmp_path,
+    monkeypatch,  # noqa: ANN001  # tracked: #288
+    tmp_path,  # noqa: ANN001  # tracked: #288
 ) -> None:
     lease_path = tmp_path / "deployment.json"
     lease_path.write_text(
@@ -300,8 +300,8 @@ def test_run_evaluator_redeploys_and_replaces_mismatched_revision(
 
 
 def test_run_evaluator_prints_modal_logs_when_readiness_fails(
-    monkeypatch,
-    capsys,
+    monkeypatch,  # noqa: ANN001  # tracked: #288
+    capsys,  # noqa: ANN001  # tracked: #288
 ) -> None:
     deploy = SimpleNamespace(
         returncode=0,

@@ -23,11 +23,11 @@ is a no-op (parity with :class:`LocalBackend`).
 from __future__ import annotations
 
 import glob
-from collections.abc import Callable
+from collections.abc import Callable  # noqa: TC003  # tracked: #288
 from pathlib import Path
 
 from deepagents.backends import LocalShellBackend
-from deepagents.backends.protocol import SandboxBackendProtocol
+from deepagents.backends.protocol import SandboxBackendProtocol  # noqa: TC002  # tracked: #288
 
 from vibesys.backends.base import (
     ContentionMonitor,
@@ -69,7 +69,7 @@ def _discover_neuron_devices() -> list[str]:
     Matches the numbered device nodes (``/dev/neuron0`` …) and skips the
     control node ``/dev/neuron_*`` if present.
     """
-    devs = [d for d in glob.glob("/dev/neuron*") if d[len("/dev/neuron") :].isdigit()]
+    devs = [d for d in glob.glob("/dev/neuron*") if d[len("/dev/neuron") :].isdigit()]  # noqa: PTH207  # tracked: #288
     return sorted(devs)
 
 
@@ -79,7 +79,7 @@ class TrainiumBackend:
     name = ComputeBackend.TRAINIUM
     profiler_kind = ProfilerKind.NEURON
 
-    def __init__(
+    def __init__(  # noqa: D107  # tracked: #288
         self,
         log_dir: Path,
         *,
@@ -105,7 +105,7 @@ class TrainiumBackend:
 
     # -- ComputeBackendImpl protocol ---------------------------------------
 
-    def make_sandbox(
+    def make_sandbox(  # noqa: D102, PLR0913  # tracked: #288
         self,
         kind: SandboxKind,
         *,
@@ -116,7 +116,7 @@ class TrainiumBackend:
         extra_env: dict[str, str] | None = None,
         extra_init_commands: list[str] | None = None,
         setup_fns: list[SetupFn] | None = None,
-        modal_options: ModalOptions | None = None,
+        modal_options: ModalOptions | None = None,  # noqa: ARG002  # tracked: #288
         attach_accelerator: bool = True,
     ) -> SandboxBackendProtocol:
         bind_mounts = list(bind_mounts or [])
@@ -126,7 +126,7 @@ class TrainiumBackend:
         setup_fns = setup_fns or []
 
         if kind is SandboxKind.MODAL:
-            raise ValueError(
+            raise ValueError(  # noqa: TRY003  # tracked: #288
                 "trainium backend does not support Modal — Modal offers no "
                 "Trainium hardware. Use --docker (NeuronCores via "
                 "/dev/neuron*) or local execution."
@@ -182,14 +182,14 @@ class TrainiumBackend:
                 setup_fns=setup_fns,
             )
 
-        raise ValueError(f"Unknown sandbox kind: {kind!r}")
+        raise ValueError(f"Unknown sandbox kind: {kind!r}")  # noqa: TRY003  # tracked: #288
 
-    def make_monitor(self, log_dir: Path) -> ContentionMonitor | None:
+    def make_monitor(self, log_dir: Path) -> ContentionMonitor | None:  # noqa: ARG002, D102  # tracked: #288
         # neuron-monitor exists, but shared-device contention handling
         # isn't wired up yet; skip rather than fake it.
         return None
 
-    def reselect_device(self) -> None:
+    def reselect_device(self) -> None:  # noqa: D102  # tracked: #288
         return None
 
     # -- internal ----------------------------------------------------------

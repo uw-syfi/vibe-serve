@@ -16,12 +16,12 @@ from vibesys.profilers import ProfilerKind
 from vs_sandbox import DockerSandbox
 
 
-def _make_backend(tmp_path) -> LocalBackend:
+def _make_backend(tmp_path) -> LocalBackend:  # noqa: ANN001  # tracked: #288
     return backends.get(ComputeBackend.CPU, log_dir=tmp_path / "logs")
 
 
 class TestCpuRegistry:
-    def test_cpu_in_registry(self, tmp_path):
+    def test_cpu_in_registry(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         impl = backends.get(ComputeBackend.CPU, log_dir=tmp_path)
         assert isinstance(impl, LocalBackend)
         assert impl.name is ComputeBackend.CPU
@@ -29,7 +29,7 @@ class TestCpuRegistry:
 
 
 class TestCpuSandbox:
-    def test_local_returns_local_shell_backend(self, tmp_path):
+    def test_local_returns_local_shell_backend(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         impl = _make_backend(tmp_path)
         workspace = tmp_path / "ws"
         workspace.mkdir()
@@ -41,7 +41,7 @@ class TestCpuSandbox:
         )
         assert isinstance(sb, LocalShellBackend)
 
-    def test_docker_returns_docker_sandbox_without_gpus(self, tmp_path):
+    def test_docker_returns_docker_sandbox_without_gpus(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         impl = _make_backend(tmp_path)
         sb = impl.make_sandbox(
             SandboxKind.DOCKER,
@@ -50,11 +50,11 @@ class TestCpuSandbox:
             extra_env={"FOO": "bar"},
         )
         assert isinstance(sb, DockerSandbox)
-        assert sb._gpus is None
-        assert sb._image == impl.image
-        assert sb._env["FOO"] == "bar"
+        assert sb._gpus is None  # noqa: SLF001  # tracked: #288
+        assert sb._image == impl.image  # noqa: SLF001  # tracked: #288
+        assert sb._env["FOO"] == "bar"  # noqa: SLF001  # tracked: #288
 
-    def test_modal_raises(self, tmp_path):
+    def test_modal_raises(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         impl = _make_backend(tmp_path)
         with pytest.raises(ValueError, match="Modal CPU execution is not wired up"):
             impl.make_sandbox(
@@ -65,10 +65,10 @@ class TestCpuSandbox:
 
 
 class TestCpuDevice:
-    def test_no_monitor(self, tmp_path):
+    def test_no_monitor(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         assert _make_backend(tmp_path).make_monitor(tmp_path) is None
 
-    def test_reselect_is_noop(self, tmp_path):
+    def test_reselect_is_noop(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         impl = _make_backend(tmp_path)
         # No-op: doesn't raise, doesn't change selected_device.
         impl.reselect_device()
@@ -76,7 +76,7 @@ class TestCpuDevice:
 
 
 class TestCpuCli:
-    def test_argparse_accepts_cpu(self):
+    def test_argparse_accepts_cpu(self):  # noqa: ANN201  # tracked: #288
         parser = argparse.ArgumentParser()
         _add_common_args(parser)
         ns = parser.parse_args(["--backend", "cpu"])

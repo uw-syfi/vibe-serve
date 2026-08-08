@@ -18,19 +18,19 @@ def _parse_allowed_types(value: str) -> frozenset[IssueType]:
     """Argparse type= callable for ``--allowed-types``."""
     parts = [p.strip() for p in value.split(",") if p.strip()]
     if not parts:
-        raise argparse.ArgumentTypeError(
+        raise argparse.ArgumentTypeError(  # noqa: TRY003  # tracked: #288
             "--allowed-types may not be empty; pass a comma-separated subset of {bug,feature,perf}"
         )
     try:
         return frozenset(IssueType(p) for p in parts)
     except ValueError as exc:
-        raise argparse.ArgumentTypeError(
+        raise argparse.ArgumentTypeError(  # noqa: TRY003  # tracked: #288
             f"--allowed-types must be a comma-separated subset of "
             f"{{bug,feature,perf}}; got {value!r}"
         ) from exc
 
 
-def build_parser() -> argparse.ArgumentParser:
+def build_parser() -> argparse.ArgumentParser:  # noqa: D103  # tracked: #288
     parser = argparse.ArgumentParser(
         prog="vs-issue-board-mcp",
         description=(
@@ -126,7 +126,7 @@ def build_server(args: argparse.Namespace) -> FastMCP:
     if not args.read_only:
 
         @mcp.tool()
-        def create_issue(type: str, title: str, description: str) -> str:  # pyright: ignore[reportUnusedFunction]
+        def create_issue(type: str, title: str, description: str) -> str:  # pyright: ignore[reportUnusedFunction]  # noqa: A002  # tracked: #288
             """Create a new issue.
 
             Args:
@@ -146,7 +146,7 @@ def build_server(args: argparse.Namespace) -> FastMCP:
     return mcp
 
 
-def main(argv: list[str] | None = None) -> None:
+def main(argv: list[str] | None = None) -> None:  # noqa: D103  # tracked: #288
     args = build_parser().parse_args(argv)
     mcp = build_server(args)
     mcp.run(transport="stdio")

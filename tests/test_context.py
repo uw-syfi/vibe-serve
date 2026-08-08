@@ -22,9 +22,9 @@ from vibesys.run import GitTracker, RunLogger, RunPaths, Workspace
 from vibesys.sandbox.run_environment import RunEnvironmentSpec
 
 
-def _minimal_copy_context(workspace):
+def _minimal_copy_context(workspace):  # noqa: ANN001, ANN202  # tracked: #288
     ctx = object.__new__(_RunContext)
-    ctx._paths = RunPaths(
+    ctx._paths = RunPaths(  # noqa: SLF001  # tracked: #288
         exp_dir=workspace.parent,
         log_dir=workspace.parent / "logs",
         workspace=workspace,
@@ -37,11 +37,11 @@ def _minimal_copy_context(workspace):
     ctx.lprint = MagicMock()
     ctx.git = GitTracker(workspace, log=ctx.lprint, excluded_dirs=ctx.EXCLUDED_WORKSPACE_DIRS)
     ctx.implementer_backend = SimpleNamespace()
-    ctx._experiment_repository = None
+    ctx._experiment_repository = None  # noqa: SLF001  # tracked: #288
     return ctx
 
 
-def test_setup_exp_dir_uses_unique_names_for_concurrent_default_runs(tmp_path):
+def test_setup_exp_dir_uses_unique_names_for_concurrent_default_runs(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     first = setup_exp_dir("test", project_root=tmp_path)
     second = setup_exp_dir("test", project_root=tmp_path)
 
@@ -52,11 +52,11 @@ def test_setup_exp_dir_uses_unique_names_for_concurrent_default_runs(tmp_path):
     assert (second / ".git").is_dir()
 
 
-def test_log_switch_retargets_stderr_tee_and_restores_on_close(tmp_path):
+def test_log_switch_retargets_stderr_tee_and_restores_on_close(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     ctx = object.__new__(_RunContext)
     original_stderr = sys.stderr
     ctx.logger = RunLogger(tmp_path)
-    ctx._paths = RunPaths(
+    ctx._paths = RunPaths(  # noqa: SLF001  # tracked: #288
         exp_dir=tmp_path,
         log_dir=tmp_path,
         workspace=tmp_path / "workspace",
@@ -68,10 +68,10 @@ def test_log_switch_retargets_stderr_tee_and_restores_on_close(tmp_path):
     ctx.switch_log_file("round001")
 
     assert original_file.closed
-    assert ctx.agent_runner._run_log_file is ctx.run_log_file
+    assert ctx.agent_runner._run_log_file is ctx.run_log_file  # noqa: SLF001  # tracked: #288
     # The unconditional tee mirrors stderr into the *current* log file,
     # stripped of ANSI escapes, while writes still reach the real stderr.
-    print("\033[31mcolored diagnostic\033[0m", file=sys.stderr)
+    print("\033[31mcolored diagnostic\033[0m", file=sys.stderr)  # noqa: T201  # tracked: #288
     assert ctx.run_log_path.name.endswith("-round001.log")
 
     ctx.logger.close()
@@ -80,7 +80,7 @@ def test_log_switch_retargets_stderr_tee_and_restores_on_close(tmp_path):
     assert "\033[31m" not in ctx.run_log_path.read_text()
 
 
-def test_input_copy_respects_source_gitignore(tmp_path):
+def test_input_copy_respects_source_gitignore(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     source = tmp_path / "source"
     source.mkdir()
     (source / ".gitignore").write_text("/candidate.so\n/build/\n")
@@ -88,7 +88,7 @@ def test_input_copy_respects_source_gitignore(tmp_path):
     (source / "candidate.so").write_bytes(b"stale")
     (source / "build").mkdir()
     (source / "build" / "cache").write_text("stale")
-    subprocess.run(["git", "init", "-q"], cwd=source, check=True)
+    subprocess.run(["git", "init", "-q"], cwd=source, check=True)  # noqa: S607  # tracked: #288
 
     destination = tmp_path / "workspace"
     workspace = Workspace(
@@ -106,15 +106,15 @@ def test_input_copy_respects_source_gitignore(tmp_path):
     assert not (destination / "build").exists()
 
 
-def test_trusted_input_changes_compare_against_initial_commit(tmp_path):
+def test_trusted_input_changes_compare_against_initial_commit(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     workspace = tmp_path / "workspace"
     (workspace / "accuracy_checker").mkdir(parents=True)
     (workspace / "accuracy_checker" / "checker.py").write_text("print('ok')\n")
     (workspace / "main.py").write_text("VALUE = 1\n")
-    subprocess.run(["git", "init", "-q"], cwd=workspace, check=True)
-    subprocess.run(["git", "add", "."], cwd=workspace, check=True)
+    subprocess.run(["git", "init", "-q"], cwd=workspace, check=True)  # noqa: S607  # tracked: #288
+    subprocess.run(["git", "add", "."], cwd=workspace, check=True)  # noqa: S607  # tracked: #288
     subprocess.run(
-        [
+        [  # noqa: S607  # tracked: #288
             "git",
             "-c",
             "user.name=test",
@@ -136,49 +136,49 @@ def test_trusted_input_changes_compare_against_initial_commit(tmp_path):
     assert ctx.trusted_input_changes() == ["accuracy_checker/checker.py"]
 
 
-def test_workspace_snapshot_pushes_remote_experiment_checkpoint(tmp_path):
+def test_workspace_snapshot_pushes_remote_experiment_checkpoint(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     (workspace / "main.py").write_text("VALUE = 1\n")
     ctx = _minimal_copy_context(workspace)
     ctx.git.init(existing=False)
-    ctx._experiment_repository = MagicMock()
+    ctx._experiment_repository = MagicMock()  # noqa: SLF001  # tracked: #288
 
     (workspace / "main.py").write_text("VALUE = 2\n")
     ctx.snapshot_workspace("round-1-implementer")
 
-    ctx._experiment_repository.sync.assert_called_once_with()
+    ctx._experiment_repository.sync.assert_called_once_with()  # noqa: SLF001  # tracked: #288
 
 
-def test_directory_snapshot_pushes_remote_experiment_checkpoint(tmp_path):
+def test_directory_snapshot_pushes_remote_experiment_checkpoint(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     (workspace / "main.py").write_text("VALUE = 1\n")
     ctx = _minimal_copy_context(workspace)
     ctx.git_tracking = False
     ctx.workspace_files = MagicMock()
-    ctx._experiment_repository = MagicMock()
+    ctx._experiment_repository = MagicMock()  # noqa: SLF001  # tracked: #288
 
     ctx.snapshot_workspace("round-1-implementer")
 
     snapshot = ctx.log_dir / "snapshots" / "round-1-implementer"
     assert (snapshot / "main.py").read_text() == "VALUE = 1\n"
     ctx.workspace_files.replace_external_symlinks.assert_called_once_with(snapshot)
-    ctx._experiment_repository.sync.assert_called_once_with()
+    ctx._experiment_repository.sync.assert_called_once_with()  # noqa: SLF001  # tracked: #288
 
 
-def test_workspace_snapshot_retries_remote_failure_without_stopping_run(tmp_path):
+def test_workspace_snapshot_retries_remote_failure_without_stopping_run(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     (workspace / "main.py").write_text("VALUE = 1\n")
     ctx = _minimal_copy_context(workspace)
     ctx.git.init(existing=False)
-    ctx._experiment_repository = MagicMock()
-    ctx._experiment_repository.sync.side_effect = RuntimeError("network unavailable")
+    ctx._experiment_repository = MagicMock()  # noqa: SLF001  # tracked: #288
+    ctx._experiment_repository.sync.side_effect = RuntimeError("network unavailable")  # noqa: SLF001  # tracked: #288
 
     ctx.snapshot_workspace("round-1-implementer")
 
-    ctx._experiment_repository.sync.assert_called_once_with()
+    ctx._experiment_repository.sync.assert_called_once_with()  # noqa: SLF001  # tracked: #288
     ctx.lprint.assert_called_with(
         "[warn] experiment repository checkpoint push failed: network unavailable"
     )
@@ -188,27 +188,27 @@ class _FakeBackend:
     image = "fake-image"
     selected_device = None
 
-    def __init__(self, profiler_kind=None) -> None:
+    def __init__(self, profiler_kind=None) -> None:  # noqa: ANN001  # tracked: #288
         self.sandbox = MagicMock()
         if profiler_kind is not None:
             self.profiler_kind = profiler_kind
 
-    def make_sandbox(self, *_args, **_kwargs):
+    def make_sandbox(self, *_args, **_kwargs):  # noqa: ANN002, ANN003, ANN202  # tracked: #288
         return self.sandbox
 
-    def make_monitor(self, _log_dir):
+    def make_monitor(self, _log_dir):  # noqa: ANN001, ANN202  # tracked: #288
         return None
 
 
 @pytest.fixture(autouse=True)
-def _native_profiler_preflight_ok(monkeypatch):
+def _native_profiler_preflight_ok(monkeypatch):  # noqa: ANN001, ANN202  # tracked: #288
     monkeypatch.setattr(
         "vibesys.context.preflight_profiler_kind",
-        lambda kind: ProfilerPreflightResult(kind, True),
+        lambda kind: ProfilerPreflightResult(kind, True),  # noqa: FBT003  # tracked: #288
     )
 
 
-def _write_ref(tmp_path):
+def _write_ref(tmp_path):  # noqa: ANN001, ANN202  # tracked: #288
     ref_dir = tmp_path / "input"
     ref_dir.mkdir()
     ref = ref_dir / "reference.py"
@@ -216,7 +216,7 @@ def _write_ref(tmp_path):
     return ref
 
 
-def _write_support_dirs(project_root):
+def _write_support_dirs(project_root):  # noqa: ANN001, ANN202  # tracked: #288
     dirs = {
         ProfilerKind.NSYS: "nsys_profiler",
         ProfilerKind.OTEL: "otel_profiler",
@@ -240,8 +240,11 @@ def _write_support_dirs(project_root):
         (ProfilerKind.OTEL, "otel_profiler", DomainName.MICROSERVICES),
     ],
 )
-def test_run_context_defaults_profiler_support_paths(
-    tmp_path, profiler_kind, workspace_name, profiler_domain
+def test_run_context_defaults_profiler_support_paths(  # noqa: ANN201  # tracked: #288
+    tmp_path,  # noqa: ANN001  # tracked: #288
+    profiler_kind,  # noqa: ANN001  # tracked: #288
+    workspace_name,  # noqa: ANN001  # tracked: #288
+    profiler_domain,  # noqa: ANN001  # tracked: #288
 ):
     project_root = tmp_path / "project"
     source_dir = project_root / "resources" / "profilers" / profiler_kind.value
@@ -271,7 +274,7 @@ def test_run_context_defaults_profiler_support_paths(
         assert (ctx.workspace / workspace_name / "server.py").is_file()
 
 
-def test_cli_context_skips_unused_langchain_model_construction(tmp_path):
+def test_cli_context_skips_unused_langchain_model_construction(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     project_root = tmp_path / "project"
     ref = _write_ref(tmp_path)
 
@@ -304,7 +307,7 @@ def test_cli_context_skips_unused_langchain_model_construction(tmp_path):
     "selected",
     [ProfilerKind.NONE, *sorted(ACTIVE_PROFILER_KINDS, key=lambda kind: kind.value)],
 )
-def test_run_context_copies_only_selected_profiler_support(tmp_path, selected):
+def test_run_context_copies_only_selected_profiler_support(tmp_path, selected):  # noqa: ANN001, ANN201  # tracked: #288
     project_root = tmp_path / "project"
     _write_support_dirs(project_root)
     ref = _write_ref(tmp_path)
@@ -349,7 +352,7 @@ def test_run_context_copies_only_selected_profiler_support(tmp_path, selected):
         assert (ctx.workspace / "linux_cpu_profiler").exists() is expected[ProfilerKind.LINUX_CPU]
 
 
-def test_run_context_generic_auto_resolves_to_macos_profiler(tmp_path):
+def test_run_context_generic_auto_resolves_to_macos_profiler(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     project_root = tmp_path / "project"
     support_paths = _write_support_dirs(project_root)
     ref = _write_ref(tmp_path)
@@ -382,7 +385,7 @@ def test_run_context_generic_auto_resolves_to_macos_profiler(tmp_path):
         assert not (ctx.workspace / "linux_cpu_profiler").exists()
 
 
-def test_run_context_generic_auto_resolves_to_linux_profiler(tmp_path):
+def test_run_context_generic_auto_resolves_to_linux_profiler(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     project_root = tmp_path / "project"
     support_paths = _write_support_dirs(project_root)
     ref = _write_ref(tmp_path)
@@ -415,15 +418,15 @@ def test_run_context_generic_auto_resolves_to_linux_profiler(tmp_path):
         assert (ctx.workspace / "linux_cpu_profiler").exists()
 
 
-def test_run_context_fails_fast_when_resolved_profiler_is_unusable(tmp_path):
+def test_run_context_fails_fast_when_resolved_profiler_is_unusable(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     project_root = tmp_path / "project"
     _write_support_dirs(project_root)
     ref = _write_ref(tmp_path)
 
-    def fail_preflight(kind):
+    def fail_preflight(kind):  # noqa: ANN001, ANN202  # tracked: #288
         return ProfilerPreflightResult(
             kind,
-            False,
+            False,  # noqa: FBT003  # tracked: #288
             ("perf_unavailable", "perf_event_paranoid_restrictive"),
             ("perf_path=missing", "perf_event_paranoid=3"),
         )
@@ -458,7 +461,7 @@ def test_run_context_fails_fast_when_resolved_profiler_is_unusable(tmp_path):
         key=lambda kind: kind.value,
     ),
 )
-def test_run_context_rejects_generic_explicit_active_profilers(tmp_path, profiler_kind):
+def test_run_context_rejects_generic_explicit_active_profilers(tmp_path, profiler_kind):  # noqa: ANN001, ANN201  # tracked: #288
     ref = _write_ref(tmp_path)
 
     with (
@@ -481,7 +484,7 @@ def test_run_context_rejects_generic_explicit_active_profilers(tmp_path, profile
         )
 
 
-def test_run_context_llm_auto_uses_backend_profiler_and_defaults_support_dir(tmp_path):
+def test_run_context_llm_auto_uses_backend_profiler_and_defaults_support_dir(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     project_root = tmp_path / "project"
     support_paths = _write_support_dirs(project_root)
     ref = _write_ref(tmp_path)
@@ -510,7 +513,7 @@ def test_run_context_llm_auto_uses_backend_profiler_and_defaults_support_dir(tmp
         assert not (ctx.workspace / "neuron_profiler").exists()
 
 
-def test_run_context_noop_environment_hooks_do_not_require_model_artifacts(tmp_path):
+def test_run_context_noop_environment_hooks_do_not_require_model_artifacts(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     project_root = tmp_path / "project"
     ref_dir = tmp_path / "queue" / "reference"
     ref_dir.mkdir(parents=True)
@@ -536,7 +539,7 @@ def test_run_context_noop_environment_hooks_do_not_require_model_artifacts(tmp_p
         assert not (ref_dir / "model").exists()
 
 
-def test_candidate_context_cleans_up_when_agent_runner_construction_fails(tmp_path):
+def test_candidate_context_cleans_up_when_agent_runner_construction_fails(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     workspace = tmp_path / "candidates" / f"{tmp_path.name}-g1c2" / "workspace"
     parent = SimpleNamespace(
         exp_dir=tmp_path,
@@ -585,13 +588,13 @@ def test_candidate_context_cleans_up_when_agent_runner_construction_fails(tmp_pa
     parent.git.remove_worktree.assert_called_once_with(workspace)
 
 
-def test_candidate_context_cleans_up_when_add_worktree_partially_fails(tmp_path):
+def test_candidate_context_cleans_up_when_add_worktree_partially_fails(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     workspace = tmp_path / "candidates" / f"{tmp_path.name}-g1c2" / "workspace"
     parent = SimpleNamespace(exp_dir=tmp_path, git=MagicMock())
 
-    def partially_add(path, _commit):
+    def partially_add(path, _commit):  # noqa: ANN001, ANN202  # tracked: #288
         path.mkdir(parents=True)
-        raise RuntimeError("git add failed")
+        raise RuntimeError("git add failed")  # noqa: TRY003  # tracked: #288
 
     parent.git.add_worktree.side_effect = partially_add
 
@@ -607,7 +610,7 @@ def test_candidate_context_cleans_up_when_add_worktree_partially_fails(tmp_path)
     parent.git.remove_worktree.assert_called_once_with(workspace)
 
 
-def test_run_context_cleans_up_when_agent_runner_construction_fails(tmp_path):
+def test_run_context_cleans_up_when_agent_runner_construction_fails(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     project_root = tmp_path / "project"
     ref = _write_ref(tmp_path)
     hooks = MagicMock()
@@ -636,7 +639,7 @@ def test_run_context_cleans_up_when_agent_runner_construction_fails(tmp_path):
     hooks.teardown.assert_called_once()
 
 
-def test_run_context_tears_down_prepared_hooks_when_workspace_setup_fails(tmp_path):
+def test_run_context_tears_down_prepared_hooks_when_workspace_setup_fails(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     project_root = tmp_path / "project"
     ref = _write_ref(tmp_path)
     hooks = MagicMock()
@@ -663,11 +666,11 @@ def test_run_context_tears_down_prepared_hooks_when_workspace_setup_fails(tmp_pa
     hooks.teardown.assert_called_once()
 
 
-def test_partial_construction_cleanup_does_not_replace_original_error():
+def test_partial_construction_cleanup_does_not_replace_original_error():  # noqa: ANN201  # tracked: #288
     stack = ExitStack()
 
     def fail_cleanup() -> None:
-        raise OSError("cleanup failed")
+        raise OSError("cleanup failed")  # noqa: TRY003  # tracked: #288
 
     stack.callback(fail_cleanup)
     construction_error = RuntimeError("construction failed")
@@ -679,7 +682,7 @@ def test_partial_construction_cleanup_does_not_replace_original_error():
     ]
 
 
-def test_run_context_materializes_input_project_path_dependencies(tmp_path):
+def test_run_context_materializes_input_project_path_dependencies(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     project_root = tmp_path / "project"
     input_core = project_root / "examples" / "libs" / "queue-input-core"
     input_core.mkdir(parents=True)

@@ -24,15 +24,15 @@ class FakeBackend:
         self.sandbox = MagicMock()
         self.calls = []
 
-    def make_sandbox(self, kind, **kwargs):
+    def make_sandbox(self, kind, **kwargs):  # noqa: ANN001, ANN003, ANN201  # tracked: #288
         self.calls.append((kind, kwargs))
         return self.sandbox
 
 
-def _request(tmp_path: Path, backend: FakeBackend, **overrides):
+def _request(tmp_path: Path, backend: FakeBackend, **overrides):  # noqa: ANN003, ANN202  # tracked: #288
     workspace = tmp_path / "workspace"
     workspace.mkdir()
-    values = dict(
+    values = dict(  # noqa: C408  # tracked: #288
         log_dir=tmp_path / "logs",
         workspace=workspace,
         ref_dir=None,
@@ -45,7 +45,7 @@ def _request(tmp_path: Path, backend: FakeBackend, **overrides):
     return RunEnvironmentRequest(**values)
 
 
-def test_cli_compatibility_flags_keep_options_scoped_to_selected_environment():
+def test_cli_compatibility_flags_keep_options_scoped_to_selected_environment():  # noqa: ANN201  # tracked: #288
     assert make_run_environment_spec().options == {}
     assert make_run_environment_spec(use_docker=True, docker_image="editor").options == {
         "image": "editor"
@@ -71,7 +71,7 @@ def _modal_runtime_document(tmp_path: Path) -> str:
     return (tmp_path / "logs" / "runtime-environment.md").read_text()
 
 
-def test_local_environment_opens_local_sandbox_with_host_paths(tmp_path):
+def test_local_environment_opens_local_sandbox_with_host_paths(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     backend = FakeBackend()
     env = build_run_environment(RunEnvironmentSpec("local"))
 
@@ -92,7 +92,7 @@ def test_local_environment_opens_local_sandbox_with_host_paths(tmp_path):
     backend.sandbox.start.assert_not_called()
 
 
-def test_local_environment_materializes_effective_objective_outside_workspace(tmp_path):
+def test_local_environment_materializes_effective_objective_outside_workspace(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     backend = FakeBackend()
     env = build_run_environment(RunEnvironmentSpec("local"))
     effective = "Optimize the service.\n\n## Operator constraints\n\n- BF16 only\n"
@@ -105,7 +105,7 @@ def test_local_environment_materializes_effective_objective_outside_workspace(tm
     assert not objective_path.is_relative_to(tmp_path / "workspace")
 
 
-def test_docker_environment_opens_one_started_sandbox_with_agent_paths(tmp_path):
+def test_docker_environment_opens_one_started_sandbox_with_agent_paths(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     backend = FakeBackend()
     env = build_run_environment(RunEnvironmentSpec("docker"))
 
@@ -131,7 +131,7 @@ def test_docker_environment_opens_one_started_sandbox_with_agent_paths(tmp_path)
     backend.sandbox.stop.assert_called_once()
 
 
-def test_docker_environment_mounts_effective_objective_read_only(tmp_path):
+def test_docker_environment_mounts_effective_objective_read_only(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     backend = FakeBackend()
     env = build_run_environment(RunEnvironmentSpec("docker"))
     effective = "Optimize.\n\n## Operator constraints\n\n- exact BF16\n"
@@ -149,7 +149,7 @@ def test_docker_environment_mounts_effective_objective_read_only(tmp_path):
     assert session.view.paths.objective == "/opt/vibesys-runtime/objective.md"
 
 
-def test_docker_environment_copies_cli_auth_from_readonly_staging(tmp_path, monkeypatch):
+def test_docker_environment_copies_cli_auth_from_readonly_staging(tmp_path, monkeypatch):  # noqa: ANN001, ANN201  # tracked: #288
     backend = FakeBackend()
     env = build_run_environment(RunEnvironmentSpec("docker"))
     auth_file = tmp_path / "synthetic-codex-home" / "auth.json"
@@ -170,7 +170,7 @@ def test_docker_environment_copies_cli_auth_from_readonly_staging(tmp_path, monk
     )
 
 
-def test_docker_environment_exposes_framework_git_history_read_only(tmp_path):
+def test_docker_environment_exposes_framework_git_history_read_only(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     backend = FakeBackend()
     env = build_run_environment(RunEnvironmentSpec("docker"))
     history = tmp_path / "experiment-history"
@@ -194,7 +194,7 @@ def test_docker_environment_exposes_framework_git_history_read_only(tmp_path):
     assert "hashes without recoverable source are insufficient" in session.view.prompt_notes
 
 
-def test_docker_environment_uses_environment_bind_mounts(tmp_path):
+def test_docker_environment_uses_environment_bind_mounts(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     backend = FakeBackend()
     env = build_run_environment(RunEnvironmentSpec("docker"))
     model_dir = tmp_path / "model"
@@ -204,7 +204,7 @@ def test_docker_environment_uses_environment_bind_mounts(tmp_path):
         _request(
             tmp_path,
             backend,
-            environment_bind_mounts=(EnvironmentBindMount(model_dir, "/model", True),),
+            environment_bind_mounts=(EnvironmentBindMount(model_dir, "/model", True),),  # noqa: FBT003  # tracked: #288
         )
     )
 
@@ -213,7 +213,7 @@ def test_docker_environment_uses_environment_bind_mounts(tmp_path):
     assert "/model" in kwargs["passthrough_paths"]
 
 
-def test_docker_environment_mounts_selected_profiler_support(tmp_path):
+def test_docker_environment_mounts_selected_profiler_support(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     backend = FakeBackend()
     env = build_run_environment(RunEnvironmentSpec("docker"))
     support = tmp_path / "custom-profiler"
@@ -233,7 +233,7 @@ def test_docker_environment_mounts_selected_profiler_support(tmp_path):
     assert session.view.paths.profiler_support == "fixture_profiler"
 
 
-def test_docker_environment_does_not_infer_model_mount_from_reference_dir(tmp_path):
+def test_docker_environment_does_not_infer_model_mount_from_reference_dir(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     backend = FakeBackend()
     env = build_run_environment(RunEnvironmentSpec("docker"))
     ref_dir = tmp_path / "reference"
@@ -245,7 +245,7 @@ def test_docker_environment_does_not_infer_model_mount_from_reference_dir(tmp_pa
     assert all(container_path != "/model" for _, container_path, _ in bind_mounts)
 
 
-def test_environment_session_context_manager_closes(tmp_path):
+def test_environment_session_context_manager_closes(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     backend = FakeBackend()
     env = build_run_environment(RunEnvironmentSpec("docker"))
 
@@ -258,7 +258,7 @@ def test_environment_session_context_manager_closes(tmp_path):
     backend.sandbox.stop.assert_called_once()
 
 
-def test_modal_environment_uses_local_docker_for_editing(tmp_path):
+def test_modal_environment_uses_local_docker_for_editing(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     """Post-refactor (April 2026): Modal mode runs the agent in a local
     Docker container; only GPU-bound work the implementer dispatches via
     `modal run` actually touches Modal."""
@@ -278,7 +278,7 @@ def test_modal_environment_uses_local_docker_for_editing(tmp_path):
     backend.sandbox.start.assert_called_once()
 
 
-def test_modal_environment_owns_candidate_runtime_naming(tmp_path):
+def test_modal_environment_owns_candidate_runtime_naming(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     backend = FakeBackend()
     env = build_run_environment(RunEnvironmentSpec("modal"))
     session = env.open(_request(tmp_path, backend, agent_backend="cli", cli_provider="codex"))
@@ -293,7 +293,7 @@ def test_modal_environment_owns_candidate_runtime_naming(tmp_path):
     assert runtime.deployment_name in runtime.prompt_notes
 
 
-def test_modal_environment_wraps_service_evaluators_with_remote_dispatch(tmp_path):
+def test_modal_environment_wraps_service_evaluators_with_remote_dispatch(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     backend = FakeBackend()
     env = build_run_environment(RunEnvironmentSpec("modal"))
 
@@ -323,7 +323,7 @@ def test_modal_environment_wraps_service_evaluators_with_remote_dispatch(tmp_pat
     )
 
 
-def test_modal_environment_installs_modal_sdk_in_docker(tmp_path):
+def test_modal_environment_installs_modal_sdk_in_docker(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     """The local Docker container needs the Modal Python SDK installed so
     the implementer-authored `modal run` calls work."""
     backend = FakeBackend()
@@ -338,7 +338,7 @@ def test_modal_environment_installs_modal_sdk_in_docker(tmp_path):
     assert backend.calls[0][1]["extra_env"]["UV_CACHE_DIR"] == "/workspace/.cache/uv"
 
 
-def test_modal_environment_prompt_references_runtime_document(tmp_path):
+def test_modal_environment_prompt_references_runtime_document(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     """Prompts name the runtime manual instead of embedding it in every role."""
     backend = FakeBackend()
     env = build_run_environment(RunEnvironmentSpec("modal"))
@@ -386,7 +386,7 @@ def test_modal_environment_prompt_references_runtime_document(tmp_path):
         assert term.casefold() not in runtime.casefold()
 
 
-def test_modal_environment_mounts_effective_objective_read_only(tmp_path):
+def test_modal_environment_mounts_effective_objective_read_only(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     backend = FakeBackend()
     env = build_run_environment(RunEnvironmentSpec("modal"))
     effective = "Optimize.\n\n## Operator constraints\n\n- no quantization\n"
@@ -411,7 +411,7 @@ def test_modal_environment_mounts_effective_objective_read_only(tmp_path):
     assert session.view.paths.objective == "/opt/vibesys-runtime/objective.md"
 
 
-def test_modal_environment_prompt_notes_require_remote_runtime_fingerprint(tmp_path):
+def test_modal_environment_prompt_notes_require_remote_runtime_fingerprint(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     backend = FakeBackend()
     env = build_run_environment(RunEnvironmentSpec("modal"))
 
@@ -424,7 +424,7 @@ def test_modal_environment_prompt_notes_require_remote_runtime_fingerprint(tmp_p
     assert "same Modal image and hardware" in notes
 
 
-def test_modal_environment_requires_exact_default_h100_identity(tmp_path):
+def test_modal_environment_requires_exact_default_h100_identity(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     backend = FakeBackend()
     env = build_run_environment(RunEnvironmentSpec("modal"))
 
@@ -437,7 +437,7 @@ def test_modal_environment_requires_exact_default_h100_identity(tmp_path):
     assert "fail closed" in notes
 
 
-def test_modal_environment_documents_history_and_exact_measurement_source(tmp_path):
+def test_modal_environment_documents_history_and_exact_measurement_source(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     backend = FakeBackend()
     env = build_run_environment(RunEnvironmentSpec("modal"))
     history = tmp_path / "experiment-history"
@@ -465,7 +465,7 @@ def test_modal_environment_documents_history_and_exact_measurement_source(tmp_pa
     assert "Create this provenance artifact before launch" in notes
 
 
-def test_modal_environment_per_run_namespace_prefix_unique(tmp_path):
+def test_modal_environment_per_run_namespace_prefix_unique(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     """Two runs (different exp_dir names) must produce different Modal
     namespace prefixes so concurrent runs cannot collide on app names,
     web-endpoint labels, or auxiliary volumes."""
@@ -511,7 +511,7 @@ def test_modal_environment_per_run_namespace_prefix_unique(tmp_path):
     assert "vibesys-20260429-100100-runb" not in notes_a
 
 
-def test_modal_environment_runtime_notes_describe_profile_contract(tmp_path):
+def test_modal_environment_runtime_notes_describe_profile_contract(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     """The runtime notes must spell out the modal_profile / profile_remote
     contract; without it the profiler agent has no Modal entrypoint to
     invoke and falls back to local synthetic-weight profiling."""
@@ -532,7 +532,7 @@ def test_modal_environment_runtime_notes_describe_profile_contract(tmp_path):
     assert "from torch.autograd import DeviceType" not in notes
 
 
-def test_modal_environment_prompt_notes_reuse_workspace_uv_cache(tmp_path):
+def test_modal_environment_prompt_notes_reuse_workspace_uv_cache(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     backend = FakeBackend()
     env = build_run_environment(RunEnvironmentSpec("modal"))
 
@@ -546,7 +546,7 @@ def test_modal_environment_prompt_notes_reuse_workspace_uv_cache(tmp_path):
     assert "excluding `.venv` and `.cache`" in notes
 
 
-def test_modal_environment_with_deepagents_uses_docker_too(tmp_path):
+def test_modal_environment_with_deepagents_uses_docker_too(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     """The deepagents path also runs locally in Docker now — Modal is a
     dispatch target, not a runtime for the agent."""
     backend = FakeBackend()
@@ -557,17 +557,17 @@ def test_modal_environment_with_deepagents_uses_docker_too(tmp_path):
     assert backend.calls[0][0] is SandboxKind.DOCKER
 
 
-def test_unknown_environment_name_raises():
+def test_unknown_environment_name_raises():  # noqa: ANN201  # tracked: #288
     with pytest.raises(ValueError, match="unknown run environment"):
         build_run_environment(RunEnvironmentSpec("wat"))
 
 
-def test_docker_remove_workspace_child_quotes_path(tmp_path, monkeypatch):
+def test_docker_remove_workspace_child_quotes_path(tmp_path, monkeypatch):  # noqa: ANN001, ANN201  # tracked: #288
     backend = FakeBackend()
     env = build_run_environment(RunEnvironmentSpec("docker"))
     calls = []
 
-    def fake_run(cmd, **kwargs):
+    def fake_run(cmd, **kwargs):  # noqa: ANN001, ANN003, ANN202, ARG001  # tracked: #288
         calls.append(cmd)
         result = MagicMock()
         result.returncode = 0
@@ -588,14 +588,14 @@ def test_docker_remove_workspace_child_quotes_path(tmp_path, monkeypatch):
     assert "'/workspace/semi;touch hacked'" in shell_command
 
 
-def test_modal_teardown_deployment_stops_app_via_cli(monkeypatch):
-    import sys as _sys
+def test_modal_teardown_deployment_stops_app_via_cli(monkeypatch):  # noqa: ANN001, ANN201  # tracked: #288
+    import sys as _sys  # noqa: PLC0415  # tracked: #288
 
     env = build_run_environment(RunEnvironmentSpec("modal"))
     calls = []
     logs = []
 
-    def fake_run(cmd, **kwargs):
+    def fake_run(cmd, **kwargs):  # noqa: ANN001, ANN003, ANN202, ARG001  # tracked: #288
         calls.append(cmd)
         result = MagicMock()
         result.returncode = 0
@@ -610,11 +610,11 @@ def test_modal_teardown_deployment_stops_app_via_cli(monkeypatch):
     assert any("stopped candidate app vibesys-run-g1c2" in line for line in logs)
 
 
-def test_modal_teardown_deployment_is_best_effort_on_nonzero(monkeypatch):
+def test_modal_teardown_deployment_is_best_effort_on_nonzero(monkeypatch):  # noqa: ANN001, ANN201  # tracked: #288
     env = build_run_environment(RunEnvironmentSpec("modal"))
     logs = []
 
-    def fake_run(cmd, **kwargs):
+    def fake_run(cmd, **kwargs):  # noqa: ANN001, ANN003, ANN202, ARG001  # tracked: #288
         result = MagicMock()
         result.returncode = 1
         result.stderr = "boom"
@@ -627,11 +627,11 @@ def test_modal_teardown_deployment_is_best_effort_on_nonzero(monkeypatch):
     assert any("failed" in line for line in logs)
 
 
-def test_modal_teardown_deployment_is_best_effort_on_exception(monkeypatch):
+def test_modal_teardown_deployment_is_best_effort_on_exception(monkeypatch):  # noqa: ANN001, ANN201  # tracked: #288
     env = build_run_environment(RunEnvironmentSpec("modal"))
     logs = []
 
-    def fake_run(cmd, **kwargs):
+    def fake_run(cmd, **kwargs):  # noqa: ANN001, ANN003, ANN202, ARG001  # tracked: #288
         raise TimeoutError("stuck")
 
     monkeypatch.setattr("vibesys.sandbox.run_environment.subprocess.run", fake_run)
@@ -641,11 +641,11 @@ def test_modal_teardown_deployment_is_best_effort_on_exception(monkeypatch):
 
 
 @pytest.mark.parametrize("name", ["local", "docker"])
-def test_non_modal_teardown_deployment_is_noop(name, monkeypatch):
+def test_non_modal_teardown_deployment_is_noop(name, monkeypatch):  # noqa: ANN001, ANN201  # tracked: #288
     env = build_run_environment(RunEnvironmentSpec(name))
 
-    def fail_run(*args, **kwargs):
-        raise AssertionError("subprocess.run should not be called for non-Modal envs")
+    def fail_run(*args, **kwargs):  # noqa: ANN002, ANN003, ANN202, ARG001  # tracked: #288
+        raise AssertionError("subprocess.run should not be called for non-Modal envs")  # noqa: TRY003  # tracked: #288
 
     monkeypatch.setattr("vibesys.sandbox.run_environment.subprocess.run", fail_run)
 
@@ -653,11 +653,11 @@ def test_non_modal_teardown_deployment_is_noop(name, monkeypatch):
     env.teardown_deployment("vibesys-run-g1c2", log=lambda _: None)
 
 
-def test_modal_environment_prompt_notes_cover_seeded_checkouts(tmp_path):
+def test_modal_environment_prompt_notes_cover_seeded_checkouts(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     """Seeded starting-point checkouts live only in the editor container, so
     the runtime notes must tell the agent to bake them into the Modal image;
     unseeded runs must not mention checkouts at all."""
-    from vibesys.input_manifest import WorkspaceSource
+    from vibesys.input_manifest import WorkspaceSource  # noqa: PLC0415  # tracked: #288
 
     backend = FakeBackend()
     env = build_run_environment(RunEnvironmentSpec("modal"))

@@ -12,18 +12,18 @@ _TEMPLATE_DIR = PROMPTS_DIR / "loops" / "agent"
 _PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 
-def test_kv_store_is_a_registered_modality():
+def test_kv_store_is_a_registered_modality():  # noqa: ANN201  # tracked: #288
     assert "kv_store" in _MODALITIES
 
 
-def test_kv_store_input_bundle_loads():
+def test_kv_store_input_bundle_loads():  # noqa: ANN201  # tracked: #288
     bundle = load_input_bundle(_PROJECT_ROOT / "examples" / "kv-store", project_root=_PROJECT_ROOT)
     assert bundle.domain.value == "generic"
     assert bundle.benchmark_result is not None
     assert bundle.benchmark_result.metric == "throughput_ops_per_sec"
 
 
-def test_kv_store_judge_prompt_mentions_resp2_not_http():
+def test_kv_store_judge_prompt_mentions_resp2_not_http():  # noqa: ANN201  # tracked: #288
     output = render_template(
         "judge_prompt.j2",
         template_dir=_TEMPLATE_DIR,
@@ -32,7 +32,7 @@ def test_kv_store_judge_prompt_mentions_resp2_not_http():
         domain_judge="",
         accuracy_command="uv run python accuracy_checker/checker.py",
         benchmark_command="uv run python benchmark/benchmark.py",
-        pass_criteria="PC",
+        pass_criteria="PC",  # noqa: S106  # tracked: #288
         retry=1,
         runtime_notes="",
         profile_execution="local",

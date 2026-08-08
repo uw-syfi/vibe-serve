@@ -5,21 +5,21 @@ import pytest
 from vibesys.features import FEATURES, FeatureFlag, is_feature_enabled
 
 
-def test_vibesys_declares_example_feature():
+def test_vibesys_declares_example_feature():  # noqa: ANN201  # tracked: #288
     assert FeatureFlag.EXAMPLE_FEATURE in list(FeatureFlag)
     assert FeatureFlag.EXAMPLE_FEATURE.value == "example_feature"
     assert FEATURES.definitions[FeatureFlag.EXAMPLE_FEATURE].description
     assert FEATURES.definitions[FeatureFlag.EXAMPLE_FEATURE].default is False
 
 
-def test_vibesys_declares_omnigent_agent_backend():
+def test_vibesys_declares_omnigent_agent_backend():  # noqa: ANN201  # tracked: #288
     assert FeatureFlag.OMNIGENT_AGENT_BACKEND.value == "omnigent_agent_backend"
     assert FEATURES.definitions[FeatureFlag.OMNIGENT_AGENT_BACKEND].description
     # Opt-in by design: the evaluation retained agentshim as the default.
     assert FEATURES.definitions[FeatureFlag.OMNIGENT_AGENT_BACKEND].default is False
 
 
-def test_every_flag_has_a_definition_and_defaults_off():
+def test_every_flag_has_a_definition_and_defaults_off():  # noqa: ANN201  # tracked: #288
     """New flags must ship a definition, and none may default on."""
     for flag in FeatureFlag:
         definition = FEATURES.definitions[flag]
@@ -27,33 +27,33 @@ def test_every_flag_has_a_definition_and_defaults_off():
         assert definition.default is False
 
 
-def test_is_feature_enabled_uses_manifest_default():
+def test_is_feature_enabled_uses_manifest_default():  # noqa: ANN201  # tracked: #288
     assert is_feature_enabled(FeatureFlag.EXAMPLE_FEATURE) is False
 
 
 @pytest.mark.parametrize("enabled", [False, True])
-def test_is_feature_enabled_uses_config_object_override(enabled):
+def test_is_feature_enabled_uses_config_object_override(enabled):  # noqa: ANN001, ANN201  # tracked: #288
     config = SimpleNamespace(feature_flags={FeatureFlag.EXAMPLE_FEATURE: enabled})
 
     assert is_feature_enabled(FeatureFlag.EXAMPLE_FEATURE, config) is enabled
 
 
-def test_is_feature_enabled_treats_missing_config_overrides_as_empty():
+def test_is_feature_enabled_treats_missing_config_overrides_as_empty():  # noqa: ANN201  # tracked: #288
     config = SimpleNamespace(feature_flags=None)
 
     assert is_feature_enabled(FeatureFlag.EXAMPLE_FEATURE, config) is False
 
 
-def test_is_feature_enabled_accepts_mapping_config():
+def test_is_feature_enabled_accepts_mapping_config():  # noqa: ANN201  # tracked: #288
     config = {"feature_flags": {FeatureFlag.EXAMPLE_FEATURE: True}}
 
     assert is_feature_enabled(FeatureFlag.EXAMPLE_FEATURE, config) is True
 
 
-def test_is_feature_enabled_treats_missing_mapping_overrides_as_empty():
+def test_is_feature_enabled_treats_missing_mapping_overrides_as_empty():  # noqa: ANN201  # tracked: #288
     assert is_feature_enabled(FeatureFlag.EXAMPLE_FEATURE, {}) is False
 
 
-def test_is_feature_enabled_rejects_non_mapping_overrides():
-    with pytest.raises(ValueError, match="config.feature_flags must be a mapping"):
+def test_is_feature_enabled_rejects_non_mapping_overrides():  # noqa: ANN201  # tracked: #288
+    with pytest.raises(ValueError, match="config.feature_flags must be a mapping"):  # noqa: RUF043  # tracked: #288
         is_feature_enabled(FeatureFlag.EXAMPLE_FEATURE, SimpleNamespace(feature_flags=True))

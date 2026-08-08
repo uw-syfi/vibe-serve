@@ -8,7 +8,7 @@ from vibesys.schemas import (
 )
 
 
-def test_stub_runner_returns_valid_agent_loop_responses(tmp_path):
+def test_stub_runner_returns_valid_agent_loop_responses(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     runner = StubAgentRunner()
 
     responses = [
@@ -24,7 +24,7 @@ def test_stub_runner_returns_valid_agent_loop_responses(tmp_path):
     assert responses[3].verdict is Verdict.PASS
 
 
-def test_stub_runner_returns_plain_chat_text(tmp_path):
+def test_stub_runner_returns_plain_chat_text(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     runner = StubAgentRunner()
 
     answer = runner.invoke_text(
@@ -39,7 +39,7 @@ def test_stub_runner_returns_plain_chat_text(tmp_path):
     assert answer == "Stub chat inspected the available experiment trajectory."
 
 
-def invoke(runner, workspace, kind, response_cls):
+def invoke(runner, workspace, kind, response_cls):  # noqa: ANN001, ANN201  # tracked: #288
     return runner.invoke(
         kind=kind,
         workspace=workspace,

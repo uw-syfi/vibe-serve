@@ -4,18 +4,18 @@ from vibesys.loops.plain.tools import build_issue_tools
 from vs_issue_board import IssueBoard, IssueStatus, IssueType
 
 
-def _make_store(tmp_path) -> IssueBoard:
+def _make_store(tmp_path) -> IssueBoard:  # noqa: ANN001  # tracked: #288
     return IssueBoard(tmp_path / "issues.json")
 
 
-def _tool_by_name(tools, name: str):
+def _tool_by_name(tools, name: str):  # noqa: ANN001, ANN202  # tracked: #288
     for t in tools:
         if t.name == name:
             return t
-    raise AssertionError(f"tool {name!r} not in {[t.name for t in tools]}")
+    raise AssertionError(f"tool {name!r} not in {[t.name for t in tools]}")  # noqa: TRY003  # tracked: #288
 
 
-def _invoke(tool, **kwargs) -> str:
+def _invoke(tool, **kwargs) -> str:  # noqa: ANN001, ANN003  # tracked: #288
     return tool.invoke(kwargs)
 
 
@@ -25,13 +25,13 @@ def _invoke(tool, **kwargs) -> str:
 
 
 class TestReadTools:
-    def test_list_issues_empty_returns_placeholder(self, tmp_path):
+    def test_list_issues_empty_returns_placeholder(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         store = _make_store(tmp_path)
         tools = build_issue_tools(store, iteration=1)
         out = _invoke(_tool_by_name(tools, "list_issues"))
         assert out == "(no issues)"
 
-    def test_list_issues_renders_short_format(self, tmp_path):
+    def test_list_issues_renders_short_format(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         store = _make_store(tmp_path)
         store.create(
             type=IssueType.BUG, title="hello", description="d", created_by="x", iteration=1
@@ -43,7 +43,7 @@ class TestReadTools:
         assert "[open]" in out
         assert "hello" in out
 
-    def test_list_issues_filters_by_status(self, tmp_path):
+    def test_list_issues_filters_by_status(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         store = _make_store(tmp_path)
         store.create(
             type=IssueType.BUG, title="open one", description="d", created_by="x", iteration=1
@@ -58,13 +58,13 @@ class TestReadTools:
         assert "open one" in opens
         assert "closed one" not in opens
 
-    def test_list_issues_invalid_status_returns_error(self, tmp_path):
+    def test_list_issues_invalid_status_returns_error(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         store = _make_store(tmp_path)
         tools = build_issue_tools(store, iteration=1)
         out = _invoke(_tool_by_name(tools, "list_issues"), status="banana")
         assert out.startswith("error:")
 
-    def test_get_issue_by_id(self, tmp_path):
+    def test_get_issue_by_id(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         store = _make_store(tmp_path)
         store.create(
             type=IssueType.PERF,
@@ -80,13 +80,13 @@ class TestReadTools:
         assert "reduce frag" in out
         assert "type: perf" in out
 
-    def test_get_issue_unknown_id_returns_placeholder(self, tmp_path):
+    def test_get_issue_unknown_id_returns_placeholder(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         store = _make_store(tmp_path)
         tools = build_issue_tools(store, iteration=1)
         out = _invoke(_tool_by_name(tools, "get_issue"), issue_id=999)
         assert out == "(no issue #999)"
 
-    def test_search_issues_returns_matches(self, tmp_path):
+    def test_search_issues_returns_matches(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         store = _make_store(tmp_path)
         store.create(
             type=IssueType.PERF, title="Add paged KV", description="d", created_by="x", iteration=1
@@ -99,7 +99,7 @@ class TestReadTools:
         assert "Add paged KV" in out
         assert "unrelated" not in out
 
-    def test_search_issues_no_matches(self, tmp_path):
+    def test_search_issues_no_matches(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         store = _make_store(tmp_path)
         store.create(type=IssueType.BUG, title="hi", description="d", created_by="x", iteration=1)
         tools = build_issue_tools(store, iteration=1)
@@ -113,13 +113,13 @@ class TestReadTools:
 
 
 class TestSubsetRouting:
-    def test_implementer_subset_excludes_create(self, tmp_path):
+    def test_implementer_subset_excludes_create(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         store = _make_store(tmp_path)
         tools = build_issue_tools(store, iteration=1, can_create=False)
         names = {t.name for t in tools}
         assert names == {"list_issues", "get_issue", "search_issues"}
 
-    def test_judge_subset_includes_create(self, tmp_path):
+    def test_judge_subset_includes_create(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         store = _make_store(tmp_path)
         tools = build_issue_tools(
             store,
@@ -132,7 +132,7 @@ class TestSubsetRouting:
         names = {t.name for t in tools}
         assert "create_issue" in names
 
-    def test_perf_eval_subset_includes_create(self, tmp_path):
+    def test_perf_eval_subset_includes_create(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         store = _make_store(tmp_path)
         tools = build_issue_tools(
             store,
@@ -151,7 +151,7 @@ class TestSubsetRouting:
 
 
 class TestCreateIssue:
-    def test_create_issue_happy_path_returns_id(self, tmp_path):
+    def test_create_issue_happy_path_returns_id(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         store = _make_store(tmp_path)
         tools = build_issue_tools(
             store,
@@ -171,7 +171,7 @@ class TestCreateIssue:
         assert store.get(1).created_by == "perf_eval"
         assert store.get(1).created_iter == 1
 
-    def test_create_issue_invalid_type_returns_error_string(self, tmp_path):
+    def test_create_issue_invalid_type_returns_error_string(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         store = _make_store(tmp_path)
         tools = build_issue_tools(
             store,
@@ -191,7 +191,7 @@ class TestCreateIssue:
         # No issue should have been created
         assert len(store.list()) == 0
 
-    def test_create_issue_caps_at_three_per_iteration(self, tmp_path):
+    def test_create_issue_caps_at_three_per_iteration(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         store = _make_store(tmp_path)
         tools = build_issue_tools(
             store,
@@ -211,7 +211,7 @@ class TestCreateIssue:
         # Store still has only 3
         assert len(store.list()) == 3
 
-    def test_create_issue_cap_resets_per_iteration(self, tmp_path):
+    def test_create_issue_cap_resets_per_iteration(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         store = _make_store(tmp_path)
         # iteration 1 — fill cap
         iter1_tools = build_issue_tools(
@@ -237,7 +237,7 @@ class TestCreateIssue:
         assert out.startswith("created issue #")
         assert len(store.list()) == 4
 
-    def test_create_issue_allowed_types_filter(self, tmp_path):
+    def test_create_issue_allowed_types_filter(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         # Judge subset: only bug type allowed.
         store = _make_store(tmp_path)
         tools = build_issue_tools(
@@ -257,7 +257,7 @@ class TestCreateIssue:
         ok = _invoke(create, type="bug", title="b", description="d")
         assert ok.startswith("created issue #")
 
-    def test_judge_create_cap_is_one(self, tmp_path):
+    def test_judge_create_cap_is_one(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         store = _make_store(tmp_path)
         tools = build_issue_tools(
             store,
@@ -274,7 +274,7 @@ class TestCreateIssue:
         assert rejected.startswith("error:")
         assert "cap reached" in rejected
 
-    def test_create_issue_unlimited_cap_when_none(self, tmp_path):
+    def test_create_issue_unlimited_cap_when_none(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         store = _make_store(tmp_path)
         tools = build_issue_tools(
             store,

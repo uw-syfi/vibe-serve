@@ -18,14 +18,14 @@ from vibesys.linux_cpu_profiler import (
 )
 
 
-def test_detect_capability_rejects_non_linux():
+def test_detect_capability_rejects_non_linux():  # noqa: ANN201  # tracked: #288
     capability = detect_capability(system="Darwin")
 
     assert capability.tool is LinuxProfilerTool.NONE
     assert capability.diagnostics == (DiagnosticCode.NOT_LINUX,)
 
 
-def test_detect_capability_reports_missing_perf():
+def test_detect_capability_reports_missing_perf():  # noqa: ANN201  # tracked: #288
     with patch("vibesys.linux_cpu_profiler._read_int", return_value=1):
         capability = detect_capability(system="Linux", which=lambda _name: None)
 
@@ -33,7 +33,7 @@ def test_detect_capability_reports_missing_perf():
     assert DiagnosticCode.PERF_UNAVAILABLE in capability.diagnostics
 
 
-def test_read_int_returns_none_for_missing_or_invalid_values(tmp_path: Path):
+def test_read_int_returns_none_for_missing_or_invalid_values(tmp_path: Path):  # noqa: ANN201  # tracked: #288
     invalid = tmp_path / "not-an-int"
     invalid.write_text("restricted\n", encoding="utf-8")
 
@@ -41,10 +41,10 @@ def test_read_int_returns_none_for_missing_or_invalid_values(tmp_path: Path):
     assert _read_int(tmp_path / "missing") is None
 
 
-def test_detect_capability_reports_restrictions_and_stat_failure():
+def test_detect_capability_reports_restrictions_and_stat_failure():  # noqa: ANN201  # tracked: #288
     calls: list[list[str]] = []
 
-    def fake_run(command: list[str], **_kwargs):
+    def fake_run(command: list[str], **_kwargs):  # noqa: ANN003, ANN202  # tracked: #288
         calls.append(command)
         if command[1] == "--version":
             return subprocess.CompletedProcess(command, 0, "perf version 6.8\n", "")
@@ -67,9 +67,9 @@ def test_detect_capability_reports_restrictions_and_stat_failure():
     assert DiagnosticCode.PERF_STAT_UNAVAILABLE in capability.diagnostics
 
 
-def test_detect_capability_handles_perf_version_exception():
-    def fake_run(_command: list[str], **_kwargs):
-        raise OSError("cannot execute perf")
+def test_detect_capability_handles_perf_version_exception():  # noqa: ANN201  # tracked: #288
+    def fake_run(_command: list[str], **_kwargs):  # noqa: ANN003, ANN202  # tracked: #288
+        raise OSError("cannot execute perf")  # noqa: TRY003  # tracked: #288
 
     with patch("vibesys.linux_cpu_profiler._read_int", return_value=None):
         capability = detect_capability(
@@ -83,8 +83,8 @@ def test_detect_capability_handles_perf_version_exception():
     assert DiagnosticCode.PERF_UNAVAILABLE in capability.diagnostics
 
 
-def test_detect_capability_handles_perf_stat_exception():
-    def fake_run(command: list[str], **_kwargs):
+def test_detect_capability_handles_perf_stat_exception():  # noqa: ANN201  # tracked: #288
+    def fake_run(command: list[str], **_kwargs):  # noqa: ANN003, ANN202  # tracked: #288
         if command[1] == "--version":
             return subprocess.CompletedProcess(command, 0, "", "perf version 6.9\n")
         raise subprocess.TimeoutExpired(command, 10)
@@ -101,7 +101,7 @@ def test_detect_capability_handles_perf_stat_exception():
     assert DiagnosticCode.PERF_STAT_UNAVAILABLE in capability.diagnostics
 
 
-def test_perf_parsers_skip_malformed_rows_and_stop_at_limit(tmp_path: Path):
+def test_perf_parsers_skip_malformed_rows_and_stop_at_limit(tmp_path: Path):  # noqa: ANN201  # tracked: #288
     stat_path = tmp_path / "perf-stat.csv"
     stat_path.write_text(
         "# ignored\ntoo-short\n# comment,,cycles\n10,,cycles\n",
@@ -119,7 +119,7 @@ def test_perf_parsers_skip_malformed_rows_and_stop_at_limit(tmp_path: Path):
     assert _extract_hot_symbols(report_text, limit=1) == ("55.00% bench libqueue.so [.] enqueue",)
 
 
-def test_collect_persists_perf_artifacts_and_summary(tmp_path: Path):
+def test_collect_persists_perf_artifacts_and_summary(tmp_path: Path):  # noqa: ANN201  # tracked: #288
     capability = Capability(
         tool=LinuxProfilerTool.PERF,
         perf_path="/usr/bin/perf",
@@ -128,7 +128,7 @@ def test_collect_persists_perf_artifacts_and_summary(tmp_path: Path):
         kptr_restrict=0,
     )
 
-    def fake_run(command: list[str], *, timeout: int | None):
+    def fake_run(command: list[str], *, timeout: int | None):  # noqa: ANN202  # tracked: #288
         del timeout
         if command[1] == "stat":
             output = Path(command[command.index("-o") + 1])
@@ -168,7 +168,7 @@ def test_collect_persists_perf_artifacts_and_summary(tmp_path: Path):
     assert "dequeue" in persisted["hot_symbols"][1]
 
 
-def test_collect_reports_failed_stat_record_and_missing_counters(tmp_path: Path):
+def test_collect_reports_failed_stat_record_and_missing_counters(tmp_path: Path):  # noqa: ANN201  # tracked: #288
     capability = Capability(
         tool=LinuxProfilerTool.PERF,
         perf_path="/usr/bin/perf",
@@ -177,7 +177,7 @@ def test_collect_reports_failed_stat_record_and_missing_counters(tmp_path: Path)
         kptr_restrict=None,
     )
 
-    def fake_run(command: list[str], *, timeout: int | None):
+    def fake_run(command: list[str], *, timeout: int | None):  # noqa: ANN202  # tracked: #288
         del timeout
         if command[1] == "stat":
             return subprocess.CompletedProcess(command, 255, "", "stat failed")
@@ -196,7 +196,7 @@ def test_collect_reports_failed_stat_record_and_missing_counters(tmp_path: Path)
     assert DiagnosticCode.COLLECTION_FAILED in result.diagnostics
 
 
-def test_collect_reports_failed_perf_report(tmp_path: Path):
+def test_collect_reports_failed_perf_report(tmp_path: Path):  # noqa: ANN201  # tracked: #288
     capability = Capability(
         tool=LinuxProfilerTool.PERF,
         perf_path="/usr/bin/perf",
@@ -205,7 +205,7 @@ def test_collect_reports_failed_perf_report(tmp_path: Path):
         kptr_restrict=None,
     )
 
-    def fake_run(command: list[str], *, timeout: int | None):
+    def fake_run(command: list[str], *, timeout: int | None):  # noqa: ANN202  # tracked: #288
         del timeout
         if command[1] == "stat":
             Path(command[command.index("-o") + 1]).write_text("1,,cycles\n", encoding="utf-8")
@@ -226,7 +226,7 @@ def test_collect_reports_failed_perf_report(tmp_path: Path):
     assert DiagnosticCode.COLLECTION_FAILED in result.diagnostics
 
 
-def test_summarize_empty_directory_and_parse_command(tmp_path: Path):
+def test_summarize_empty_directory_and_parse_command(tmp_path: Path):  # noqa: ANN201  # tracked: #288
     summary = summarize(tmp_path)
 
     assert summary["metadata"] is None
@@ -234,7 +234,7 @@ def test_summarize_empty_directory_and_parse_command(tmp_path: Path):
     assert parse_command("bench --scenario 'spsc queue'") == ["bench", "--scenario", "spsc queue"]
 
 
-def test_collect_degrades_when_perf_unavailable(tmp_path: Path):
+def test_collect_degrades_when_perf_unavailable(tmp_path: Path):  # noqa: ANN201  # tracked: #288
     capability = Capability(
         tool=LinuxProfilerTool.NONE,
         perf_path=None,

@@ -14,13 +14,13 @@ from enum import StrEnum
 from pathlib import Path
 
 
-class MacOSProfilerTool(StrEnum):
+class MacOSProfilerTool(StrEnum):  # noqa: D101  # tracked: #288
     XCTRACE = "instruments"
     SAMPLE = "sample"
     NONE = "none"
 
 
-class DiagnosticCode(StrEnum):
+class DiagnosticCode(StrEnum):  # noqa: D101  # tracked: #288
     NOT_MACOS = "not_macos"
     COMMAND_LINE_TOOLS_ONLY = "command_line_tools_only"
     TIME_PROFILER_UNAVAILABLE = "time_profiler_unavailable"
@@ -32,7 +32,7 @@ class DiagnosticCode(StrEnum):
 
 
 @dataclass(frozen=True)
-class Capability:
+class Capability:  # noqa: D101  # tracked: #288
     tool: MacOSProfilerTool
     xcode_path: str | None
     xctrace_path: str | None
@@ -42,7 +42,7 @@ class Capability:
 
 
 @dataclass(frozen=True)
-class CollectionResult:
+class CollectionResult:  # noqa: D101  # tracked: #288
     status: str
     tool: MacOSProfilerTool
     artifact: str | None
@@ -173,9 +173,9 @@ def collect(
                 "--",
                 *command,
             ]
-            result = subprocess.run(executed, capture_output=True, text=True, timeout=duration + 30)
+            result = subprocess.run(executed, capture_output=True, text=True, timeout=duration + 30)  # noqa: PLW1510, S603  # tracked: #288
         elif capability.tool is MacOSProfilerTool.SAMPLE:
-            process = subprocess.Popen(
+            process = subprocess.Popen(  # noqa: S603  # tracked: #288
                 command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
             )
             time.sleep(warmup)
@@ -190,7 +190,7 @@ def collect(
                 "-file",
                 str(artifact),
             ]
-            result = subprocess.run(executed, capture_output=True, text=True, timeout=duration + 15)
+            result = subprocess.run(executed, capture_output=True, text=True, timeout=duration + 15)  # noqa: PLW1510, S603  # tracked: #288
             process.terminate()
             try:
                 process.wait(timeout=5)

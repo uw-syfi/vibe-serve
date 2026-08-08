@@ -9,7 +9,7 @@ import signal
 import subprocess
 import threading
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Sequence  # noqa: TC003  # tracked: #288
 from dataclasses import dataclass
 from typing import Any, cast
 
@@ -22,13 +22,13 @@ class DockerCommandHandle:
 
     process: subprocess.Popen[str]
 
-    def terminate(self) -> None:
+    def terminate(self) -> None:  # noqa: D102  # tracked: #288
         try:
             os.killpg(os.getpgid(self.process.pid), signal.SIGTERM)
         except (ProcessLookupError, OSError):
             self.process.terminate()
 
-    def kill(self) -> None:
+    def kill(self) -> None:  # noqa: D102  # tracked: #288
         try:
             os.killpg(os.getpgid(self.process.pid), signal.SIGKILL)
         except (ProcessLookupError, OSError):
@@ -75,19 +75,19 @@ class DockerCommandExecutor:
     _CODEX_ROLLOUT_POLL_SECONDS = 15.0
     _CODEX_COMPLETION_GRACE_SECONDS = 30.0
 
-    def __init__(self, container_id: str) -> None:
+    def __init__(self, container_id: str) -> None:  # noqa: D107  # tracked: #288
         self.container_id = container_id
         self._codex_rollout_paths: dict[str, str] = {}
 
-    def find_binary(self, binary_name: str, env: dict[str, str]) -> str:
+    def find_binary(self, binary_name: str, env: dict[str, str]) -> str:  # noqa: ARG002, D102  # tracked: #288
         return binary_name
 
-    def check_binary(
+    def check_binary(  # noqa: D102  # tracked: #288
         self,
-        binary_path: str,
-        env: dict[str, str],
+        binary_path: str,  # noqa: ARG002  # tracked: #288
+        env: dict[str, str],  # noqa: ARG002  # tracked: #288
         *,
-        timeout: int,
+        timeout: int,  # noqa: ARG002  # tracked: #288
     ) -> None:
         return None
 
@@ -100,8 +100,8 @@ class DockerCommandExecutor:
         before control returns to the framework rather than waiting until a
         later resume.
         """
-        result = subprocess.run(
-            [
+        result = subprocess.run(  # noqa: S603  # tracked: #288
+            [  # noqa: S607  # tracked: #288
                 "docker",
                 "exec",
                 self.container_id,
@@ -129,7 +129,7 @@ class DockerCommandExecutor:
                 + (f": {detail}" if detail else "")
             )
 
-    def run(
+    def run(  # noqa: C901, D102  # tracked: #288
         self,
         request: CommandRequest,
         sink: CommandStreamSink,
@@ -143,7 +143,7 @@ class DockerCommandExecutor:
             self.container_id,
             *request.argv,
         ]
-        process = subprocess.Popen(
+        process = subprocess.Popen(  # noqa: S603  # tracked: #288
             docker_cmd,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
@@ -159,7 +159,7 @@ class DockerCommandExecutor:
         stdout_lines: list[str] = []
         stderr_lines: list[str] = []
 
-        def read_pipe(pipe: Any, callback: Callable[[str], None], sink: list[str]) -> None:
+        def read_pipe(pipe: Any, callback: Callable[[str], None], sink: list[str]) -> None:  # noqa: ANN401  # tracked: #288
             try:
                 for line in iter(pipe.readline, ""):
                     if not line:
@@ -169,7 +169,7 @@ class DockerCommandExecutor:
             except (OSError, ValueError):
                 pass
             finally:
-                try:
+                try:  # noqa: SIM105  # tracked: #288
                     pipe.close()
                 except (OSError, ValueError):
                     pass
@@ -229,7 +229,7 @@ class DockerCommandExecutor:
             stderr="".join(stderr_lines),
         )
 
-    def _wait_with_docker_exec_watchdog(
+    def _wait_with_docker_exec_watchdog(  # noqa: C901  # tracked: #288
         self,
         process: subprocess.Popen[str],
         cmd: Sequence[str],
@@ -238,7 +238,7 @@ class DockerCommandExecutor:
         stdout_lines: list[str],
         timeout: float | None,
     ) -> bool:
-        child_binary = os.path.basename(cmd[0]) if cmd else ""
+        child_binary = os.path.basename(cmd[0]) if cmd else ""  # noqa: PTH119  # tracked: #288
         watchdog_killed = False
         codex_thread_id = self._codex_resume_thread_id(cmd)
         watch_codex_rollout = self._is_codex_json_command(cmd)
@@ -249,16 +249,16 @@ class DockerCommandExecutor:
         while True:
             now = time.monotonic()
             if deadline is not None and now >= deadline:
-                assert timeout is not None
+                assert timeout is not None  # noqa: S101  # tracked: #288
                 raise subprocess.TimeoutExpired(list(cmd), timeout)
             wait_seconds = 5.0 if deadline is None else min(5.0, deadline - now)
             try:
                 process.wait(timeout=wait_seconds)
-                return watchdog_killed
+                return watchdog_killed  # noqa: TRY300  # tracked: #288
             except subprocess.TimeoutExpired:
                 now = time.monotonic()
                 if deadline is not None and now >= deadline:
-                    assert timeout is not None
+                    assert timeout is not None  # noqa: S101  # tracked: #288
                     raise subprocess.TimeoutExpired(list(cmd), timeout) from None
                 if codex_thread_id is None and watch_codex_rollout:
                     codex_thread_id = self._codex_started_thread_id(stdout_lines)
@@ -284,8 +284,8 @@ class DockerCommandExecutor:
                             process.wait()
                         return True
 
-                check = subprocess.run(
-                    [
+                check = subprocess.run(  # noqa: S603  # tracked: #288
+                    [  # noqa: S607  # tracked: #288
                         "docker",
                         "exec",
                         self.container_id,
@@ -306,7 +306,7 @@ class DockerCommandExecutor:
     @staticmethod
     def _is_codex_json_command(cmd: Sequence[str]) -> bool:
         """Return whether *cmd* is a machine-readable Codex exec invocation."""
-        if not cmd or os.path.basename(cmd[0]) != "codex" or "--json" not in cmd:
+        if not cmd or os.path.basename(cmd[0]) != "codex" or "--json" not in cmd:  # noqa: PTH119  # tracked: #288
             return False
         return "exec" in cmd
 
@@ -339,15 +339,15 @@ class DockerCommandExecutor:
                 return thread_id
         return None
 
-    def _read_codex_rollout_completion(
+    def _read_codex_rollout_completion(  # noqa: C901, PLR0912  # tracked: #288
         self,
         thread_id: str,
     ) -> _CodexRolloutCompletion | None:
         """Read stable terminal evidence from a resumed Codex rollout, if any."""
         rollout_path = self._codex_rollout_paths.get(thread_id)
         if rollout_path is None:
-            located = subprocess.run(
-                [
+            located = subprocess.run(  # noqa: S603  # tracked: #288
+                [  # noqa: S607  # tracked: #288
                     "docker",
                     "exec",
                     self.container_id,
@@ -370,8 +370,8 @@ class DockerCommandExecutor:
             rollout_path = max(paths)
             self._codex_rollout_paths[thread_id] = rollout_path
 
-        result = subprocess.run(
-            ["docker", "exec", self.container_id, "tail", "-n", "512", rollout_path],
+        result = subprocess.run(  # noqa: S603  # tracked: #288
+            ["docker", "exec", self.container_id, "tail", "-n", "512", rollout_path],  # noqa: S607  # tracked: #288
             capture_output=True,
             text=True,
             timeout=5,
@@ -450,8 +450,8 @@ class DockerCommandExecutor:
 
     def _terminate_codex_resume(self, thread_id: str) -> None:
         """Stop only the completed resumed Codex process inside this container."""
-        subprocess.run(
-            [
+        subprocess.run(  # noqa: S603  # tracked: #288
+            [  # noqa: S607  # tracked: #288
                 "docker",
                 "exec",
                 self.container_id,
@@ -467,7 +467,7 @@ class DockerCommandExecutor:
         )
 
     def _kill_process_group(self, process: subprocess.Popen[str]) -> None:
-        try:
+        try:  # noqa: SIM105  # tracked: #288
             os.killpg(os.getpgid(process.pid), signal.SIGKILL)
         except (ProcessLookupError, OSError):
             pass

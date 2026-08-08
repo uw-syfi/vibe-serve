@@ -30,7 +30,7 @@ sys.path.insert(0, str(_HERE))
 import analyze_torch_profile  # noqa: E402
 
 
-def _capture(fn, **kwargs) -> str:
+def _capture(fn, **kwargs) -> str:  # noqa: ANN001, ANN003  # tracked: #288
     ns = types.SimpleNamespace(**kwargs)
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
@@ -99,7 +99,7 @@ def build_server() -> FastMCP:
     return mcp
 
 
-def main(argv: list[str] | None = None) -> None:
+def main(argv: list[str] | None = None) -> None:  # noqa: D103  # tracked: #288
     parser = argparse.ArgumentParser(
         prog="vibesys-torch-mcp",
         description="Stdio MCP server exposing torch.profiler analyses.",

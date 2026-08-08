@@ -12,19 +12,19 @@ Two implementations live alongside this module:
 Loops call a single ``invoke()`` method per (iteration × phase). Callers can
 request a durable session by key without depending on a backend-specific
 session object; the default remains each runner's historical behavior.
-"""
+"""  # noqa: RUF002  # tracked: #288
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from pathlib import Path
+from collections.abc import Callable  # noqa: TC003  # tracked: #288
+from pathlib import Path  # noqa: TC003  # tracked: #288
 from typing import Protocol, TypeVar
 
-from langchain_core.tools import BaseTool
+from langchain_core.tools import BaseTool  # noqa: TC002  # tracked: #288
 from pydantic import BaseModel
 
-from vibesys._agent_cli.base import MCPServerSpec
-from vibesys.agents.progress import AgentProgress
+from vibesys._agent_cli.base import MCPServerSpec  # noqa: TC001  # tracked: #288
+from vibesys.agents.progress import AgentProgress  # noqa: TC001  # tracked: #288
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -35,7 +35,7 @@ class AgentRunner(Protocol):
     backend_name: str
     """Diagnostic identifier — ``"deepagents"`` or ``"cli"``."""
 
-    def invoke(
+    def invoke(  # noqa: D417, PLR0913  # tracked: #288
         self,
         *,
         # static per-task config
@@ -101,7 +101,7 @@ class AgentRunner(Protocol):
         """
         ...
 
-    def invoke_text(
+    def invoke_text(  # noqa: PLR0913  # tracked: #288
         self,
         *,
         kind: str,

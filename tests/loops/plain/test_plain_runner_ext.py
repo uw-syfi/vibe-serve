@@ -30,11 +30,11 @@ def _mock_runner(backend_name: str) -> MagicMock:
     return runner
 
 
-def _make_store(tmp_path) -> IssueBoard:
+def _make_store(tmp_path) -> IssueBoard:  # noqa: ANN001  # tracked: #288
     return IssueBoard(tmp_path / "issues.json")
 
 
-def _tool_names(tools) -> set[str]:
+def _tool_names(tools) -> set[str]:  # noqa: ANN001  # tracked: #288
     return {t.name for t in tools}
 
 
@@ -44,7 +44,7 @@ def _tool_names(tools) -> set[str]:
 
 
 class TestDeepAgentsBackend:
-    def test_judge_receives_in_process_tools(self, tmp_path):
+    def test_judge_receives_in_process_tools(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         store = _make_store(tmp_path)
         inner = _mock_runner("deepagents")
         wrapper = PlainLoopAgentRunner(inner, store=store, max_issues_per_perf_eval=3)
@@ -57,7 +57,7 @@ class TestDeepAgentsBackend:
         assert kwargs["mcp_servers"] is None
         assert _tool_names(kwargs["tools"]) == _EXPECTED_TOOL_NAMES
 
-    def test_perf_eval_receives_in_process_tools(self, tmp_path):
+    def test_perf_eval_receives_in_process_tools(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         store = _make_store(tmp_path)
         inner = _mock_runner("deepagents")
         wrapper = PlainLoopAgentRunner(inner, store=store, max_issues_per_perf_eval=4)
@@ -69,7 +69,7 @@ class TestDeepAgentsBackend:
         assert kwargs["mcp_servers"] is None
         assert _tool_names(kwargs["tools"]) == _EXPECTED_TOOL_NAMES
 
-    def test_perf_eval_cap_comes_from_constructor(self, tmp_path):
+    def test_perf_eval_cap_comes_from_constructor(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         """The perf_eval cap reaches build_issue_tools verbatim — file 5
         issues and the 6th must be rejected with the cap-reached error."""
         store = _make_store(tmp_path)
@@ -87,7 +87,7 @@ class TestDeepAgentsBackend:
         sixth = create.invoke({"type": "perf", "title": "overflow", "description": "d"})
         assert "cap" in sixth.lower() or "limit" in sixth.lower()
 
-    def test_judge_create_issue_rejects_non_bug_types(self, tmp_path):
+    def test_judge_create_issue_rejects_non_bug_types(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         """Judge is bug-only — feature/perf must be rejected by policy."""
         store = _make_store(tmp_path)
         inner = _mock_runner("deepagents")
@@ -108,7 +108,7 @@ class TestDeepAgentsBackend:
 
 
 class TestCliBackend:
-    def test_judge_receives_mcp_server_spec(self, tmp_path):
+    def test_judge_receives_mcp_server_spec(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         store = _make_store(tmp_path)
         inner = _mock_runner("cli")
         wrapper = PlainLoopAgentRunner(inner, store=store, max_issues_per_perf_eval=3)
@@ -131,7 +131,7 @@ class TestCliBackend:
         i_at = spec.args.index("--allowed-types")
         assert spec.args[i_at + 1] == "bug"
 
-    def test_perf_eval_receives_mcp_server_spec_with_all_types(self, tmp_path):
+    def test_perf_eval_receives_mcp_server_spec_with_all_types(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         store = _make_store(tmp_path)
         inner = _mock_runner("cli")
         wrapper = PlainLoopAgentRunner(inner, store=store, max_issues_per_perf_eval=4)
@@ -155,7 +155,7 @@ class TestCliBackend:
 
 
 class TestPassThrough:
-    def test_implementer_passes_through_under_deepagents(self, tmp_path):
+    def test_implementer_passes_through_under_deepagents(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         store = _make_store(tmp_path)
         inner = _mock_runner("deepagents")
         wrapper = PlainLoopAgentRunner(inner, store=store, max_issues_per_perf_eval=3)
@@ -167,7 +167,7 @@ class TestPassThrough:
         assert kwargs["mcp_servers"] is None
         assert kwargs["tools"] is None
 
-    def test_implementer_passes_through_under_cli(self, tmp_path):
+    def test_implementer_passes_through_under_cli(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         store = _make_store(tmp_path)
         inner = _mock_runner("cli")
         wrapper = PlainLoopAgentRunner(inner, store=store, max_issues_per_perf_eval=3)
@@ -178,7 +178,7 @@ class TestPassThrough:
         assert kwargs["mcp_servers"] is None
         assert kwargs["tools"] is None
 
-    def test_iteration_kwarg_is_consumed_not_forwarded(self, tmp_path):
+    def test_iteration_kwarg_is_consumed_not_forwarded(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         """The wrapper consumes ``iteration=`` and must not pass it to the
         inner runner — the AgentRunner Protocol has no such kwarg."""
         store = _make_store(tmp_path)
@@ -189,7 +189,7 @@ class TestPassThrough:
 
         assert "iteration" not in inner.invoke.call_args.kwargs
 
-    def test_extra_kwargs_are_forwarded(self, tmp_path):
+    def test_extra_kwargs_are_forwarded(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         """Caller-supplied kwargs (workspace, system_prompt, etc.) must
         reach the inner runner unchanged."""
         store = _make_store(tmp_path)
@@ -200,21 +200,21 @@ class TestPassThrough:
             response_cls=_Resp,
             kind="judge",
             iteration=1,
-            workspace="/tmp/ws",
+            workspace="/tmp/ws",  # noqa: S108  # tracked: #288
             system_prompt="sys",
             user_prompt="user",
             round_label="r",
         )
 
         kwargs = inner.invoke.call_args.kwargs
-        assert kwargs["workspace"] == "/tmp/ws"
+        assert kwargs["workspace"] == "/tmp/ws"  # noqa: S108  # tracked: #288
         assert kwargs["system_prompt"] == "sys"
         assert kwargs["user_prompt"] == "user"
         assert kwargs["round_label"] == "r"
 
 
 class TestValidation:
-    def test_judge_without_iteration_raises(self, tmp_path):
+    def test_judge_without_iteration_raises(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         store = _make_store(tmp_path)
         wrapper = PlainLoopAgentRunner(
             _mock_runner("deepagents"),
@@ -224,7 +224,7 @@ class TestValidation:
         with pytest.raises(ValueError, match="iteration"):
             wrapper.invoke(response_cls=_Resp, kind="judge", round_label="r")
 
-    def test_perf_eval_without_iteration_raises(self, tmp_path):
+    def test_perf_eval_without_iteration_raises(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         store = _make_store(tmp_path)
         wrapper = PlainLoopAgentRunner(
             _mock_runner("cli"),
@@ -236,7 +236,7 @@ class TestValidation:
 
 
 class TestBackendName:
-    def test_backend_name_proxies_inner(self, tmp_path):
+    def test_backend_name_proxies_inner(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         store = _make_store(tmp_path)
         inner = _mock_runner("deepagents")
         wrapper = PlainLoopAgentRunner(inner, store=store, max_issues_per_perf_eval=3)

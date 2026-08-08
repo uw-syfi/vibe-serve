@@ -8,7 +8,7 @@ import socket
 import socketserver
 import threading
 import time
-from pathlib import Path
+from pathlib import Path  # noqa: TC003  # tracked: #288
 
 from pydantic import BaseModel, TypeAdapter
 
@@ -20,7 +20,7 @@ from vibesys.server.protocol import (
     SubscribedMessage,
     SubscribeRequest,
 )
-from vibesys.server.service import SupervisionService
+from vibesys.server.service import SupervisionService  # noqa: TC001  # tracked: #288
 
 _REQUEST_ADAPTER = TypeAdapter(ProtocolRequest)
 
@@ -44,7 +44,7 @@ class _RequestHandler(socketserver.StreamRequestHandler):
                         self.server.client_disconnected.set()  # type: ignore[attr-defined]
                     return
                 response = service.execute(request)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001  # tracked: #288
                 response = Response(
                     request_id=request_id,
                     ok=False,
@@ -97,7 +97,7 @@ class _UnixServer(socketserver.ThreadingUnixStreamServer):
     daemon_threads = True
     allow_reuse_address = True
 
-    def __init__(self, path: Path, service: SupervisionService):
+    def __init__(self, path: Path, service: SupervisionService):  # noqa: ANN204  # tracked: #288
         self.service = service
         super().__init__(str(path), _RequestHandler)
 
@@ -105,7 +105,7 @@ class _UnixServer(socketserver.ThreadingUnixStreamServer):
 class SupervisionSocketServer:
     """Own a private Unix socket serving one or more concurrent clients."""
 
-    def __init__(self, path: Path, service: SupervisionService):
+    def __init__(self, path: Path, service: SupervisionService):  # noqa: ANN204, D107  # tracked: #288
         self.path = path
         self.service = service
         self._server: _UnixServer | None = None
@@ -113,13 +113,13 @@ class SupervisionSocketServer:
         self._client_subscribed = threading.Event()
         self._client_disconnected = threading.Event()
 
-    def start(self) -> None:
+    def start(self) -> None:  # noqa: D102  # tracked: #288
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.path.unlink(missing_ok=True)
         self._server = _UnixServer(self.path, self.service)
         self._server.client_subscribed = self._client_subscribed  # type: ignore[attr-defined]
         self._server.client_disconnected = self._client_disconnected  # type: ignore[attr-defined]
-        os.chmod(self.path, 0o600)
+        os.chmod(self.path, 0o600)  # noqa: PTH101  # tracked: #288
         self._thread = threading.Thread(
             target=self._server.serve_forever,
             name="vibesys-supervision-server",
@@ -135,7 +135,7 @@ class SupervisionSocketServer:
         """Keep terminal events queryable until the attached client exits."""
         self._client_disconnected.wait()
 
-    def close(self) -> None:
+    def close(self) -> None:  # noqa: D102  # tracked: #288
         if self._server is not None:
             self._server.shutdown()
             self._server.server_close()
@@ -145,9 +145,9 @@ class SupervisionSocketServer:
             self._thread = None
         self.path.unlink(missing_ok=True)
 
-    def __enter__(self) -> SupervisionSocketServer:
+    def __enter__(self) -> SupervisionSocketServer:  # noqa: D105  # tracked: #288
         self.start()
         return self
 
-    def __exit__(self, exc_type: object, exc: object, tb: object) -> None:
+    def __exit__(self, exc_type: object, exc: object, tb: object) -> None:  # noqa: D105  # tracked: #288
         self.close()

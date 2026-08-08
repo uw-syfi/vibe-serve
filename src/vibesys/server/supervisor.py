@@ -5,9 +5,9 @@ from __future__ import annotations
 import re
 import threading
 import uuid
-from collections.abc import Callable, Generator
+from collections.abc import Callable, Generator  # noqa: TC003  # tracked: #288
 from contextlib import contextmanager
-from pathlib import Path
+from pathlib import Path  # noqa: TC003  # tracked: #288
 from typing import Any
 
 from vibesys.server.events import (
@@ -33,7 +33,7 @@ from vibesys.server.protocol import RunSnapshot
 class RunSupervisor:
     """Own pause state, invocation metadata, and the run audit store."""
 
-    def __init__(self) -> None:
+    def __init__(self) -> None:  # noqa: D107  # tracked: #288
         self._condition = threading.Condition()
         self._pause_after_call = False
         self._paused = False
@@ -49,11 +49,11 @@ class RunSupervisor:
         self._presentation_local = threading.local()
 
     @property
-    def current_round(self) -> str | None:
+    def current_round(self) -> str | None:  # noqa: D102  # tracked: #288
         with self._condition:
             return self._current_round
 
-    def attach(self, log_dir: Path) -> None:
+    def attach(self, log_dir: Path) -> None:  # noqa: D102  # tracked: #288
         log_dir.mkdir(parents=True, exist_ok=True)
         self.log_dir = log_dir
         events_path = log_dir / "run-events.jsonl"
@@ -75,7 +75,7 @@ class RunSupervisor:
         with self._condition:
             self._run_status = "running"
 
-    def publish_output(self, stream: OutputStream, content: str, source: str = "backend") -> None:
+    def publish_output(self, stream: OutputStream, content: str, source: str = "backend") -> None:  # noqa: D102  # tracked: #288
         if not content:
             return
         self.record(
@@ -83,7 +83,7 @@ class RunSupervisor:
             data=OutputData(stream=stream, source=source, content=content),
         )
 
-    def publish_agent_output(
+    def publish_agent_output(  # noqa: D102  # tracked: #288
         self,
         content: str,
         *,
@@ -123,13 +123,13 @@ class RunSupervisor:
             data=data,
         )
 
-    def record(
+    def record(  # noqa: D102  # tracked: #288
         self,
         event_type: EventType,
         text: str = "",
         *,
         data: EventData | None = None,
-        **fields: Any,
+        **fields: Any,  # noqa: ANN401  # tracked: #288
     ) -> RunEvent | None:
         event = make_event(event_type, text, data=data, **fields)
         with self._condition:
@@ -143,7 +143,7 @@ class RunSupervisor:
             audit_store.append(event)
         return recorded
 
-    def read_events(self, after_sequence: int = 0) -> list[RunEvent]:
+    def read_events(self, after_sequence: int = 0) -> list[RunEvent]:  # noqa: D102  # tracked: #288
         store = self._store
         return store.read(after_sequence) if store else []
 
@@ -152,11 +152,11 @@ class RunSupervisor:
         store = self._audit_store or self._store
         return store.read() if store else []
 
-    def wait_for_events(self, after_sequence: int, timeout: float | None = None) -> list[RunEvent]:
+    def wait_for_events(self, after_sequence: int, timeout: float | None = None) -> list[RunEvent]:  # noqa: D102  # tracked: #288
         store = self._store
         return store.wait(after_sequence, timeout) if store else []
 
-    def snapshot(self) -> RunSnapshot:
+    def snapshot(self) -> RunSnapshot:  # noqa: D102  # tracked: #288
         with self._condition:
             store = self._store
             return RunSnapshot(
@@ -167,11 +167,11 @@ class RunSupervisor:
                 round_label=self._current_round,
             )
 
-    def chat(self, text: str) -> str:
+    def chat(self, text: str) -> str:  # noqa: D102  # tracked: #288
         with self._condition:
             handler = self._chat_handler
         if handler is None:
-            from vibesys.server.inspector import RunInspector
+            from vibesys.server.inspector import RunInspector  # noqa: PLC0415  # tracked: #288
 
             answer = RunInspector(self).answer(text)
         else:
@@ -213,19 +213,19 @@ class RunSupervisor:
                 self._presentation_local.invocation_id,
             ) = previous
 
-    def pause_after_call(self) -> None:
+    def pause_after_call(self) -> None:  # noqa: D102  # tracked: #288
         with self._condition:
             self._pause_after_call = True
         self.record(EventType.CONTROL, "/pause", status=EventStatus.PENDING)
 
-    def resume(self) -> None:
+    def resume(self) -> None:  # noqa: D102  # tracked: #288
         with self._condition:
             self._paused = False
             self._pause_after_call = False
             self._condition.notify_all()
         self.record(EventType.CONTROL, "/resume", status=EventStatus.CONSUMED)
 
-    def before_agent(
+    def before_agent(  # noqa: D102  # tracked: #288
         self, kind: str, round_label: str, user_prompt: str, system_prompt: str = ""
     ) -> None:
         with self._condition:
@@ -253,8 +253,13 @@ class RunSupervisor:
             data=InvocationStartedData(system_prompt=system_prompt, user_prompt=user_prompt),
         )
 
-    def after_agent(
-        self, kind: str, round_label: str, *, result: Any = None, error: BaseException | None = None
+    def after_agent(  # noqa: D102  # tracked: #288
+        self,
+        kind: str,
+        round_label: str,
+        *,
+        result: Any = None,  # noqa: ANN401  # tracked: #288
+        error: BaseException | None = None,  # noqa: ANN401, RUF100  # tracked: #288
     ) -> None:
         with self._condition:
             invocation_id = self._active_invocation
@@ -292,14 +297,14 @@ class RunSupervisor:
                 invocation_id=invocation_id,
             )
 
-    def status(self) -> str:
+    def status(self) -> str:  # noqa: D102  # tracked: #288
         with self._condition:
             state = "paused" if self._paused else self._run_status
             kind = self._current_kind or "starting"
             round_label = self._current_round or "no round yet"
         return f"{state} · {kind} · {round_label}"
 
-    def finish(self, error: BaseException | None = None, *, record_event: bool = True) -> None:
+    def finish(self, error: BaseException | None = None, *, record_event: bool = True) -> None:  # noqa: D102  # tracked: #288
         with self._condition:
             self._run_status = "failed" if error else "completed"
             self._condition.notify_all()

@@ -14,10 +14,10 @@ def _judge_fallback() -> JudgeResponse:
     )
 
 
-def _make_context(tmp_path):
+def _make_context(tmp_path):  # noqa: ANN001, ANN202  # tracked: #288
     ctx = object.__new__(_RunContext)
-    ctx._progress_stack = []
-    ctx._paths = RunPaths(
+    ctx._progress_stack = []  # noqa: SLF001  # tracked: #288
+    ctx._paths = RunPaths(  # noqa: SLF001  # tracked: #288
         exp_dir=tmp_path,
         log_dir=tmp_path / "logs",
         workspace=tmp_path,
@@ -29,12 +29,12 @@ def _make_context(tmp_path):
     return ctx
 
 
-def test_progress_rendering_is_loop_owned():
+def test_progress_rendering_is_loop_owned():  # noqa: ANN201  # tracked: #288
     assert RoundProgress(3, 24).label() == "Round 3/24"
     assert CandidateProgress(2, 8, 1, 4).label() == "Round 2/8 Cand 1/4"
 
 
-def test_run_context_progress_scope_restores_previous(tmp_path):
+def test_run_context_progress_scope_restores_previous(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     ctx = _make_context(tmp_path)
     outer = RoundProgress(1, 3)
     inner = CandidateProgress(2, 3, 1, 2)
@@ -48,7 +48,7 @@ def test_run_context_progress_scope_restores_previous(tmp_path):
     assert ctx.current_progress() is None
 
 
-def test_run_context_injects_current_progress(tmp_path):
+def test_run_context_injects_current_progress(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     ctx = _make_context(tmp_path)
     progress = RoundProgress(2, 5)
 
@@ -65,7 +65,7 @@ def test_run_context_injects_current_progress(tmp_path):
     assert ctx.agent_runner.invoke.call_args.kwargs["progress"] is progress
 
 
-def test_run_context_explicit_progress_overrides_scope(tmp_path):
+def test_run_context_explicit_progress_overrides_scope(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     ctx = _make_context(tmp_path)
     scoped = RoundProgress(2, 5)
     explicit = CandidateProgress(2, 5, 1, 3)

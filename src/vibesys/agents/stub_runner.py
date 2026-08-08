@@ -3,15 +3,15 @@
 from __future__ import annotations
 
 import time
-from collections.abc import Callable
-from pathlib import Path
+from collections.abc import Callable  # noqa: TC003  # tracked: #288
+from pathlib import Path  # noqa: TC003  # tracked: #288
 from typing import TypeVar
 
-from langchain_core.tools import BaseTool
+from langchain_core.tools import BaseTool  # noqa: TC002  # tracked: #288
 from pydantic import BaseModel
 
-from vibesys._agent_cli.base import MCPServerSpec
-from vibesys.agents.progress import AgentProgress
+from vibesys._agent_cli.base import MCPServerSpec  # noqa: TC001  # tracked: #288
+from vibesys.agents.progress import AgentProgress  # noqa: TC001  # tracked: #288
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -21,7 +21,7 @@ class StubAgentRunner:
 
     backend_name = "stub"
 
-    def invoke(
+    def invoke(  # noqa: D102, PLR0913  # tracked: #288
         self,
         *,
         kind: str,
@@ -35,7 +35,7 @@ class StubAgentRunner:
         **kwargs: object,
     ) -> T:
         del workspace, system_prompt, user_prompt, progress, kwargs
-        from vibesys.render.sink import output_sink
+        from vibesys.render.sink import output_sink  # noqa: PLC0415  # tracked: #288
 
         output_sink().agent_output(
             f"[stub-agent] {round_label}: starting {kind}\n",
@@ -51,7 +51,7 @@ class StubAgentRunner:
         )
         return response_cls.model_validate(response) if response is not None else fallback_factory()
 
-    def invoke_text(
+    def invoke_text(  # noqa: PLR0913  # tracked: #288
         self,
         *,
         kind: str,
@@ -78,7 +78,7 @@ class StubAgentRunner:
             reuse_session,
             session_key,
         )
-        from vibesys.render.sink import output_sink
+        from vibesys.render.sink import output_sink  # noqa: PLC0415  # tracked: #288
 
         output_sink().agent_output(
             f"[stub-agent] investigating: {user_prompt}\n",

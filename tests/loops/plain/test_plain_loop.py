@@ -81,11 +81,11 @@ def _make_issue_runner(responses: list, *, backend_name: str = "deepagents") -> 
     runner.backend_name = backend_name
     it = iter(responses)
 
-    def _invoke(*, kind, **kwargs):
+    def _invoke(*, kind, **kwargs):  # noqa: ANN001, ANN003, ANN202, ARG001  # tracked: #288
         try:
             return next(it)
         except StopIteration as exc:
-            raise AssertionError(f"invoke called beyond scripted responses (kind={kind})") from exc
+            raise AssertionError(f"invoke called beyond scripted responses (kind={kind})") from exc  # noqa: TRY003  # tracked: #288
 
     runner.invoke.side_effect = _invoke
     return runner
@@ -104,7 +104,7 @@ def _store_path(exp_dir: Path) -> Path:
 
 
 @pytest.fixture
-def ref_file(tmp_path):
+def ref_file(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     """Create a temporary reference file for run_plain_loop tests."""
     f = tmp_path / "ref.py"
     f.write_text("def predict(x): return x * 2\n")
@@ -119,8 +119,12 @@ def ref_file(tmp_path):
 @patch("vibesys.context.build_model")
 @patch("vibesys.backends.cuda.LocalShellBackend")
 @patch("vibesys.context.build_agent_runner")
-def test_bootstrap_creates_initial_feature_issue_on_first_run(
-    mock_build_runner, mock_backend, mock_build, ref_file, tmp_path
+def test_bootstrap_creates_initial_feature_issue_on_first_run(  # noqa: ANN201  # tracked: #288
+    mock_build_runner,  # noqa: ANN001  # tracked: #288
+    mock_backend,  # noqa: ANN001, ARG001  # tracked: #288
+    mock_build,  # noqa: ANN001  # tracked: #288
+    ref_file,  # noqa: ANN001  # tracked: #288
+    tmp_path,  # noqa: ANN001, ARG001, RUF100  # tracked: #288
 ):
     mock_build.return_value = "anthropic:claude-sonnet-4-6"
     mock_build_runner.return_value = _make_issue_runner(
@@ -158,8 +162,12 @@ def test_bootstrap_creates_initial_feature_issue_on_first_run(
 @patch("vibesys.context.build_model")
 @patch("vibesys.backends.cuda.LocalShellBackend")
 @patch("vibesys.context.build_agent_runner")
-def test_bootstrap_idempotent_on_resume(
-    mock_build_runner, mock_backend, mock_build, ref_file, tmp_path
+def test_bootstrap_idempotent_on_resume(  # noqa: ANN201  # tracked: #288
+    mock_build_runner,  # noqa: ANN001  # tracked: #288
+    mock_backend,  # noqa: ANN001, ARG001  # tracked: #288
+    mock_build,  # noqa: ANN001  # tracked: #288
+    ref_file,  # noqa: ANN001  # tracked: #288
+    tmp_path,  # noqa: ANN001, ARG001, RUF100  # tracked: #288
 ):
     """A resumed run with bootstrap_done=True must not re-create the bootstrap issue."""
     mock_build.return_value = "anthropic:claude-sonnet-4-6"
@@ -220,7 +228,7 @@ def test_bootstrap_idempotent_on_resume(
 @patch("vibesys.context.build_model")
 @patch("vibesys.backends.cuda.LocalShellBackend")
 @patch("vibesys.context.build_agent_runner")
-def test_judge_pass_closes_issue(mock_build_runner, mock_backend, mock_build, ref_file, tmp_path):
+def test_judge_pass_closes_issue(mock_build_runner, mock_backend, mock_build, ref_file, tmp_path):  # noqa: ANN001, ANN201, ARG001  # tracked: #288
     mock_build.return_value = "anthropic:claude-sonnet-4-6"
     mock_build_runner.return_value = _make_issue_runner(
         [
@@ -250,8 +258,12 @@ def test_judge_pass_closes_issue(mock_build_runner, mock_backend, mock_build, re
 @patch("vibesys.context.build_model")
 @patch("vibesys.backends.cuda.LocalShellBackend")
 @patch("vibesys.context.build_agent_runner")
-def test_judge_fail_increments_attempts_and_keeps_open(
-    mock_build_runner, mock_backend, mock_build, ref_file, tmp_path
+def test_judge_fail_increments_attempts_and_keeps_open(  # noqa: ANN201  # tracked: #288
+    mock_build_runner,  # noqa: ANN001  # tracked: #288
+    mock_backend,  # noqa: ANN001, ARG001  # tracked: #288
+    mock_build,  # noqa: ANN001  # tracked: #288
+    ref_file,  # noqa: ANN001  # tracked: #288
+    tmp_path,  # noqa: ANN001, ARG001, RUF100  # tracked: #288
 ):
     """A FAIL verdict reopens the issue; the next drain pass tries again."""
     mock_build.return_value = "anthropic:claude-sonnet-4-6"
@@ -289,8 +301,12 @@ def test_judge_fail_increments_attempts_and_keeps_open(
 @patch("vibesys.context.build_model")
 @patch("vibesys.backends.cuda.LocalShellBackend")
 @patch("vibesys.context.build_agent_runner")
-def test_issue_blocks_after_max_attempts_exhausted(
-    mock_build_runner, mock_backend, mock_build, ref_file, tmp_path
+def test_issue_blocks_after_max_attempts_exhausted(  # noqa: ANN201  # tracked: #288
+    mock_build_runner,  # noqa: ANN001  # tracked: #288
+    mock_backend,  # noqa: ANN001, ARG001  # tracked: #288
+    mock_build,  # noqa: ANN001  # tracked: #288
+    ref_file,  # noqa: ANN001  # tracked: #288
+    tmp_path,  # noqa: ANN001, ARG001, RUF100  # tracked: #288
 ):
     """With max_attempts_per_issue=2, a fail/fail sequence should mark the issue BLOCKED."""
     mock_build.return_value = "anthropic:claude-sonnet-4-6"
@@ -362,8 +378,13 @@ _EXPECTED_TRACKER_TOOL_NAMES = {
 @patch("vibesys.context.build_model")
 @patch("vibesys.backends.cuda.LocalShellBackend")
 @patch("vibesys.context.build_agent_runner")
-def test_judge_invoke_receives_tracker_kwargs(
-    mock_build_runner, mock_backend, mock_build, ref_file, tmp_path, backend_name
+def test_judge_invoke_receives_tracker_kwargs(  # noqa: ANN201, PLR0913  # tracked: #288
+    mock_build_runner,  # noqa: ANN001  # tracked: #288
+    mock_backend,  # noqa: ANN001, ARG001  # tracked: #288
+    mock_build,  # noqa: ANN001  # tracked: #288
+    ref_file,  # noqa: ANN001  # tracked: #288
+    tmp_path,  # noqa: ANN001  # tracked: #288
+    backend_name,  # noqa: ANN001, ARG001, RUF100  # tracked: #288
 ):
     """The judge phase must receive issue-tracker access scoped to
     creator='judge', cap=1, allowed_types={BUG}.
@@ -402,7 +423,7 @@ def test_judge_invoke_receives_tracker_kwargs(
     if backend_name == "cli":
         assert kwargs.get("tools") is None
         specs = kwargs.get("mcp_servers")
-        assert specs is not None and len(specs) == 1
+        assert specs is not None and len(specs) == 1  # noqa: PT018  # tracked: #288
         spec = specs[0]
         assert spec.name == "vibesys-issues"
         assert spec.command == "python"
@@ -422,8 +443,13 @@ def test_judge_invoke_receives_tracker_kwargs(
 @patch("vibesys.context.build_model")
 @patch("vibesys.backends.cuda.LocalShellBackend")
 @patch("vibesys.context.build_agent_runner")
-def test_perf_eval_invoke_receives_tracker_kwargs(
-    mock_build_runner, mock_backend, mock_build, ref_file, tmp_path, backend_name
+def test_perf_eval_invoke_receives_tracker_kwargs(  # noqa: ANN201, PLR0913  # tracked: #288
+    mock_build_runner,  # noqa: ANN001  # tracked: #288
+    mock_backend,  # noqa: ANN001, ARG001  # tracked: #288
+    mock_build,  # noqa: ANN001  # tracked: #288
+    ref_file,  # noqa: ANN001  # tracked: #288
+    tmp_path,  # noqa: ANN001  # tracked: #288
+    backend_name,  # noqa: ANN001, ARG001, RUF100  # tracked: #288
 ):
     """The perf_eval phase must receive issue-tracker access scoped to
     creator='perf_eval', cap=max_issues_per_perf_eval, and the
@@ -461,7 +487,7 @@ def test_perf_eval_invoke_receives_tracker_kwargs(
     if backend_name == "cli":
         assert kwargs.get("tools") is None
         specs = kwargs.get("mcp_servers")
-        assert specs is not None and len(specs) == 1
+        assert specs is not None and len(specs) == 1  # noqa: PT018  # tracked: #288
         spec = specs[0]
         parsed = _spec_args_to_dict(spec.args)
         assert parsed["creator"] == "perf_eval"
@@ -479,8 +505,12 @@ def test_perf_eval_invoke_receives_tracker_kwargs(
 @patch("vibesys.context.build_model")
 @patch("vibesys.backends.cuda.LocalShellBackend")
 @patch("vibesys.context.build_agent_runner")
-def test_judge_phase_calls_store_reload_after_invoke(
-    mock_build_runner, mock_backend, mock_build, ref_file, tmp_path
+def test_judge_phase_calls_store_reload_after_invoke(  # noqa: ANN201  # tracked: #288
+    mock_build_runner,  # noqa: ANN001  # tracked: #288
+    mock_backend,  # noqa: ANN001, ARG001  # tracked: #288
+    mock_build,  # noqa: ANN001  # tracked: #288
+    ref_file,  # noqa: ANN001  # tracked: #288
+    tmp_path,  # noqa: ANN001, ARG001, RUF100  # tracked: #288
 ):
     """After the judge invoke returns, the loop must reload the store so it
     can see any issues the MCP server wrote during the phase."""
@@ -498,11 +528,11 @@ def test_judge_phase_calls_store_reload_after_invoke(
 
     original_reload = IssueBoard.reload
 
-    def tracking_reload(self):
+    def tracking_reload(self):  # noqa: ANN001, ANN202  # tracked: #288
         reload_call_order.append("reload")
         return original_reload(self)
 
-    def tracking_invoke(*, kind, **kwargs):
+    def tracking_invoke(*, kind, **kwargs):  # noqa: ANN001, ANN003, ANN202, ARG001  # tracked: #288
         invoke_call_order.append(kind)
         if kind == "implementer":
             return _make_impl_resp(1)
@@ -510,7 +540,7 @@ def test_judge_phase_calls_store_reload_after_invoke(
             return _make_judge_resp(1, verdict="pass")
         if kind == "perf_eval":
             return _make_perf_resp(new_issue_ids=[])
-        raise AssertionError(f"unexpected kind: {kind}")
+        raise AssertionError(f"unexpected kind: {kind}")  # noqa: TRY003  # tracked: #288
 
     runner = MagicMock(spec=AgentRunner)
     runner.backend_name = "deepagents"
@@ -544,8 +574,13 @@ def test_judge_phase_calls_store_reload_after_invoke(
 @patch("vibesys.context.build_model")
 @patch("vibesys.backends.cuda.LocalShellBackend")
 @patch("vibesys.context.build_agent_runner")
-def test_implementer_invoke_has_no_tracker_kwargs(
-    mock_build_runner, mock_backend, mock_build, ref_file, tmp_path, backend_name
+def test_implementer_invoke_has_no_tracker_kwargs(  # noqa: ANN201, PLR0913  # tracked: #288
+    mock_build_runner,  # noqa: ANN001  # tracked: #288
+    mock_backend,  # noqa: ANN001, ARG001  # tracked: #288
+    mock_build,  # noqa: ANN001  # tracked: #288
+    ref_file,  # noqa: ANN001  # tracked: #288
+    tmp_path,  # noqa: ANN001  # tracked: #288
+    backend_name,  # noqa: ANN001, ARG001, RUF100  # tracked: #288
 ):
     """The implementer phase has no issue tools (the issue is inlined in
     the prompt), so it must NOT receive ``mcp_servers`` or ``tools``.
@@ -604,8 +639,12 @@ def test_implementer_invoke_has_no_tracker_kwargs(
 @patch("vibesys.context.build_model")
 @patch("vibesys.backends.cuda.LocalShellBackend")
 @patch("vibesys.context.build_agent_runner")
-def test_perf_eval_runs_after_drain_complete(
-    mock_build_runner, mock_backend, mock_build, ref_file, tmp_path
+def test_perf_eval_runs_after_drain_complete(  # noqa: ANN201  # tracked: #288
+    mock_build_runner,  # noqa: ANN001  # tracked: #288
+    mock_backend,  # noqa: ANN001, ARG001  # tracked: #288
+    mock_build,  # noqa: ANN001  # tracked: #288
+    ref_file,  # noqa: ANN001  # tracked: #288
+    tmp_path,  # noqa: ANN001, ARG001, RUF100  # tracked: #288
 ):
     """Within one outer iteration, the order of invoke kinds is impl -> judge -> perf_eval."""
     mock_build.return_value = "anthropic:claude-sonnet-4-6"
@@ -642,7 +681,7 @@ def test_perf_eval_runs_after_drain_complete(
     # Sanity: each phase still got a rendered (non-empty) system prompt.
     for call in runner.invoke.call_args_list:
         sys_prompt = call.kwargs.get("system_prompt")
-        assert isinstance(sys_prompt, str) and sys_prompt.strip()
+        assert isinstance(sys_prompt, str) and sys_prompt.strip()  # noqa: PT018  # tracked: #288
 
 
 # ---------------------------------------------------------------------------
@@ -653,8 +692,12 @@ def test_perf_eval_runs_after_drain_complete(
 @patch("vibesys.context.build_model")
 @patch("vibesys.backends.cuda.LocalShellBackend")
 @patch("vibesys.context.build_agent_runner")
-def test_resume_with_bootstrap_done_skips_bootstrap_creation(
-    mock_build_runner, mock_backend, mock_build, ref_file, tmp_path
+def test_resume_with_bootstrap_done_skips_bootstrap_creation(  # noqa: ANN201  # tracked: #288
+    mock_build_runner,  # noqa: ANN001  # tracked: #288
+    mock_backend,  # noqa: ANN001, ARG001  # tracked: #288
+    mock_build,  # noqa: ANN001  # tracked: #288
+    ref_file,  # noqa: ANN001  # tracked: #288
+    tmp_path,  # noqa: ANN001, ARG001, RUF100  # tracked: #288
 ):
     """Resuming with bootstrap_done=True must not add another bootstrap issue."""
     mock_build.return_value = "anthropic:claude-sonnet-4-6"
@@ -711,8 +754,12 @@ def test_resume_with_bootstrap_done_skips_bootstrap_creation(
 @patch("vibesys.context.build_model")
 @patch("vibesys.backends.cuda.LocalShellBackend")
 @patch("vibesys.context.build_agent_runner")
-def test_resume_retries_previously_blocked_issue(
-    mock_build_runner, mock_backend, mock_build, ref_file, tmp_path
+def test_resume_retries_previously_blocked_issue(  # noqa: ANN201  # tracked: #288
+    mock_build_runner,  # noqa: ANN001  # tracked: #288
+    mock_backend,  # noqa: ANN001, ARG001  # tracked: #288
+    mock_build,  # noqa: ANN001  # tracked: #288
+    ref_file,  # noqa: ANN001  # tracked: #288
+    tmp_path,  # noqa: ANN001, ARG001, RUF100  # tracked: #288
 ):
     """A run that bailed out with all issues BLOCKED should retry those
     issues on resume. The blocked issue's attempts counter is reset so
@@ -787,8 +834,12 @@ def test_resume_retries_previously_blocked_issue(
 @patch("vibesys.context.build_model")
 @patch("vibesys.backends.cuda.LocalShellBackend")
 @patch("vibesys.context.build_agent_runner")
-def test_run_returns_true_when_perf_eval_files_no_issues_after_clean_drain(
-    mock_build_runner, mock_backend, mock_build, ref_file, tmp_path
+def test_run_returns_true_when_perf_eval_files_no_issues_after_clean_drain(  # noqa: ANN201  # tracked: #288
+    mock_build_runner,  # noqa: ANN001  # tracked: #288
+    mock_backend,  # noqa: ANN001, ARG001  # tracked: #288
+    mock_build,  # noqa: ANN001  # tracked: #288
+    ref_file,  # noqa: ANN001  # tracked: #288
+    tmp_path,  # noqa: ANN001, ARG001, RUF100  # tracked: #288
 ):
     """Bootstrap -> pass -> perf_eval files nothing => run returns True and stops."""
     mock_build.return_value = "anthropic:claude-sonnet-4-6"
@@ -823,8 +874,12 @@ def test_run_returns_true_when_perf_eval_files_no_issues_after_clean_drain(
 @patch("vibesys.context.build_model")
 @patch("vibesys.backends.cuda.LocalShellBackend")
 @patch("vibesys.context.build_agent_runner")
-def test_state_json_written_with_bootstrap_done_after_run(
-    mock_build_runner, mock_backend, mock_build, ref_file, tmp_path
+def test_state_json_written_with_bootstrap_done_after_run(  # noqa: ANN201  # tracked: #288
+    mock_build_runner,  # noqa: ANN001  # tracked: #288
+    mock_backend,  # noqa: ANN001, ARG001  # tracked: #288
+    mock_build,  # noqa: ANN001  # tracked: #288
+    ref_file,  # noqa: ANN001  # tracked: #288
+    tmp_path,  # noqa: ANN001, ARG001, RUF100  # tracked: #288
 ):
     """At the end of a successful run, state.json should reflect bootstrap_done=True."""
     mock_build.return_value = "anthropic:claude-sonnet-4-6"
@@ -864,8 +919,12 @@ def test_state_json_written_with_bootstrap_done_after_run(
 @patch("vibesys.context.build_model")
 @patch("vibesys.backends.cuda.LocalShellBackend")
 @patch("vibesys.context.build_agent_runner")
-def test_issue_loop_writes_per_issue_markdown_via_callback(
-    mock_build_runner, mock_backend, mock_build, ref_file, tmp_path
+def test_issue_loop_writes_per_issue_markdown_via_callback(  # noqa: ANN201  # tracked: #288
+    mock_build_runner,  # noqa: ANN001  # tracked: #288
+    mock_backend,  # noqa: ANN001, ARG001  # tracked: #288
+    mock_build,  # noqa: ANN001  # tracked: #288
+    ref_file,  # noqa: ANN001  # tracked: #288
+    tmp_path,  # noqa: ANN001, ARG001, RUF100  # tracked: #288
 ):
     """End-to-end: drive a one-iteration drain cycle and assert that
     ``logs/issues/INDEX.md`` plus a per-issue MD file are written by the
@@ -926,8 +985,12 @@ def test_issue_loop_writes_per_issue_markdown_via_callback(
 @patch("vibesys.context.build_model")
 @patch("vibesys.backends.cuda.LocalShellBackend")
 @patch("vibesys.context.build_agent_runner")
-def test_implementer_retry_user_prompt_includes_prior_judge_feedback(
-    mock_build_runner, mock_backend, mock_build, ref_file, tmp_path
+def test_implementer_retry_user_prompt_includes_prior_judge_feedback(  # noqa: ANN201  # tracked: #288
+    mock_build_runner,  # noqa: ANN001  # tracked: #288
+    mock_backend,  # noqa: ANN001, ARG001  # tracked: #288
+    mock_build,  # noqa: ANN001  # tracked: #288
+    ref_file,  # noqa: ANN001  # tracked: #288
+    tmp_path,  # noqa: ANN001, ARG001, RUF100  # tracked: #288
 ):
     """When the judge fails an issue and the drain loop retries, the
     second implementer's *user* prompt must include the prior judge

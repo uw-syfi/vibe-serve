@@ -8,7 +8,7 @@ carries serving prose; ``generic`` injects nothing of its own).
 
 from __future__ import annotations
 
-from pathlib import Path
+from pathlib import Path  # noqa: TC003  # tracked: #288
 
 import pytest
 
@@ -42,7 +42,7 @@ def _temporary_domain(prompt_dir: Path) -> DomainDefinition:
 # --------------------------------------------------------------------------- #
 # resolver
 # --------------------------------------------------------------------------- #
-def test_registered_domains_present():
+def test_registered_domains_present():  # noqa: ANN201  # tracked: #288
     names = registered_domains()
     assert "llm-serving" in names
     assert "generic" in names
@@ -50,7 +50,7 @@ def test_registered_domains_present():
     assert "README" not in names  # the authoring guide is not a domain
 
 
-def test_resolve_registered_name():
+def test_resolve_registered_name():  # noqa: ANN201  # tracked: #288
     d = resolve_domain(DomainName.LLM_SERVING)
     assert d.name is DomainName.LLM_SERVING
     assert d.prompt_dir.is_dir()
@@ -58,7 +58,7 @@ def test_resolve_registered_name():
     assert d.prompt_dir.parent.name == "domains"
 
 
-def test_resolve_microservices_domain():
+def test_resolve_microservices_domain():  # noqa: ANN201  # tracked: #288
     d = resolve_domain(DomainName.MICROSERVICES)
     assert d.name is DomainName.MICROSERVICES
     assert d.prompt_dir.is_dir()
@@ -66,7 +66,7 @@ def test_resolve_microservices_domain():
     assert d.prompt_dir.parent.name == "domains"
 
 
-def test_resolve_path_is_not_supported(tmp_path: Path):
+def test_resolve_path_is_not_supported(tmp_path: Path):  # noqa: ANN201  # tracked: #288
     f = tmp_path / "mine"
     f.mkdir()
     (f / "implementer.md").write_text("hello\n")
@@ -74,19 +74,19 @@ def test_resolve_path_is_not_supported(tmp_path: Path):
         resolve_domain(str(f))
 
 
-def test_registered_domains_carry_environment_hooks():
+def test_registered_domains_carry_environment_hooks():  # noqa: ANN201  # tracked: #288
     assert isinstance(DOMAINS[DomainName.LLM_SERVING].environment_hooks, LLMServingEnvironmentHooks)
     assert isinstance(DOMAINS[DomainName.GENERIC].environment_hooks, NoopEnvironmentHooks)
     assert isinstance(DOMAINS[DomainName.MICROSERVICES].environment_hooks, NoopEnvironmentHooks)
 
 
-def test_domains_declare_torch_profiler_compatibility():
+def test_domains_declare_torch_profiler_compatibility():  # noqa: ANN201  # tracked: #288
     assert DOMAINS[DomainName.LLM_SERVING].supports_torch_profiler
     assert not DOMAINS[DomainName.GENERIC].supports_torch_profiler
     assert not DOMAINS[DomainName.MICROSERVICES].supports_torch_profiler
 
 
-def test_resolve_unknown_raises():
+def test_resolve_unknown_raises():  # noqa: ANN201  # tracked: #288
     with pytest.raises(TypeError) as exc:
         resolve_domain("does-not-exist-xyz")
     assert "DomainName" in str(exc.value)
@@ -95,7 +95,7 @@ def test_resolve_unknown_raises():
 # --------------------------------------------------------------------------- #
 # role-file renderer
 # --------------------------------------------------------------------------- #
-def test_render_missing_role_is_empty(tmp_path: Path):
+def test_render_missing_role_is_empty(tmp_path: Path):  # noqa: ANN201  # tracked: #288
     # a domain directory with no matching <role>.md file injects nothing
     domain_dir = tmp_path / "domain"
     domain_dir.mkdir()
@@ -103,14 +103,14 @@ def test_render_missing_role_is_empty(tmp_path: Path):
     assert render_domain_section(_temporary_domain(domain_dir), DomainRole.IMPLEMENTER) == ""
 
 
-def test_render_empty_role_is_empty():
+def test_render_empty_role_is_empty():  # noqa: ANN201  # tracked: #288
     # generic has no role files, so every role injects nothing
     d = resolve_domain(DomainName.GENERIC)
     for role in (DomainRole.IMPLEMENTER, DomainRole.JUDGE, DomainRole.SINGLE_AGENT):
         assert render_domain_section(d, role) == ""
 
 
-def test_render_llm_serving_has_content():
+def test_render_llm_serving_has_content():  # noqa: ANN201  # tracked: #288
     d = resolve_domain(DomainName.LLM_SERVING)
     impl = render_domain_section(
         d, DomainRole.IMPLEMENTER, modality="text_generation", reference_path="/ref"
@@ -122,7 +122,7 @@ def test_render_llm_serving_has_content():
     assert "## Use references as implementation support" in impl
 
 
-def test_render_microservices_has_content():
+def test_render_microservices_has_content():  # noqa: ANN201  # tracked: #288
     d = resolve_domain(DomainName.MICROSERVICES)
     impl = render_domain_section(d, DomainRole.IMPLEMENTER, interface="service")
     judge = render_domain_section(
@@ -137,7 +137,7 @@ def test_render_microservices_has_content():
     assert "./bench" in judge
 
 
-def test_role_file_keeps_markdown_headings(tmp_path: Path):
+def test_role_file_keeps_markdown_headings(tmp_path: Path):  # noqa: ANN201  # tracked: #288
     """Role files are normal Markdown; headings inside them are preserved."""
     domain_dir = tmp_path / "domain"
     domain_dir.mkdir()
@@ -162,7 +162,7 @@ def test_role_file_keeps_markdown_headings(tmp_path: Path):
     assert judge == "JUDGE-BODY"
 
 
-def test_llm_serving_judge_does_not_duplicate_framework_benchmark():
+def test_llm_serving_judge_does_not_duplicate_framework_benchmark():  # noqa: ANN201  # tracked: #288
     """The LLM judge audits evidence instead of rerunning a trusted gate."""
     d = resolve_domain(DomainName.LLM_SERVING)
     with_bench = render_domain_section(
@@ -177,7 +177,7 @@ def test_llm_serving_judge_does_not_duplicate_framework_benchmark():
     assert "audit the implementer's retained performance evidence" in without_bench
 
 
-def test_render_role_branches_on_interface(tmp_path: Path):
+def test_render_role_branches_on_interface(tmp_path: Path):  # noqa: ANN201  # tracked: #288
     """The process boundary reaches domain role files."""
     domain_dir = tmp_path / "domain"
     domain_dir.mkdir()
@@ -191,7 +191,7 @@ def test_render_role_branches_on_interface(tmp_path: Path):
     assert "IN_PROCESS_GATE" not in service
 
 
-def test_single_agent_uses_explicit_section_when_present():
+def test_single_agent_uses_explicit_section_when_present():  # noqa: ANN201  # tracked: #288
     # llm-serving ships a bespoke single_agent.md file
     d = resolve_domain(DomainName.LLM_SERVING)
     sa = render_domain_section(
@@ -200,7 +200,7 @@ def test_single_agent_uses_explicit_section_when_present():
     assert "do not let yourself cheat" in sa  # text unique to that section
 
 
-def test_single_agent_derives_from_implementer_and_judge(tmp_path: Path):
+def test_single_agent_derives_from_implementer_and_judge(tmp_path: Path):  # noqa: ANN201  # tracked: #288
     # no single_agent.md -> derived from implementer + judge
     domain_dir = tmp_path / "domain"
     domain_dir.mkdir()
@@ -225,21 +225,21 @@ def _render_implementer(domain: DomainName) -> str:
         modality="text_generation",
         domain_implementer=section,
         task="TASK",
-        pass_criteria="PC",
+        pass_criteria="PC",  # noqa: S106  # tracked: #288
         reference_path="/ref",
         runtime_notes="",
         feedback=None,
     )
 
 
-def test_llm_serving_injects_into_implementer():
+def test_llm_serving_injects_into_implementer():  # noqa: ANN201  # tracked: #288
     out = _render_implementer(DomainName.LLM_SERVING)
     # serving-specific prose from the domain package is present
     assert "serving" in out.lower()
     assert "## Progress tracking" in out  # base skeleton intact
 
 
-def test_generic_injects_nothing_extra():
+def test_generic_injects_nothing_extra():  # noqa: ANN201  # tracked: #288
     generic = _render_implementer(DomainName.GENERIC)
     # the only serving refs left are from the modality include, not the domain;
     # the generic render must be strictly shorter than llm-serving's.
@@ -248,7 +248,7 @@ def test_generic_injects_nothing_extra():
     assert "## Progress tracking" in generic  # base skeleton intact
 
 
-def test_no_triple_blank_at_injection_point():
+def test_no_triple_blank_at_injection_point():  # noqa: ANN201  # tracked: #288
     """Generic (empty injection) must not leave a triple newline gap."""
     out = _render_implementer(DomainName.GENERIC)
     # The injection point itself ({% if %}...{% endif %}) must collapse cleanly.
@@ -261,7 +261,7 @@ def test_no_triple_blank_at_injection_point():
 # --------------------------------------------------------------------------- #
 # orchestrator role
 # --------------------------------------------------------------------------- #
-def test_orchestrator_is_a_domain_role():
+def test_orchestrator_is_a_domain_role():  # noqa: ANN201  # tracked: #288
     assert DomainRole.ORCHESTRATOR in DOMAIN_ROLES
 
 
@@ -284,7 +284,7 @@ def _render_orchestrator(domain: DomainName) -> str:
     )
 
 
-def test_llm_serving_provides_evidence_led_orchestrator_method():
+def test_llm_serving_provides_evidence_led_orchestrator_method():  # noqa: ANN201  # tracked: #288
     section = render_domain_section(
         resolve_domain(DomainName.LLM_SERVING), DomainRole.ORCHESTRATOR, modality="text_generation"
     )
@@ -295,13 +295,13 @@ def test_llm_serving_provides_evidence_led_orchestrator_method():
     assert "current-architecture ceiling" in section
 
 
-def test_llm_serving_method_is_injected_into_plan():
+def test_llm_serving_method_is_injected_into_plan():  # noqa: ANN201  # tracked: #288
     out = _render_orchestrator(DomainName.LLM_SERVING)
     assert "Evidence-led optimization method" in out
     assert "measured end-to-end evidence" in out
 
 
-def test_generic_orchestrator_has_no_llm_serving_method():
+def test_generic_orchestrator_has_no_llm_serving_method():  # noqa: ANN201  # tracked: #288
     out = _render_orchestrator(DomainName.GENERIC)
     assert "Evidence-led optimization method" not in out
     assert "Continuous batching" not in out
@@ -309,7 +309,7 @@ def test_generic_orchestrator_has_no_llm_serving_method():
     assert "## Task granularity" in out  # base skeleton intact
 
 
-def test_llm_serving_profiler_branches_on_remote_execution_not_provider():
+def test_llm_serving_profiler_branches_on_remote_execution_not_provider():  # noqa: ANN201  # tracked: #288
     domain = resolve_domain(DomainName.LLM_SERVING)
 
     local = render_domain_section(domain, DomainRole.PROFILER, profile_execution="local")
@@ -323,7 +323,7 @@ def test_llm_serving_profiler_branches_on_remote_execution_not_provider():
     assert "Modal" not in remote
 
 
-def test_torch_profiler_remote_capture_is_provider_neutral():
+def test_torch_profiler_remote_capture_is_provider_neutral():  # noqa: ANN201  # tracked: #288
     common = {
         "objective": "Measure service throughput.",
         "profile_focus": "Find the dominant accelerator bottleneck.",

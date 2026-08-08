@@ -15,15 +15,15 @@ from vibesys.main import _add_common_args
 from vibesys.profilers import ProfilerKind
 
 
-def _make_backend(tmp_path, devices=("/dev/neuron0",)) -> TrainiumBackend:
+def _make_backend(tmp_path, devices=("/dev/neuron0",)) -> TrainiumBackend:  # noqa: ANN001  # tracked: #288
     impl = backends.get(ComputeBackend.TRAINIUM, log_dir=tmp_path / "logs")
     # Pin a deterministic device set so tests don't depend on host hardware.
-    impl._devices = list(devices)
+    impl._devices = list(devices)  # noqa: SLF001  # tracked: #288
     return impl
 
 
 class TestTrainiumRegistry:
-    def test_trainium_in_registry(self, tmp_path):
+    def test_trainium_in_registry(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         impl = backends.get(ComputeBackend.TRAINIUM, log_dir=tmp_path)
         assert isinstance(impl, TrainiumBackend)
         assert impl.name is ComputeBackend.TRAINIUM
@@ -31,7 +31,7 @@ class TestTrainiumRegistry:
 
 
 class TestTrainiumSandbox:
-    def test_local_returns_local_shell_backend(self, tmp_path):
+    def test_local_returns_local_shell_backend(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         impl = _make_backend(tmp_path)
         workspace = tmp_path / "ws"
         workspace.mkdir()
@@ -43,7 +43,7 @@ class TestTrainiumSandbox:
         )
         assert isinstance(sb, LocalShellBackend)
 
-    def test_docker_forwards_neuron_devices_and_no_gpus(self, tmp_path):
+    def test_docker_forwards_neuron_devices_and_no_gpus(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         impl = _make_backend(tmp_path, devices=["/dev/neuron0", "/dev/neuron1"])
         workspace = tmp_path / "ws"
         workspace.mkdir()
@@ -53,20 +53,21 @@ class TestTrainiumSandbox:
             log_path=None,
         )
         # DockerSandbox stores the device list and skips --gpus.
-        assert sb._devices == ["/dev/neuron0", "/dev/neuron1"]
-        assert sb._gpus is None
+        assert sb._devices == ["/dev/neuron0", "/dev/neuron1"]  # noqa: SLF001  # tracked: #288
+        assert sb._gpus is None  # noqa: SLF001  # tracked: #288
         # Persistent compile cache is bind-mounted and passthrough-registered.
         assert any(
-            container == "/opt/neuron-compile-cache" for _host, container, _ro in sb._bind_mounts
+            container == "/opt/neuron-compile-cache"
+            for _host, container, _ro in sb._bind_mounts  # noqa: SLF001  # tracked: #288
         )
-        assert "/opt/neuron-compile-cache" in sb._passthrough_prefixes
-        assert sb._env.get("NEURON_COMPILE_CACHE_URL") == "/opt/neuron-compile-cache"
+        assert "/opt/neuron-compile-cache" in sb._passthrough_prefixes  # noqa: SLF001  # tracked: #288
+        assert sb._env.get("NEURON_COMPILE_CACHE_URL") == "/opt/neuron-compile-cache"  # noqa: SLF001  # tracked: #288
         # auto-remove container + host-mounted neuronx-cc temp (TMPDIR)
-        assert sb._auto_remove is True
-        assert sb._env.get("TMPDIR") == "/opt/neuron-tmp"
-        assert any(c == "/opt/neuron-tmp" for _h, c, _ro in sb._bind_mounts)
+        assert sb._auto_remove is True  # noqa: SLF001  # tracked: #288
+        assert sb._env.get("TMPDIR") == "/opt/neuron-tmp"  # noqa: SLF001  # tracked: #288
+        assert any(c == "/opt/neuron-tmp" for _h, c, _ro in sb._bind_mounts)  # noqa: SLF001  # tracked: #288
 
-    def test_modal_raises(self, tmp_path):
+    def test_modal_raises(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         impl = _make_backend(tmp_path)
         with pytest.raises(ValueError, match="does not support Modal"):
             impl.make_sandbox(
@@ -77,18 +78,18 @@ class TestTrainiumSandbox:
 
 
 class TestTrainiumDevice:
-    def test_no_monitor(self, tmp_path):
+    def test_no_monitor(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         impl = _make_backend(tmp_path)
         assert impl.make_monitor(tmp_path) is None
 
-    def test_reselect_is_noop(self, tmp_path):
+    def test_reselect_is_noop(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         impl = _make_backend(tmp_path)
         impl.reselect_device()
         assert impl.selected_device is None
 
 
 class TestTrainiumCli:
-    def test_argparse_accepts_trainium(self):
+    def test_argparse_accepts_trainium(self):  # noqa: ANN201  # tracked: #288
         parser = argparse.ArgumentParser()
         _add_common_args(parser)
         ns = parser.parse_args(["--backend", "trainium"])

@@ -25,7 +25,7 @@ from vibesys.loops.evolve.population import (
 # ---------------------------------------------------------------------------
 
 
-def test_individual_json_round_trip():
+def test_individual_json_round_trip():  # noqa: ANN201  # tracked: #288
     ind = Individual(
         id=7,
         generation=3,
@@ -43,7 +43,7 @@ def test_individual_json_round_trip():
     assert restored == ind
 
 
-def test_individual_from_json_tolerates_missing_optional_fields():
+def test_individual_from_json_tolerates_missing_optional_fields():  # noqa: ANN201  # tracked: #288
     """Older population.json files might omit defaults — load anyway."""
     ind = Individual.from_json({"id": 1, "generation": 1, "parent_id": None})
     assert ind.id == 1
@@ -82,14 +82,14 @@ def _failed(id_: int, parent_id: int | None = None, gen: int = 1) -> Individual:
     )
 
 
-def test_next_id_starts_at_one_and_increments():
+def test_next_id_starts_at_one_and_increments():  # noqa: ANN201  # tracked: #288
     pop = Population()
     assert pop.next_id() == 1
     pop.add(_passed(1, 10.0))
     assert pop.next_id() == 2
 
 
-def test_passed_filter_excludes_no_commit_and_failed():
+def test_passed_filter_excludes_no_commit_and_failed():  # noqa: ANN201  # tracked: #288
     pop = Population([_passed(1, 10.0), _failed(2), _passed(3, 11.0)])
     # Add a synthetic "passed but no commit" — shouldn't be selectable.
     pop.add(Individual(id=4, generation=1, parent_id=None, passed=True, commit=None))
@@ -97,17 +97,17 @@ def test_passed_filter_excludes_no_commit_and_failed():
     assert ids == [1, 3]
 
 
-def test_best_picks_highest_perf_metric():
+def test_best_picks_highest_perf_metric():  # noqa: ANN201  # tracked: #288
     pop = Population([_passed(1, 10.0), _passed(2, 12.0), _passed(3, 11.0)])
     assert pop.best().id == 2
 
 
-def test_best_returns_none_with_no_passed_individuals():
+def test_best_returns_none_with_no_passed_individuals():  # noqa: ANN201  # tracked: #288
     pop = Population([_failed(1), _failed(2)])
     assert pop.best() is None
 
 
-def test_best_breaks_ties_by_id():
+def test_best_breaks_ties_by_id():  # noqa: ANN201  # tracked: #288
     pop = Population([_passed(1, 10.0), _passed(2, 10.0)])
     assert pop.best().id == 2
 
@@ -117,41 +117,41 @@ def test_best_breaks_ties_by_id():
 # ---------------------------------------------------------------------------
 
 
-def test_select_parent_empty_returns_none():
-    assert Population().select_parent(rng=random.Random(0)) is None
+def test_select_parent_empty_returns_none():  # noqa: ANN201  # tracked: #288
+    assert Population().select_parent(rng=random.Random(0)) is None  # noqa: S311  # tracked: #288
 
 
-def test_select_parent_only_failed_returns_none():
+def test_select_parent_only_failed_returns_none():  # noqa: ANN201  # tracked: #288
     pop = Population([_failed(1), _failed(2)])
-    assert pop.select_parent(rng=random.Random(0)) is None
+    assert pop.select_parent(rng=random.Random(0)) is None  # noqa: S311  # tracked: #288
 
 
-def test_select_parent_single_passed_returns_it():
+def test_select_parent_single_passed_returns_it():  # noqa: ANN201  # tracked: #288
     pop = Population([_failed(1), _passed(2, 10.0)])
-    assert pop.select_parent(rng=random.Random(0)).id == 2
+    assert pop.select_parent(rng=random.Random(0)).id == 2  # noqa: S311  # tracked: #288
 
 
-def test_select_parent_low_temperature_concentrates_on_best():
+def test_select_parent_low_temperature_concentrates_on_best():  # noqa: ANN201  # tracked: #288
     """A near-zero temperature should pick the best almost every time."""
     pop = Population([_passed(1, 1.0), _passed(2, 5.0), _passed(3, 10.0)])
-    rng = random.Random(123)
+    rng = random.Random(123)  # noqa: S311  # tracked: #288
     counts = Counter(pop.select_parent(rng=rng, temperature=0.01).id for _ in range(200))
     # The best (id=3) should dominate.
     assert counts[3] > 180
 
 
-def test_select_parent_high_temperature_spreads():
+def test_select_parent_high_temperature_spreads():  # noqa: ANN201  # tracked: #288
     """High temperature flattens the distribution toward uniform."""
     pop = Population([_passed(1, 1.0), _passed(2, 5.0), _passed(3, 10.0)])
-    rng = random.Random(123)
+    rng = random.Random(123)  # noqa: S311  # tracked: #288
     counts = Counter(pop.select_parent(rng=rng, temperature=100.0).id for _ in range(600))
     # All three should be picked a meaningful number of times.
     assert all(counts[i] > 100 for i in (1, 2, 3))
 
 
-def test_select_parent_uniform_when_all_perfs_equal():
+def test_select_parent_uniform_when_all_perfs_equal():  # noqa: ANN201  # tracked: #288
     pop = Population([_passed(1, 7.0), _passed(2, 7.0), _passed(3, 7.0)])
-    rng = random.Random(42)
+    rng = random.Random(42)  # noqa: S311  # tracked: #288
     counts = Counter(pop.select_parent(rng=rng).id for _ in range(300))
     assert all(counts[i] > 50 for i in (1, 2, 3))
 
@@ -161,20 +161,20 @@ def test_select_parent_uniform_when_all_perfs_equal():
 # ---------------------------------------------------------------------------
 
 
-def test_select_inspirations_excludes_parent_and_dedupes():
+def test_select_inspirations_excludes_parent_and_dedupes():  # noqa: ANN201  # tracked: #288
     pop = Population(
         [_passed(i, float(i)) for i in range(1, 8)]  # ids 1..7, perf 1..7
     )
-    rng = random.Random(0)
+    rng = random.Random(0)  # noqa: S311  # tracked: #288
     picks = pop.select_inspirations(parent_id=7, k_top=2, k_random=2, rng=rng)
     ids = [i.id for i in picks]
     assert 7 not in ids  # parent excluded
     assert len(set(ids)) == len(ids)  # no dupes
 
 
-def test_select_inspirations_top_first_then_random():
+def test_select_inspirations_top_first_then_random():  # noqa: ANN201  # tracked: #288
     pop = Population([_passed(i, float(i)) for i in range(1, 8)])
-    rng = random.Random(0)
+    rng = random.Random(0)  # noqa: S311  # tracked: #288
     picks = pop.select_inspirations(parent_id=1, k_top=2, k_random=2, rng=rng)
     # First two should be the top-2 highest-perf (ids 7 and 6).
     assert picks[0].id == 7
@@ -184,25 +184,25 @@ def test_select_inspirations_top_first_then_random():
     assert rest.issubset({2, 3, 4, 5})
 
 
-def test_select_inspirations_handles_small_population():
+def test_select_inspirations_handles_small_population():  # noqa: ANN201  # tracked: #288
     pop = Population([_passed(1, 5.0), _passed(2, 6.0)])
     picks = pop.select_inspirations(
         parent_id=1,
         k_top=2,
         k_random=2,
-        rng=random.Random(0),
+        rng=random.Random(0),  # noqa: S311  # tracked: #288
     )
     # Only one other passed individual exists; no dupes / no errors.
     assert [p.id for p in picks] == [2]
 
 
-def test_select_inspirations_empty_when_only_parent_passed():
+def test_select_inspirations_empty_when_only_parent_passed():  # noqa: ANN201  # tracked: #288
     pop = Population([_passed(1, 5.0), _failed(2)])
     picks = pop.select_inspirations(
         parent_id=1,
         k_top=3,
         k_random=3,
-        rng=random.Random(0),
+        rng=random.Random(0),  # noqa: S311  # tracked: #288
     )
     assert picks == []
 
@@ -212,7 +212,7 @@ def test_select_inspirations_empty_when_only_parent_passed():
 # ---------------------------------------------------------------------------
 
 
-def test_population_save_and_load_round_trip(tmp_path):
+def test_population_save_and_load_round_trip(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     src = Population([_passed(1, 10.0), _failed(2), _passed(3, 11.5)])
     path = tmp_path / "subdir" / "population.json"  # exercises mkdir
     src.save(path)
@@ -225,7 +225,7 @@ def test_population_save_and_load_round_trip(tmp_path):
     assert loaded.get(1).parent_id is None
 
 
-def test_population_load_missing_returns_empty(tmp_path):
+def test_population_load_missing_returns_empty(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     pop = Population.load(tmp_path / "does-not-exist.json")
     assert len(pop) == 0
     assert pop.best() is None
@@ -256,20 +256,20 @@ def _multi(id_: int, metrics: dict[str, float], parent_id: int | None = None) ->
     )
 
 
-def test_objective_rejects_unknown_direction():
-    with pytest.raises(ValueError):
+def test_objective_rejects_unknown_direction():  # noqa: ANN201  # tracked: #288
+    with pytest.raises(ValueError):  # noqa: PT011  # tracked: #288
         Objective(name="foo", direction="bigger")
 
 
-def test_objective_signed_max_passes_through():
+def test_objective_signed_max_passes_through():  # noqa: ANN201  # tracked: #288
     assert Objective("x", "max").signed(5.0) == 5.0
 
 
-def test_objective_signed_min_negates():
+def test_objective_signed_min_negates():  # noqa: ANN201  # tracked: #288
     assert Objective("x", "min").signed(5.0) == -5.0
 
 
-def test_dominates_max_objective():
+def test_dominates_max_objective():  # noqa: ANN201  # tracked: #288
     a = _multi(1, {"throughput": 100.0})
     b = _multi(2, {"throughput": 80.0})
     objs = [Objective("throughput", "max")]
@@ -277,14 +277,14 @@ def test_dominates_max_objective():
     assert _dominates(b, a, objs) is False
 
 
-def test_dominates_min_objective():
+def test_dominates_min_objective():  # noqa: ANN201  # tracked: #288
     a = _multi(1, {"latency_ms": 50.0})
     b = _multi(2, {"latency_ms": 80.0})
     objs = [Objective("latency_ms", "min")]
     assert _dominates(a, b, objs) is True
 
 
-def test_dominates_requires_strictly_better_on_at_least_one():
+def test_dominates_requires_strictly_better_on_at_least_one():  # noqa: ANN201  # tracked: #288
     """Equal on every axis → no domination either way."""
     a = _multi(1, {"x": 5.0, "y": 5.0})
     b = _multi(2, {"x": 5.0, "y": 5.0})
@@ -293,7 +293,7 @@ def test_dominates_requires_strictly_better_on_at_least_one():
     assert _dominates(b, a, objs) is False
 
 
-def test_dominates_two_axis_mixed_is_non_dominated():
+def test_dominates_two_axis_mixed_is_non_dominated():  # noqa: ANN201  # tracked: #288
     """Throughput/latency tradeoff: neither dominates."""
     a = _multi(1, {"tput": 100.0, "lat": 80.0})
     b = _multi(2, {"tput": 80.0, "lat": 50.0})
@@ -302,7 +302,7 @@ def test_dominates_two_axis_mixed_is_non_dominated():
     assert _dominates(b, a, objs) is False
 
 
-def test_dominates_missing_metric_treats_as_incomparable():
+def test_dominates_missing_metric_treats_as_incomparable():  # noqa: ANN201  # tracked: #288
     a = _multi(1, {"tput": 100.0})  # missing 'lat'
     b = _multi(2, {"tput": 80.0, "lat": 50.0})
     objs = [Objective("tput", "max"), Objective("lat", "min")]
@@ -310,7 +310,7 @@ def test_dominates_missing_metric_treats_as_incomparable():
     assert _dominates(b, a, objs) is False
 
 
-def test_frontier_returns_only_non_dominated():
+def test_frontier_returns_only_non_dominated():  # noqa: ANN201  # tracked: #288
     pop = Population(
         [
             _multi(1, {"tput": 100.0, "lat": 80.0}),  # frontier (high tput)
@@ -324,7 +324,7 @@ def test_frontier_returns_only_non_dominated():
     assert front_ids == {1, 2, 4}
 
 
-def test_frontier_excludes_individuals_missing_metrics():
+def test_frontier_excludes_individuals_missing_metrics():  # noqa: ANN201  # tracked: #288
     pop = Population(
         [
             _multi(1, {"tput": 100.0, "lat": 80.0}),
@@ -337,7 +337,7 @@ def test_frontier_excludes_individuals_missing_metrics():
     assert front_ids == {1}
 
 
-def test_frontier_empty_when_no_objectives():
+def test_frontier_empty_when_no_objectives():  # noqa: ANN201  # tracked: #288
     pop = Population([_multi(1, {"tput": 100.0})])
     assert pop.frontier([]) == []
 
@@ -347,7 +347,7 @@ def test_frontier_empty_when_no_objectives():
 # ---------------------------------------------------------------------------
 
 
-def test_select_parent_pareto_mode_draws_from_frontier_with_full_bias():
+def test_select_parent_pareto_mode_draws_from_frontier_with_full_bias():  # noqa: ANN201  # tracked: #288
     """frontier_bias=1.0 → parent always sampled from the Pareto front."""
     pop = Population(
         [
@@ -357,14 +357,14 @@ def test_select_parent_pareto_mode_draws_from_frontier_with_full_bias():
         ]
     )
     objs = [Objective("tput", "max"), Objective("lat", "min")]
-    rng = random.Random(0)
+    rng = random.Random(0)  # noqa: S311  # tracked: #288
     counts = Counter(
         pop.select_parent(rng=rng, objectives=objs, frontier_bias=1.0).id for _ in range(200)
     )
     assert counts[3] == 0  # never the dominated one
 
 
-def test_select_parent_pareto_mode_falls_back_to_scalar_when_bias_zero():
+def test_select_parent_pareto_mode_falls_back_to_scalar_when_bias_zero():  # noqa: ANN201  # tracked: #288
     """frontier_bias=0.0 → bypasses the frontier branch, scalar softmax used.
 
     With temperature near 0, the highest perf_metric (id=1, perf=100) wins.
@@ -376,7 +376,7 @@ def test_select_parent_pareto_mode_falls_back_to_scalar_when_bias_zero():
         ]
     )
     objs = [Objective("tput", "max"), Objective("lat", "min")]
-    rng = random.Random(0)
+    rng = random.Random(0)  # noqa: S311  # tracked: #288
     counts = Counter(
         pop.select_parent(
             rng=rng,
@@ -389,7 +389,7 @@ def test_select_parent_pareto_mode_falls_back_to_scalar_when_bias_zero():
     assert counts[1] > 90
 
 
-def test_select_parent_falls_back_when_frontier_is_empty():
+def test_select_parent_falls_back_when_frontier_is_empty():  # noqa: ANN201  # tracked: #288
     """No individual reports both objectives → frontier is empty →
     even with bias=1.0, scalar softmax kicks in so the loop isn't blocked."""
     pop = Population(
@@ -399,14 +399,14 @@ def test_select_parent_falls_back_when_frontier_is_empty():
         ]
     )
     objs = [Objective("tput", "max"), Objective("lat", "min")]
-    rng = random.Random(0)
+    rng = random.Random(0)  # noqa: S311  # tracked: #288
     pick = pop.select_parent(rng=rng, objectives=objs, frontier_bias=1.0)
     # We get *some* individual via scalar fallback rather than None.
     assert pick is not None
     assert pick.id in (1, 2)
 
 
-def test_select_inspirations_pareto_mode_pulls_from_frontier_first():
+def test_select_inspirations_pareto_mode_pulls_from_frontier_first():  # noqa: ANN201  # tracked: #288
     """Top slots come from the Pareto frontier sorted by primary objective."""
     pop = Population(
         [
@@ -418,7 +418,7 @@ def test_select_inspirations_pareto_mode_pulls_from_frontier_first():
         ]
     )
     objs = [Objective("tput", "max"), Objective("lat", "min")]
-    rng = random.Random(0)
+    rng = random.Random(0)  # noqa: S311  # tracked: #288
     picks = pop.select_inspirations(
         parent_id=1,
         k_top=2,
@@ -434,7 +434,7 @@ def test_select_inspirations_pareto_mode_pulls_from_frontier_first():
     assert picks[2].id in (4, 5)
 
 
-def test_select_inspirations_backfills_when_frontier_smaller_than_k_top():
+def test_select_inspirations_backfills_when_frontier_smaller_than_k_top():  # noqa: ANN201  # tracked: #288
     """When the frontier has only one non-parent member but k_top=3,
     fill the remaining slots from non-frontier passers."""
     pop = Population(
@@ -446,7 +446,7 @@ def test_select_inspirations_backfills_when_frontier_smaller_than_k_top():
         ]
     )
     objs = [Objective("tput", "max"), Objective("lat", "min")]
-    rng = random.Random(0)
+    rng = random.Random(0)  # noqa: S311  # tracked: #288
     picks = pop.select_inspirations(
         parent_id=1,
         k_top=3,
@@ -462,7 +462,7 @@ def test_select_inspirations_backfills_when_frontier_smaller_than_k_top():
     assert ids[1:] == [3, 4]
 
 
-def test_population_save_writes_valid_json(tmp_path):
+def test_population_save_writes_valid_json(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     """Sanity: the persisted file is a JSON list of records."""
     src = Population([_passed(1, 10.0)])
     path = tmp_path / "population.json"
@@ -474,13 +474,13 @@ def test_population_save_writes_valid_json(tmp_path):
 
 
 @pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
-def test_individual_rejects_non_finite_perf_metric(value):
+def test_individual_rejects_non_finite_perf_metric(value):  # noqa: ANN001, ANN201  # tracked: #288
     with pytest.raises(ValueError, match="perf_metric must be a finite number"):
         _passed(1, value)
 
 
 @pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
-def test_individual_rejects_non_finite_multi_objective_metric(value):
+def test_individual_rejects_non_finite_multi_objective_metric(value):  # noqa: ANN001, ANN201  # tracked: #288
     with pytest.raises(ValueError, match=r"metrics\['throughput'\] must be a finite number"):
         Individual(
             id=1,
@@ -493,7 +493,7 @@ def test_individual_rejects_non_finite_multi_objective_metric(value):
         )
 
 
-def test_population_save_rejects_non_finite_metric_added_after_construction(tmp_path):
+def test_population_save_rejects_non_finite_metric_added_after_construction(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     individual = _passed(1, 10.0)
     individual.perf_metric = float("nan")
 
@@ -501,7 +501,7 @@ def test_population_save_rejects_non_finite_metric_added_after_construction(tmp_
         Population([individual]).save(tmp_path / "population.json")
 
 
-def test_best_revalidates_mutated_fitness_before_ranking():
+def test_best_revalidates_mutated_fitness_before_ranking():  # noqa: ANN201  # tracked: #288
     individual = _passed(1, 10.0)
     population = Population([individual])
     individual.perf_metric = float("nan")
@@ -510,7 +510,7 @@ def test_best_revalidates_mutated_fitness_before_ranking():
         population.best()
 
 
-def test_frontier_revalidates_mutated_metrics_before_comparison():
+def test_frontier_revalidates_mutated_metrics_before_comparison():  # noqa: ANN201  # tracked: #288
     individual = Individual(
         id=1,
         generation=1,
@@ -527,16 +527,16 @@ def test_frontier_revalidates_mutated_metrics_before_comparison():
         population.frontier([Objective("throughput", "max")])
 
 
-def test_softmax_revalidates_mutated_fitness_before_sampling():
+def test_softmax_revalidates_mutated_fitness_before_sampling():  # noqa: ANN201  # tracked: #288
     individual = _passed(1, 10.0)
     population = Population([individual])
     individual.perf_metric = float("-inf")
 
     with pytest.raises(ValueError, match="perf_metric must be a finite number"):
-        population.select_parent(rng=random.Random(0))
+        population.select_parent(rng=random.Random(0))  # noqa: S311  # tracked: #288
 
 
-def test_population_load_rejects_non_finite_metric(tmp_path):
+def test_population_load_rejects_non_finite_metric(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     path = tmp_path / "population.json"
     path.write_text('[{"id": 1, "generation": 1, "parent_id": null, "perf_metric": NaN}]')
 

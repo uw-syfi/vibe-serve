@@ -32,16 +32,16 @@ import contextlib
 import json
 import os
 import sys
-from collections.abc import Callable, Generator
+from collections.abc import Callable, Generator  # noqa: TC003  # tracked: #288
 from datetime import UTC, datetime
 from importlib import import_module
-from pathlib import Path
+from pathlib import Path  # noqa: TC003  # tracked: #288
 from typing import Any, TextIO, TypeVar
 
-from langchain_core.tools import BaseTool
+from langchain_core.tools import BaseTool  # noqa: TC002  # tracked: #288
 from pydantic import BaseModel
 
-from vibesys._agent_cli.base import MCPServerSpec
+from vibesys._agent_cli.base import MCPServerSpec  # noqa: TC001  # tracked: #288
 from vibesys.agent_runner import (
     log_and_print,
     log_json_and_print,
@@ -60,7 +60,7 @@ from vibesys.agents.omnigent.providers import (
     OmnigentExecutorSpec,
     supported_providers,
 )
-from vibesys.agents.progress import AgentProgress
+from vibesys.agents.progress import AgentProgress  # noqa: TC001  # tracked: #288
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -102,7 +102,7 @@ def resolve_executor_spec(provider: str) -> OmnigentExecutorSpec:
     """
     spec = OMNIGENT_PROVIDER_EXECUTORS.get(provider)
     if spec is None:
-        raise OmnigentUnavailableError(
+        raise OmnigentUnavailableError(  # noqa: TRY003  # tracked: #288
             f"feature flag 'omnigent_agent_backend' is enabled but cli provider "
             f"{provider!r} has no Omnigent executor; supported: "
             f"{supported_providers()}. Disable the flag to use the agentshim "
@@ -145,7 +145,7 @@ def _sandbox_backend_for_platform() -> str:
         return "darwin_seatbelt"
     if os.name == "nt":
         return "windows_jobobject"
-    raise OmnigentUnavailableError(
+    raise OmnigentUnavailableError(  # noqa: TRY003  # tracked: #288
         f"no Omnigent sandbox backend is available on platform {sys.platform!r}, "
         "and the Omnigent backend will not run an agent unconfined. Disable "
         "'omnigent_agent_backend' to use the agentshim backend."
@@ -179,7 +179,7 @@ def _patched_environ(overrides: dict[str, str] | None) -> Generator[None]:
                 os.environ[key] = str(old)
 
 
-def _flatten_tool_schema(tool: Any) -> dict[str, Any]:
+def _flatten_tool_schema(tool: Any) -> dict[str, Any]:  # noqa: ANN401  # tracked: #288
     """Convert a ``Tool.get_schema()`` payload into executor ``ToolSpec`` shape.
 
     ``get_schema()`` returns OpenAI-function shape
@@ -197,7 +197,7 @@ def _flatten_tool_schema(tool: Any) -> dict[str, Any]:
     }
 
 
-def _build_os_tools(os_env_spec: Any, workspace: Path) -> tuple[list[dict[str, Any]], Any]:
+def _build_os_tools(os_env_spec: Any, workspace: Path) -> tuple[list[dict[str, Any]], Any]:  # noqa: ANN401  # tracked: #288
     """Build Omnigent's ``sys_os_*`` tools and a dispatcher for them.
 
     Passing ``os_env`` to an executor confines the agent, but it does **not**
@@ -224,11 +224,13 @@ def _build_os_tools(os_env_spec: Any, workspace: Path) -> tuple[list[dict[str, A
             backend is unusable, most often a missing ``bwrap`` binary.
     """
     try:
-        from omnigent.inner.os_env import create_os_environment
-        from omnigent.tools.base import ToolContext
-        from omnigent.tools.builtins.os_env import build_os_env_tools
+        from omnigent.inner.os_env import create_os_environment  # noqa: PLC0415  # tracked: #288
+        from omnigent.tools.base import ToolContext  # noqa: PLC0415  # tracked: #288
+        from omnigent.tools.builtins.os_env import (  # noqa: PLC0415  # tracked: #288
+            build_os_env_tools,
+        )
     except ImportError as exc:
-        raise _missing_omnigent("omnigent's OS-environment tools", exc) from exc
+        raise _missing_omnigent("omnigent's OS-environment tools", exc) from exc  # noqa: TRY003  # tracked: #288
 
     try:
         os_env = create_os_environment(os_env_spec)
@@ -237,7 +239,7 @@ def _build_os_tools(os_env_spec: Any, workspace: Path) -> tuple[list[dict[str, A
         # OSError when it is absent. Translate it: the operator needs to know
         # this came from the opt-in flag and what the two remedies are.
         # Running the agent unconfined is deliberately not one of them.
-        raise OmnigentUnavailableError(
+        raise OmnigentUnavailableError(  # noqa: TRY003  # tracked: #288
             "feature flag 'omnigent_agent_backend' is enabled but this host "
             f"cannot provide the {_sandbox_backend_for_platform()!r} sandbox "
             f"the Omnigent backend confines agents with ({exc}). Install the "
@@ -246,7 +248,7 @@ def _build_os_tools(os_env_spec: Any, workspace: Path) -> tuple[list[dict[str, A
         ) from exc
 
     if os_env is None:
-        raise OmnigentUnavailableError(
+        raise OmnigentUnavailableError(  # noqa: TRY003  # tracked: #288
             "Omnigent could not resolve an OS environment for workspace "
             f"{workspace}; the agent would start with no file or shell tools. "
             "Disable 'omnigent_agent_backend' to use the agentshim backend."
@@ -257,7 +259,7 @@ def _build_os_tools(os_env_spec: Any, workspace: Path) -> tuple[list[dict[str, A
     schemas = [_flatten_tool_schema(tool) for tool in tools]
     context = ToolContext(task_id="vibesys", agent_id="vibesys", workspace=workspace)
 
-    async def dispatch(name: str, args: dict[str, Any]) -> Any:
+    async def dispatch(name: str, args: dict[str, Any]) -> Any:  # noqa: ANN401  # tracked: #288
         tool = by_name.get(name)
         if tool is None:
             return {"error": f"unknown tool {name!r}"}
@@ -269,7 +271,7 @@ def _build_os_tools(os_env_spec: Any, workspace: Path) -> tuple[list[dict[str, A
 
 
 async def _drive_turn(
-    executor: Any,
+    executor: Any,  # noqa: ANN401  # tracked: #288
     *,
     prompt: str,
     system_prompt: str,
@@ -287,9 +289,14 @@ async def _drive_turn(
     that stream without repeating the full response at the end.
     """
     try:
-        from omnigent import TextChunk, ToolCallComplete, ToolCallRequest, TurnComplete
+        from omnigent import (  # noqa: PLC0415  # tracked: #288
+            TextChunk,
+            ToolCallComplete,
+            ToolCallRequest,
+            TurnComplete,
+        )
     except ImportError as exc:
-        raise _missing_omnigent("omnigent's executor event types", exc) from exc
+        raise _missing_omnigent("omnigent's executor event types", exc) from exc  # noqa: TRY003  # tracked: #288
 
     chunks: list[str] = []
     response: str | None = None
@@ -335,7 +342,7 @@ class OmnigentAgentRunner:
 
     backend_name = "omnigent"
 
-    def __init__(
+    def __init__(  # noqa: D107, PLR0913  # tracked: #288
         self,
         *,
         provider: str,
@@ -364,7 +371,7 @@ class OmnigentAgentRunner:
         # loop — observed live as "Event loop is closed" during teardown.
         self._loop: asyncio.AbstractEventLoop | None = None
 
-    def _run_async(self, coro: Any) -> Any:
+    def _run_async(self, coro: Any) -> Any:  # noqa: ANN401  # tracked: #288
         """Drive *coro* on this runner's long-lived event loop."""
         loop = self._loop
         if loop is None or loop.is_closed():
@@ -399,7 +406,7 @@ class OmnigentAgentRunner:
             loop.close()
         self._loop = None
 
-    def _close_executor(self, executor: Any) -> None:
+    def _close_executor(self, executor: Any) -> None:  # noqa: ANN401  # tracked: #288
         """Close one cached or intentionally one-shot executor safely."""
         close = getattr(executor, "close", None)
         if close is None:
@@ -430,7 +437,7 @@ class OmnigentAgentRunner:
         try:
             return getattr(module, self._spec.class_name)
         except AttributeError as exc:
-            raise OmnigentUnavailableError(
+            raise OmnigentUnavailableError(  # noqa: TRY003  # tracked: #288
                 f"omnigent module {self._spec.module!r} has no "
                 f"{self._spec.class_name!r}; the installed omnigent version is "
                 "incompatible with this integration (expected the 0.6.0 "
@@ -438,7 +445,7 @@ class OmnigentAgentRunner:
                 "agentshim backend."
             ) from exc
 
-    def _build_os_env(self, workspace: Path) -> Any:
+    def _build_os_env(self, workspace: Path) -> Any:  # noqa: ANN401  # tracked: #288
         """Confine the agent to *workspace* using Omnigent's own sandbox.
 
         The agentshim host path wraps every agent in a ``vs_sandbox`` host
@@ -469,9 +476,12 @@ class OmnigentAgentRunner:
         been proven equivalent.
         """
         try:
-            from omnigent.inner.datamodel import OSEnvSandboxSpec, OSEnvSpec
+            from omnigent.inner.datamodel import (  # noqa: PLC0415  # tracked: #288
+                OSEnvSandboxSpec,
+                OSEnvSpec,
+            )
         except ImportError as exc:
-            raise _missing_omnigent("omnigent's OS-environment datamodel", exc) from exc
+            raise _missing_omnigent("omnigent's OS-environment datamodel", exc) from exc  # noqa: TRY003  # tracked: #288
 
         return OSEnvSpec(
             type="caller_process",
@@ -520,14 +530,14 @@ class OmnigentAgentRunner:
             # text is useful, so keep it, but attribute it to the flag — the
             # operator otherwise has no hint which setting pulled in a
             # dependency on a binary they do not have.
-            raise OmnigentUnavailableError(
+            raise OmnigentUnavailableError(  # noqa: TRY003  # tracked: #288
                 f"feature flag 'omnigent_agent_backend' is enabled but the "
                 f"{self._provider!r} provider is not usable: {exc} Install the "
                 "CLI, switch provider, or disable the flag to use the agentshim "
                 "backend."
             ) from exc
         if not hasattr(executor, _TOOL_EXECUTOR_ATTR):
-            raise OmnigentUnavailableError(
+            raise OmnigentUnavailableError(  # noqa: TRY003  # tracked: #288
                 f"{executor_cls.__name__} has no {_TOOL_EXECUTOR_ATTR!r} slot, so "
                 "VibeSys cannot give the agent its file and shell tools. The "
                 "installed omnigent has moved this seam away from what this "
@@ -538,7 +548,7 @@ class OmnigentAgentRunner:
         setattr(executor, _TOOL_EXECUTOR_ATTR, dispatch)
         return executor, schemas
 
-    def invoke(
+    def invoke(  # noqa: D102, PLR0913  # tracked: #288
         self,
         *,
         kind: str,
@@ -593,7 +603,7 @@ class OmnigentAgentRunner:
         log_json_and_print(parsed.model_dump_json(indent=2), self._run_log_file)
         return parsed
 
-    def invoke_text(
+    def invoke_text(  # noqa: D102, PLR0913  # tracked: #288
         self,
         *,
         kind: str,
@@ -634,7 +644,7 @@ class OmnigentAgentRunner:
             log_and_print(f"No response received from {label.lower()}.", self._run_log_file)
         return text
 
-    def _generate(
+    def _generate(  # noqa: PLR0913  # tracked: #288
         self,
         *,
         kind: str,
@@ -657,7 +667,7 @@ class OmnigentAgentRunner:
             # Omnigent owns MCP wiring through its own agent spec, which this
             # integration does not construct. Failing loudly beats silently
             # dropping tools the loop believes the agent can reach.
-            raise OmnigentUnavailableError(
+            raise OmnigentUnavailableError(  # noqa: TRY003  # tracked: #288
                 f"the Omnigent backend cannot inject MCP servers "
                 f"({[s.name for s in mcp_servers]}) for the {label.lower()} agent; "
                 "disable 'omnigent_agent_backend' to use the agentshim backend, "

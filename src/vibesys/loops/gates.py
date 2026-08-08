@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from vibesys.run import LoopContext
+from vibesys.run import LoopContext  # noqa: TC001  # tracked: #288
 from vibesys.server.events import EventType, SubprocessOutputData
 
 
@@ -65,7 +65,7 @@ def run_accuracy_gate(
         output = result.output.strip()
         passed = result.exit_code == 0
         _publish_subprocess_output(ctx, process_id=process_id, content=result.output)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # tracked: #288
         output = f"accuracy command could not be executed: {exc}"
         passed = False
 

@@ -105,7 +105,7 @@ WorkspaceStep = CopySpec | InputProjectSpec | GitSourceSpec
 class Workspace:
     """The unified run workspace and every rule for populating it."""
 
-    def __init__(
+    def __init__(  # noqa: D107, PLR0913  # tracked: #288
         self,
         root: Path,
         *,
@@ -124,7 +124,7 @@ class Workspace:
         self._log = log
         self._project_root = project_root
 
-    def create(self) -> None:
+    def create(self) -> None:  # noqa: D102  # tracked: #288
         self.root.mkdir(parents=True, exist_ok=True)
 
     def repair(self) -> None:
@@ -141,7 +141,7 @@ class Workspace:
 
     # -- setup planning -------------------------------------------------------
 
-    def plan_setup(
+    def plan_setup(  # noqa: C901, PLR0912, PLR0913  # tracked: #288
         self,
         *,
         existing: bool,
@@ -184,7 +184,7 @@ class Workspace:
             if seed is not None:
                 steps.append(CopySpec(src=seed, dest=self.root, respect_gitignore=True))
             for source in workspace_sources:
-                steps.append(GitSourceSpec(source=source))
+                steps.append(GitSourceSpec(source=source))  # noqa: PERF401  # tracked: #288
             # When the workspace is pre-populated (seed and/or git sources),
             # the input copy must not clear existing children: copy_dir wipes
             # the destination unless collisions are rejected, which would
@@ -218,7 +218,7 @@ class Workspace:
                 )
 
             for src in skill_sources:
-                steps.append(CopySpec(src=src, dest=self.root / src.name, prune_platforms=True))
+                steps.append(CopySpec(src=src, dest=self.root / src.name, prune_platforms=True))  # noqa: PERF401  # tracked: #288
 
             if input_project_dir is not None:
                 steps.append(InputProjectSpec(project_dir=input_project_dir))
@@ -279,11 +279,11 @@ class Workspace:
         try:
             dest.resolve().relative_to(self.root.resolve())
         except ValueError as exc:
-            raise ValueError(
+            raise ValueError(  # noqa: TRY003  # tracked: #288
                 f"workspace source {source.name!r} escapes workspace: {source.dest}"
             ) from exc
         if dest.exists() or dest.is_symlink():
-            raise ValueError(
+            raise ValueError(  # noqa: TRY003  # tracked: #288
                 f"workspace source destination already exists for {source.name!r}: {source.dest}"
             )
         # Excluded names match at any depth (copy ignores, git info/exclude,
@@ -291,7 +291,7 @@ class Workspace:
         # snapshots and sandboxes even though the clone succeeds.
         colliding = [part for part in Path(source.dest).parts if part in self.excluded_dirs]
         if colliding:
-            raise ValueError(
+            raise ValueError(  # noqa: TRY003  # tracked: #288
                 f"workspace source {source.name!r} dest {source.dest!r} contains excluded "
                 f"path component(s) {colliding}: files under it would be invisible to "
                 "workspace copies, git tracking, and sandbox uploads. Pick another dest."
@@ -303,7 +303,7 @@ class Workspace:
         actual = self._run_git(["rev-parse", "HEAD"], cwd=dest).strip().lower()
         expected = source.commit.lower()
         if actual != expected and not actual.startswith(expected):
-            raise RuntimeError(
+            raise RuntimeError(  # noqa: TRY003  # tracked: #288
                 f"workspace source {source.name!r} checked out {actual}, expected {expected}"
             )
 
@@ -328,8 +328,8 @@ class Workspace:
 
     @staticmethod
     def _run_git(args: list[str], *, cwd: Path) -> str:
-        result = subprocess.run(
-            ["git", *args],
+        result = subprocess.run(  # noqa: S603  # tracked: #288
+            ["git", *args],  # noqa: S607  # tracked: #288
             cwd=cwd,
             check=False,
             capture_output=True,
@@ -337,7 +337,7 @@ class Workspace:
         )
         if result.returncode != 0:
             detail = result.stderr.strip() or result.stdout.strip()
-            raise RuntimeError(f"git {' '.join(args)} failed: {detail}")
+            raise RuntimeError(f"git {' '.join(args)} failed: {detail}")  # noqa: TRY003  # tracked: #288
         return result.stdout
 
     # -- copy machinery -------------------------------------------------------
@@ -369,7 +369,7 @@ class Workspace:
                     path.unlink()
                     marker.write_text(str(target))
 
-    def copy_dir(
+    def copy_dir(  # noqa: C901, D102, PLR0912, PLR0913, PLR0915  # tracked: #288
         self,
         src: Path,
         dst: Path,
@@ -422,7 +422,7 @@ class Workspace:
             )
             if collisions:
                 paths = ", ".join(collisions)
-                raise ValueError(f"workspace seed and input bundle contain the same paths: {paths}")
+                raise ValueError(f"workspace seed and input bundle contain the same paths: {paths}")  # noqa: TRY003  # tracked: #288
 
         if dst.exists() and not reject_collisions:
             # Remove children individually so we can skip mount points and
@@ -459,7 +459,7 @@ class Workspace:
                     continue
             try:
                 if child.is_symlink():
-                    os.symlink(os.readlink(child), child_dst)
+                    os.symlink(os.readlink(child), child_dst)  # noqa: PTH115, PTH211  # tracked: #288
                 elif child.is_dir():
                     shutil.copytree(child, child_dst, symlinks=True, ignore=_ignore)
                 else:
@@ -477,8 +477,8 @@ class Workspace:
     @staticmethod
     def _source_gitignored_paths(src: Path) -> frozenset[tuple[str, ...]]:
         """Return untracked paths ignored by Git below ``src``."""
-        result = subprocess.run(
-            [
+        result = subprocess.run(  # noqa: S603  # tracked: #288
+            [  # noqa: S607  # tracked: #288
                 "git",
                 "-C",
                 str(src),
@@ -494,7 +494,7 @@ class Workspace:
         )
         if result.returncode != 0:
             detail = result.stderr.decode(errors="replace").strip()
-            raise RuntimeError(f"could not evaluate Git ignores for workspace.seed: {detail}")
+            raise RuntimeError(f"could not evaluate Git ignores for workspace.seed: {detail}")  # noqa: TRY003  # tracked: #288
         return frozenset(
             Path(os.fsdecode(raw).rstrip("/")).parts for raw in result.stdout.split(b"\0") if raw
         )

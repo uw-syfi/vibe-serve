@@ -1,4 +1,4 @@
-from vs_issue_board.core import (
+from vs_issue_board.core import (  # noqa: D104  # tracked: #288
     Issue,
     IssueBoard,
     IssueBoardLoadError,

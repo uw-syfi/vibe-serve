@@ -12,7 +12,7 @@ from vibesys.server.events import RunEvent
 from vibesys.server.protocol import ProtocolRequest, Response, RunSnapshot, ServerMessage
 
 
-class ProtocolDocument(BaseModel):
+class ProtocolDocument(BaseModel):  # noqa: D101  # tracked: #288
     request: ProtocolRequest
     response: Response
     event: RunEvent
@@ -20,9 +20,9 @@ class ProtocolDocument(BaseModel):
     server_message: ServerMessage
 
 
-def main() -> None:
-    if len(sys.argv) != 2:
-        raise SystemExit("usage: python -m vibesys.server.schema OUTPUT.json")
+def main() -> None:  # noqa: D103  # tracked: #288
+    if len(sys.argv) != 2:  # noqa: PLR2004  # tracked: #288
+        raise SystemExit("usage: python -m vibesys.server.schema OUTPUT.json")  # noqa: TRY003  # tracked: #288
     output = Path(sys.argv[1])
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(ProtocolDocument.model_json_schema(), indent=2) + "\n")

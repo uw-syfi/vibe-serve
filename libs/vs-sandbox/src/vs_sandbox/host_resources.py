@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from enum import StrEnum
-from pathlib import Path
+from pathlib import Path  # noqa: TC003  # tracked: #288
 
 
 class HostResourceAccess(StrEnum):

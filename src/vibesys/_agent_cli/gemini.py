@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 class GeminiCodingAgent(CLICodingAgent[GeminiGenerationSession]):
     """Coding agent implementation using the Gemini CLI tool."""
 
-    def __init__(
+    def __init__(  # noqa: ANN204  # tracked: #288
         self,
         model: str | None = None,
         event_handler: AgentEventHandler | None = None,
@@ -45,7 +45,7 @@ class GeminiCodingAgent(CLICodingAgent[GeminiGenerationSession]):
         """Return the log prefix for this agent."""
         return "[Gemini]"
 
-    def _get_command(self, prompt: str) -> list[str]:
+    def _get_command(self, prompt: str) -> list[str]:  # noqa: ARG002  # tracked: #288
         cmd = [self.binary_path]
 
         # Enable yolo mode
@@ -64,7 +64,7 @@ class GeminiCodingAgent(CLICodingAgent[GeminiGenerationSession]):
         cmd: list[str],
         cwd: str | None = None,
         timeout: int | None = None,
-        silent: bool = False,
+        silent: bool = False,  # noqa: FBT001, FBT002  # tracked: #288
     ) -> GeminiGenerationSession:
         return GeminiGenerationSession(
             binary_name=self.binary_name,
@@ -100,6 +100,6 @@ class GeminiCodingAgent(CLICodingAgent[GeminiGenerationSession]):
             server_config=server_config,
         )
 
-    def uninstall_mcp_servers(self, workspace: Path, servers: list[MCPServerSpec]) -> None:
+    def uninstall_mcp_servers(self, workspace: Path, servers: list[MCPServerSpec]) -> None:  # noqa: ARG002  # tracked: #288
         """Restore the original settings, leaving ``.gemini/`` in place."""
         self._restore_mcp_config_file(workspace / ".gemini" / "settings.json")

@@ -1,4 +1,4 @@
-import json
+import json  # noqa: D100  # tracked: #288
 import time
 import traceback
 import uuid
@@ -72,7 +72,7 @@ class AgentLogger(BaseCallbackHandler):
     ``AgentLogger`` itself never writes to the terminal.
     """
 
-    def __init__(
+    def __init__(  # noqa: ANN204, D107, PLR0913  # tracked: #288
         self,
         log_file: TextIO | None = None,
         model_name: str | None = None,
@@ -122,8 +122,11 @@ class AgentLogger(BaseCallbackHandler):
 
     # --- LLM call context (log-file only) ---
 
-    def on_chat_model_start(
-        self, serialized: dict[str, Any], messages: list[list[BaseMessage]], **kwargs: Any
+    def on_chat_model_start(  # noqa: D102  # tracked: #288
+        self,
+        serialized: dict[str, Any],
+        messages: list[list[BaseMessage]],
+        **kwargs: Any,  # noqa: ANN401, ARG002  # tracked: #288
     ) -> None:
         if not self._log_file:
             return
@@ -149,7 +152,7 @@ class AgentLogger(BaseCallbackHandler):
                     break
 
         # Message type summary
-        from collections import Counter
+        from collections import Counter  # noqa: PLC0415  # tracked: #288
 
         type_counts = Counter(getattr(m, "type", "unknown") for m in flat)
         summary = ", ".join(f"{count} {typ}" for typ, count in sorted(type_counts.items()))
@@ -159,14 +162,14 @@ class AgentLogger(BaseCallbackHandler):
         for msg in reversed(flat):
             if getattr(msg, "type", None) in ("human", "tool"):
                 content = str(msg.content)
-                if len(content) > 500:
+                if len(content) > 500:  # noqa: PLR2004  # tracked: #288
                     content = content[:500] + "..."
                 self._log_line(f"  Last {msg.type} message: {content}")
                 break
 
     # --- LLM token streaming ---
 
-    def on_llm_new_token(self, token: str, **kwargs: Any) -> None:
+    def on_llm_new_token(self, token: str, **kwargs: Any) -> None:  # noqa: ANN401, ARG002, D102  # tracked: #288
         if token:
             status = self._status()
             self._publish(token, "assistant", status=status)
@@ -175,7 +178,7 @@ class AgentLogger(BaseCallbackHandler):
             self._log_write(token)
             self._streaming = True
 
-    def on_llm_end(self, response: Any, **kwargs: Any) -> None:
+    def on_llm_end(self, response: Any, **kwargs: Any) -> None:  # noqa: ANN401, ARG002, D102  # tracked: #288
         was_streaming = self._streaming
         if self._streaming:
             # Close the streamed line on every surface: renderers and the
@@ -229,17 +232,17 @@ class AgentLogger(BaseCallbackHandler):
 
     # --- Tool execution ---
 
-    def on_tool_start(
+    def on_tool_start(  # noqa: D102  # tracked: #288
         self,
         serialized: dict[str, Any],
         input_str: str,
         *,
         inputs: dict[str, Any] | None = None,
-        **kwargs: Any,
+        **kwargs: Any,  # noqa: ANN401  # tracked: #288
     ) -> None:
         pass  # tool call already logged in on_llm_end
 
-    def on_tool_end(self, output: Any, **kwargs: Any) -> None:
+    def on_tool_end(self, output: Any, **kwargs: Any) -> None:  # noqa: ANN401, ARG002, D102  # tracked: #288
         content = output.content if hasattr(output, "content") else str(output)
         name = getattr(output, "name", None) or "unknown"
         call_id = getattr(output, "tool_call_id", None)
@@ -249,7 +252,7 @@ class AgentLogger(BaseCallbackHandler):
             call_id=call_id if isinstance(call_id, str) and call_id else None,
         )
 
-    def on_tool_error(self, error: Any, **kwargs: Any) -> None:
+    def on_tool_error(self, error: Any, **kwargs: Any) -> None:  # noqa: ANN401, ARG002, D102  # tracked: #288
         lines = [f"Tool error: {error!r}"]
         if isinstance(error, BaseException):
             tb = traceback.format_exception(type(error), error, error.__traceback__)
@@ -317,7 +320,7 @@ class AgentLogger(BaseCallbackHandler):
                 full_parts.append(f'{k}="{s}"' if isinstance(v, str) else f"{k}={s}")
             self._log_line(f"\n→ {name}({', '.join(full_parts)})")
 
-    def _emit_thinking(self, text: str):
+    def _emit_thinking(self, text: str):  # noqa: ANN202  # tracked: #288
         self._publish(text, "analysis")
         self._log_line("\n[thinking]")
         for line in text.split("\n"):
@@ -341,7 +344,7 @@ class AgentLogger(BaseCallbackHandler):
         if resolved_call_id is None and pending:
             resolved_call_id = pending.popleft()
         elif resolved_call_id is not None:
-            try:
+            try:  # noqa: SIM105  # tracked: #288
                 pending.remove(resolved_call_id)
             except ValueError:
                 pass
@@ -392,14 +395,14 @@ class AgentLogger(BaseCallbackHandler):
     # paths converge on the same private ``_emit_*`` helpers, so emitted events
     # and log text are identical regardless of which backend is in use.
 
-    def on_thinking(self, text: str) -> None:
+    def on_thinking(self, text: str) -> None:  # noqa: D102  # tracked: #288
         if not text:
             return
         status = self._status()
         self._publish(text, "analysis", status=status)
         self._log_line(f"{format_status_prefix(status)}{text}")
 
-    def on_tool_call(self, tool: str, args: dict[str, Any] | str | None = None) -> None:
+    def on_tool_call(self, tool: str, args: dict[str, Any] | str | None = None) -> None:  # noqa: D102  # tracked: #288
         if isinstance(args, dict):
             normalized = args
         elif args is None:
@@ -408,7 +411,7 @@ class AgentLogger(BaseCallbackHandler):
             normalized = {"args": str(args)}
         self.log_tool_call(tool, normalized)
 
-    def on_tool_result(
+    def on_tool_result(  # noqa: D102  # tracked: #288
         self,
         tool: str,
         stdout: str = "",
@@ -420,7 +423,7 @@ class AgentLogger(BaseCallbackHandler):
         content = stdout or stderr
         self.log_tool_result(tool, content, is_error=is_error)
 
-    def on_usage(self, usage: dict[str, Any]) -> None:
+    def on_usage(self, usage: dict[str, Any]) -> None:  # noqa: D102  # tracked: #288
         self.update_usage(usage)
 
     def update_usage(self, usage: dict[str, Any] | None) -> None:

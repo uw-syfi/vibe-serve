@@ -25,7 +25,7 @@ if TYPE_CHECKING:
     from vibesys.run import LoopContext
 
 
-def mcp_spec(profiler_kind: ProfilerKind):
+def mcp_spec(profiler_kind: ProfilerKind):  # noqa: ANN201  # tracked: #288
     """Build an ``MCPServerSpec`` that spawns the analysis MCP server.
 
     Returns ``None`` when ``vibesys._agent_cli`` is not importable in the
@@ -37,8 +37,8 @@ def mcp_spec(profiler_kind: ProfilerKind):
     if kind is ProfilerKind.NONE:
         return None
     try:
-        from vibesys._agent_cli.base import MCPServerSpec
-    except Exception:
+        from vibesys._agent_cli.base import MCPServerSpec  # noqa: PLC0415  # tracked: #288
+    except Exception:  # noqa: BLE001  # tracked: #288
         return None
     definition = profiler_definition(kind)
     return MCPServerSpec(
@@ -82,6 +82,6 @@ def invoke_profiler(
             round_label=round_label,
             mcp_servers=[spec] if spec is not None else None,
         )
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # tracked: #288
         ctx.lprint(f"[warn] profiler failed: {exc}")
         return None

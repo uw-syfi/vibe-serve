@@ -17,14 +17,14 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from enum import StrEnum
-from pathlib import Path
+from pathlib import Path  # noqa: TC003  # tracked: #288
 from typing import Protocol, runtime_checkable
 
-from deepagents.backends.protocol import SandboxBackendProtocol
+from deepagents.backends.protocol import SandboxBackendProtocol  # noqa: TC002  # tracked: #288
 from deepagents.backends.sandbox import BaseSandbox
 
-from vibesys.constants import ComputeBackend
-from vibesys.profilers import ProfilerKind
+from vibesys.constants import ComputeBackend  # noqa: TC001  # tracked: #288
+from vibesys.profilers import ProfilerKind  # noqa: TC001  # tracked: #288
 
 
 class SandboxKind(StrEnum):
@@ -45,8 +45,8 @@ class Device(Protocol):
 class ContentionMonitor(Protocol):
     """Background thread that reports platform contention (e.g. shared-GPU use)."""
 
-    def start(self) -> None: ...
-    def stop(self) -> None: ...
+    def start(self) -> None: ...  # noqa: D102  # tracked: #288
+    def stop(self) -> None: ...  # noqa: D102  # tracked: #288
 
 
 SetupFn = Callable[[BaseSandbox], None]
@@ -65,7 +65,7 @@ class ComputeBackendImpl(Protocol):
     name: ComputeBackend
     profiler_kind: ProfilerKind  # picks profiler support, MCP, and prompt template
 
-    def make_sandbox(
+    def make_sandbox(  # noqa: PLR0913  # tracked: #288
         self,
         kind: SandboxKind,
         *,
@@ -90,7 +90,7 @@ class ComputeBackendImpl(Protocol):
         """
         ...
 
-    def make_monitor(self, log_dir: Path) -> ContentionMonitor | None: ...
+    def make_monitor(self, log_dir: Path) -> ContentionMonitor | None: ...  # noqa: D102  # tracked: #288
 
     def reselect_device(self) -> None:
         """Re-pick the optimal device for this backend (e.g. migrate to a
@@ -98,7 +98,7 @@ class ComputeBackendImpl(Protocol):
 
         Each restarted sandbox re-runs its ``setup_fns`` automatically as
         part of ``start()``.  No-op for backends without rebalancing.
-        """
+        """  # noqa: D205  # tracked: #288
         ...
 
 
@@ -110,7 +110,7 @@ class ModalOptions:
     container so future backends can ignore it without typing gymnastics.
     """
 
-    def __init__(
+    def __init__(  # noqa: D107, PLR0913  # tracked: #288
         self,
         *,
         gpu: str | None = "H100",

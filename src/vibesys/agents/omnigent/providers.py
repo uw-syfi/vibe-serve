@@ -27,7 +27,7 @@ depends on.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping  # noqa: TC003  # tracked: #288
 from dataclasses import dataclass
 from types import MappingProxyType
 

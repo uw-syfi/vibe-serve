@@ -1,6 +1,6 @@
-from __future__ import annotations
+from __future__ import annotations  # noqa: D100  # tracked: #288
 
-from collections.abc import Mapping
+from collections.abc import Mapping  # noqa: TC003  # tracked: #288
 from dataclasses import dataclass
 from enum import StrEnum
 from types import MappingProxyType
@@ -10,7 +10,7 @@ FlagT = TypeVar("FlagT", bound=StrEnum)
 
 
 @dataclass(frozen=True)
-class FeatureDefinition:
+class FeatureDefinition:  # noqa: D101  # tracked: #288
     description: str
     default: bool = False
 
@@ -18,7 +18,7 @@ class FeatureDefinition:
 class FeatureRegistry(Generic[FlagT]):
     """Registry for a project's typed feature flag manifest."""
 
-    def __init__(
+    def __init__(  # noqa: D107  # tracked: #288
         self,
         flag_type: type[FlagT],
         definitions: Mapping[FlagT, FeatureDefinition],
@@ -28,17 +28,17 @@ class FeatureRegistry(Generic[FlagT]):
         self._validate_definitions()
 
     @property
-    def flag_type(self) -> type[FlagT]:
+    def flag_type(self) -> type[FlagT]:  # noqa: D102  # tracked: #288
         return self._flag_type
 
     @property
-    def definitions(self) -> Mapping[FlagT, FeatureDefinition]:
+    def definitions(self) -> Mapping[FlagT, FeatureDefinition]:  # noqa: D102  # tracked: #288
         return MappingProxyType(self._definitions)
 
-    def default_for(self, flag: FlagT) -> bool:
+    def default_for(self, flag: FlagT) -> bool:  # noqa: D102  # tracked: #288
         return self._definitions[flag].default
 
-    def is_enabled(
+    def is_enabled(  # noqa: D102  # tracked: #288
         self,
         flag: FlagT,
         overrides: Mapping[FlagT, bool] | None = None,
@@ -50,10 +50,10 @@ class FeatureRegistry(Generic[FlagT]):
     def _validate_definitions(self) -> None:
         for flag in self._definitions:
             if not isinstance(flag, self._flag_type):
-                raise TypeError(
+                raise TypeError(  # noqa: TRY003  # tracked: #288
                     f"Feature definition key {flag!r} is not a {self._flag_type.__name__}"
                 )
 
         missing = [flag.value for flag in self._flag_type if flag not in self._definitions]
         if missing:
-            raise ValueError(f"Missing feature definitions for: {', '.join(missing)}")
+            raise ValueError(f"Missing feature definitions for: {', '.join(missing)}")  # noqa: TRY003  # tracked: #288

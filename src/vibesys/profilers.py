@@ -35,19 +35,19 @@ class ProfilerDefinition:
     requires_domain_torch_support: bool = False
 
     @property
-    def support_name(self) -> str:
+    def support_name(self) -> str:  # noqa: D102  # tracked: #288
         return f"{self.kind.value}_profiler"
 
     @property
-    def server_path(self) -> str:
+    def server_path(self) -> str:  # noqa: D102  # tracked: #288
         return f"{self.support_name}/server.py"
 
     @property
-    def prompt_template(self) -> str:
+    def prompt_template(self) -> str:  # noqa: D102  # tracked: #288
         return f"profilers/{self.kind.value}.j2"
 
     @property
-    def mcp_name(self) -> str:
+    def mcp_name(self) -> str:  # noqa: D102  # tracked: #288
         return f"vibesys-{self.kind.value.replace('_', '-')}-profiler"
 
 
@@ -60,7 +60,7 @@ class ProfilerPreflightResult:
     diagnostics: tuple[str, ...] = ()
     details: tuple[str, ...] = ()
 
-    def error_message(self) -> str:
+    def error_message(self) -> str:  # noqa: D102  # tracked: #288
         diagnostic_text = ", ".join(self.diagnostics) or "unknown"
         detail_text = "; ".join(self.details)
         suffix = f" ({detail_text})" if detail_text else ""
@@ -97,7 +97,7 @@ def profiler_definition(kind: ProfilerKind) -> ProfilerDefinition:
     try:
         return PROFILER_DEFINITIONS[kind]
     except KeyError as exc:
-        raise ValueError(f"Profiler {kind.value!r} is not runnable.") from exc
+        raise ValueError(f"Profiler {kind.value!r} is not runnable.") from exc  # noqa: TRY003  # tracked: #288
 
 
 def coerce_profiler_kind(value: str, *, label: str = "profiler") -> ProfilerKind:
@@ -106,20 +106,20 @@ def coerce_profiler_kind(value: str, *, label: str = "profiler") -> ProfilerKind
         return ProfilerKind(value)
     except ValueError as exc:
         choices = ", ".join(kind.value for kind in ProfilerKind)
-        raise ValueError(f"Unknown {label} kind {value!r}; choose from: {choices}.") from exc
+        raise ValueError(f"Unknown {label} kind {value!r}; choose from: {choices}.") from exc  # noqa: TRY003  # tracked: #288
 
 
 def require_profiler_kind(value: object, *, label: str = "profiler") -> ProfilerKind:
     """Require an already-parsed profiler enum at internal API boundaries."""
     if not isinstance(value, ProfilerKind):
-        raise TypeError(f"{label} must be a ProfilerKind, got {type(value).__name__}.")
+        raise TypeError(f"{label} must be a ProfilerKind, got {type(value).__name__}.")  # noqa: TRY003  # tracked: #288
     return value
 
 
 def require_domain_name(value: object, *, label: str = "domain") -> DomainName:
     """Require an already-parsed domain enum at internal API boundaries."""
     if not isinstance(value, DomainName):
-        raise TypeError(f"{label} must be a DomainName, got {type(value).__name__}.")
+        raise TypeError(f"{label} must be a DomainName, got {type(value).__name__}.")  # noqa: TRY003  # tracked: #288
     return value
 
 
@@ -136,7 +136,7 @@ def allowed_profiler_kinds(domain: DomainName) -> frozenset[ProfilerKind]:
     )
 
 
-def resolve_profiler_kind(
+def resolve_profiler_kind(  # noqa: C901, PLR0911, PLR0912  # tracked: #288
     requested: ProfilerKind,
     *,
     domain: DomainName,
@@ -157,7 +157,7 @@ def resolve_profiler_kind(
     if requested_kind is not ProfilerKind.AUTO:
         if requested_kind not in allowed:
             allowed_values = ", ".join(sorted(kind.value for kind in allowed))
-            raise ValueError(
+            raise ValueError(  # noqa: TRY003  # tracked: #288
                 f"Profiler {requested_kind.value!r} is not supported for domain "
                 f"{domain_name.value!r}; allowed: {allowed_values}."
             )
@@ -168,7 +168,7 @@ def resolve_profiler_kind(
             supported_values = ", ".join(
                 sorted(kind.value for kind in environment_supported_profiler_kinds)
             )
-            raise ValueError(
+            raise ValueError(  # noqa: TRY003  # tracked: #288
                 f"Profiler {requested_kind.value!r} is not supported by the selected "
                 f"run environment; allowed: {supported_values}."
             )
@@ -200,7 +200,7 @@ def resolve_profiler_kind(
         supported_values = ", ".join(
             sorted(kind.value for kind in environment_supported_profiler_kinds)
         )
-        raise ValueError(
+        raise ValueError(  # noqa: TRY003  # tracked: #288
             "No profiler supported by both the generic domain and selected run "
             f"environment; environment allows: {supported_values}."
         )
@@ -241,7 +241,7 @@ def resolve_profiler_kind(
 
     if candidate not in allowed:
         allowed_values = ", ".join(sorted(kind.value for kind in allowed))
-        raise ValueError(
+        raise ValueError(  # noqa: TRY003  # tracked: #288
             f"Resolved profiler {candidate.value!r} is not supported for domain "
             f"{domain_name.value!r}; allowed: {allowed_values}."
         )
@@ -252,7 +252,7 @@ def resolve_profiler_kind(
         supported_values = ", ".join(
             sorted(kind.value for kind in environment_supported_profiler_kinds)
         )
-        raise ValueError(
+        raise ValueError(  # noqa: TRY003  # tracked: #288
             f"Resolved profiler {candidate.value!r} is not supported by the selected "
             f"run environment; allowed: {supported_values}."
         )
@@ -268,7 +268,7 @@ def preflight_profiler_kind(kind: ProfilerKind) -> ProfilerPreflightResult:
     """
     resolved = require_profiler_kind(kind)
     if resolved is ProfilerKind.NONE:
-        return ProfilerPreflightResult(resolved, True)
+        return ProfilerPreflightResult(resolved, True)  # noqa: FBT003  # tracked: #288
     if resolved is ProfilerKind.LINUX_CPU:
         from vibesys.linux_cpu_profiler import (  # noqa: PLC0415
             DiagnosticCode,
@@ -307,4 +307,4 @@ def preflight_profiler_kind(kind: ProfilerKind) -> ProfilerPreflightResult:
             f"sample_path={capability.sample_path or 'missing'}",
         )
         return ProfilerPreflightResult(resolved, usable, diagnostics, details)
-    return ProfilerPreflightResult(resolved, True)
+    return ProfilerPreflightResult(resolved, True)  # noqa: FBT003  # tracked: #288

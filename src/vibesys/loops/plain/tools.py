@@ -33,7 +33,7 @@ from vs_issue_board import (
 )
 
 
-def build_issue_tools(
+def build_issue_tools(  # noqa: PLR0913  # tracked: #288
     store: IssueBoard,
     *,
     iteration: int,
@@ -107,7 +107,7 @@ def build_issue_tools(
         )
 
         @tool
-        def create_issue(type: str, title: str, description: str) -> str:
+        def create_issue(type: str, title: str, description: str) -> str:  # noqa: A002  # tracked: #288
             """Create a new issue.
 
             Args:

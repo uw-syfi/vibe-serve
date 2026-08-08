@@ -26,7 +26,7 @@ import socket
 import tempfile
 import time
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable  # noqa: TC003  # tracked: #288
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, TypeVar, cast
 
@@ -38,7 +38,7 @@ from deepagents.backends.protocol import (
     WriteResult,
 )
 from deepagents.backends.sandbox import BaseSandbox
-from modal.volume import AbstractVolumeUploadContextManager
+from modal.volume import AbstractVolumeUploadContextManager  # noqa: TC002  # tracked: #288
 
 if TYPE_CHECKING:
     from types import FrameType
@@ -134,16 +134,16 @@ def _retry_transient(
                     f"{exc}; retrying in {delay:.1f}s"
                 )
             time.sleep(delay)
-    assert last_exc is not None  # unreachable
+    assert last_exc is not None  # unreachable  # noqa: S101  # tracked: #288
     raise last_exc
 
 
 def _cleanup_sandboxes() -> None:
     """Terminate all tracked sandboxes and delete their ephemeral volumes."""
     for sb_id, sb in list(_live_sandboxes.items()):
-        try:
+        try:  # noqa: SIM105  # tracked: #288
             sb.stop()
-        except Exception:
+        except Exception:  # noqa: BLE001, S110  # tracked: #288
             pass
         _live_sandboxes.pop(sb_id, None)
 
@@ -175,7 +175,7 @@ class ModalSandbox(BaseSandbox):
 
     _CONTAINER_ROOT = "/workspace"
 
-    def __init__(
+    def __init__(  # noqa: D417, PLR0913  # tracked: #288
         self,
         host_workspace: str,
         image: str,
@@ -194,7 +194,7 @@ class ModalSandbox(BaseSandbox):
         extra_init_commands: list[str] | None = None,
         setup_fns: list[Callable[[BaseSandbox], None]] | None = None,
         app_name: str = "vibesys",
-        enable_fallback_restart: bool = True,
+        enable_fallback_restart: bool = True,  # noqa: FBT001, FBT002  # tracked: #288
         max_restart_attempts: int = 2,
     ) -> None:
         """Initialize the Modal sandbox configuration.
@@ -295,19 +295,19 @@ class ModalSandbox(BaseSandbox):
             return self._CONTAINER_ROOT + path
         return path
 
-    def ls_info(self, path: str):
+    def ls_info(self, path: str):  # noqa: ANN201, D102  # tracked: #288
         return super().ls_info(self._vpath(path))
 
-    def read(self, file_path: str, offset: int = 0, limit: int = 2000) -> str:
+    def read(self, file_path: str, offset: int = 0, limit: int = 2000) -> str:  # noqa: D102  # tracked: #288
         return super().read(self._vpath(file_path), offset, limit)
 
-    def edit(self, file_path: str, old_string: str, new_string: str, replace_all: bool = False):
+    def edit(self, file_path: str, old_string: str, new_string: str, replace_all: bool = False):  # noqa: ANN201, D102, FBT001, FBT002  # tracked: #288
         return super().edit(self._vpath(file_path), old_string, new_string, replace_all)
 
-    def glob_info(self, pattern: str, path: str = "/"):
+    def glob_info(self, pattern: str, path: str = "/"):  # noqa: ANN201, D102  # tracked: #288
         return super().glob_info(pattern, self._vpath(path))
 
-    def grep_raw(self, pattern: str, path: str | None = None, glob: str | None = None):
+    def grep_raw(self, pattern: str, path: str | None = None, glob: str | None = None):  # noqa: ANN201, D102  # tracked: #288
         return super().grep_raw(
             pattern,
             self._vpath(path) if path is not None else self._CONTAINER_ROOT,
@@ -330,11 +330,11 @@ class ModalSandbox(BaseSandbox):
         self._populate_workspace_volume()
         self._create_container()
 
-    def _create_container(self) -> None:
+    def _create_container(self) -> None:  # noqa: C901  # tracked: #288
         """Create (or recreate) the Modal sandbox container on top of the
         already-populated workspace volume. Shared by ``start`` and
         ``_restart_sandbox``.
-        """
+        """  # noqa: D205  # tracked: #288
         app = modal.App.lookup(self._app_name, create_if_missing=True)
         # Clear the image's /workspace dir so our Volume can mount there —
         # the nvcr.io pytorch image ships with a populated /workspace that
@@ -395,7 +395,7 @@ class ModalSandbox(BaseSandbox):
                 timeout=180,
             )
             proc.wait()
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # tracked: #288
             self._log(f"pip install uv failed: {exc}")
 
         # Run required init commands — fatal on failure.
@@ -412,9 +412,9 @@ class ModalSandbox(BaseSandbox):
             if code != 0:
                 try:
                     err = proc.stderr.read() if proc.stderr else ""
-                except Exception:
+                except Exception:  # noqa: BLE001  # tracked: #288
                     err = ""
-                raise RuntimeError(
+                raise RuntimeError(  # noqa: TRY003  # tracked: #288
                     f"Modal sandbox init command failed (exit {code}):\n"
                     f"  command: {cmd}\n"
                     f"  stderr: {err[:500]}"
@@ -422,7 +422,7 @@ class ModalSandbox(BaseSandbox):
             if "codex login status" in cmd:
                 try:
                     out = proc.stdout.read() if proc.stdout else ""
-                except Exception:
+                except Exception:  # noqa: BLE001  # tracked: #288
                     out = ""
                 if out:
                     self._log(f"init command stdout: {out.strip()[:500]}")
@@ -457,9 +457,9 @@ class ModalSandbox(BaseSandbox):
         old_id = self._sandbox_id
         try:
             if self._sandbox is not None:
-                try:
+                try:  # noqa: SIM105  # tracked: #288
                     self._sandbox.terminate()
-                except Exception:
+                except Exception:  # noqa: BLE001, S110  # tracked: #288
                     pass
         finally:
             if old_id is not None:
@@ -470,8 +470,8 @@ class ModalSandbox(BaseSandbox):
         try:
             self._create_container()
             self._log(f"[fallback] restart succeeded (new id={self._sandbox_id})")
-            return True
-        except Exception as exc:
+            return True  # noqa: TRY300  # tracked: #288
+        except Exception as exc:  # noqa: BLE001  # tracked: #288
             self._log(f"[fallback] restart failed: {exc}")
             return False
 
@@ -579,7 +579,7 @@ class ModalSandbox(BaseSandbox):
         shutil.copytree(local_root, snapshot, symlinks=True)
 
     @property
-    def id(self) -> str:
+    def id(self) -> str:  # noqa: D102  # tracked: #288
         return self._sandbox_id or "modal-not-started"
 
     # -- shared fallback wrapper ------------------------------------------
@@ -609,14 +609,14 @@ class ModalSandbox(BaseSandbox):
 
     # -- execute -----------------------------------------------------------
 
-    def execute(
+    def execute(  # noqa: D102  # tracked: #288
         self,
         command: str,
         *,
         timeout: int | None = None,
     ) -> ExecuteResponse:
         if self._sandbox is None:
-            raise RuntimeError("Sandbox not started — call start() first")
+            raise RuntimeError("Sandbox not started — call start() first")  # noqa: TRY003  # tracked: #288
 
         effective_timeout = timeout if timeout is not None else self._default_timeout
         self._log(f"exec (timeout={effective_timeout}s): {command[:500]}")
@@ -648,7 +648,7 @@ class ModalSandbox(BaseSandbox):
                 exit_code=-1,
                 truncated=False,
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # tracked: #288
             self._log(f"exec error: {exc}")
             return ExecuteResponse(
                 output=f"Modal exec error: {exc}",
@@ -676,7 +676,7 @@ class ModalSandbox(BaseSandbox):
     def write(self, file_path: str, content: str) -> WriteResult:
         """Override BaseSandbox.write to avoid ARG_MAX limits on large files."""
         if self._sandbox is None:
-            raise RuntimeError("Sandbox not started — call start() first")
+            raise RuntimeError("Sandbox not started — call start() first")  # noqa: TRY003  # tracked: #288
         container_path = self._vpath(file_path)
         parent = str(Path(container_path).parent)
 
@@ -698,17 +698,17 @@ class ModalSandbox(BaseSandbox):
 
         try:
             self._run_with_fallback(_do_write, label=f"write {file_path}")
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # tracked: #288
             self._log(f"write {file_path} failed: {exc}")
             return WriteResult(path=file_path, error=str(exc))
         return WriteResult(path=file_path)
 
-    def upload_files(
+    def upload_files(  # noqa: D102  # tracked: #288
         self,
         files: list[tuple[str, bytes]],
     ) -> list[FileUploadResponse]:
         if self._sandbox is None:
-            raise RuntimeError("Sandbox not started — call start() first")
+            raise RuntimeError("Sandbox not started — call start() first")  # noqa: TRY003  # tracked: #288
         results: list[FileUploadResponse] = []
         for path, content in files:
             container_path = self._vpath(path)
@@ -733,17 +733,17 @@ class ModalSandbox(BaseSandbox):
             try:
                 self._run_with_fallback(_do_upload, label=f"upload {path}")
                 results.append(FileUploadResponse(path=path))
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001  # tracked: #288
                 self._log(f"upload {path} failed: {exc}")
                 results.append(FileUploadResponse(path=path, error="permission_denied"))
         return results
 
-    def download_files(
+    def download_files(  # noqa: D102  # tracked: #288
         self,
         paths: list[str],
     ) -> list[FileDownloadResponse]:
         if self._sandbox is None:
-            raise RuntimeError("Sandbox not started — call start() first")
+            raise RuntimeError("Sandbox not started — call start() first")  # noqa: TRY003  # tracked: #288
         results: list[FileDownloadResponse] = []
         for path in paths:
             container_path = self._vpath(path)
@@ -754,14 +754,14 @@ class ModalSandbox(BaseSandbox):
                     label=f"download {path}",
                 )
                 results.append(FileDownloadResponse(path=path, content=content))
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001  # tracked: #288
                 self._log(f"download {path} failed: {exc}")
                 results.append(FileDownloadResponse(path=path, error="file_not_found"))
         return results
 
     # -- compat shims for vibesys-shell metadata (DockerSandbox has these) --
 
-    def save_symlink_commands(self, symlink_commands: list[str]) -> None:
+    def save_symlink_commands(self, symlink_commands: list[str]) -> None:  # noqa: ARG002  # tracked: #288
         """No-op: vibesys-shell reattachment isn't supported for Modal yet."""
         return
 
@@ -776,7 +776,7 @@ class ModalSandbox(BaseSandbox):
         # early-returns when self._sandbox is None.
         try:
             self._download_workspace()
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # tracked: #288
             self._log(f"workspace download failed: {exc}")
 
         sandbox = self._sandbox
@@ -788,7 +788,7 @@ class ModalSandbox(BaseSandbox):
 
         try:
             sandbox.terminate()
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # tracked: #288
             self._log(f"terminate failed: {exc}")
 
         if self._workspace_volume_name:
@@ -798,7 +798,7 @@ class ModalSandbox(BaseSandbox):
                     allow_missing=True,
                 )
                 self._log(f"deleted workspace volume {self._workspace_volume_name}")
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001  # tracked: #288
                 self._log(f"volume delete failed: {exc}")
             self._workspace_volume_name = None
             self._workspace_volume = None
@@ -834,11 +834,11 @@ class ModalSandbox(BaseSandbox):
         if not self._host_workspace.exists():
             self._host_workspace.mkdir(parents=True, exist_ok=True)
 
-        import tarfile
-        import tempfile
+        import tarfile  # noqa: PLC0415  # tracked: #288
+        import tempfile  # noqa: PLC0415  # tracked: #288
 
         exclude_args = " ".join(f"--exclude='{e}'" for e in self._DOWNLOAD_EXCLUDES)
-        tar_remote = "/tmp/_vibesys_ws.tar.gz"
+        tar_remote = "/tmp/_vibesys_ws.tar.gz"  # noqa: S108  # tracked: #288
         tar_cmd = (
             f"cd {self._CONTAINER_ROOT} && "
             f"tar {exclude_args} -czf {tar_remote} . 2>/dev/null && "
@@ -864,7 +864,7 @@ class ModalSandbox(BaseSandbox):
                 log=self._log,
                 label="workspace tar download",
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # tracked: #288
             self._log(f"workspace tar download failed: {exc}")
             return
 
@@ -885,16 +885,16 @@ class ModalSandbox(BaseSandbox):
                         continue
                     tar.extract(member, str(host_root), set_attrs=False)
         finally:
-            try:
-                os.unlink(tmp_path)
+            try:  # noqa: SIM105  # tracked: #288
+                os.unlink(tmp_path)  # noqa: PTH108  # tracked: #288
             except OSError:
                 pass
 
     # -- context manager ---------------------------------------------------
 
-    def __enter__(self) -> ModalSandbox:
+    def __enter__(self) -> ModalSandbox:  # noqa: D105  # tracked: #288
         self.start()
         return self
 
-    def __exit__(self, *exc: object) -> None:
+    def __exit__(self, *exc: object) -> None:  # noqa: D105  # tracked: #288
         self.stop()

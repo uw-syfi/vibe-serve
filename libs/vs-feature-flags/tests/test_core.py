@@ -30,21 +30,21 @@ def _registry() -> FeatureRegistry[ExampleFlag]:
     )
 
 
-def test_registry_uses_defaults():
+def test_registry_uses_defaults():  # noqa: ANN201  # tracked: #288
     registry = _registry()
 
     assert registry.is_enabled(ExampleFlag.NEW_LOOP) is False
     assert registry.is_enabled(ExampleFlag.STRICT_MODE) is True
 
 
-def test_registry_uses_typed_overrides():
+def test_registry_uses_typed_overrides():  # noqa: ANN201  # tracked: #288
     registry = _registry()
 
     assert registry.is_enabled(ExampleFlag.NEW_LOOP, {ExampleFlag.NEW_LOOP: True}) is True
     assert registry.is_enabled(ExampleFlag.STRICT_MODE, {ExampleFlag.STRICT_MODE: False}) is False
 
 
-def test_registry_requires_every_enum_member_to_have_definition():
+def test_registry_requires_every_enum_member_to_have_definition():  # noqa: ANN201  # tracked: #288
     with pytest.raises(ValueError, match="Missing feature definitions for: strict_mode"):
         FeatureRegistry(
             ExampleFlag,
@@ -54,7 +54,7 @@ def test_registry_requires_every_enum_member_to_have_definition():
         )
 
 
-def test_registry_rejects_definitions_for_another_enum():
+def test_registry_rejects_definitions_for_another_enum():  # noqa: ANN201  # tracked: #288
     with pytest.raises(TypeError, match="is not a ExampleFlag"):
         FeatureRegistry(
             ExampleFlag,
@@ -66,7 +66,7 @@ def test_registry_rejects_definitions_for_another_enum():
         )
 
 
-def test_definitions_mapping_is_read_only():
+def test_definitions_mapping_is_read_only():  # noqa: ANN201  # tracked: #288
     registry = _registry()
 
     with pytest.raises(TypeError):

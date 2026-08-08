@@ -39,7 +39,7 @@ _RECENT_PROGRESS_ROUNDS = 4
 def resolve_paths(workspace: Path, layout: str) -> tuple[Path, Path]:
     """Resolve both memory locations, preserving the layout of resumed runs."""
     if layout not in MEMORY_LAYOUTS:
-        raise ValueError(
+        raise ValueError(  # noqa: TRY003  # tracked: #288
             f"Unknown memory layout {layout!r}; choose from {', '.join(MEMORY_LAYOUTS)}"
         )
 
@@ -47,7 +47,7 @@ def resolve_paths(workspace: Path, layout: str) -> tuple[Path, Path]:
         legacy = workspace / f"{name}.md"
         directory = workspace / name
         if legacy.exists() and directory.exists():
-            raise ValueError(
+            raise ValueError(  # noqa: TRY003  # tracked: #288
                 f"Both {legacy.name} and {directory.name}/ exist; keep only one {name} layout"
             )
         if legacy.exists():
@@ -390,7 +390,7 @@ def _append(progress_path: Path, block: str, round_number: int) -> None:
     replacement.replace(document)
 
 
-def append_pre_round_decision(
+def append_pre_round_decision(  # noqa: D103  # tracked: #288
     progress_path: Path, round_number: int, decision: PreRoundDecision
 ) -> None:
     block = (
@@ -402,7 +402,7 @@ def append_pre_round_decision(
     _append(progress_path, block, round_number)
 
 
-def append_profiler_summary(
+def append_profiler_summary(  # noqa: D103  # tracked: #288
     progress_path: Path, round_number: int, summary: ProfilerSummary
 ) -> None:
     perf_line = ""
@@ -419,7 +419,7 @@ def append_profiler_summary(
     _append(progress_path, block, round_number)
 
 
-def append_orchestrator_plan(
+def append_orchestrator_plan(  # noqa: D103  # tracked: #288
     progress_path: Path, round_number: int, plan: OrchestratorPlan
 ) -> None:
     revert_line = ""
@@ -443,7 +443,7 @@ def append_orchestrator_plan(
     _append(progress_path, block, round_number)
 
 
-def append_hypothesis_continuation(
+def append_hypothesis_continuation(  # noqa: D103  # tracked: #288
     progress_path: Path,
     round_number: int,
     *,
@@ -462,7 +462,7 @@ def append_hypothesis_continuation(
     _append(progress_path, block, round_number)
 
 
-def append_implementer(
+def append_implementer(  # noqa: D103  # tracked: #288
     progress_path: Path, round_number: int, retry: int, response: ImplementerResponse
 ) -> None:
     perf_line = ""
@@ -496,7 +496,7 @@ def append_implementer(
     _append(progress_path, block, round_number)
 
 
-def append_judge(
+def append_judge(  # noqa: D103  # tracked: #288
     progress_path: Path, round_number: int, retry: int, response: JudgeResponse
 ) -> None:
     block = (
@@ -508,7 +508,7 @@ def append_judge(
     _append(progress_path, block, round_number)
 
 
-def append_judge_skipped(
+def append_judge_skipped(  # noqa: D103  # tracked: #288
     progress_path: Path,
     round_number: int,
     *,
@@ -524,7 +524,7 @@ def append_judge_skipped(
     _append(progress_path, block, round_number)
 
 
-def append_official_evaluation_decision(
+def append_official_evaluation_decision(  # noqa: D103, PLR0913  # tracked: #288
     progress_path: Path,
     round_number: int,
     retry: int,
@@ -545,7 +545,7 @@ def append_official_evaluation_decision(
     _append(progress_path, block, round_number)
 
 
-def append_single_agent_round(
+def append_single_agent_round(  # noqa: D103  # tracked: #288
     progress_path: Path,
     round_number: int,
     retry: int,
@@ -580,7 +580,7 @@ def append_single_agent_round(
     _append(progress_path, block, round_number)
 
 
-def append_framework_accuracy_gate(
+def append_framework_accuracy_gate(  # noqa: D103, PLR0913  # tracked: #288
     progress_path: Path,
     round_number: int,
     retry: int,
@@ -623,7 +623,7 @@ def append_framework_validation_gate(
     _append(progress_path, "\n".join(lines) + "\n", round_number)
 
 
-def append_framework_benchmark(
+def append_framework_benchmark(  # noqa: D103, PLR0913  # tracked: #288
     progress_path: Path,
     round_number: int,
     retry: int,
@@ -646,7 +646,7 @@ def append_framework_benchmark(
     _append(progress_path, block, round_number)
 
 
-def append_exhaustion_note(
+def append_exhaustion_note(  # noqa: D103  # tracked: #288
     progress_path: Path, round_number: int, attempts: int, last_feedback: str
 ) -> None:
     block = (

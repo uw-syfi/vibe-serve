@@ -40,7 +40,7 @@ def __getattr__(name: str) -> object:
     # not pull in langchain/pydantic wiring for callers that only need the
     # provider table (e.g. build_agent_runner's validation path).
     if name in {"OmnigentAgentRunner", "OmnigentUnavailableError"}:
-        from vibesys.agents.omnigent import runner
+        from vibesys.agents.omnigent import runner  # noqa: PLC0415  # tracked: #288
 
         return getattr(runner, name)
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")  # noqa: TRY003  # tracked: #288

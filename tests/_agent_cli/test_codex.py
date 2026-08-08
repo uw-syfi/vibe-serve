@@ -35,7 +35,7 @@ def _agent() -> CodexCodingAgent:
     return agent
 
 
-def _session(event_handler=None) -> CodexGenerationSession:
+def _session(event_handler=None) -> CodexGenerationSession:  # noqa: ANN001  # tracked: #288
     """Build a CodexGenerationSession without opening pipes."""
     return CodexGenerationSession(
         binary_name="codex",
@@ -54,17 +54,17 @@ def _session(event_handler=None) -> CodexGenerationSession:
 
 
 class TestGetCommand:
-    def test_shell_path_config_preserves_launcher_path(self):
+    def test_shell_path_config_preserves_launcher_path(self):  # noqa: ANN202  # tracked: #288
         assert _shell_path_config_args({"PATH": '/opt/go/bin:/path/with"quote'}) == [
             "--config",
             'shell_environment_policy.set.PATH="/opt/go/bin:/path/with\\"quote"',
         ]
 
-    def test_shell_path_config_omits_missing_path(self):
+    def test_shell_path_config_omits_missing_path(self):  # noqa: ANN202  # tracked: #288
         assert _shell_path_config_args({}) == []
 
-    def test_initial_command_includes_skip_git_repo_check(self):
-        cmd = _agent()._get_command("hello")
+    def test_initial_command_includes_skip_git_repo_check(self):  # noqa: ANN202  # tracked: #288
+        cmd = _agent()._get_command("hello")  # noqa: SLF001  # tracked: #288
         assert "--skip-git-repo-check" in cmd
         assert "--dangerously-bypass-approvals-and-sandbox" in cmd
         assert "--json" in cmd
@@ -72,30 +72,30 @@ class TestGetCommand:
         assert cmd[1] == "exec"
         assert "resume" not in cmd
 
-    def test_initial_command_includes_model_when_set(self):
+    def test_initial_command_includes_model_when_set(self):  # noqa: ANN202  # tracked: #288
         agent = _agent()
         agent.model = "gpt-5"
-        cmd = agent._get_command("hello")
+        cmd = agent._get_command("hello")  # noqa: SLF001  # tracked: #288
         assert "--model" in cmd
         assert cmd[cmd.index("--model") + 1] == "gpt-5"
 
-    def test_initial_command_appends_extra_config_args(self):
+    def test_initial_command_appends_extra_config_args(self):  # noqa: ANN202  # tracked: #288
         agent = _agent()
         agent.extra_config_args = ["--config", "foo=1"]
-        cmd = agent._get_command("hello")
+        cmd = agent._get_command("hello")  # noqa: SLF001  # tracked: #288
         assert cmd[-2:] == ["--config", "foo=1"]
 
-    def test_reasoning_effort_is_passed_as_codex_config(self):
+    def test_reasoning_effort_is_passed_as_codex_config(self):  # noqa: ANN202  # tracked: #288
         agent = _agent()
         agent.set_reasoning_effort("xhigh")
-        cmd = agent._get_command("hello")
+        cmd = agent._get_command("hello")  # noqa: SLF001  # tracked: #288
         assert 'model_reasoning_effort="xhigh"' in cmd
 
-    def test_initial_command_includes_native_output_schema(self):
+    def test_initial_command_includes_native_output_schema(self):  # noqa: ANN202  # tracked: #288
         agent = _agent()
         agent.set_output_schema_path(".cache/vibesys/response-schemas/judge.json")
 
-        cmd = agent._get_command("hello")
+        cmd = agent._get_command("hello")  # noqa: SLF001  # tracked: #288
 
         assert cmd[cmd.index("--output-schema") + 1] == (
             ".cache/vibesys/response-schemas/judge.json"
@@ -103,9 +103,9 @@ class TestGetCommand:
 
 
 class TestGetResumeCommand:
-    def test_resume_passes_dash_positional(self):
+    def test_resume_passes_dash_positional(self):  # noqa: ANN202  # tracked: #288
         """Without ``-``, codex exec resume silently ignores stdin."""
-        cmd = _agent()._get_resume_command("prompt", "sess-123")
+        cmd = _agent()._get_resume_command("prompt", "sess-123")  # noqa: SLF001  # tracked: #288
         # The positional args come right after the subcommand path:
         #   codex exec resume <session_id> <prompt>
         assert cmd[:5] == [
@@ -116,25 +116,25 @@ class TestGetResumeCommand:
             "-",
         ]
 
-    def test_resume_command_includes_skip_git_repo_check(self):
-        cmd = _agent()._get_resume_command("prompt", "sess-123")
+    def test_resume_command_includes_skip_git_repo_check(self):  # noqa: ANN202  # tracked: #288
+        cmd = _agent()._get_resume_command("prompt", "sess-123")  # noqa: SLF001  # tracked: #288
         assert "--skip-git-repo-check" in cmd
         assert "--dangerously-bypass-approvals-and-sandbox" in cmd
         assert "--json" in cmd
 
-    def test_resume_command_passes_model_and_extra_config(self):
+    def test_resume_command_passes_model_and_extra_config(self):  # noqa: ANN202  # tracked: #288
         agent = _agent()
         agent.model = "gpt-5"
         agent.extra_config_args = ["--config", 'mcp_servers.x.command="python"']
-        cmd = agent._get_resume_command("prompt", "sess-123")
-        assert "--model" in cmd and cmd[cmd.index("--model") + 1] == "gpt-5"
+        cmd = agent._get_resume_command("prompt", "sess-123")  # noqa: SLF001  # tracked: #288
+        assert "--model" in cmd and cmd[cmd.index("--model") + 1] == "gpt-5"  # noqa: PT018  # tracked: #288
         assert cmd[-2:] == ["--config", 'mcp_servers.x.command="python"']
 
-    def test_resume_command_includes_native_output_schema(self):
+    def test_resume_command_includes_native_output_schema(self):  # noqa: ANN202  # tracked: #288
         agent = _agent()
         agent.set_output_schema_path(".cache/vibesys/response-schemas/implementer.json")
 
-        cmd = agent._get_resume_command("prompt", "sess-123")
+        cmd = agent._get_resume_command("prompt", "sess-123")  # noqa: SLF001  # tracked: #288
 
         assert cmd[cmd.index("--output-schema") + 1] == (
             ".cache/vibesys/response-schemas/implementer.json"
@@ -147,14 +147,14 @@ class TestGetResumeCommand:
 
 
 class TestProcessStdout:
-    def test_thread_started_captures_thread_id(self):
+    def test_thread_started_captures_thread_id(self):  # noqa: ANN202  # tracked: #288
         session = _session()
-        session._process_stdout(json.dumps({"type": "thread.started", "thread_id": "t-1"}))
+        session._process_stdout(json.dumps({"type": "thread.started", "thread_id": "t-1"}))  # noqa: SLF001  # tracked: #288
         assert session.session_id == "t-1"
 
-    def test_agent_message_captures_last_text(self):
+    def test_agent_message_captures_last_text(self):  # noqa: ANN202  # tracked: #288
         session = _session()
-        session._process_stdout(
+        session._process_stdout(  # noqa: SLF001  # tracked: #288
             json.dumps(
                 {
                     "type": "item.completed",
@@ -164,11 +164,11 @@ class TestProcessStdout:
         )
         assert session.final_result == "final answer"
 
-    def test_agent_message_streams_through_on_thinking(self):
+    def test_agent_message_streams_through_on_thinking(self):  # noqa: ANN202  # tracked: #288
         """Assistant text should land in the log as soon as it arrives."""
         handler = MagicMock()
         session = _session(event_handler=handler)
-        session._process_stdout(
+        session._process_stdout(  # noqa: SLF001  # tracked: #288
             json.dumps(
                 {
                     "type": "item.completed",
@@ -178,10 +178,10 @@ class TestProcessStdout:
         )
         handler.on_thinking.assert_called_once_with("final answer")
 
-    def test_multiple_agent_messages_keep_last(self):
+    def test_multiple_agent_messages_keep_last(self):  # noqa: ANN202  # tracked: #288
         session = _session()
         for text in ["first", "second", "third"]:
-            session._process_stdout(
+            session._process_stdout(  # noqa: SLF001  # tracked: #288
                 json.dumps(
                     {
                         "type": "item.completed",
@@ -191,10 +191,10 @@ class TestProcessStdout:
             )
         assert session.final_result == "third"
 
-    def test_reasoning_forwards_to_on_thinking(self):
+    def test_reasoning_forwards_to_on_thinking(self):  # noqa: ANN202  # tracked: #288
         handler = MagicMock()
         session = _session(event_handler=handler)
-        session._process_stdout(
+        session._process_stdout(  # noqa: SLF001  # tracked: #288
             json.dumps(
                 {
                     "type": "item.completed",
@@ -204,12 +204,12 @@ class TestProcessStdout:
         )
         handler.on_thinking.assert_called_once_with("I should grep for X")
 
-    def test_unknown_item_types_fall_back_to_tool_call(self):
+    def test_unknown_item_types_fall_back_to_tool_call(self):  # noqa: ANN202  # tracked: #288
         """file_change / mcp_tool_call / todo_list / web_search / error …
         all surface through ``on_tool_call`` so their payloads land in the log."""
         handler = MagicMock()
         session = _session(event_handler=handler)
-        session._process_stdout(
+        session._process_stdout(  # noqa: SLF001  # tracked: #288
             json.dumps(
                 {
                     "type": "item.completed",
@@ -225,10 +225,10 @@ class TestProcessStdout:
             "file_change", {"path": "engine.py", "kind": "update"}
         )
 
-    def test_mcp_tool_call_falls_back_with_full_args(self):
+    def test_mcp_tool_call_falls_back_with_full_args(self):  # noqa: ANN202  # tracked: #288
         handler = MagicMock()
         session = _session(event_handler=handler)
-        session._process_stdout(
+        session._process_stdout(  # noqa: SLF001  # tracked: #288
             json.dumps(
                 {
                     "type": "item.completed",
@@ -252,10 +252,10 @@ class TestProcessStdout:
             },
         )
 
-    def test_error_item_surfaces_message(self):
+    def test_error_item_surfaces_message(self):  # noqa: ANN202  # tracked: #288
         handler = MagicMock()
         session = _session(event_handler=handler)
-        session._process_stdout(
+        session._process_stdout(  # noqa: SLF001  # tracked: #288
             json.dumps(
                 {
                     "type": "item.completed",
@@ -265,10 +265,10 @@ class TestProcessStdout:
         )
         handler.on_tool_call.assert_called_once_with("error", {"message": "rate limited"})
 
-    def test_command_execution_forwards_tool_call_and_result(self):
+    def test_command_execution_forwards_tool_call_and_result(self):  # noqa: ANN202  # tracked: #288
         handler = MagicMock()
         session = _session(event_handler=handler)
-        session._process_stdout(
+        session._process_stdout(  # noqa: SLF001  # tracked: #288
             json.dumps(
                 {
                     "type": "item.completed",
@@ -285,10 +285,10 @@ class TestProcessStdout:
             tool="execute", stdout="file.txt\n", exit_code=None, duration=None
         )
 
-    def test_turn_completed_captures_usage_and_normalizes_fields(self):
+    def test_turn_completed_captures_usage_and_normalizes_fields(self):  # noqa: ANN202  # tracked: #288
         handler = MagicMock()
         session = _session(event_handler=handler)
-        session._process_stdout(
+        session._process_stdout(  # noqa: SLF001  # tracked: #288
             json.dumps(
                 {
                     "type": "turn.completed",
@@ -312,28 +312,28 @@ class TestProcessStdout:
         thinking_calls = [c.args[0] for c in handler.on_thinking.call_args_list]
         assert any("turn complete" in t for t in thinking_calls)
 
-    def test_turn_completed_without_usage_leaves_none(self):
+    def test_turn_completed_without_usage_leaves_none(self):  # noqa: ANN202  # tracked: #288
         handler = MagicMock()
         session = _session(event_handler=handler)
-        session._process_stdout(json.dumps({"type": "turn.completed"}))
+        session._process_stdout(json.dumps({"type": "turn.completed"}))  # noqa: SLF001  # tracked: #288
         assert session.final_usage is None
         # Still emits a marker so the log shows the turn boundary.
         handler.on_thinking.assert_called_once_with("[codex turn complete]")
 
-    def test_thread_started_emits_marker(self):
+    def test_thread_started_emits_marker(self):  # noqa: ANN202  # tracked: #288
         handler = MagicMock()
         session = _session(event_handler=handler)
-        session._process_stdout(json.dumps({"type": "thread.started", "thread_id": "t-1"}))
+        session._process_stdout(json.dumps({"type": "thread.started", "thread_id": "t-1"}))  # noqa: SLF001  # tracked: #288
         assert session.session_id == "t-1"
         handler.on_thinking.assert_called_once_with("[codex thread t-1 started]")
 
-    def test_turn_started_emits_marker(self):
+    def test_turn_started_emits_marker(self):  # noqa: ANN202  # tracked: #288
         handler = MagicMock()
         session = _session(event_handler=handler)
-        session._process_stdout(json.dumps({"type": "turn.started"}))
+        session._process_stdout(json.dumps({"type": "turn.started"}))  # noqa: SLF001  # tracked: #288
         handler.on_thinking.assert_called_once_with("[codex turn started]")
 
-    def test_unknown_event_types_forward_raw_line(self):
+    def test_unknown_event_types_forward_raw_line(self):  # noqa: ANN202  # tracked: #288
         """item.started / item.updated / future events pass through as thinking
         text so nothing codex emits is silently swallowed."""
         handler = MagicMock()
@@ -341,42 +341,42 @@ class TestProcessStdout:
         raw = json.dumps(
             {"type": "item.updated", "item": {"type": "reasoning", "delta": "thinking..."}}
         )
-        session._process_stdout(raw)
+        session._process_stdout(raw)  # noqa: SLF001  # tracked: #288
         handler.on_thinking.assert_called_once_with(raw)
 
-    def test_non_json_line_forwarded_to_event_handler(self):
+    def test_non_json_line_forwarded_to_event_handler(self):  # noqa: ANN202  # tracked: #288
         """Codex prints banners/warnings as plain text; these must hit the log
         even when ``silent=True`` (the legacy loguru path is gated on silent)."""
         handler = MagicMock()
         session = _session(event_handler=handler)
-        session._process_stdout("starting codex 1.2.3\n")
+        session._process_stdout("starting codex 1.2.3\n")  # noqa: SLF001  # tracked: #288
         handler.on_thinking.assert_called_once_with("starting codex 1.2.3")
         assert "starting codex 1.2.3" in session.stdout_lines[0]
 
-    def test_non_json_line_is_still_recorded(self):
+    def test_non_json_line_is_still_recorded(self):  # noqa: ANN202  # tracked: #288
         session = _session()
-        session._process_stdout("not json at all\n")
+        session._process_stdout("not json at all\n")  # noqa: SLF001  # tracked: #288
         assert "not json at all" in session.stdout_lines[0]
 
-    def test_blank_line_is_ignored(self):
+    def test_blank_line_is_ignored(self):  # noqa: ANN202  # tracked: #288
         session = _session()
-        session._process_stdout("   \n")
+        session._process_stdout("   \n")  # noqa: SLF001  # tracked: #288
         assert session.stdout_lines == []
 
 
 class TestProcessStderr:
-    def test_stderr_forwarded_to_event_handler(self):
+    def test_stderr_forwarded_to_event_handler(self):  # noqa: ANN202  # tracked: #288
         """Stderr must surface in the log regardless of ``silent``; cli_runner
         always passes ``silent=True`` and the base class's stderr path is
         gated on it."""
         handler = MagicMock()
         session = _session(event_handler=handler)
-        session._process_stderr("panic: index out of bounds\n")
+        session._process_stderr("panic: index out of bounds\n")  # noqa: SLF001  # tracked: #288
         handler.on_thinking.assert_called_once_with("[codex stderr] panic: index out of bounds")
         assert session.stderr_lines == ["panic: index out of bounds\n"]
 
-    def test_stderr_empty_line_ignored(self):
+    def test_stderr_empty_line_ignored(self):  # noqa: ANN202  # tracked: #288
         handler = MagicMock()
         session = _session(event_handler=handler)
-        session._process_stderr("\n")
+        session._process_stderr("\n")  # noqa: SLF001  # tracked: #288
         handler.on_thinking.assert_not_called()

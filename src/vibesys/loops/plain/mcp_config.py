@@ -14,7 +14,7 @@ MCP path; everything else is provider-agnostic and lives in
 from __future__ import annotations
 
 from vibesys._agent_cli.base import MCPServerSpec
-from vs_issue_board import IssueType
+from vs_issue_board import IssueType  # noqa: TC001  # tracked: #288
 
 
 def build_issue_mcp_spec(

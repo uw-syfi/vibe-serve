@@ -6,8 +6,9 @@ from vibesys.agents import cli_docker
 from vibesys.agents.cli_docker import DockerAuthPath
 
 
-def test_auth_import_copies_directories_and_files_to_private_writable_paths(
-    tmp_path: Path, monkeypatch
+def test_auth_import_copies_directories_and_files_to_private_writable_paths(  # noqa: ANN201  # tracked: #288
+    tmp_path: Path,
+    monkeypatch,  # noqa: ANN001  # tracked: #288
 ):
     state_dir = tmp_path / "state"
     state_dir.mkdir()
@@ -32,7 +33,7 @@ def test_auth_import_copies_directories_and_files_to_private_writable_paths(
     ]
 
 
-def test_auth_import_uses_provider_native_container_paths():
+def test_auth_import_uses_provider_native_container_paths():  # noqa: ANN201  # tracked: #288
     assert {
         provider: [
             (spec.host_path.relative_to(Path.home()).as_posix(), spec.container_path)
@@ -76,7 +77,7 @@ def test_auth_import_uses_provider_native_container_paths():
     }
 
 
-def test_provider_auth_imports_exclude_bulk_runtime_roots():
+def test_provider_auth_imports_exclude_bulk_runtime_roots():  # noqa: ANN201  # tracked: #288
     configured_sources = {
         spec.host_path for specs in cli_docker.DOCKER_AUTH_PATHS.values() for spec in specs
     }
@@ -92,7 +93,7 @@ def test_provider_auth_imports_exclude_bulk_runtime_roots():
     )
 
 
-def test_codex_container_installs_luna_capable_cli_version():
+def test_codex_container_installs_luna_capable_cli_version():  # noqa: ANN201  # tracked: #288
     commands = cli_docker.docker_init_commands("codex")
 
     assert (
@@ -102,7 +103,7 @@ def test_codex_container_installs_luna_capable_cli_version():
 
 
 @pytest.mark.parametrize("provider", ["claude", "gemini", "codex", "opencode"])
-def test_editor_container_installs_pinned_rust_toolchain(provider: str):
+def test_editor_container_installs_pinned_rust_toolchain(provider: str):  # noqa: ANN201  # tracked: #288
     commands = cli_docker.docker_init_commands(provider)
     rust_install = next(command for command in commands if "rustup-init.sh" in command)
 

@@ -34,19 +34,19 @@ import random
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path  # noqa: TC003  # tracked: #288
 from typing import Any, cast
 
 from jinja2 import Environment, FileSystemLoader
 
 from vibesys.agents.progress import CandidateProgress
-from vibesys.config import Config
+from vibesys.config import Config  # noqa: TC001  # tracked: #288
 from vibesys.constants import DEFAULT_COMPUTE_BACKEND, ComputeBackend
 from vibesys.context import create_candidate_context, create_run_context
 from vibesys.domains.base import DomainDefinition, DomainName, DomainRole
 from vibesys.domains.registry import resolve_domain
 from vibesys.domains.rendering import render_domain_section
-from vibesys.input_manifest import WorkspaceSource
+from vibesys.input_manifest import WorkspaceSource  # noqa: TC001  # tracked: #288
 from vibesys.loops.evolve.population import (
     Individual,
     Objective,
@@ -78,7 +78,7 @@ _INTERFACE = "inprocess"
 # Evolve owns its top-level mutator and judge prompts but reuses the agent
 # loop's modality fragments and profiler prompts. Domain role files are rendered
 # separately and injected into both sets of neutral templates.
-_jinja_env = Environment(
+_jinja_env = Environment(  # noqa: S701  # tracked: #288
     loader=FileSystemLoader([str(_TEMPLATE_DIR), str(_AGENT_TEMPLATE_DIR)]),
     keep_trailing_newline=True,
     trim_blocks=True,
@@ -118,7 +118,7 @@ def _discard_working_tree(ctx: LoopContext) -> None:
     try:
         ctx.git.run(["git", "checkout", "HEAD", "--", "."], check=False)
         ctx.git.run(["git", "clean", "-fd"], check=False)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # tracked: #288
         ctx.lprint(f"[warn] discard working tree failed: {exc}")
 
 
@@ -132,7 +132,7 @@ def _candidate_code(ctx: LoopContext, commit: str) -> str:
         .splitlines()
     )
     if not roots:
-        raise ValueError(f"cannot resolve workspace baseline for commit {commit}")
+        raise ValueError(f"cannot resolve workspace baseline for commit {commit}")  # noqa: TRY003  # tracked: #288
     return ctx.git.run(
         [
             "git",
@@ -241,7 +241,7 @@ def _candidate_runtime_notes(
     return runtime.prompt_notes, runtime.deployment_name
 
 
-def _run_mutator(
+def _run_mutator(  # noqa: PLR0913  # tracked: #288
     ctx: LoopContext,
     *,
     generation: int,
@@ -302,7 +302,7 @@ def _run_mutator(
     )
 
 
-def _run_judge(
+def _run_judge(  # noqa: PLR0913  # tracked: #288
     ctx: LoopContext,
     *,
     generation: int,
@@ -367,7 +367,7 @@ def _format_objectives_for_profiler(objectives: list[Objective]) -> str:
     )
 
 
-def _run_profiler(
+def _run_profiler(  # noqa: PLR0913  # tracked: #288
     ctx: LoopContext,
     *,
     generation: int,
@@ -458,7 +458,7 @@ def _run_framework_accuracy_gate(
     return result.feedback
 
 
-def _evaluate_candidate(
+def _evaluate_candidate(  # noqa: PLR0913  # tracked: #288
     ctx: LoopContext,
     *,
     generation: int,
@@ -594,7 +594,7 @@ def _evaluate_candidate(
         _teardown_candidate_deployment(ctx, cand_deployment, keep=keep_deployments)
 
 
-def _record_outcome(
+def _record_outcome(  # noqa: PLR0913  # tracked: #288
     ctx: LoopContext,
     population: Population,
     population_path: Path,
@@ -655,7 +655,7 @@ def _record_outcome(
     return individual
 
 
-def _plan_candidate(
+def _plan_candidate(  # noqa: PLR0913  # tracked: #288
     ctx: LoopContext,
     population: Population,
     rng: random.Random,
@@ -692,7 +692,7 @@ def _plan_candidate(
     return selection
 
 
-def _run_generation_serial(
+def _run_generation_serial(  # noqa: PLR0913  # tracked: #288
     ctx: LoopContext,
     *,
     generation: int,
@@ -774,7 +774,7 @@ def _run_generation_serial(
                 _discard_working_tree(ctx)
 
 
-def _evaluate_in_subcontext(
+def _evaluate_in_subcontext(  # noqa: PLR0913  # tracked: #288
     parent_ctx: LoopContext,
     *,
     config: Config,
@@ -826,7 +826,7 @@ def _evaluate_in_subcontext(
                 agent_backend=agent_backend,
                 cli_provider=cli_provider,
             )
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # tracked: #288
         parent_ctx.lprint(f"[warn] candidate {label} setup failed: {exc}")
         return _CandidateOutcome(
             passed=False,
@@ -853,7 +853,7 @@ def _evaluate_in_subcontext(
             isolated_deployment=True,
             accuracy_timeout_seconds=accuracy_timeout_seconds,
         )
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # tracked: #288
         parent_ctx.lprint(f"[warn] candidate {label} evaluation raised: {exc}")
         return _CandidateOutcome(
             passed=False,
@@ -865,11 +865,11 @@ def _evaluate_in_subcontext(
     finally:
         try:
             subctx.close()
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # tracked: #288
             parent_ctx.lprint(f"[warn] candidate {label} teardown failed: {exc}")
 
 
-def _run_generation_parallel(
+def _run_generation_parallel(  # noqa: PLR0913  # tracked: #288
     parent_ctx: LoopContext,
     *,
     config: Config,
@@ -983,7 +983,7 @@ def _run_generation_parallel(
 # ---------------------------------------------------------------------------
 
 
-def _bootstrap_seed(
+def _bootstrap_seed(  # noqa: PLR0913, PLR0915  # tracked: #288
     ctx: LoopContext,
     *,
     objective: str,
@@ -992,7 +992,7 @@ def _bootstrap_seed(
     domain_definition: DomainDefinition,
     pass_criteria: str,
     max_attempts: int,
-    rng: random.Random,
+    rng: random.Random,  # noqa: ARG001  # tracked: #288
     population: Population,
     population_path: Path,
     search_policy: SearchPolicy,
@@ -1025,7 +1025,7 @@ def _bootstrap_seed(
         # snapshotted; otherwise the workspace stays as the framework seeded it
         # (the bare reference tree).
         wip_seed = _latest_wip_seed(population)
-        if wip_seed is not None and wip_seed.commit:
+        if wip_seed is not None and wip_seed.commit:  # noqa: SIM102  # tracked: #288
             if not ctx.git.checkout_tree(wip_seed.commit, clean=True):
                 ctx.lprint(
                     f"[warn] could not check out WIP seed {wip_seed.id} "
@@ -1100,7 +1100,7 @@ def _bootstrap_seed(
                     sha_after = ctx.git.current_sha()
                     if sha_after and sha_after != sha_before:
                         wip_commit = sha_after
-                except Exception as exc:
+                except Exception as exc:  # noqa: BLE001  # tracked: #288
                     ctx.lprint(f"[warn] wip-seed snapshot failed: {exc}")
                 failed = Individual(
                     id=population.next_id(),
@@ -1177,7 +1177,7 @@ def _bootstrap_seed(
 # ---------------------------------------------------------------------------
 
 
-def _initialize_search_policy(
+def _initialize_search_policy(  # noqa: PLR0913  # tracked: #288
     ctx: LoopContext,
     population: Population,
     *,
@@ -1196,7 +1196,7 @@ def _initialize_search_policy(
     else:
         policy_name = SearchPolicyName(requested)
         if policy_name is SearchPolicyName.VIBESYS and config is not None:
-            raise ValueError("OpenEvolve configuration requires the OpenEvolve search policy")
+            raise ValueError("OpenEvolve configuration requires the OpenEvolve search policy")  # noqa: TRY003  # tracked: #288
     if policy_name is not SearchPolicyName.OPENEVOLVE:
         return policy_name, VibeSysSearchPolicy()
 
@@ -1222,7 +1222,7 @@ def _initialize_search_policy(
     return policy_name, policy
 
 
-def run_evolve_loop(
+def run_evolve_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
     config: Config,
     exp_name: str,
     input_path: str,
@@ -1242,7 +1242,7 @@ def run_evolve_loop(
     selection_temperature: float = 0.5,
     seed: int | None = None,
     pass_criteria: str = (
-        "The candidate obeys the input bundle's contract, the accuracy "
+        "The candidate obeys the input bundle's contract, the accuracy "  # noqa: S107  # tracked: #288
         "command passes, and the benchmark sanity step completes without "
         "modifying evaluator-owned files."
     ),
@@ -1280,7 +1280,7 @@ def run_evolve_loop(
     behavior, kept for back-compat.
     """
     if domain is None:
-        raise ValueError("domain is required; declare [agent].domain in vibesys.input.toml")
+        raise ValueError("domain is required; declare [agent].domain in vibesys.input.toml")  # noqa: TRY003  # tracked: #288
     domain_definition = resolve_domain(domain)
     if modality is None and domain_definition.name is DomainName.LLM_SERVING:
         modality = "text_generation"
@@ -1333,13 +1333,13 @@ def run_evolve_loop(
         ctx.lprint("[evolutionary] interrupted during search-policy initialization.")
         ctx.close()
         return False
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # tracked: #288
         ctx.lprint(f"[evolutionary] search-policy initialization failed: {exc}")
         ctx.close()
         return False
     ctx.lprint(f"[log] search policy: {policy_name.value}")
 
-    rng = random.Random(seed)
+    rng = random.Random(seed)  # noqa: S311  # tracked: #288
 
     try:
         # Bootstrap phase: guarantee a passing generation-0 seed before the
@@ -1467,11 +1467,11 @@ def run_evolve_loop(
             )
         else:
             ctx.lprint("\nNo passing individual produced. Inspect logs.")
-        return True
+        return True  # noqa: TRY300  # tracked: #288
     except KeyboardInterrupt:
         ctx.lprint("[evolutionary] interrupted; population preserved.")
         return False
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # tracked: #288
         ctx.lprint(f"[evolutionary] aborted with: {exc}")
         return False
     finally:

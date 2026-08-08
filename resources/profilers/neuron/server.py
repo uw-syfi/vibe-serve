@@ -27,7 +27,7 @@ sys.path.insert(0, str(_HERE))
 import analyze_neuron  # noqa: E402  (sys.path setup above)
 
 
-def _capture(fn, **kwargs) -> str:
+def _capture(fn, **kwargs) -> str:  # noqa: ANN001, ANN003  # tracked: #288
     ns = types.SimpleNamespace(**kwargs)
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
@@ -35,11 +35,11 @@ def _capture(fn, **kwargs) -> str:
     return buf.getvalue() or "(no output)"
 
 
-def build_server() -> FastMCP:
+def build_server() -> FastMCP:  # noqa: D103  # tracked: #288
     mcp = FastMCP("vibesys-neuron-profiler")
 
     @mcp.tool()
-    def capture(workload: str, out_dir: str = "/tmp/neuronprof", timeout: int = 1800) -> str:
+    def capture(workload: str, out_dir: str = "/tmp/neuronprof", timeout: int = 1800) -> str:  # noqa: S108  # tracked: #288
         """Run a workload under ``neuron-explorer inspect`` and capture profiles.
 
         Args:
@@ -90,7 +90,7 @@ def build_server() -> FastMCP:
     return mcp
 
 
-def main(argv: list[str] | None = None) -> None:
+def main(argv: list[str] | None = None) -> None:  # noqa: D103  # tracked: #288
     parser = argparse.ArgumentParser(
         prog="vibesys-neuron-mcp",
         description="Stdio MCP server exposing neuron-explorer profile analyses.",

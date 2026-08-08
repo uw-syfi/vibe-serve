@@ -32,11 +32,11 @@ from __future__ import annotations
 import glob
 import os
 import subprocess
-from collections.abc import Callable
+from collections.abc import Callable  # noqa: TC003  # tracked: #288
 from pathlib import Path
 
 from deepagents.backends import LocalShellBackend
-from deepagents.backends.protocol import SandboxBackendProtocol
+from deepagents.backends.protocol import SandboxBackendProtocol  # noqa: TC002  # tracked: #288
 
 from vibesys.backends.base import (
     ContentionMonitor,
@@ -82,17 +82,17 @@ def _discover_rocm_devices() -> list[str]:
     host has no AMD GPU, in which case the container starts without an
     accelerator (parity with the Trainium backend's behaviour).
     """
-    if not os.path.exists(_KFD_DEVICE):
+    if not os.path.exists(_KFD_DEVICE):  # noqa: PTH110  # tracked: #288
         return []
-    render_nodes = sorted(glob.glob("/dev/dri/render*"))
+    render_nodes = sorted(glob.glob("/dev/dri/render*"))  # noqa: PTH207  # tracked: #288
     return [_KFD_DEVICE, *render_nodes]
 
 
 def _query_rocm_gpu_count() -> int | None:
     """Return the number of GPUs ``rocm-smi`` reports, or None if unavailable."""
     try:
-        result = subprocess.run(
-            ["rocm-smi", "--showid", "--csv"],
+        result = subprocess.run(  # noqa: PLW1510  # tracked: #288
+            ["rocm-smi", "--showid", "--csv"],  # noqa: S607  # tracked: #288
             capture_output=True,
             text=True,
             timeout=10,
@@ -115,7 +115,7 @@ class RocmBackend:
     name = ComputeBackend.ROCM
     profiler_kind = ProfilerKind.TORCH
 
-    def __init__(
+    def __init__(  # noqa: D107  # tracked: #288
         self,
         log_dir: Path,
         *,
@@ -145,7 +145,7 @@ class RocmBackend:
 
     # -- ComputeBackendImpl protocol ---------------------------------------
 
-    def make_sandbox(
+    def make_sandbox(  # noqa: D102, PLR0913  # tracked: #288
         self,
         kind: SandboxKind,
         *,
@@ -156,7 +156,7 @@ class RocmBackend:
         extra_env: dict[str, str] | None = None,
         extra_init_commands: list[str] | None = None,
         setup_fns: list[SetupFn] | None = None,
-        modal_options: ModalOptions | None = None,
+        modal_options: ModalOptions | None = None,  # noqa: ARG002  # tracked: #288
         attach_accelerator: bool = True,
     ) -> SandboxBackendProtocol:
         bind_mounts = list(bind_mounts or [])
@@ -166,7 +166,7 @@ class RocmBackend:
         setup_fns = setup_fns or []
 
         if kind is SandboxKind.MODAL:
-            raise ValueError(
+            raise ValueError(  # noqa: TRY003  # tracked: #288
                 "rocm backend does not support Modal — Modal offers no AMD "
                 "GPUs. Use --docker (Instinct GPUs via /dev/kfd) or local "
                 "execution."
@@ -198,14 +198,14 @@ class RocmBackend:
                 setup_fns=setup_fns,
             )
 
-        raise ValueError(f"Unknown sandbox kind: {kind!r}")
+        raise ValueError(f"Unknown sandbox kind: {kind!r}")  # noqa: TRY003  # tracked: #288
 
-    def make_monitor(self, log_dir: Path) -> ContentionMonitor | None:
+    def make_monitor(self, log_dir: Path) -> ContentionMonitor | None:  # noqa: ARG002, D102  # tracked: #288
         # rocm-smi can report utilization, but shared-device contention
         # handling isn't wired up yet; skip rather than fake it.
         return None
 
-    def reselect_device(self) -> None:
+    def reselect_device(self) -> None:  # noqa: D102  # tracked: #288
         return None
 
     # -- internal ----------------------------------------------------------

@@ -11,7 +11,7 @@ from vibesys.loops.plain.loop import (
 from vs_issue_board import IssueBoard, IssueStatus, IssueType
 
 
-def _make_store(tmp_path) -> IssueBoard:
+def _make_store(tmp_path) -> IssueBoard:  # noqa: ANN001  # tracked: #288
     return IssueBoard(tmp_path / "issues.json")
 
 
@@ -21,7 +21,7 @@ def _make_store(tmp_path) -> IssueBoard:
 
 
 class TestSaveLoadState:
-    def test_round_trip(self, tmp_path):
+    def test_round_trip(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         state = PlainLoopState(
             round_idx=2,
             phase="judge",
@@ -36,25 +36,25 @@ class TestSaveLoadState:
         assert loaded.current_issue_id == 5
         assert loaded.bootstrap_done is True
 
-    def test_load_missing(self, tmp_path):
+    def test_load_missing(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         assert load_state(tmp_path) is None
 
-    def test_load_corrupt_json(self, tmp_path):
+    def test_load_corrupt_json(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         (tmp_path / "state.json").write_text("not json", encoding="utf-8")
         assert load_state(tmp_path) is None
 
-    def test_load_wrong_version(self, tmp_path):
+    def test_load_wrong_version(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         (tmp_path / "state.json").write_text(
             json.dumps({"version": 999, "iteration": 0}), encoding="utf-8"
         )
         assert load_state(tmp_path) is None
 
-    def test_atomic_write_leaves_no_tmp(self, tmp_path):
+    def test_atomic_write_leaves_no_tmp(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         _save_state(tmp_path, PlainLoopState())
         assert not (tmp_path / "state.json.tmp").exists()
         assert (tmp_path / "state.json").exists()
 
-    def test_load_ignores_extra_fields(self, tmp_path):
+    def test_load_ignores_extra_fields(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         data = {
             "version": 1,
             "round_idx": 3,
@@ -76,14 +76,14 @@ class TestSaveLoadState:
 
 
 class TestDetermineResumePoint:
-    def test_none_state_starts_fresh(self, tmp_path):
+    def test_none_state_starts_fresh(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         store = _make_store(tmp_path)
         i, phase, issue_id = _determine_resume_point(None, store)
         assert i == 0
         assert phase == "implementer"
         assert issue_id is None
 
-    def test_mid_implementer_re_runs_implementer(self, tmp_path):
+    def test_mid_implementer_re_runs_implementer(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         store = _make_store(tmp_path)
         issue = store.create(
             type=IssueType.BUG,
@@ -101,7 +101,7 @@ class TestDetermineResumePoint:
         assert phase == "implementer"
         assert issue_id == issue.id
 
-    def test_mid_judge_re_runs_judge(self, tmp_path):
+    def test_mid_judge_re_runs_judge(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         store = _make_store(tmp_path)
         issue = store.create(
             type=IssueType.BUG,
@@ -119,7 +119,7 @@ class TestDetermineResumePoint:
         assert phase == "judge"
         assert issue_id == issue.id
 
-    def test_resume_picks_drain_when_open_issues_remain(self, tmp_path):
+    def test_resume_picks_drain_when_open_issues_remain(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         store = _make_store(tmp_path)
         store.create(type=IssueType.BUG, title="t", description="d", created_by="x", iteration=1)
         # Loop was past judge, no current_issue_id
@@ -131,7 +131,7 @@ class TestDetermineResumePoint:
         assert phase == "implementer"
         assert issue_id is None
 
-    def test_resume_goes_to_implementer_when_no_open_issues(self, tmp_path):
+    def test_resume_goes_to_implementer_when_no_open_issues(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         # When no open issues remain, _determine_resume_point returns
         # phase="implementer" — the drain loop in run_plain_loop will
         # immediately exit (next_open() is None) and fall through to
@@ -145,11 +145,11 @@ class TestDetermineResumePoint:
         state = PlainLoopState(
             round_idx=1, phase="implementer", current_issue_id=None, bootstrap_done=True
         )
-        i, phase, issue_id = _determine_resume_point(state, store)
+        i, phase, issue_id = _determine_resume_point(state, store)  # noqa: RUF059  # tracked: #288
         assert phase == "implementer"
         assert issue_id is None
 
-    def test_resume_after_perf_eval_with_no_open_issues(self, tmp_path):
+    def test_resume_after_perf_eval_with_no_open_issues(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         """If we crashed during/after perf_eval with no open issues left,
         _determine_resume_point should return phase='implementer'. The
         drain loop will then immediately exit (next_open() is None) and
@@ -167,7 +167,7 @@ class TestDetermineResumePoint:
         assert phase == "implementer"
         assert issue_id is None
 
-    def test_resume_skips_stale_current_issue_id_if_already_closed(self, tmp_path):
+    def test_resume_skips_stale_current_issue_id_if_already_closed(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         # If state.current_issue_id points at an issue that the store says is
         # already CLOSED (race after a crash), we should NOT try to re-run
         # that phase. Instead, drain remaining open issues.
@@ -180,7 +180,7 @@ class TestDetermineResumePoint:
         state = PlainLoopState(
             round_idx=0, phase="judge", current_issue_id=closed.id, bootstrap_done=True
         )
-        i, phase, issue_id = _determine_resume_point(state, store)
+        i, phase, issue_id = _determine_resume_point(state, store)  # noqa: RUF059  # tracked: #288
         # Should NOT try to re-run judge on the closed issue
         assert not (phase == "judge" and issue_id == closed.id)
         assert phase == "implementer"

@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from vibesys.server.events import AgentStatusData
+from vibesys.server.events import AgentStatusData  # noqa: TC001  # tracked: #288
 
 
 def format_token_count(n: int) -> str:
     """Format a token count compactly: ``999`` / ``20k`` / ``1.0M``."""
-    if n < 1_000:
+    if n < 1_000:  # noqa: PLR2004  # tracked: #288
         return str(n)
-    if n < 1_000_000:
+    if n < 1_000_000:  # noqa: PLR2004  # tracked: #288
         return f"{n // 1000}k"
     return f"{n / 1_000_000:.1f}M"
 

@@ -53,8 +53,8 @@ def _atomic_write(target: Path, content: bytes) -> None:
         with os.fdopen(fd, "wb") as stream:
             stream.write(content)
         if mode is not None:
-            os.chmod(temporary_path, mode)
-        os.replace(temporary_path, target)
+            os.chmod(temporary_path, mode)  # noqa: PTH101  # tracked: #288
+        os.replace(temporary_path, target)  # noqa: PTH105  # tracked: #288
     finally:
         temporary_path.unlink(missing_ok=True)
 
@@ -63,9 +63,9 @@ def _load_json_object(raw: bytes, target: Path) -> dict[str, Any]:
     try:
         loaded: object = json.loads(raw)
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise ValueError(f"cannot merge MCP servers into invalid JSON config: {target}") from exc
+        raise ValueError(f"cannot merge MCP servers into invalid JSON config: {target}") from exc  # noqa: TRY003  # tracked: #288
     if not isinstance(loaded, dict):
-        raise ValueError(f"MCP config must contain a JSON object: {target}")
+        raise ValueError(f"MCP config must contain a JSON object: {target}")  # noqa: TRY003, TRY004  # tracked: #288
     return dict(cast("dict[str, Any]", loaded))
 
 
@@ -118,7 +118,7 @@ class CodingAgent(ABC):
             backups = {}
             self._mcp_config_backups: dict[Path, _MCPConfigBackup] = backups
         if target in backups:
-            raise RuntimeError(f"temporary MCP config is already installed at {target}")
+            raise RuntimeError(f"temporary MCP config is already installed at {target}")  # noqa: TRY003  # tracked: #288
 
         original = target.read_bytes() if target.exists() else None
         original_config = _load_json_object(original, target) if original is not None else {}
@@ -126,7 +126,7 @@ class CodingAgent(ABC):
 
         existing_servers = config.get(server_key, {})
         if not isinstance(existing_servers, dict):
-            raise ValueError(f"{server_key!r} must be a JSON object in MCP config: {target}")
+            raise ValueError(f"{server_key!r} must be a JSON object in MCP config: {target}")  # noqa: TRY003, TRY004  # tracked: #288
         if defaults:
             for key, value in defaults.items():
                 config.setdefault(key, value)
@@ -148,7 +148,7 @@ class CodingAgent(ABC):
             del backups[target]
             raise
 
-    def _restore_mcp_config_file(self, target: Path) -> None:
+    def _restore_mcp_config_file(self, target: Path) -> None:  # noqa: C901, PLR0912  # tracked: #288
         """Restore a config saved by :meth:`_install_mcp_config_file`."""
         backups = getattr(self, "_mcp_config_backups", None)
         if backups is None or target not in backups:
@@ -174,9 +174,9 @@ class CodingAgent(ABC):
         installed_servers = backup.installed_config.get(backup.server_key, {})
         current_servers = current.get(backup.server_key, {})
         if not all(isinstance(value, dict) for value in (original_servers, installed_servers)):
-            raise ValueError(f"{backup.server_key!r} must be a JSON object in MCP config: {target}")
+            raise ValueError(f"{backup.server_key!r} must be a JSON object in MCP config: {target}")  # noqa: TRY003  # tracked: #288
         if not isinstance(current_servers, dict):
-            raise ValueError(f"{backup.server_key!r} must be a JSON object in MCP config: {target}")
+            raise ValueError(f"{backup.server_key!r} must be a JSON object in MCP config: {target}")  # noqa: TRY003, TRY004  # tracked: #288
 
         restored_servers = dict(cast("dict[str, Any]", current_servers))
         original_server_map = cast("dict[str, Any]", original_servers)
@@ -219,7 +219,7 @@ class CodingAgent(ABC):
         prompt: str,
         cwd: str | None = None,
         timeout: int | None = None,
-        silent: bool = False,
+        silent: bool = False,  # noqa: FBT001, FBT002  # tracked: #288
     ) -> str:
         """Generate text/code based on a prompt.
 
@@ -233,7 +233,7 @@ class CodingAgent(ABC):
             Generated text.
         """
 
-    def install_mcp_servers(self, workspace: Path, servers: list[MCPServerSpec]) -> None:
+    def install_mcp_servers(self, workspace: Path, servers: list[MCPServerSpec]) -> None:  # noqa: ARG002  # tracked: #288
         """Install per-agent MCP server config so the next :meth:`generate`
         call exposes these stdio servers as tools.
 
@@ -241,10 +241,10 @@ class CodingAgent(ABC):
         support MCP. Subclasses override to write the appropriate config
         file under *workspace*, or (in Codex's case) to stash runtime
         ``--config`` flags on the instance.
-        """
+        """  # noqa: D205  # tracked: #288
         return
 
-    def set_output_schema_path(self, path: str | None) -> None:
+    def set_output_schema_path(self, path: str | None) -> None:  # noqa: ARG002  # tracked: #288
         """Set the JSON Schema file path for the next generation.
 
         The path is workspace-relative by default, or absolute when the
@@ -256,7 +256,7 @@ class CodingAgent(ABC):
         """
         return
 
-    def uninstall_mcp_servers(self, workspace: Path, servers: list[MCPServerSpec]) -> None:
+    def uninstall_mcp_servers(self, workspace: Path, servers: list[MCPServerSpec]) -> None:  # noqa: ARG002  # tracked: #288
         """Remove anything written by :meth:`install_mcp_servers`.
 
         Idempotent. Default implementation is a no-op.

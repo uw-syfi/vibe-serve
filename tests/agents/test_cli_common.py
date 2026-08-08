@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 from io import StringIO
-from pathlib import Path
+from pathlib import Path  # noqa: TC003  # tracked: #288
 
 import pytest
 
@@ -42,35 +42,35 @@ class TestAgentLabel:
         ("kind", "expected"),
         [("perf_eval", "Perf Eval"), ("judge", "Judge"), ("implementer", "Implementer")],
     )
-    def test_snake_case_becomes_title_case(self, kind, expected):
+    def test_snake_case_becomes_title_case(self, kind, expected):  # noqa: ANN001, ANN201  # tracked: #288
         assert agent_label(kind) == expected
 
 
 class TestDiscoverSkillDirs:
-    def test_a_root_that_is_itself_a_skill(self, tmp_path):
+    def test_a_root_that_is_itself_a_skill(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         (tmp_path / "SKILL.md").write_text("# s\n")
 
         assert discover_skill_dirs(tmp_path) == [tmp_path]
 
-    def test_flat_layout(self, tmp_path):
+    def test_flat_layout(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         a = _skill(tmp_path, "alpha")
         b = _skill(tmp_path, "beta")
 
         assert sorted(discover_skill_dirs(tmp_path)) == sorted([a, b])
 
-    def test_tier_organized_layout(self, tmp_path):
+    def test_tier_organized_layout(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         deep = _skill(tmp_path, "tier1/nested")
 
         assert discover_skill_dirs(tmp_path) == [deep]
 
-    def test_a_root_with_no_skills(self, tmp_path):
+    def test_a_root_with_no_skills(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         (tmp_path / "notes.txt").write_text("x")
 
         assert discover_skill_dirs(tmp_path) == []
 
 
 class TestMaterializeSkills:
-    def test_copies_into_every_cli_discovery_path(self, tmp_path):
+    def test_copies_into_every_cli_discovery_path(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         src = tmp_path / "src"
         _skill(src, "alpha")
         ws = tmp_path / "ws"
@@ -82,7 +82,7 @@ class TestMaterializeSkills:
         for rel in CLI_SKILL_DIRS:
             assert (ws / rel / "alpha" / "SKILL.md").is_file()
 
-    def test_no_sources_is_a_noop(self, tmp_path):
+    def test_no_sources_is_a_noop(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         ws = tmp_path / "ws"
         ws.mkdir()
 
@@ -90,7 +90,7 @@ class TestMaterializeSkills:
 
         assert list(ws.iterdir()) == []
 
-    def test_sources_without_skills_create_nothing(self, tmp_path):
+    def test_sources_without_skills_create_nothing(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         src = tmp_path / "src"
         src.mkdir()
         (src / "readme.txt").write_text("x")
@@ -101,7 +101,7 @@ class TestMaterializeSkills:
 
         assert list(ws.iterdir()) == []
 
-    def test_re_materializing_replaces_stale_content(self, tmp_path):
+    def test_re_materializing_replaces_stale_content(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         src = tmp_path / "src"
         _skill(src, "alpha", "# v1\n")
         ws = tmp_path / "ws"
@@ -114,7 +114,7 @@ class TestMaterializeSkills:
         assert (ws / "alpha/SKILL.md").read_text() == "# v2\n"
         assert (ws / ".claude/skills/alpha/SKILL.md").read_text() == "# v2\n"
 
-    def test_source_already_at_workspace_root_is_not_replaced(self, tmp_path):
+    def test_source_already_at_workspace_root_is_not_replaced(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         ws = tmp_path / "ws"
         skill = _skill(ws, "alpha", "# local\n")
 
@@ -122,7 +122,7 @@ class TestMaterializeSkills:
 
         assert (skill / "SKILL.md").read_text() == "# local\n"
 
-    def test_later_source_wins_on_a_name_collision(self, tmp_path):
+    def test_later_source_wins_on_a_name_collision(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         first = tmp_path / "a"
         second = tmp_path / "b"
         _skill(first, "dup", "# first\n")
@@ -134,7 +134,7 @@ class TestMaterializeSkills:
 
         assert (ws / ".claude/skills/dup/SKILL.md").read_text() == "# second\n"
 
-    def test_a_copy_failure_is_logged_not_raised(self, tmp_path, monkeypatch):
+    def test_a_copy_failure_is_logged_not_raised(self, tmp_path, monkeypatch):  # noqa: ANN001, ANN201  # tracked: #288
         """The loop must still make progress if one skill fails to copy."""
         src = tmp_path / "src"
         _skill(src, "alpha")
@@ -142,8 +142,8 @@ class TestMaterializeSkills:
         ws.mkdir()
         log = StringIO()
 
-        def _boom(*_args, **_kwargs):
-            raise OSError("disk on fire")
+        def _boom(*_args, **_kwargs):  # noqa: ANN002, ANN003, ANN202  # tracked: #288
+            raise OSError("disk on fire")  # noqa: TRY003  # tracked: #288
 
         monkeypatch.setattr("vibesys.agents.cli_common.shutil.copytree", _boom)
 
@@ -153,19 +153,19 @@ class TestMaterializeSkills:
         assert "failed to materialize" in written
         assert "disk on fire" in written
 
-    def test_a_copy_failure_without_a_log_is_swallowed(self, tmp_path, monkeypatch):
+    def test_a_copy_failure_without_a_log_is_swallowed(self, tmp_path, monkeypatch):  # noqa: ANN001, ANN201  # tracked: #288
         src = tmp_path / "src"
         _skill(src, "alpha")
         ws = tmp_path / "ws"
         ws.mkdir()
         monkeypatch.setattr(
             "vibesys.agents.cli_common.shutil.copytree",
-            lambda *a, **k: (_ for _ in ()).throw(OSError("nope")),
+            lambda *a, **k: (_ for _ in ()).throw(OSError("nope")),  # noqa: ARG005  # tracked: #288
         )
 
         materialize_skills(ws, [src])  # must not raise
 
-    def test_a_stale_symlink_destination_is_replaced(self, tmp_path):
+    def test_a_stale_symlink_destination_is_replaced(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         src = tmp_path / "src"
         _skill(src, "alpha")
         ws = tmp_path / "ws"
@@ -180,14 +180,14 @@ class TestMaterializeSkills:
 
 
 class TestBuildSchemaHint:
-    def test_names_the_model_and_embeds_its_schema(self):
+    def test_names_the_model_and_embeds_its_schema(self):  # noqa: ANN201  # tracked: #288
         hint = build_schema_hint(JudgeResponse)
 
         assert "JudgeResponse" in hint
         assert "EXACTLY one JSON object" in hint
         assert "verdict" in hint
 
-    def test_forbids_markdown_fences(self):
+    def test_forbids_markdown_fences(self):  # noqa: ANN201  # tracked: #288
         """CLI tools wrap JSON in fences unless told not to."""
         assert "Do not wrap it in markdown fences" in build_schema_hint(JudgeResponse)
 
@@ -197,12 +197,12 @@ class TestMaterializeNativeOutputSchema:
         "response_cls",
         [PreRoundDecision, OrchestratorPlan, JudgeResponse],
     )
-    def test_active_agent_schemas_materialize_atomically(self, tmp_path, response_cls):
+    def test_active_agent_schemas_materialize_atomically(self, tmp_path, response_cls):  # noqa: ANN001, ANN201  # tracked: #288
         relative = materialize_native_output_schema(tmp_path, response_cls)
         target = tmp_path / relative
         schema = json.loads(target.read_text())
 
-        def assert_strict_objects(node):
+        def assert_strict_objects(node):  # noqa: ANN001, ANN202  # tracked: #288
             if isinstance(node, list):
                 for value in node:
                     assert_strict_objects(value)
@@ -220,16 +220,16 @@ class TestMaterializeNativeOutputSchema:
         assert "default" not in target.read_text()
         assert not list(target.parent.glob(f".{target.name}.*"))
 
-    def test_schema_valued_mapping_falls_back_before_writing(self, tmp_path):
+    def test_schema_valued_mapping_falls_back_before_writing(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         with pytest.raises(ValueError, match="arbitrary object keys"):
             materialize_native_output_schema(tmp_path, ImplementerResponse)
 
         assert not (tmp_path / ".cache/vibesys/response-schemas").exists()
 
-    def test_rejects_unsupported_schema_constructs_before_writing(self, tmp_path):
+    def test_rejects_unsupported_schema_constructs_before_writing(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         class UnsupportedResponse(JudgeResponse):
             @classmethod
-            def model_json_schema(cls, *args, **kwargs):
+            def model_json_schema(cls, *args, **kwargs):  # noqa: ANN002, ANN003, ANN206, ARG003  # tracked: #288
                 return {
                     "type": "object",
                     "properties": {"analysis": {"type": "string"}},

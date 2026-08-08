@@ -24,7 +24,7 @@ class GitTracker:
     loop-specific git plumbing that has no dedicated method yet.
     """
 
-    _GIT_ENV_STATIC = {
+    _GIT_ENV_STATIC = {  # noqa: RUF012  # tracked: #288
         "GIT_AUTHOR_NAME": "vibesys",
         "GIT_AUTHOR_EMAIL": "vibesys@local",
         "GIT_COMMITTER_NAME": "vibesys",
@@ -55,7 +55,7 @@ class GitTracker:
         "_evaluator",
     )
 
-    def __init__(
+    def __init__(  # noqa: D107  # tracked: #288
         self,
         root: Path,
         *,
@@ -74,7 +74,7 @@ class GitTracker:
         self._exclude_file = self.root.parent / ".vibesys-git-excludes" / self.root.name
 
     @property
-    def _GIT_ENV(self) -> dict[str, str]:
+    def _GIT_ENV(self) -> dict[str, str]:  # noqa: N802  # tracked: #288
         """Git env pinned to the repository selected during initialization."""
         safe_directory = self._work_tree or self.root
         config = (
@@ -99,7 +99,7 @@ class GitTracker:
         """Run a git command in the workspace, logging stderr on failure."""
         if env is None:
             env = {**os.environ, **self._GIT_ENV}
-        result = subprocess.run(cmd, cwd=self.root, capture_output=True, env=env)
+        result = subprocess.run(cmd, cwd=self.root, capture_output=True, env=env)  # noqa: PLW1510, S603  # tracked: #288
         if check and result.returncode != 0:
             stderr = result.stderr.decode(errors="replace").strip()
             self._log(f"[git-tracking] command failed: {' '.join(cmd)}")
@@ -107,7 +107,7 @@ class GitTracker:
             result.check_returncode()
         return result
 
-    def init(self, existing: bool, *, trusted_input_baseline: str | None = None) -> None:
+    def init(self, existing: bool, *, trusted_input_baseline: str | None = None) -> None:  # noqa: FBT001  # tracked: #288
         """Initialize or validate Git tracking for the unified workspace.
 
         Experiment directories are themselves Git repositories. When the
@@ -117,7 +117,7 @@ class GitTracker:
         """
         if existing:
             if not self._inside_work_tree():
-                raise ValueError(
+                raise ValueError(  # noqa: TRY003  # tracked: #288
                     f"--git-tracking with --resume but no git repository in {self.root}"
                 )
             self._bind_repository()
@@ -131,7 +131,7 @@ class GitTracker:
             return
 
         if trusted_input_baseline is not None:
-            raise ValueError("trusted input baseline is only valid when resuming a run")
+            raise ValueError("trusted input baseline is only valid when resuming a run")  # noqa: TRY003  # tracked: #288
 
         if not self._inside_work_tree():
             self.run(["git", "init"])
@@ -202,7 +202,7 @@ class GitTracker:
             if result.returncode != 0:
                 return None
             return result.stdout.decode(errors="replace").strip()
-        except Exception:
+        except Exception:  # noqa: BLE001  # tracked: #288
             return None
 
     @property
@@ -239,7 +239,7 @@ class GitTracker:
         return sorted(
             line[3:].removeprefix(prefix) if prefix else line[3:]
             for line in result.stdout.decode(errors="replace").splitlines()
-            if len(line) > 3
+            if len(line) > 3  # noqa: PLR2004  # tracked: #288
         )
 
     def checkout_tree(
@@ -277,11 +277,11 @@ class GitTracker:
             if clean:
                 self.run(["git", "clean", "-fd", "--", "."], check=False)
             self._restore_preserved_paths(preserved)
-            return True
-        except Exception as exc:
+            return True  # noqa: TRY300  # tracked: #288
+        except Exception as exc:  # noqa: BLE001  # tracked: #288
             try:
                 self._restore_preserved_paths(preserved)
-            except Exception as preserve_exc:
+            except Exception as preserve_exc:  # noqa: BLE001  # tracked: #288
                 self._log(
                     "[warn] failed to restore preserved workspace memory after "
                     f"tree restore error: {preserve_exc}"
@@ -295,7 +295,7 @@ class GitTracker:
         for raw_path in paths:
             relative = Path(raw_path)
             if relative.is_absolute() or relative == Path() or ".." in relative.parts:
-                raise ValueError(f"preserved path must be workspace-relative: {raw_path}")
+                raise ValueError(f"preserved path must be workspace-relative: {raw_path}")  # noqa: TRY003  # tracked: #288
             source = self.root / relative
             if source.is_file():
                 preserved[relative] = source.read_bytes()
@@ -358,7 +358,7 @@ class GitTracker:
         changes.update(
             workspace_relative(line[3:])
             for line in pending.stdout.decode(errors="replace").splitlines()
-            if len(line) > 3
+            if len(line) > 3  # noqa: PLR2004  # tracked: #288
         )
         return sorted(changes)
 
@@ -374,14 +374,14 @@ class GitTracker:
             check=False,
         )
         if resolved.returncode != 0:
-            raise ValueError(f"trusted input baseline {revision!r} is not a commit")
+            raise ValueError(f"trusted input baseline {revision!r} is not a commit")  # noqa: TRY003  # tracked: #288
         commit = resolved.stdout.decode(errors="replace").strip()
         ancestor = self.run(
             ["git", "merge-base", "--is-ancestor", commit, "HEAD"],
             check=False,
         )
         if ancestor.returncode != 0:
-            raise ValueError(f"trusted input baseline {revision!r} is not an ancestor of HEAD")
+            raise ValueError(f"trusted input baseline {revision!r} is not an ancestor of HEAD")  # noqa: TRY003  # tracked: #288
         return commit
 
     def _workspace_gitignore(self) -> str:
@@ -423,14 +423,14 @@ class GitTracker:
             for d in dirnames:
                 if d in ignored_dirs:
                     continue
-                full = os.path.join(dirpath, d)
+                full = os.path.join(dirpath, d)  # noqa: PTH118  # tracked: #288
                 if os.access(full, os.R_OK | os.X_OK):
                     kept.append(d)
                 else:
                     unreadable.append(os.path.relpath(full, root))
             dirnames[:] = kept  # prune unsearchable dirs from the walk
             for f in filenames:
-                full = os.path.join(dirpath, f)
+                full = os.path.join(dirpath, f)  # noqa: PTH118  # tracked: #288
                 if not os.access(full, os.R_OK):
                     unreadable.append(os.path.relpath(full, root))
         return unreadable
@@ -444,7 +444,7 @@ class GitTracker:
         """
         paths: list[str] = []
         for m in re.finditer(r'(?:open\("|unable to index file \')([^"\']+)', stderr):
-            paths.append(m.group(1))
+            paths.append(m.group(1))  # noqa: PERF401  # tracked: #288
         return paths
 
     def _exclude_paths(self, rel_paths: list[str]) -> None:
@@ -462,7 +462,7 @@ class GitTracker:
             return
         prefix = "" if (not existing or existing.endswith("\n")) else "\n"
         exclude_file.write_text(existing + prefix + "\n".join(new) + "\n")
-        shown = ", ".join(new[:5]) + ("…" if len(new) > 5 else "")
+        shown = ", ".join(new[:5]) + ("…" if len(new) > 5 else "")  # noqa: PLR2004  # tracked: #288
         self._log(f"[git-tracking] excluded {len(new)} unreadable path(s) from snapshot: {shown}")
 
     def _add_all(self) -> None:

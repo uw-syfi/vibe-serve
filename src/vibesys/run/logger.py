@@ -33,11 +33,11 @@ class _TeeWriter:
         self._secondary.write(strip_ansi(text))
         return len(text)
 
-    def flush(self):
+    def flush(self):  # noqa: ANN202  # tracked: #288
         self._primary.flush()
         self._secondary.flush()
 
-    def isatty(self):
+    def isatty(self):  # noqa: ANN202  # tracked: #288
         return False
 
 
@@ -87,11 +87,11 @@ class RunLogger:
     global handle. A no-tee logger's ``switch``/``close`` leave stderr alone.
     """
 
-    def __init__(self, log_dir: Path, *, tee_stderr: bool = True) -> None:
+    def __init__(self, log_dir: Path, *, tee_stderr: bool = True) -> None:  # noqa: D107  # tracked: #288
         self.log_dir = log_dir
         self._tee_stderr = tee_stderr
         self._lock = threading.RLock()
-        run_started = datetime.now().strftime("%Y%m%d-%H%M%S")
+        run_started = datetime.now().strftime("%Y%m%d-%H%M%S")  # noqa: DTZ005  # tracked: #288
         self.path = log_dir / f"run-{run_started}.log"
         self.file = self.path.open("a", encoding="utf-8")
         self.writer = cast(
@@ -116,10 +116,10 @@ class RunLogger:
         with self._lock:
             return self.file.closed
 
-    def lprint(self, text: str) -> None:
+    def lprint(self, text: str) -> None:  # noqa: D102  # tracked: #288
         log_and_print(text, self.writer)
 
-    def switch(self, label: int | str):
+    def switch(self, label: int | str):  # noqa: ANN201  # tracked: #288
         """Switch to a per-phase log file (``run-<datetime>-<label>.log``).
 
         *label* is stringified into the file name.  Integer labels get a
@@ -135,7 +135,7 @@ class RunLogger:
         with self._lock:
             previous_file = self.file
             previous_file.flush()
-            ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+            ts = datetime.now().strftime("%Y%m%d-%H%M%S")  # noqa: DTZ005  # tracked: #288
             suffix = f"step{label}" if isinstance(label, int) else label
             new_path = self.log_dir / f"run-{ts}-{suffix}.log"
             new_file = new_path.open("a", encoding="utf-8")
@@ -144,7 +144,7 @@ class RunLogger:
             previous_file.close()
             return new_file
 
-    def close(self) -> None:
+    def close(self) -> None:  # noqa: D102  # tracked: #288
         with self._lock:
             if self._stderr_tee is not None and sys.stderr is self._stderr_tee:
                 sys.stderr = self._original_stderr

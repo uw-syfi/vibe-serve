@@ -21,17 +21,17 @@ from vibesys.server.protocol import (
     RunSnapshot,
     SnapshotQuery,
 )
-from vibesys.server.supervisor import RunSupervisor
+from vibesys.server.supervisor import RunSupervisor  # noqa: TC001  # tracked: #288
 
 
 class SupervisionService:
     """Authoritative message API consumed by every presentation client."""
 
-    def __init__(self, supervisor: RunSupervisor):
+    def __init__(self, supervisor: RunSupervisor):  # noqa: ANN204, D107  # tracked: #288
         self.supervisor = supervisor
         self.inspector = RunInspector(supervisor)
 
-    def execute(self, request: ProtocolRequest) -> Response:
+    def execute(self, request: ProtocolRequest) -> Response:  # noqa: D102, PLR0911  # tracked: #288
         if isinstance(request, PauseCommand):
             self.supervisor.pause_after_call()
             return Response(
@@ -68,18 +68,18 @@ class SupervisionService:
                 else self.events(request.after_sequence)
             )
             return Response(request_id=request.request_id, events=events)
-        raise TypeError(f"Unsupported protocol request: {type(request).__name__}")
+        raise TypeError(f"Unsupported protocol request: {type(request).__name__}")  # noqa: TRY003  # tracked: #288
 
-    def snapshot(self) -> RunSnapshot:
+    def snapshot(self) -> RunSnapshot:  # noqa: D102  # tracked: #288
         return self.supervisor.snapshot()
 
-    def events(self, after_sequence: int = 0) -> list[RunEvent]:
+    def events(self, after_sequence: int = 0) -> list[RunEvent]:  # noqa: D102  # tracked: #288
         return self.supervisor.read_events(after_sequence)
 
-    def history_events(self) -> list[RunEvent]:
+    def history_events(self) -> list[RunEvent]:  # noqa: D102  # tracked: #288
         return self.supervisor.read_history_events()
 
-    def performance_rounds(self) -> list[PerformanceRound]:
+    def performance_rounds(self) -> list[PerformanceRound]:  # noqa: D102  # tracked: #288
         log_dir = self.supervisor.log_dir
         if log_dir is None:
             return []
@@ -103,5 +103,5 @@ class SupervisionService:
             )
         return rounds
 
-    def wait_for_events(self, after_sequence: int, timeout: float | None = None) -> list[RunEvent]:
+    def wait_for_events(self, after_sequence: int, timeout: float | None = None) -> list[RunEvent]:  # noqa: D102  # tracked: #288
         return self.supervisor.wait_for_events(after_sequence, timeout)

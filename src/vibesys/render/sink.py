@@ -42,7 +42,7 @@ def _json_safe(args: dict[str, Any]) -> dict[str, Any]:
 class OutputSink:
     """Fan presentation events out to the supervisor and local subscribers."""
 
-    def __init__(self) -> None:
+    def __init__(self) -> None:  # noqa: D107  # tracked: #288
         self._lock = threading.Lock()
         self._subscribers: tuple[EventHandler, ...] = ()
 
@@ -59,7 +59,7 @@ class OutputSink:
 
     # -- semantic emitters ---------------------------------------------------
 
-    def agent_output(
+    def agent_output(  # noqa: D102, PLR0913  # tracked: #288
         self,
         content: str,
         *,
@@ -79,7 +79,7 @@ class OutputSink:
             invocation_id=invocation_id,
         )
 
-    def tool_call(
+    def tool_call(  # noqa: D102, PLR0913  # tracked: #288
         self,
         tool: str,
         args: dict[str, Any],
@@ -98,7 +98,7 @@ class OutputSink:
             invocation_id=invocation_id,
         )
 
-    def tool_result(
+    def tool_result(  # noqa: D102, PLR0913  # tracked: #288
         self,
         tool: str,
         content: str,
@@ -117,7 +117,7 @@ class OutputSink:
             invocation_id=invocation_id,
         )
 
-    def todo_update(
+    def todo_update(  # noqa: D102  # tracked: #288
         self,
         todos: list[TodoItemData],
         *,
@@ -135,7 +135,7 @@ class OutputSink:
             invocation_id=invocation_id,
         )
 
-    def usage_update(
+    def usage_update(  # noqa: D102, PLR0913  # tracked: #288
         self,
         input_tokens: int,
         *,
@@ -164,7 +164,7 @@ class OutputSink:
         round_label: str | None = None,
         invocation_id: str | None = None,
     ) -> None:
-        from vibesys.server.registry import active_supervisor
+        from vibesys.server.registry import active_supervisor  # noqa: PLC0415  # tracked: #288
 
         supervisor = active_supervisor()
         if supervisor is not None:

@@ -1,4 +1,4 @@
-import json
+import json  # noqa: D100  # tracked: #288
 from pathlib import Path
 from typing import Any
 
@@ -28,7 +28,7 @@ def _has_thinking(thinking: ThinkingCfg) -> bool:
     return thinking.level is not None or thinking.budget is not None
 
 
-def build_model(config: Config):
+def build_model(config: Config):  # noqa: ANN201, C901, PLR0911, PLR0912  # tracked: #288
     """Build the chat model from a parsed :class:`Config`."""
     model_name = config.model.name
     provider = config.model.provider
@@ -39,23 +39,23 @@ def build_model(config: Config):
 
     if provider == "anthropic":
         if not _is_anthropic_model(model_name):
-            raise ValueError(f"{model_name!r} is not a Claude model (provider='anthropic')")
+            raise ValueError(f"{model_name!r} is not a Claude model (provider='anthropic')")  # noqa: TRY003  # tracked: #288
         if _has_thinking(thinking):
-            raise ValueError("Thinking is not supported for provider 'anthropic'")
+            raise ValueError("Thinking is not supported for provider 'anthropic'")  # noqa: TRY003  # tracked: #288
         return f"anthropic:{model_name}"
 
     if provider == "google-genai":
         if not _is_google_model(model_name):
-            raise ValueError(f"{model_name!r} is not a Google model (provider='google-genai')")
+            raise ValueError(f"{model_name!r} is not a Google model (provider='google-genai')")  # noqa: TRY003  # tracked: #288
         if _has_thinking(thinking):
-            raise ValueError("Thinking is not supported for provider 'google-genai'")
+            raise ValueError("Thinking is not supported for provider 'google-genai'")  # noqa: TRY003  # tracked: #288
         return f"google_genai:{model_name}"
 
     if provider == "openai":
         if not _is_openai_model(model_name):
-            raise ValueError(f"{model_name!r} is not an OpenAI model (provider='openai')")
+            raise ValueError(f"{model_name!r} is not an OpenAI model (provider='openai')")  # noqa: TRY003  # tracked: #288
         if _has_thinking(thinking):
-            raise ValueError("Thinking is not supported for provider 'openai'")
+            raise ValueError("Thinking is not supported for provider 'openai'")  # noqa: TRY003  # tracked: #288
         return f"openai:{model_name}"
 
     if provider == "openai-compatible":
@@ -65,17 +65,17 @@ def build_model(config: Config):
         # Auto-detect from model name
         if _is_anthropic_model(model_name):
             if _has_thinking(thinking):
-                raise ValueError("Thinking is not supported for provider 'anthropic'")
+                raise ValueError("Thinking is not supported for provider 'anthropic'")  # noqa: TRY003  # tracked: #288
             return f"anthropic:{model_name}"
         if _is_google_model(model_name):
             if _has_thinking(thinking):
-                raise ValueError("Thinking is not supported for provider 'google-genai'")
+                raise ValueError("Thinking is not supported for provider 'google-genai'")  # noqa: TRY003  # tracked: #288
             return f"google_genai:{model_name}"
         if _is_openai_model(model_name):
             if _has_thinking(thinking):
-                raise ValueError("Thinking is not supported for provider 'openai'")
+                raise ValueError("Thinking is not supported for provider 'openai'")  # noqa: TRY003  # tracked: #288
             return f"openai:{model_name}"
-        raise ValueError(
+        raise ValueError(  # noqa: TRY003  # tracked: #288
             f"Cannot auto-detect provider for model {model_name!r}. "
             f"Set model.provider in your config."
         )
@@ -83,13 +83,13 @@ def build_model(config: Config):
     raise NotImplementedError(f"Provider {provider!r} is not yet supported")
 
 
-def _build_openai_compatible_model(model_name: str, config: Config):
+def _build_openai_compatible_model(model_name: str, config: Config):  # noqa: ANN202  # tracked: #288
     """Build a model using an OpenAI-compatible API (e.g. vLLM, Ollama)."""
-    from langchain_openai import ChatOpenAI
+    from langchain_openai import ChatOpenAI  # noqa: PLC0415  # tracked: #288
 
     oc = config.providers.openai_compatible
     if oc is None or not oc.base_url:
-        raise ValueError(
+        raise ValueError(  # noqa: TRY003  # tracked: #288
             "openai-compatible provider requires 'base_url' (e.g. 'http://localhost:8000/v1')"
         )
 
@@ -100,9 +100,9 @@ def _build_openai_compatible_model(model_name: str, config: Config):
     )
 
 
-def _build_vertex_model(model_name: str, config: Config, thinking: ThinkingCfg):
+def _build_vertex_model(model_name: str, config: Config, thinking: ThinkingCfg):  # noqa: ANN202  # tracked: #288
     """Build a Vertex AI model (Claude via Model Garden or Gemini via GenAI)."""
-    from google.oauth2 import service_account
+    from google.oauth2 import service_account  # noqa: PLC0415  # tracked: #288
 
     vx = config.providers.vertex_ai
     vertex_json = vx.json_path if vx else None
@@ -110,11 +110,11 @@ def _build_vertex_model(model_name: str, config: Config, thinking: ThinkingCfg):
     vertex_region = vx.region if vx else "us-east5"
 
     if not vertex_json:
-        raise ValueError("vertex-ai provider requires 'json' key path")
+        raise ValueError("vertex-ai provider requires 'json' key path")  # noqa: TRY003  # tracked: #288
 
     key_path = Path(vertex_json).expanduser()
     if not key_path.exists():
-        raise ValueError(f"Vertex AI service account key not found: {key_path}")
+        raise ValueError(f"Vertex AI service account key not found: {key_path}")  # noqa: TRY003  # tracked: #288
 
     creds_dict = json.loads(key_path.read_text())
     credentials = service_account.Credentials.from_service_account_info(
@@ -124,7 +124,7 @@ def _build_vertex_model(model_name: str, config: Config, thinking: ThinkingCfg):
     project = vertex_project or creds_dict.get("project_id")
 
     if not _is_google_model(model_name) and _has_thinking(thinking):
-        raise ValueError("Thinking is not supported for non-Gemini models on Vertex AI")
+        raise ValueError("Thinking is not supported for non-Gemini models on Vertex AI")  # noqa: TRY003  # tracked: #288
 
     if _is_google_model(model_name):
         thinking_kwargs = {}
@@ -152,15 +152,17 @@ def _build_vertex_model(model_name: str, config: Config, thinking: ThinkingCfg):
     )
 
 
-def _vertex_anthropic_model_class() -> Any:
+def _vertex_anthropic_model_class() -> Any:  # noqa: ANN401  # tracked: #288
     """Load the optional Vertex Anthropic class only when it is needed."""
-    from langchain_google_vertexai.model_garden import ChatAnthropicVertex
+    from langchain_google_vertexai.model_garden import (  # noqa: PLC0415  # tracked: #288
+        ChatAnthropicVertex,
+    )
 
     return ChatAnthropicVertex
 
 
-def _vertex_gemini_model_class() -> Any:
+def _vertex_gemini_model_class() -> Any:  # noqa: ANN401  # tracked: #288
     """Load the optional Vertex Gemini class only when it is needed."""
-    from langchain_google_genai import ChatGoogleGenerativeAI
+    from langchain_google_genai import ChatGoogleGenerativeAI  # noqa: PLC0415  # tracked: #288
 
     return ChatGoogleGenerativeAI

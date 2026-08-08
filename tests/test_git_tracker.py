@@ -11,24 +11,24 @@ from vibesys.run import GitTracker
 _EXCLUDED = {".git", "__pycache__", "target"}
 
 
-def _make_tracker(ws, logs=None):
+def _make_tracker(ws, logs=None):  # noqa: ANN001, ANN202  # tracked: #288
     log = logs.append if logs is not None else (lambda _msg: None)
     return GitTracker(ws, log=log, excluded_dirs=_EXCLUDED)
 
 
-def _git_stdout(ws, *args) -> str:
-    return subprocess.run(["git", *args], cwd=ws, check=True, capture_output=True, text=True).stdout
+def _git_stdout(ws, *args) -> str:  # noqa: ANN001, ANN002  # tracked: #288
+    return subprocess.run(["git", *args], cwd=ws, check=True, capture_output=True, text=True).stdout  # noqa: S603, S607  # tracked: #288
 
 
 @pytest.fixture
-def ws(tmp_path):
+def ws(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     ws = tmp_path / "ws"
     ws.mkdir()
     (ws / "main.py").write_text("VALUE = 1\n")
     return ws
 
 
-def test_init_creates_repo_gitignore_and_initial_commit(ws):
+def test_init_creates_repo_gitignore_and_initial_commit(ws):  # noqa: ANN001, ANN201  # tracked: #288
     tracker = _make_tracker(ws)
     tracker.init(existing=False)
 
@@ -41,7 +41,7 @@ def test_init_creates_repo_gitignore_and_initial_commit(ws):
     assert log.strip() == "initial: workspace setup"
 
 
-def test_init_appends_to_existing_gitignore(ws):
+def test_init_appends_to_existing_gitignore(ws):  # noqa: ANN001, ANN201  # tracked: #288
     (ws / ".gitignore").write_text("custom-entry")  # no trailing newline
     tracker = _make_tracker(ws)
     tracker.init(existing=False)
@@ -51,12 +51,12 @@ def test_init_appends_to_existing_gitignore(ws):
     assert "*.neff" in gitignore
 
 
-def test_init_uses_containing_experiment_repo_without_nesting(tmp_path):
+def test_init_uses_containing_experiment_repo_without_nesting(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     experiment = tmp_path / "experiment"
     workspace = experiment / "workspace"
     workspace.mkdir(parents=True)
     (workspace / "main.py").write_text("VALUE = 1\n")
-    subprocess.run(["git", "init", "-q", "-b", "main"], cwd=experiment, check=True)
+    subprocess.run(["git", "init", "-q", "-b", "main"], cwd=experiment, check=True)  # noqa: S607  # tracked: #288
 
     tracker = _make_tracker(workspace)
     tracker.init(existing=False)
@@ -69,36 +69,36 @@ def test_init_uses_containing_experiment_repo_without_nesting(tmp_path):
     ]
 
 
-def test_snapshot_stays_bound_when_agent_creates_nested_repo(tmp_path):
+def test_snapshot_stays_bound_when_agent_creates_nested_repo(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     experiment = tmp_path / "experiment"
     workspace = experiment / "workspace"
     workspace.mkdir(parents=True)
     (workspace / "main.py").write_text("VALUE = 1\n")
-    subprocess.run(["git", "init", "-q", "-b", "main"], cwd=experiment, check=True)
+    subprocess.run(["git", "init", "-q", "-b", "main"], cwd=experiment, check=True)  # noqa: S607  # tracked: #288
 
     tracker = _make_tracker(workspace)
     tracker.init(existing=False)
     initial_sha = tracker.current_sha()
-    assert tracker._exclude_pattern("secret.bin") == "/workspace/secret.bin"
-    assert tracker._exclude_pattern("workspace/secret.bin") == "/workspace/secret.bin"
+    assert tracker._exclude_pattern("secret.bin") == "/workspace/secret.bin"  # noqa: SLF001  # tracked: #288
+    assert tracker._exclude_pattern("workspace/secret.bin") == "/workspace/secret.bin"  # noqa: SLF001  # tracked: #288
 
     # Reproduce an isolated/root agent running plain `uv init`: a new `.git`
     # appears below the already-selected experiment repository.
-    subprocess.run(["git", "init", "-q"], cwd=workspace, check=True)
+    subprocess.run(["git", "init", "-q"], cwd=workspace, check=True)  # noqa: S607  # tracked: #288
     (workspace / "main.py").write_text("VALUE = 2\n")
     tracker.snapshot("round 1")
 
     assert tracker.current_sha() != initial_sha
     assert _git_stdout(experiment, "log", "-1", "--format=%s").strip() == "round 1"
-    nested_head = subprocess.run(
-        ["git", "rev-parse", "--verify", "HEAD"],
+    nested_head = subprocess.run(  # noqa: PLW1510  # tracked: #288
+        ["git", "rev-parse", "--verify", "HEAD"],  # noqa: S607  # tracked: #288
         cwd=workspace,
         capture_output=True,
     )
     assert nested_head.returncode != 0
 
 
-def test_init_existing_requires_repo(ws):
+def test_init_existing_requires_repo(ws):  # noqa: ANN001, ANN201  # tracked: #288
     tracker = _make_tracker(ws)
     with pytest.raises(ValueError, match="no git repository"):
         tracker.init(existing=True)
@@ -109,7 +109,7 @@ def test_init_existing_requires_repo(ws):
     assert log.strip() == "initial: workspace setup"
 
 
-def test_snapshot_commits_changes_and_skips_clean_tree(ws):
+def test_snapshot_commits_changes_and_skips_clean_tree(ws):  # noqa: ANN001, ANN201  # tracked: #288
     logs: list[str] = []
     tracker = _make_tracker(ws, logs)
     tracker.init(existing=False)
@@ -123,7 +123,7 @@ def test_snapshot_commits_changes_and_skips_clean_tree(ws):
     assert any("no changes to commit for 'round 2'" in line for line in logs)
 
 
-def test_current_sha_matches_head_and_is_none_without_repo(ws):
+def test_current_sha_matches_head_and_is_none_without_repo(ws):  # noqa: ANN001, ANN201  # tracked: #288
     tracker = _make_tracker(ws)
     assert tracker.current_sha() is None  # no repo yet
 
@@ -131,7 +131,7 @@ def test_current_sha_matches_head_and_is_none_without_repo(ws):
     assert tracker.current_sha() == _git_stdout(ws, "rev-parse", "HEAD").strip()
 
 
-def test_pending_changes_reports_tracked_and_untracked_paths(ws):
+def test_pending_changes_reports_tracked_and_untracked_paths(ws):  # noqa: ANN001, ANN201  # tracked: #288
     tracker = _make_tracker(ws)
     tracker.init(existing=False)
 
@@ -141,11 +141,11 @@ def test_pending_changes_reports_tracked_and_untracked_paths(ws):
     assert tracker.pending_changes() == ["main.py", "new.txt"]
 
 
-def test_pending_changes_are_relative_to_nested_workspace(tmp_path):
+def test_pending_changes_are_relative_to_nested_workspace(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     experiment = tmp_path / "experiment"
     workspace = experiment / "workspace"
     workspace.mkdir(parents=True)
-    subprocess.run(["git", "init", "-q", "-b", "main"], cwd=experiment, check=True)
+    subprocess.run(["git", "init", "-q", "-b", "main"], cwd=experiment, check=True)  # noqa: S607  # tracked: #288
     (workspace / "main.py").write_text("VALUE = 1\n")
     tracker = _make_tracker(workspace)
     tracker.init(existing=False)
@@ -156,7 +156,7 @@ def test_pending_changes_are_relative_to_nested_workspace(tmp_path):
     assert tracker.pending_changes() == ["main.py", "new.txt"]
 
 
-def test_checkout_tree_restores_snapshot_without_moving_head(ws):
+def test_checkout_tree_restores_snapshot_without_moving_head(ws):  # noqa: ANN001, ANN201  # tracked: #288
     tracker = _make_tracker(ws)
     tracker.init(existing=False)
     first = tracker.current_sha()
@@ -173,7 +173,7 @@ def test_checkout_tree_restores_snapshot_without_moving_head(ws):
     assert tracker.current_sha() == second
 
 
-def test_checkout_tree_clean_removes_untracked_files(ws):
+def test_checkout_tree_clean_removes_untracked_files(ws):  # noqa: ANN001, ANN201  # tracked: #288
     tracker = _make_tracker(ws)
     tracker.init(existing=False)
     first = tracker.current_sha()
@@ -183,7 +183,7 @@ def test_checkout_tree_clean_removes_untracked_files(ws):
     assert not (ws / "leftover.txt").exists()
 
 
-def test_checkout_tree_clean_keeps_ignored_runtime_assets(ws):
+def test_checkout_tree_clean_keeps_ignored_runtime_assets(ws):  # noqa: ANN001, ANN201  # tracked: #288
     tracker = GitTracker(
         ws,
         log=lambda _msg: None,
@@ -207,7 +207,7 @@ def test_checkout_tree_clean_keeps_ignored_runtime_assets(ws):
     assert not (ws / "scratch.txt").exists()
 
 
-def test_checkout_tree_preserves_framework_memory_while_removing_later_code(ws):
+def test_checkout_tree_preserves_framework_memory_while_removing_later_code(ws):  # noqa: ANN001, ANN201  # tracked: #288
     tracker = _make_tracker(ws)
     tracker.init(existing=False)
     first = tracker.current_sha()
@@ -231,7 +231,7 @@ def test_checkout_tree_preserves_framework_memory_while_removing_later_code(ws):
     assert tracker.current_sha() == second
 
 
-def test_checkout_tree_returns_false_and_logs_on_bad_sha(ws):
+def test_checkout_tree_returns_false_and_logs_on_bad_sha(ws):  # noqa: ANN001, ANN201  # tracked: #288
     logs: list[str] = []
     tracker = _make_tracker(ws, logs)
     tracker.init(existing=False)
@@ -240,7 +240,7 @@ def test_checkout_tree_returns_false_and_logs_on_bad_sha(ws):
     assert any("git tree restore 00000000 failed" in line for line in logs)
 
 
-def test_trusted_input_changes_reports_committed_and_pending_edits(ws):
+def test_trusted_input_changes_reports_committed_and_pending_edits(ws):  # noqa: ANN001, ANN201  # tracked: #288
     (ws / "accuracy_checker").mkdir()
     (ws / "accuracy_checker" / "checker.py").write_text("print('ok')\n")
     tracker = _make_tracker(ws)
@@ -260,7 +260,7 @@ def test_trusted_input_changes_reports_committed_and_pending_edits(ws):
     assert tracker.trusted_input_changes() == ["accuracy_checker/checker.py"]
 
 
-def test_resume_can_authorize_immutable_trusted_input_baseline(ws):
+def test_resume_can_authorize_immutable_trusted_input_baseline(ws):  # noqa: ANN001, ANN201  # tracked: #288
     (ws / "accuracy_checker").mkdir()
     checker = ws / "accuracy_checker" / "checker.py"
     checker.write_text("print('v1')\n")
@@ -282,7 +282,7 @@ def test_resume_can_authorize_immutable_trusted_input_baseline(ws):
     assert resumed.trusted_input_changes() == ["accuracy_checker/checker.py"]
 
 
-def test_resume_rejects_invalid_trusted_input_baseline(ws):
+def test_resume_rejects_invalid_trusted_input_baseline(ws):  # noqa: ANN001, ANN201  # tracked: #288
     tracker = _make_tracker(ws)
     tracker.init(existing=False)
 
@@ -291,7 +291,7 @@ def test_resume_rejects_invalid_trusted_input_baseline(ws):
         resumed.init(existing=True, trusted_input_baseline="not-a-revision")
 
 
-def test_run_is_a_public_escape_hatch(ws):
+def test_run_is_a_public_escape_hatch(ws):  # noqa: ANN001, ANN201  # tracked: #288
     tracker = _make_tracker(ws)
     tracker.init(existing=False)
 
@@ -299,7 +299,7 @@ def test_run_is_a_public_escape_hatch(ws):
     assert result.returncode == 0
 
 
-def test_add_worktree_materializes_commit_and_shares_object_store(ws, tmp_path):
+def test_add_worktree_materializes_commit_and_shares_object_store(ws, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     tracker = _make_tracker(ws)
     tracker.init(existing=False)
     base_sha = tracker.current_sha()
@@ -322,7 +322,7 @@ def test_add_worktree_materializes_commit_and_shares_object_store(ws, tmp_path):
     (wt / "main.py").write_text("VALUE = 7\n")
     wt_tracker.snapshot("child")
     child_sha = wt_tracker.current_sha()
-    assert child_sha is not None and child_sha != base_sha
+    assert child_sha is not None and child_sha != base_sha  # noqa: PT018  # tracked: #288
     # `git cat-file -e <sha>` in the MAIN repo succeeds → object is shared.
     assert tracker.run(["git", "cat-file", "-e", child_sha], check=False).returncode == 0
 
@@ -334,11 +334,11 @@ def test_add_worktree_materializes_commit_and_shares_object_store(ws, tmp_path):
     assert tracker.run(["git", "cat-file", "-e", child_sha], check=False).returncode == 0
 
 
-def test_remove_worktree_deletes_orphaned_directory(ws, tmp_path):
+def test_remove_worktree_deletes_orphaned_directory(ws, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     """If `git worktree remove` leaves the directory behind (as observed when a
     file is still held open by a just-stopped editor container), the explicit
     recursive delete still clears it."""
-    import shutil
+    import shutil  # noqa: PLC0415  # tracked: #288
 
     tracker = _make_tracker(ws)
     tracker.init(existing=False)
