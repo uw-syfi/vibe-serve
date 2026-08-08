@@ -406,8 +406,11 @@ def test_implementer_retry_references_prior_evidence_and_cumulative_budget():  #
     }
     rendered = _render_prompt(DomainName.LLM_SERVING, "implementer_continuation", context)
 
+    prior_locations = context["prior_attempt_artifact_locations"]
+    assert prior_locations is not None
+
     assert "Same-round retry boundary" in rendered
-    assert context["prior_attempt_artifact_locations"][0] in rendered
+    assert prior_locations[0] in rendered
     assert "remains consumed" in rendered
 
 

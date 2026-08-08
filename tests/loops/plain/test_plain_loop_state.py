@@ -145,7 +145,7 @@ class TestDetermineResumePoint:
         state = PlainLoopState(
             round_idx=1, phase="implementer", current_issue_id=None, bootstrap_done=True
         )
-        i, phase, issue_id = _determine_resume_point(state, store)  # noqa: RUF059  # tracked: #288
+        _i, phase, issue_id = _determine_resume_point(state, store)
         assert phase == "implementer"
         assert issue_id is None
 
@@ -180,7 +180,7 @@ class TestDetermineResumePoint:
         state = PlainLoopState(
             round_idx=0, phase="judge", current_issue_id=closed.id, bootstrap_done=True
         )
-        i, phase, issue_id = _determine_resume_point(state, store)  # noqa: RUF059  # tracked: #288
+        _i, phase, issue_id = _determine_resume_point(state, store)
         # Should NOT try to re-run judge on the closed issue
         assert not (phase == "judge" and issue_id == closed.id)
         assert phase == "implementer"

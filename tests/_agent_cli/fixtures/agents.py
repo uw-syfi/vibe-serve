@@ -41,7 +41,14 @@ class StubAgent(CodingAgent):
         self.calls: list[dict[str, Any]] = []
         self.generate_calls: list[dict[str, Any]] = []
 
-    def generate(self, prompt: str, cwd=None, timeout=300, silent=False, **kwargs) -> str:  # noqa: ANN001, ANN003, FBT002  # tracked: #288
+    def generate(
+        self,
+        prompt: str,
+        cwd: str | None = None,
+        timeout: int | None = 300,
+        silent: bool = False,  # noqa: FBT001, FBT002  # tracked: #288
+        **kwargs: Any,  # noqa: ANN401  # tracked: #288
+    ) -> str:
         """Return a stub response and record the call.
 
         When the prompt looks like a health assessment request, returns a

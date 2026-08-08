@@ -1249,7 +1249,7 @@ class TestCliAgentRunner:
                 self.model = model
                 self.event_handler = event_handler
                 self.env: dict[str, str] = {}
-                self.session_id = "stale-thread"
+                self.session_id: str | None = "stale-thread"
                 self.generate_calls: list[dict] = []
                 self._last_session = None
                 captured.append(self)

@@ -438,6 +438,7 @@ def test_cli_parse_failure_is_streamed_after_client_attaches():  # noqa: ANN201 
             stream.write(SubscribeRequest(after_sequence=0).model_dump_json().encode() + b"\n")
             stream.flush()
             messages = []
+            events = []
             while True:
                 line = stream.readline()
                 if not line:

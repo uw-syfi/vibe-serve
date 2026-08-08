@@ -201,7 +201,7 @@ class _FakeBackend:
 
 
 @pytest.fixture(autouse=True)
-def _native_profiler_preflight_ok(monkeypatch):  # noqa: ANN001, ANN202  # tracked: #288
+def _native_profiler_preflight_ok(monkeypatch):  # pyright: ignore[reportUnusedFunction] -- autouse fixture, never referenced by name  # noqa: ANN001, ANN202  # tracked: #288
     monkeypatch.setattr(
         "vibesys.context.preflight_profiler_kind",
         lambda kind: ProfilerPreflightResult(kind, True),  # noqa: FBT003  # tracked: #288

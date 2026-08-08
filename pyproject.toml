@@ -137,14 +137,58 @@ typeCheckingMode = "strict"
 reportUnknownMemberType = "none"
 reportUnknownVariableType = "none"
 reportUnknownArgumentType = "none"
+# Makes every `# pyright: ignore[...]` a ratchet rather than a permanent hole:
+# once the underlying error is fixed, the now-dead suppression becomes an error
+# itself and has to be removed. Set at the top level so it covers `src` and
+# `libs/*/src` too, not just the test paths whose baseline relies on it.
+reportUnnecessaryTypeIgnoreComment = "error"
 pythonVersion = "3.12"
-include = ["src", "libs/vs-feature-flags/src", "libs/vs-github/src", "libs/vs-issue-board/src", "libs/vs-sandbox/src"]
+include = ["src", "tests", "libs/vs-feature-flags/src", "libs/vs-feature-flags/tests", "libs/vs-github/src", "libs/vs-github/tests", "libs/vs-issue-board/src", "libs/vs-issue-board/tests", "libs/vs-sandbox/src", "libs/vs-sandbox/tests"]
+# `tests` and `libs/*/tests` are included above so the strict checker actually
+# sees them (previously they were unchecked entirely). Running them at full
+# strict produced thousands of errors, almost all from patterns strict mode was
+# never meant to police in test code rather than latent bugs.
+# Per-execution-environment `typeCheckingMode` is documented but not honored by
+# pyright 1.1.411 (verified: setting it to "off"/"standard" on a scoped
+# environment below left the error count unchanged), so the relaxation is
+# spelled out explicitly instead. Two tiers, both scoped to test paths only --
+# `src` and `libs/*/src` above stay at unmodified strict:
+#   1. Declaration-completeness rules that pytest's own conventions make
+#      unsatisfiable: fixture parameters (tmp_path, monkeypatch, custom
+#      fixtures) are injected by name and have no annotation to check
+#      (reportMissingParameterType, reportUnknownParameterType,
+#      reportUnknownLambdaType, reportMissingTypeArgument); tests
+#      intentionally reach into module-private state and monkeypatch a
+#      module's own imported names to assert on internals
+#      (reportPrivateUsage, reportPrivateImportUsage); and unittest.mock
+#      objects expose attributes (call_args, assert_called_once_with, ...)
+#      that their static type doesn't declare (reportAttributeAccessIssue,
+#      reportFunctionMemberAccess).
+#      These rules are categorically inapplicable to test code, so they are
+#      relaxed at the rule level for these paths.
+#   2. Everything else stays at the strict default here and is instead
+#      suppressed per site with `# pyright: ignore[<rule>]` carrying a
+#      `tracked: #297` marker. Those findings (reportArgumentType,
+#      reportOptionalMemberAccess, reportOperatorIssue, reportReturnType,
+#      reportCallIssue, reportOptionalOperand, reportIndexIssue,
+#      reportAbstractUsage) can be real bugs rather than missing
+#      declarations, so they must not become invisible: a rule-level "none"
+#      would also silently accept every *future* violation in test code.
+#      Per-site ignores plus reportUnnecessaryTypeIgnoreComment above give a
+#      baseline that can only shrink, mirroring the `# noqa: CODE` + RUF100
+#      approach used for the ruff rule expansion under the same parent.
+#      Grep `tracked: #297` for the remaining burn-down list.
 executionEnvironments = [
     { root = "libs/vs-feature-flags/src" },
     { root = "libs/vs-github/src" },
     { root = "libs/vs-issue-board/src" },
     { root = "libs/vs-sandbox/src" },
     { root = "src" },
+    { root = "tests", reportMissingParameterType = "none", reportUnknownParameterType = "none", reportUnknownLambdaType = "none", reportMissingTypeArgument = "none", reportPrivateUsage = "none", reportPrivateImportUsage = "none", reportAttributeAccessIssue = "none", reportFunctionMemberAccess = "none" },
+    { root = "libs/vs-feature-flags/tests", reportMissingParameterType = "none", reportUnknownParameterType = "none", reportUnknownLambdaType = "none", reportMissingTypeArgument = "none", reportPrivateUsage = "none", reportPrivateImportUsage = "none", reportAttributeAccessIssue = "none", reportFunctionMemberAccess = "none" },
+    { root = "libs/vs-github/tests", reportMissingParameterType = "none", reportUnknownParameterType = "none", reportUnknownLambdaType = "none", reportMissingTypeArgument = "none", reportPrivateUsage = "none", reportPrivateImportUsage = "none", reportAttributeAccessIssue = "none", reportFunctionMemberAccess = "none" },
+    { root = "libs/vs-issue-board/tests", reportMissingParameterType = "none", reportUnknownParameterType = "none", reportUnknownLambdaType = "none", reportMissingTypeArgument = "none", reportPrivateUsage = "none", reportPrivateImportUsage = "none", reportAttributeAccessIssue = "none", reportFunctionMemberAccess = "none" },
+    { root = "libs/vs-sandbox/tests", reportMissingParameterType = "none", reportUnknownParameterType = "none", reportUnknownLambdaType = "none", reportMissingTypeArgument = "none", reportPrivateUsage = "none", reportPrivateImportUsage = "none", reportAttributeAccessIssue = "none", reportFunctionMemberAccess = "none" },
 ]
 
 [tool.uv]
