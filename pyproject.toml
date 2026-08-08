@@ -67,8 +67,66 @@ test = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "libs/vs-feature-flags/tests", "libs/vs-github/tests", "libs/vs-issue-board/tests", "libs/vs-sandbox/tests"]
-addopts = "-ra"
+# Bare `--cov` measures the packages listed in `[tool.coverage.run] source`
+# below, so `uv run pytest` reports coverage locally without needing the full
+# flag string CI uses. CI layers on `--cov-report=xml`, `--cov-report=json`,
+# and `--cov-fail-under` on top of this; it does not need its own `--cov=...`
+# flags.
+addopts = "-ra --cov --cov-report=term-missing"
 pythonpath = ["."]
+
+[tool.coverage.run]
+branch = true
+source = ["vibesys", "vs_feature_flags", "vs_github", "vs_issue_board", "vs_sandbox"]
+relative_files = true
+omit = [
+    # `python -m vibesys` launcher stub: one import and a guarded call into
+    # `vibesys.main.main`, which is itself measured. Not exercised by unit
+    # tests because doing so would mean invoking the process as a script;
+    # there is no branching logic here for a test to miss.
+    "*/__main__.py",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+
+[tool.vibesys.per_module_coverage]
+# Per-module coverage floor (percent, statement + branch combined by
+# `coverage`). `--cov-fail-under` below is a repo-wide average and cannot
+# see a single near-zero module hiding inside a healthy total (issue #293).
+# `scripts/check_coverage_floor.py` enforces this floor per file using the
+# `coverage json` report.
+#
+# Chosen from the distribution measured on 2026-08-08 (branch coverage,
+# `vs_feature_flags` included): every module actually exercised by the
+# suite sits at 53%+; the only modules below that are the two allowlisted
+# below, both effectively at 0%. 40 catches modules with no meaningful
+# coverage while leaving comfortable headroom above every module that has
+# real tests, so it does not require an immediate test-writing project.
+floor = 40
+
+# Modules intentionally below the floor. Every entry must be preceded by a
+# comment naming why; do not add bare entries.
+allowlist = [
+    # Zero tests and zero callers anywhere in the repo (verified by
+    # grepping src/, tests/, and libs/). This is an adopt-or-delete
+    # decision, not a test gap, and is tracked separately from coverage
+    # enforcement. See #293.
+    "src/vibesys/_model_config/",
+    # Framework accuracy gate. The agent-loop call site is exercised
+    # directly by tests/loops/agent/test_orchestrate.py (currently ~88%
+    # measured with branch coverage), but the evolve-loop call site mocks
+    # it out entirely (tests/loops/evolve/test_evolutionary_loop.py patches
+    # `_run_framework_accuracy_gate`), and the broad `except Exception`
+    # degradation path this module relies on (gates.py:68-70) is exactly
+    # the untested, agent-visible fallback behavior
+    # docs/coding-best-practices.md warns against. Direct, branch-complete
+    # tests for the gate (pass/fail/error paths) are tracked in #292.
+    # Listed here so a coverage regression on this module is never a
+    # surprise while #292 is open.
+    "src/vibesys/loops/gates.py",
+]
 
 [tool.ruff]
 line-length = 100

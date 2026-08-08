@@ -204,7 +204,17 @@ jobs:
         run: uv sync --dev
 
       - name: Run tests
-        run: uv run python -m pytest -v --cov=vibesys --cov=vs_github --cov=vs_issue_board --cov=vs_sandbox --cov-report=term-missing --cov-report=xml --cov-fail-under=75
+        # `addopts` in pyproject.toml already sets `--cov --cov-report=term-missing`
+        # against the source list in `[tool.coverage.run]` (vibesys, vs_feature_flags,
+        # vs_github, vs_issue_board, vs_sandbox). Add the report formats CI needs on
+        # top of that instead of repeating `--cov=...` for each package.
+        run: uv run python -m pytest -v --cov-report=xml --cov-report=json --cov-fail-under=75
+
+      - name: Enforce per-module coverage floor
+        # Repo-wide --cov-fail-under is an average and can't see a single
+        # near-zero module hiding inside it (issue #293). Reads the floor and
+        # allowlist from [tool.vibesys.per_module_coverage] in pyproject.toml.
+        run: uv run python scripts/check_coverage_floor.py coverage.json
 
       - name: Upload coverage report
         if: matrix.python-version == '3.12'
