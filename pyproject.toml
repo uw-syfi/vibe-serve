@@ -52,7 +52,9 @@ dev = [
     "pyright>=1.1.411",
     "pytest",
     "pytest-cov",
-    "ruff>=0.6",
+    # Pinned exactly (not `>=`): a routine lock refresh with a floating bound
+    # could silently change what CI enforces under the strict rule set below.
+    "ruff==0.15.12",
     # Optional for users, required for contributors: without it pyright cannot
     # resolve the Omnigent backend and its tests silently skip. `uv sync --dev`
     # (what CI runs) therefore installs it. Version comes from the extra, so
@@ -74,9 +76,19 @@ pythonpath = ["."]
 line-length = 100
 target-version = "py312"
 src = ["src", "tests", "libs/vs-feature-flags/src", "libs/vs-feature-flags/tests", "libs/vs-github/src", "libs/vs-github/tests", "libs/vs-issue-board/src", "libs/vs-issue-board/tests", "libs/vs-sandbox/src", "libs/vs-sandbox/tests"]
+# resources/skills/ vendors reference code (submodule checkouts and copied
+# reference material) that VibeSys does not own and does not hold to repo
+# lint standards; see the UP040/UP046/UP047 note below.
+extend-exclude = ["resources/skills"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B", "W"]
+select = [
+    "E", "F", "I", "UP", "B", "W",
+    "SIM", "RUF", "C4", "PIE", "ISC", "RSE", "INT", "FLY", "PERF", "FURB", "RET",
+    "A", "DTZ", "LOG", "G", "N", "PTH", "YTT", "EXE", "ASYNC", "ERA", "T10", "T20", "TID", "ICN", "INP",
+    "FBT", "FIX", "TD", "PGH",
+    "ANN", "BLE", "SLF", "C901", "PL", "S", "PT", "ARG", "TRY", "TC", "D",
+]
 ignore = [
     "E501",
     # PEP 695 type-parameter syntax (`def f[T]()`, `class C[T]`, `type X = ...`)
@@ -88,6 +100,30 @@ ignore = [
     "UP040",
     "UP046",
     "UP047",
+]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.flake8-type-checking]
+runtime-evaluated-base-classes = ["pydantic.BaseModel"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "PLR2004", "D", "INP001"]
+"libs/*/tests/**" = ["S101", "PLR2004", "D", "INP001"]
+# examples/ ships candidate reference implementations, benchmark harnesses,
+# and vendored submodule checkouts (transformers, DeathStarBench, TensorRT-LLM,
+# Show-o, train-ticket, TraceLab) rather than first-party framework code. Keep
+# it held to the pre-existing baseline (E, F, I, UP, B, W) but do not apply the
+# newly added rule families here.
+"examples/**" = [
+    "SIM", "RUF", "C4", "PIE", "ISC", "RSE", "INT", "FLY", "PERF", "FURB", "RET",
+    "A", "DTZ", "LOG", "G", "N", "PTH", "YTT", "EXE", "ASYNC", "ERA", "T10", "T20", "TID", "ICN", "INP",
+    "FBT", "FIX", "TD", "PGH",
+    "ANN", "BLE", "SLF", "C901", "PL", "S", "PT", "ARG", "TRY", "TC", "D",
 ]
 
 [tool.pyright]

@@ -4490,7 +4490,7 @@ dev = [
     { name = "pyright", specifier = ">=1.1.411" },
     { name = "pytest" },
     { name = "pytest-cov" },
-    { name = "ruff", specifier = ">=0.6" },
+    { name = "ruff", specifier = "==0.15.12" },
     { name = "vibesys", extras = ["omnigent"] },
 ]
 test = [
