@@ -32,11 +32,16 @@ DEFAULT_PYPROJECT = Path("pyproject.toml")
 
 
 def load_config(pyproject_path: Path) -> tuple[float, list[str]]:
+    """Read the per-module coverage floor and allowlist from ``pyproject.toml``.
+
+    Raises:
+        SystemExit: If the ``[tool.vibesys.per_module_coverage]`` section is absent.
+    """
     data = tomllib.loads(pyproject_path.read_text())
     try:
         section = data["tool"]["vibesys"]["per_module_coverage"]
     except KeyError as exc:
-        raise SystemExit(
+        raise SystemExit(  # noqa: TRY003  # tracked: #288
             f"{pyproject_path}: missing [tool.vibesys.per_module_coverage] section"
         ) from exc
     floor = float(section["floor"])
@@ -45,6 +50,7 @@ def load_config(pyproject_path: Path) -> tuple[float, list[str]]:
 
 
 def is_allowlisted(path: str, allowlist: list[str]) -> bool:
+    """Return whether ``path`` is exempt, matching allowlist entries exactly or by directory prefix."""
     for entry in allowlist:
         if entry.endswith("/"):
             if path.startswith(entry):
@@ -55,6 +61,7 @@ def is_allowlisted(path: str, allowlist: list[str]) -> bool:
 
 
 def main() -> int:
+    """Enforce the per-module coverage floor, returning a process exit code."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("coverage_json", type=Path, help="Path to a `coverage json` report")
     parser.add_argument("--pyproject", type=Path, default=DEFAULT_PYPROJECT)

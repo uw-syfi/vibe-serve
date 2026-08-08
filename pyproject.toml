@@ -162,6 +162,10 @@ runtime-evaluated-base-classes = ["pydantic.BaseModel"]
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101", "PLR2004", "D", "INP001"]
 "libs/*/tests/**" = ["S101", "PLR2004", "D", "INP001"]
+# scripts/ holds standalone CI helper tools whose job is to report diagnostics
+# on stdout, so `print` is the intended output mechanism rather than a stray
+# debug statement. Same categorical treatment as S101 in tests/.
+"scripts/**" = ["T201"]
 # examples/ ships candidate reference implementations, benchmark harnesses,
 # and vendored submodule checkouts (transformers, DeathStarBench, TensorRT-LLM,
 # Show-o, train-ticket, TraceLab) rather than first-party framework code. Keep
