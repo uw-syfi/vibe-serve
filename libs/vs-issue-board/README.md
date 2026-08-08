@@ -137,8 +137,11 @@ When moving code into this package, move or add the tests that define that
 generic behavior here too. App-level compatibility tests can stay in the app
 test tree when they verify old import paths or VibeSys integration wiring.
 
-For the full repository gate, include package coverage with the app coverage:
+For the full repository gate, run the whole suite. `[tool.coverage.run]` in
+the root `pyproject.toml` already measures `vs_issue_board` alongside
+`vibesys` and the other workspace libraries, so a bare `uv run pytest`
+reports combined coverage locally; CI additionally enforces the floor:
 
 ```bash
-uv run python -m pytest -v --cov=vibesys --cov=vs_issue_board --cov-report=term-missing --cov-report=xml --cov-fail-under=75
+uv run pytest --cov-fail-under=75
 ```
