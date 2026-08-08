@@ -1,3 +1,4 @@
+# ruff: noqa: ANN001, ANN201, PLR0913, S106
 """Unit tests for _resolve_round_outcome (issue #290)."""
 
 from vibesys.loops.agent.loop import (
@@ -15,9 +16,7 @@ from vibesys.schemas import (
 
 
 def _plan() -> OrchestratorPlan:
-    return OrchestratorPlan(
-        task="t", pass_criteria="p", hypothesis_id="h-1", reasoning="r"
-    )
+    return OrchestratorPlan(task="t", pass_criteria="p", hypothesis_id="h-1", reasoning="r")
 
 
 def _hypothesis() -> _ActiveHypothesis:
