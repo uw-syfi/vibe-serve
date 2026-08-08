@@ -270,7 +270,6 @@ def load_input_bundle(
     from its copied workspace. Starter and evaluator sources may have lived
     outside the original bundle and are no longer needed once materialized.
     """
-
     project_root = (project_root or PROJECT_ROOT).resolve()
     root = path.expanduser().resolve()
     if not root.exists():

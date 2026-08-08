@@ -291,7 +291,7 @@ def test_run_context_chat_exposes_trajectory_without_inlining_it_in_prompt(tmp_p
         workspace=tmp_path / "workspace",
         run_log_path=tmp_path / "run.log",
     )
-    ctx.gpu_env = lambda: {}
+    ctx.gpu_env = dict
     ctx._progress_stack = []
     ctx._chat_lock = threading.Lock()
     ctx._chat_history = []
@@ -554,7 +554,7 @@ def test_run_context_records_invocation_boundary(tmp_path):
         workspace=tmp_path,
         run_log_path=tmp_path / "run.log",
     )
-    ctx.gpu_env = lambda: {}
+    ctx.gpu_env = dict
     ctx._progress_stack = []
 
     result = ctx.invoke(

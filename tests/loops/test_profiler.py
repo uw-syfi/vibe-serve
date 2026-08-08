@@ -167,7 +167,7 @@ def test_run_profiler_agent_no_response():
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture()
+@pytest.fixture
 def nsys_db(tmp_path):
     """Create a minimal nsys-like SQLite database for testing."""
     db_path = tmp_path / "test.sqlite"

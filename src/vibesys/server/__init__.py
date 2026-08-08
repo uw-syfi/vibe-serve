@@ -11,13 +11,13 @@ from vibesys.server.supervisor import RunSupervisor
 __all__ = [
     "EventStatus",
     "EventType",
+    "ProtocolRequest",
+    "Response",
     "RunEvent",
     "RunInspector",
     "RunSnapshot",
     "RunSupervisor",
     "SupervisionService",
-    "ProtocolRequest",
-    "Response",
     "active_supervisor",
     "run_server",
 ]

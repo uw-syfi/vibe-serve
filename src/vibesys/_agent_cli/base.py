@@ -66,7 +66,7 @@ def _load_json_object(raw: bytes, target: Path) -> dict[str, Any]:
         raise ValueError(f"cannot merge MCP servers into invalid JSON config: {target}") from exc
     if not isinstance(loaded, dict):
         raise ValueError(f"MCP config must contain a JSON object: {target}")
-    return dict(cast(dict[str, Any], loaded))
+    return dict(cast("dict[str, Any]", loaded))
 
 
 class CodingAgent(ABC):
@@ -131,7 +131,7 @@ class CodingAgent(ABC):
             for key, value in defaults.items():
                 config.setdefault(key, value)
         config[server_key] = {
-            **cast(dict[str, Any], existing_servers),
+            **cast("dict[str, Any]", existing_servers),
             **server_config,
         }
 
@@ -178,9 +178,9 @@ class CodingAgent(ABC):
         if not isinstance(current_servers, dict):
             raise ValueError(f"{backup.server_key!r} must be a JSON object in MCP config: {target}")
 
-        restored_servers = dict(cast(dict[str, Any], current_servers))
-        original_server_map = cast(dict[str, Any], original_servers)
-        for name, installed_value in cast(dict[str, Any], installed_servers).items():
+        restored_servers = dict(cast("dict[str, Any]", current_servers))
+        original_server_map = cast("dict[str, Any]", original_servers)
+        for name, installed_value in cast("dict[str, Any]", installed_servers).items():
             original_value = original_server_map.get(name, _MISSING)
             if installed_value == original_value:
                 continue
@@ -242,7 +242,7 @@ class CodingAgent(ABC):
         file under *workspace*, or (in Codex's case) to stash runtime
         ``--config`` flags on the instance.
         """
-        return None
+        return
 
     def set_output_schema_path(self, path: str | None) -> None:
         """Set the JSON Schema file path for the next generation.
@@ -254,11 +254,11 @@ class CodingAgent(ABC):
         nothing here. Their runners retain the portable prompt-level schema
         instruction instead.
         """
-        return None
+        return
 
     def uninstall_mcp_servers(self, workspace: Path, servers: list[MCPServerSpec]) -> None:
         """Remove anything written by :meth:`install_mcp_servers`.
 
         Idempotent. Default implementation is a no-op.
         """
-        return None
+        return

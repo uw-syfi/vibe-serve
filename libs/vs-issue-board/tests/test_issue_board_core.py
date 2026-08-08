@@ -119,9 +119,7 @@ class TestLoadCorrupt:
             (2, [0], "greater than or equal to 1"),
         ],
     )
-    def test_load_rejects_invalid_issue_identity(
-        self, tmp_path, next_id, issue_ids, message
-    ):
+    def test_load_rejects_invalid_issue_identity(self, tmp_path, next_id, issue_ids, message):
         path = tmp_path / "issues.json"
         issues = [
             {

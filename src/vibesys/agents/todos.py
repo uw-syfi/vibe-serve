@@ -86,7 +86,8 @@ def _extract(
 
 def _from_todos_arg(args: Mapping[str, Any]) -> list[TodoItemData] | None:
     """Claude Code ``TodoWrite`` / opencode ``todowrite`` / Gemini and
-    deepagents ``write_todos``: ``{"todos": [{"content", "status"}, …]}``."""
+    deepagents ``write_todos``: ``{"todos": [{"content", "status"}, …]}``.
+    """
     return _extract(args, "todos", ("content", "description"))
 
 
@@ -97,7 +98,8 @@ def _from_plan_arg(args: Mapping[str, Any]) -> list[TodoItemData] | None:
 
 def _from_items_arg(args: Mapping[str, Any]) -> list[TodoItemData] | None:
     """Codex ``exec --json`` ``todo_list`` stream item:
-    ``{"items": [{"text", "completed"|"status"}, …]}``."""
+    ``{"items": [{"text", "completed"|"status"}, …]}``.
+    """
     return _extract(args, "items", ("text",))
 
 

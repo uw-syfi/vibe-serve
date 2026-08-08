@@ -133,7 +133,7 @@ def _parse_proc_output(raw: str) -> list[dict[str, Any]]:
     """Parse nvidia-smi compute-apps CSV into process dicts."""
     procs: list[dict[str, Any]] = []
     for line in raw.strip().splitlines():
-        if not line.strip() or "pid" in line.lower() and "process" in line.lower():
+        if not line.strip() or ("pid" in line.lower() and "process" in line.lower()):
             continue
         parts = [p.strip() for p in line.split(",")]
         if len(parts) < 4:

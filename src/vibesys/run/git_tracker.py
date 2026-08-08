@@ -294,7 +294,7 @@ class GitTracker:
         preserved: dict[Path, bytes] = {}
         for raw_path in paths:
             relative = Path(raw_path)
-            if relative.is_absolute() or relative == Path(".") or ".." in relative.parts:
+            if relative.is_absolute() or relative == Path() or ".." in relative.parts:
                 raise ValueError(f"preserved path must be workspace-relative: {raw_path}")
             source = self.root / relative
             if source.is_file():

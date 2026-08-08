@@ -449,42 +449,42 @@ def test_fresh_workspace_materializes_seed_and_preserves_it_in_initial_commit(tm
     (input_dir / "OBJECTIVE.md").write_text("Build a queue.\n")
     (input_dir / "checker.py").write_text("pass\n")
 
-    with _patched_context_dependencies(project_root):
-        with _make_context(
+    with (
+        _patched_context_dependencies(project_root),
+        _make_context(
             input_dir,
             seed,
             evaluator_path=evaluator,
             git_tracking=True,
-        ) as ctx:
-            assert ctx.workspace_seed_path == seed.resolve()
-            assert ctx.evaluator_path == evaluator.resolve()
-            assert ctx.hidden_evaluator_path is None
-            assert (ctx.workspace / "Cargo.toml").is_file()
-            assert (ctx.workspace / "src" / "lib.rs").is_file()
-            assert (ctx.workspace / "OBJECTIVE.md").is_file()
-            assert (ctx.workspace / "checker.py").is_file()
-            assert not (ctx.workspace / "target").exists()
-            assert not (ctx.workspace / "candidate.so").exists()
-            assert (ctx.workspace / "_evaluator" / "queue" / "checker.go").is_file()
-            assert not (ctx.workspace / "_evaluator" / "queue" / "target").exists()
-            assert "target/\n" in (ctx.workspace / ".gitignore").read_text()
+        ) as ctx,
+    ):
+        assert ctx.workspace_seed_path == seed.resolve()
+        assert ctx.evaluator_path == evaluator.resolve()
+        assert ctx.hidden_evaluator_path is None
+        assert (ctx.workspace / "Cargo.toml").is_file()
+        assert (ctx.workspace / "src" / "lib.rs").is_file()
+        assert (ctx.workspace / "OBJECTIVE.md").is_file()
+        assert (ctx.workspace / "checker.py").is_file()
+        assert not (ctx.workspace / "target").exists()
+        assert not (ctx.workspace / "candidate.so").exists()
+        assert (ctx.workspace / "_evaluator" / "queue" / "checker.go").is_file()
+        assert not (ctx.workspace / "_evaluator" / "queue" / "target").exists()
+        assert "target/\n" in (ctx.workspace / ".gitignore").read_text()
 
-            tracked = subprocess.run(
-                ["git", "ls-files"],
-                cwd=ctx.workspace,
-                check=True,
-                capture_output=True,
-                text=True,
-            ).stdout.splitlines()
-            assert "Cargo.toml" in tracked
-            assert "src/lib.rs" in tracked
-            assert "OBJECTIVE.md" in tracked
-            assert "_evaluator/queue/checker.go" in tracked
+        tracked = subprocess.run(
+            ["git", "ls-files"],
+            cwd=ctx.workspace,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.splitlines()
+        assert "Cargo.toml" in tracked
+        assert "src/lib.rs" in tracked
+        assert "OBJECTIVE.md" in tracked
+        assert "_evaluator/queue/checker.go" in tracked
 
-            (ctx.workspace / "_evaluator" / "queue" / "checker.go").write_text(
-                "package compromised\n"
-            )
-            assert ctx.trusted_input_changes() == ["_evaluator/queue/checker.go"]
+        (ctx.workspace / "_evaluator" / "queue" / "checker.go").write_text("package compromised\n")
+        assert ctx.trusted_input_changes() == ["_evaluator/queue/checker.go"]
 
 
 def test_hidden_evaluator_stays_out_of_workspace_and_agent_project_mount(tmp_path):
@@ -552,32 +552,34 @@ def test_fresh_workspace_materializes_git_source_and_strips_nested_git(tmp_path)
         dest="vllm",
     )
 
-    with _patched_context_dependencies(project_root):
-        with _make_context(
+    with (
+        _patched_context_dependencies(project_root),
+        _make_context(
             input_dir,
             seed,
             workspace_sources=(source,),
             git_tracking=True,
-        ) as ctx:
-            assert (ctx.workspace / "serve.py").is_file()
-            assert (ctx.workspace / "vllm" / "vllm" / "__init__.py").read_text() == (
-                "__version__ = 'test'\n"
-            )
-            assert not (ctx.workspace / "vllm" / ".git").exists()
+        ) as ctx,
+    ):
+        assert (ctx.workspace / "serve.py").is_file()
+        assert (ctx.workspace / "vllm" / "vllm" / "__init__.py").read_text() == (
+            "__version__ = 'test'\n"
+        )
+        assert not (ctx.workspace / "vllm" / ".git").exists()
 
-            metadata = (ctx.workspace / "_vibesys_sources.json").read_text()
-            assert str(source_repo) in metadata
-            assert commit in metadata
+        metadata = (ctx.workspace / "_vibesys_sources.json").read_text()
+        assert str(source_repo) in metadata
+        assert commit in metadata
 
-            tracked = subprocess.run(
-                ["git", "ls-files"],
-                cwd=ctx.workspace,
-                check=True,
-                capture_output=True,
-                text=True,
-            ).stdout.splitlines()
-            assert "vllm/vllm/__init__.py" in tracked
-            assert "vllm/.git" not in tracked
+        tracked = subprocess.run(
+            ["git", "ls-files"],
+            cwd=ctx.workspace,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.splitlines()
+        assert "vllm/vllm/__init__.py" in tracked
+        assert "vllm/.git" not in tracked
 
 
 def test_fresh_workspace_materializes_git_source_without_seed(tmp_path):
@@ -605,19 +607,21 @@ def test_fresh_workspace_materializes_git_source_without_seed(tmp_path):
         dest="vllm",
     )
 
-    with _patched_context_dependencies(project_root):
-        with _make_context(
+    with (
+        _patched_context_dependencies(project_root),
+        _make_context(
             input_dir,
             seed=None,
             workspace_sources=(source,),
             git_tracking=True,
-        ) as ctx:
-            assert (ctx.workspace / "OBJECTIVE.md").is_file()
-            assert (ctx.workspace / "vllm" / "vllm" / "__init__.py").read_text() == (
-                "__version__ = 'test'\n"
-            )
-            metadata = (ctx.workspace / "_vibesys_sources.json").read_text()
-            assert commit in metadata
+        ) as ctx,
+    ):
+        assert (ctx.workspace / "OBJECTIVE.md").is_file()
+        assert (ctx.workspace / "vllm" / "vllm" / "__init__.py").read_text() == (
+            "__version__ = 'test'\n"
+        )
+        metadata = (ctx.workspace / "_vibesys_sources.json").read_text()
+        assert commit in metadata
 
 
 def test_workspace_source_destination_collision_is_rejected(tmp_path):

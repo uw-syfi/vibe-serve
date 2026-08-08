@@ -23,7 +23,7 @@ def _make_context(tmp_path):
         workspace=tmp_path,
         run_log_path=tmp_path / "run.log",
     )
-    ctx.gpu_env = lambda: {}
+    ctx.gpu_env = dict
     ctx.agent_runner = MagicMock()
     ctx.agent_runner.invoke.return_value = _judge_fallback()
     return ctx

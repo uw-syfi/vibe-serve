@@ -187,7 +187,7 @@ class OpenEvolveSearchPolicy:
         saved_state = self._load_adapter_state()
         saved_config = (
             OpenEvolveSearchConfig(
-                **cast(dict[str, Any], saved_state["config"]),
+                **cast("dict[str, Any]", saved_state["config"]),
             )
             if saved_state is not None
             else None
@@ -206,11 +206,11 @@ class OpenEvolveSearchPolicy:
                 f"saved={saved_objectives}, requested={self._objective_signature}"
             )
         self._admitted_individual_ids = set(
-            cast(list[int], saved_state.get("admitted_individual_ids", [])) if saved_state else []
+            cast("list[int]", saved_state.get("admitted_individual_ids", [])) if saved_state else []
         )
         self._rng = random.Random(seed)
         if saved_state is not None and "rng_state" in saved_state:
-            self._rng.setstate(cast(tuple[Any, ...], self._tuple_tree(saved_state["rng_state"])))
+            self._rng.setstate(cast("tuple[Any, ...]", self._tuple_tree(saved_state["rng_state"])))
 
         process_random_state = random.getstate()
         try:
@@ -234,7 +234,7 @@ class OpenEvolveSearchPolicy:
             random.setstate(process_random_state)
 
         if saved_state is not None:
-            active_ids = set(cast(list[str], saved_state.get("active_program_ids", [])))
+            active_ids = set(cast("list[str]", saved_state.get("active_program_ids", [])))
             self._database.programs = {
                 program_id: program
                 for program_id, program in self._database.programs.items()
@@ -257,7 +257,7 @@ class OpenEvolveSearchPolicy:
         payload = json.loads(state_path.read_text())
         if payload.get("schema_version") != cls._STATE_SCHEMA_VERSION:
             raise ValueError(f"unsupported OpenEvolve adapter state in {state_path}")
-        return OpenEvolveSearchConfig(**cast(dict[str, Any], payload["config"]))
+        return OpenEvolveSearchConfig(**cast("dict[str, Any]", payload["config"]))
 
     @classmethod
     def persisted_objectives(cls, state_dir: Path) -> list[Objective] | None:
@@ -268,7 +268,7 @@ class OpenEvolveSearchPolicy:
         payload = json.loads(state_path.read_text())
         if payload.get("schema_version") != cls._STATE_SCHEMA_VERSION:
             raise ValueError(f"unsupported OpenEvolve adapter state in {state_path}")
-        signature = cast(list[dict[str, str]], payload.get("objective_signature", []))
+        signature = cast("list[dict[str, str]]", payload.get("objective_signature", []))
         return [Objective(item["name"], item["direction"]) for item in signature]
 
     @staticmethod
@@ -596,7 +596,7 @@ class OpenEvolveSearchPolicy:
         if payload.get("snapshot") != self._snapshot_dir.name:
             return
         self._database.set_current_island(int(payload["current_island"]))
-        self._rng.setstate(cast(tuple[Any, ...], self._tuple_tree(payload["rng_state"])))
+        self._rng.setstate(cast("tuple[Any, ...]", self._tuple_tree(payload["rng_state"])))
 
     @staticmethod
     def _combined_score(

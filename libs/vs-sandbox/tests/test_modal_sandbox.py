@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 import pytest
 
 
-@pytest.fixture()
+@pytest.fixture
 def mock_modal(monkeypatch):
     """Patch modal.Sandbox.create, Image.from_registry, App.lookup, Volume.from_name/delete."""
     import modal
@@ -52,7 +52,7 @@ def mock_modal(monkeypatch):
     assert not leaked, f"ModalSandbox tests leaked live sandboxes: {leaked}"
 
 
-@pytest.fixture()
+@pytest.fixture
 def sandbox(tmp_path, mock_modal):
     from vs_sandbox.modal_sandbox import ModalSandbox
 

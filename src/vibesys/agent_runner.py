@@ -301,7 +301,7 @@ def run_agent(
         log_and_print(f"\n=== LLM ROUND ERROR: {round_label} ===", log_file)
         log_and_print(error_text, log_file)
         raise
-    output_text = last_ai_message if last_ai_message else "<no ai message returned>"
+    output_text = last_ai_message or "<no ai message returned>"
     log_and_print("\n=== LLM ROUND OUTPUT (final ai message) ===", log_file)
     log_markdown_and_print(output_text, log_file)
     return last_ai_message

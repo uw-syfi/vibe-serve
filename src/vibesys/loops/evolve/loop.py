@@ -818,7 +818,7 @@ def _evaluate_in_subcontext(
     try:
         with worktree_lock:
             subctx = create_candidate_context(
-                cast(Any, parent_ctx),
+                cast("Any", parent_ctx),
                 config=config,
                 generation=generation,
                 child_idx=child_idx,

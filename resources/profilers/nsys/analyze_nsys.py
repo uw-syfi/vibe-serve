@@ -80,7 +80,7 @@ def _short_kernel_name(raw: str) -> str:
 def _resolve_name(name_val, strings: dict[int, str]) -> str:
     if isinstance(name_val, int) and name_val in strings:
         return _short_kernel_name(strings[name_val])
-    elif isinstance(name_val, str):
+    if isinstance(name_val, str):
         return _short_kernel_name(name_val)
     return str(name_val)
 
@@ -193,7 +193,7 @@ def cmd_cpu_overhead(args):
     row = conn.execute(
         "SELECT COUNT(*), SUM(end-start) FROM CUPTI_ACTIVITY_KIND_RUNTIME"
     ).fetchone()
-    total_calls, total_ns = row if row else (0, 0)
+    total_calls, total_ns = row or (0, 0)
     total_ns = total_ns or 0
     print(f"Total CUDA runtime API calls: {total_calls}")
     print(f"Total CPU time in CUDA APIs:  {total_ns / 1e6:.2f} ms")

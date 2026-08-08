@@ -390,7 +390,7 @@ class CliAgentRunner:
                 "state remains authoritative.",
                 self._run_log_file,
             )
-            cast(CodexCodingAgent, agent).session_id = None
+            cast("CodexCodingAgent", agent).session_id = None
             self._session_turn_counts[cache_key] = 0
 
         # Set this on every turn, including plain-text turns, so a reused
@@ -463,7 +463,7 @@ class CliAgentRunner:
                     "retrying with a fresh thread.",
                     self._run_log_file,
                 )
-                cast(CodexCodingAgent, agent).session_id = None
+                cast("CodexCodingAgent", agent).session_id = None
                 self._session_turn_counts[cache_key] = 0
                 text = agent.generate(
                     combined_prompt,
@@ -529,7 +529,7 @@ class CliAgentRunner:
     def _configure_reasoning_effort(self, agent: CodingAgent, reasoning_effort: str | None) -> None:
         """Apply provider-specific reasoning controls to a newly built CLI agent."""
         if self._provider == "codex" and reasoning_effort is not None:
-            cast(CodexCodingAgent, agent).set_reasoning_effort(reasoning_effort)
+            cast("CodexCodingAgent", agent).set_reasoning_effort(reasoning_effort)
 
     def _write_usage_record(
         self,

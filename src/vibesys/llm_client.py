@@ -144,13 +144,12 @@ def _build_vertex_model(model_name: str, config: Config, thinking: ThinkingCfg):
             location=vertex_region,
             **thinking_kwargs,
         )
-    else:
-        return _vertex_anthropic_model_class()(
-            model_name=model_name,
-            credentials=credentials,
-            project=project,
-            location=vertex_region,
-        )
+    return _vertex_anthropic_model_class()(
+        model_name=model_name,
+        credentials=credentials,
+        project=project,
+        location=vertex_region,
+    )
 
 
 def _vertex_anthropic_model_class() -> Any:

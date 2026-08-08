@@ -61,7 +61,7 @@ _LLM_SERVING_DOMAIN = resolve_domain(DomainName.LLM_SERVING)
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture()
+@pytest.fixture
 def ref_file(tmp_path):
     """Reference *file* + sibling OBJECTIVE.md.
 

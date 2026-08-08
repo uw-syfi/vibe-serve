@@ -9,7 +9,7 @@ import pytest
 from vs_sandbox.docker_sandbox import DockerSandbox
 
 
-@pytest.fixture()
+@pytest.fixture
 def sandbox(tmp_path):
     return DockerSandbox(
         host_workspace=str(tmp_path / "workspace"),
@@ -18,7 +18,7 @@ def sandbox(tmp_path):
     )
 
 
-@pytest.fixture()
+@pytest.fixture
 def sandbox_with_mounts(tmp_path):
     return DockerSandbox(
         host_workspace=str(tmp_path / "workspace"),
@@ -104,9 +104,7 @@ class TestStart:
         assert "abc123container" not in _live_containers
 
     @patch("subprocess.run")
-    def test_start_failure_retains_created_container_when_removal_fails(
-        self, mock_run, sandbox
-    ):
+    def test_start_failure_retains_created_container_when_removal_fails(self, mock_run, sandbox):
         from vs_sandbox.docker_sandbox import _live_containers
 
         mock_run.side_effect = [
@@ -805,7 +803,7 @@ class TestCleanupOnExit:
         assert "abc123" not in _live_containers
 
     def test_sigint_defers_container_cleanup_until_stack_unwinds(self, monkeypatch):
-        import vs_sandbox.docker_sandbox as docker_sandbox
+        from vs_sandbox import docker_sandbox
 
         cleanup_calls: list[bool] = []
         original_calls: list[tuple[int, object]] = []

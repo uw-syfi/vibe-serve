@@ -28,10 +28,10 @@ __all__ = [
     "GitTracker",
     "InputProjectSpec",
     "LoopContext",
+    "RepositoryVisibility",
     "RunCommands",
     "RunLogger",
     "RunPaths",
-    "RepositoryVisibility",
     "Workspace",
     "WorkspaceStep",
 ]

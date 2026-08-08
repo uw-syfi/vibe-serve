@@ -320,7 +320,6 @@ def build_skill_catalog(skill_dirs: Iterable[str | Path]) -> dict[str, SkillCata
     A skill's frontmatter name must match its materialized directory name so an
     outer-loop recommendation cannot resolve differently across providers.
     """
-
     catalog: dict[str, SkillCatalogEntry] = {}
     for raw_root in skill_dirs:
         root = Path(raw_root).expanduser().resolve()
@@ -347,7 +346,6 @@ def _resolve_skill_resource(
     raw_resource: str,
 ) -> tuple[str | None, str | None]:
     """Resolve one skill-relative file to its agent-visible path and diagnostic."""
-
     resource = raw_resource.strip()
     if not resource:
         return None, "resource path must be a non-empty string"
@@ -387,7 +385,6 @@ def resolve_skill_selections(
     selections for one skill are merged in first-seen order to keep continuation
     prompts compact and deterministic.
     """
-
     merged: dict[str, tuple[str, list[str]]] = {}
     diagnostics: list[str] = []
     for index, selection in enumerate(selections, start=1):

@@ -333,7 +333,8 @@ class ModalSandbox(BaseSandbox):
     def _create_container(self) -> None:
         """Create (or recreate) the Modal sandbox container on top of the
         already-populated workspace volume. Shared by ``start`` and
-        ``_restart_sandbox``."""
+        ``_restart_sandbox``.
+        """
         app = modal.App.lookup(self._app_name, create_if_missing=True)
         # Clear the image's /workspace dir so our Volume can mount there —
         # the nvcr.io pytorch image ships with a populated /workspace that

@@ -275,7 +275,6 @@ class Workspace:
 
     def materialize_git_source(self, source: WorkspaceSource) -> None:
         """Clone a pinned git source into the workspace and optionally strip ``.git``."""
-
         dest = self.root / source.dest
         try:
             dest.resolve().relative_to(self.root.resolve())
@@ -478,7 +477,6 @@ class Workspace:
     @staticmethod
     def _source_gitignored_paths(src: Path) -> frozenset[tuple[str, ...]]:
         """Return untracked paths ignored by Git below ``src``."""
-
         result = subprocess.run(
             [
                 "git",

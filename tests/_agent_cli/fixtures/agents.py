@@ -303,11 +303,10 @@ class ScriptGeneratingAgent(CodingAgent):
                     content = "#!/bin/bash\necho 'Deployment successful'\nexit 0\n"
                 else:
                     content = "#!/bin/bash\necho 'Health check passed'\nexit 0\n"
+            elif filename == "deploy.sh":
+                content = "#!/bin/bash\necho 'Deployment failed'\nexit 1\n"
             else:
-                if filename == "deploy.sh":
-                    content = "#!/bin/bash\necho 'Deployment failed'\nexit 1\n"
-                else:
-                    content = "#!/bin/bash\necho 'Health check failed'\nexit 1\n"
+                content = "#!/bin/bash\necho 'Health check failed'\nexit 1\n"
 
             script_path.write_text(content, encoding="utf-8")
             script_path.chmod(0o755)

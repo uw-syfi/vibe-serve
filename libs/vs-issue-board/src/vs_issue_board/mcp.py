@@ -15,7 +15,7 @@ _ALL_TYPES: frozenset[IssueType] = frozenset({IssueType.BUG, IssueType.FEATURE, 
 
 
 def _parse_allowed_types(value: str) -> frozenset[IssueType]:
-    """argparse type= callable for ``--allowed-types``."""
+    """Argparse type= callable for ``--allowed-types``."""
     parts = [p.strip() for p in value.split(",") if p.strip()]
     if not parts:
         raise argparse.ArgumentTypeError(

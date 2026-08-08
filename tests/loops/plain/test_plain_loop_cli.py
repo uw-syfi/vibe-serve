@@ -104,119 +104,119 @@ class TestMain:
                 assert exc_info.value.code == 1
 
     def test_main_passes_round_args_to_run_loop(self):
-        with patch(
-            "sys.argv",
-            [
-                *self._BASE_ARGV,
-                "--max-rounds",
-                "7",
-                "--max-attempts-per-issue",
-                "4",
-                "--max-issues-per-perf-eval",
-                "2",
-            ],
+        with (
+            patch(
+                "sys.argv",
+                [
+                    *self._BASE_ARGV,
+                    "--max-rounds",
+                    "7",
+                    "--max-attempts-per-issue",
+                    "4",
+                    "--max-issues-per-perf-eval",
+                    "2",
+                ],
+            ),
+            self._patch_config(),
+            patch(
+                "vibesys.loops.plain.loop.run_plain_loop",
+                return_value=True,
+            ) as mock_run,
         ):
-            with (
-                self._patch_config(),
-                patch(
-                    "vibesys.loops.plain.loop.run_plain_loop",
-                    return_value=True,
-                ) as mock_run,
-            ):
-                main()
-                kwargs = mock_run.call_args.kwargs
-                assert kwargs["max_rounds"] == 7
-                assert kwargs["max_attempts_per_issue"] == 4
-                assert kwargs["max_issues_per_perf_eval"] == 2
+            main()
+            kwargs = mock_run.call_args.kwargs
+            assert kwargs["max_rounds"] == 7
+            assert kwargs["max_attempts_per_issue"] == 4
+            assert kwargs["max_issues_per_perf_eval"] == 2
 
     def test_main_start_round_overrides_loaded_state(self, tmp_path):
-        with patch(
-            "sys.argv",
-            [
-                *self._BASE_ARGV,
-                "--resume",
-                "fake-run-dir",
-                "--start-round",
-                "3",
-            ],
+        with (
+            patch(
+                "sys.argv",
+                [
+                    *self._BASE_ARGV,
+                    "--resume",
+                    "fake-run-dir",
+                    "--start-round",
+                    "3",
+                ],
+            ),
+            self._patch_config(),
+            patch(
+                "vibesys.main._resolve_run_dir",
+                return_value="fake-run-dir",
+            ),
+            patch(
+                "vibesys.loops.plain.loop.run_plain_loop",
+                return_value=True,
+            ) as mock_run,
         ):
-            with (
-                self._patch_config(),
-                patch(
-                    "vibesys.main._resolve_run_dir",
-                    return_value="fake-run-dir",
-                ),
-                patch(
-                    "vibesys.loops.plain.loop.run_plain_loop",
-                    return_value=True,
-                ) as mock_run,
-            ):
-                main()
-                kwargs = mock_run.call_args.kwargs
-                assert kwargs["existing"] is True
-                state = kwargs["resume_state"]
-                assert isinstance(state, PlainLoopState)
-                assert state.round_idx == 2  # 0-indexed
-                assert state.bootstrap_done is True
+            main()
+            kwargs = mock_run.call_args.kwargs
+            assert kwargs["existing"] is True
+            state = kwargs["resume_state"]
+            assert isinstance(state, PlainLoopState)
+            assert state.round_idx == 2  # 0-indexed
+            assert state.bootstrap_done is True
 
     def test_main_forwards_agent_backend_and_cli_provider(self):
-        with patch(
-            "sys.argv",
-            [
-                *self._BASE_ARGV,
-                "--agent-backend",
-                "cli",
-                "--cli-provider",
-                "claude",
-            ],
+        with (
+            patch(
+                "sys.argv",
+                [
+                    *self._BASE_ARGV,
+                    "--agent-backend",
+                    "cli",
+                    "--cli-provider",
+                    "claude",
+                ],
+            ),
+            self._patch_config(),
+            patch(
+                "vibesys.loops.plain.loop.run_plain_loop",
+                return_value=True,
+            ) as mock_run,
         ):
-            with (
-                self._patch_config(),
-                patch(
-                    "vibesys.loops.plain.loop.run_plain_loop",
-                    return_value=True,
-                ) as mock_run,
-            ):
-                main()
-                kwargs = mock_run.call_args.kwargs
-                assert kwargs["agent_backend"] == "cli"
-                assert kwargs["cli_provider"] == "claude"
+            main()
+            kwargs = mock_run.call_args.kwargs
+            assert kwargs["agent_backend"] == "cli"
+            assert kwargs["cli_provider"] == "claude"
 
     def test_main_defaults_agent_backend_and_cli_provider_to_none(self):
-        with patch("sys.argv", list(self._BASE_ARGV)):
-            with (
-                self._patch_config(),
-                patch(
-                    "vibesys.loops.plain.loop.run_plain_loop",
-                    return_value=True,
-                ) as mock_run,
-            ):
-                main()
-                kwargs = mock_run.call_args.kwargs
-                assert kwargs["agent_backend"] is None
-                assert kwargs["cli_provider"] is None
+        with (
+            patch("sys.argv", list(self._BASE_ARGV)),
+            self._patch_config(),
+            patch(
+                "vibesys.loops.plain.loop.run_plain_loop",
+                return_value=True,
+            ) as mock_run,
+        ):
+            main()
+            kwargs = mock_run.call_args.kwargs
+            assert kwargs["agent_backend"] is None
+            assert kwargs["cli_provider"] is None
 
     @pytest.mark.parametrize("provider", ["claude", "gemini", "codex", "opencode"])
     def test_main_accepts_all_cli_providers(self, provider):
         """All four CLI providers must reach run_plain_loop without raising."""
-        with patch(
-            "sys.argv",
-            [
-                *self._BASE_ARGV,
-                "--agent-backend",
-                "cli",
-                "--cli-provider",
-                provider,
-            ],
+        with (
+            patch(
+                "sys.argv",
+                [
+                    *self._BASE_ARGV,
+                    "--agent-backend",
+                    "cli",
+                    "--cli-provider",
+                    provider,
+                ],
+            ),
+            self._patch_config(),
+            patch(
+                "vibesys.loops.plain.loop.run_plain_loop",
+                return_value=True,
+            ) as mock_run,
         ):
-            with (
-                self._patch_config(),
-                patch(
-                    "vibesys.loops.plain.loop.run_plain_loop",
-                    return_value=True,
-                ) as mock_run,
-            ):
-                main()
-                kwargs = mock_run.call_args.kwargs
-                assert kwargs["agent_backend"] == "cli"
-                assert kwargs["cli_provider"] == provider
+            main()
+            kwargs = mock_run.call_args.kwargs
+            assert kwargs["agent_backend"] == "cli"
+            assert kwargs["cli_provider"] == provider

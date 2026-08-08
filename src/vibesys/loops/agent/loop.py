@@ -1303,7 +1303,6 @@ def _validate_skill_selections(
     the corresponding agent-visible paths.  Invalid recommendations are
     diagnostic, never a reason to abort an otherwise useful experiment.
     """
-
     if not selections:
         return [], []
     skill_sources = ctx.skill_source_paths
@@ -1759,7 +1758,6 @@ def _profiler_summary_from_single_agent(
 
 def _validation_input_digest(workspace: Path, recipe: ValidationRecipe) -> str:
     """Hash the declared workspace inputs that determine recipe reuse."""
-
     digest = hashlib.sha256()
     workspace_root = workspace.resolve()
     total_files = 0
@@ -1802,7 +1800,6 @@ def _reusable_validation_result(
     input_digest: str,
 ) -> FrameworkValidationResult | None:
     """Return the newest matching framework PASS, if one exists."""
-
     for artifact in reversed(issue_board.validation_result_artifact_paths(progress_path)):
         try:
             payload = json.loads(artifact.read_text())
@@ -1821,7 +1818,6 @@ def _reusable_validation_result(
 
 def _load_validation_recipes(workspace: Path, artifact: str) -> list[ValidationRecipe]:
     """Load and validate a candidate-authored recipe file inside the workspace."""
-
     workspace_root = workspace.resolve()
     path = (workspace / artifact).resolve()
     if not path.is_relative_to(workspace_root):
@@ -1853,7 +1849,6 @@ def _run_framework_validation_gate(
     can reach this function. Commands must be non-mutating; any workspace write
     fails the gate and is restored to the pre-validation checkpoint.
     """
-
     if recipe_artifact is None:
         return None
 
@@ -3250,11 +3245,12 @@ def run_agent_loop(
                         else None
                     )
                     active_hypothesis.continuation_rounds += 1
-                elif reviewed:
-                    active_hypothesis = None
-                elif implementation is not None and not _implementation_keeps_hypothesis_active(
-                    implementation,
-                    continuation_rounds=active_hypothesis.continuation_rounds,
+                elif reviewed or (
+                    implementation is not None
+                    and not _implementation_keeps_hypothesis_active(
+                        implementation,
+                        continuation_rounds=active_hypothesis.continuation_rounds,
+                    )
                 ):
                     active_hypothesis = None
                 else:

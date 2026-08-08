@@ -164,7 +164,7 @@ class HeadlessRenderer:
         self._at_line_start = True
 
     def _render_block(self, content: str) -> None:
-        body = content[:-1] if content.endswith("\n") else content
+        body = content.removesuffix("\n")
         if self.max_text_len is not None and len(body) > self.max_text_len:
             hidden = len(body) - self.max_text_len
             body = f"{body[: self.max_text_len]}\n... [{hidden} more chars, see log for full text]"

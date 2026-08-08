@@ -75,7 +75,6 @@ def detect_capability(
     run: Runner = subprocess.run,
 ) -> Capability:
     """Report whether Linux ``perf`` can be invoked for diagnostic profiling."""
-
     if (system or platform.system()) != "Linux":
         return Capability(
             LinuxProfilerTool.NONE,
@@ -191,7 +190,6 @@ def collect(
     call_graph: str = "fp",
 ) -> CollectionResult:
     """Run separate diagnostic ``perf stat`` and ``perf record`` workloads."""
-
     capability = capability or detect_capability()
     output_dir.mkdir(parents=True, exist_ok=True)
     started = time.time()
@@ -412,7 +410,6 @@ def _format_summary(
 
 def summarize(output_dir: Path) -> dict[str, Any]:
     """Read persisted artifacts and return a bounded machine-readable summary."""
-
     metadata_path = output_dir / "metadata.json"
     report_path = output_dir / "perf-report.txt"
     metadata = (
@@ -448,5 +445,4 @@ def summarize(output_dir: Path) -> dict[str, Any]:
 
 def parse_command(command: str) -> list[str]:
     """Parse an agent-supplied command without invoking a shell."""
-
     return shlex.split(command)

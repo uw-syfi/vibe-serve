@@ -72,7 +72,6 @@ def _structured_artifact_root(progress_path: Path) -> Path:
     ``progress.md`` runs use a sibling directory so the existing Markdown file
     remains untouched.
     """
-
     if progress_path.suffix == ".md":
         return progress_path.with_name(f"{progress_path.stem}-artifacts")
     return progress_path
@@ -80,7 +79,6 @@ def _structured_artifact_root(progress_path: Path) -> Path:
 
 def _write_json_atomic(path: Path, payload: object) -> Path:
     """Atomically replace a framework-owned JSON handoff artifact."""
-
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
     temporary = Path(temporary_name)
@@ -97,7 +95,6 @@ def _write_json_atomic(path: Path, payload: object) -> Path:
 
 def write_plan_artifact(progress_path: Path, round_number: int, plan: OrchestratorPlan) -> Path:
     """Persist the exact typed plan used by the framework for one round."""
-
     path = _structured_artifact_root(progress_path) / "plans" / f"round-{round_number:04d}.json"
     return _write_json_atomic(path, plan.model_dump(mode="json"))
 
@@ -109,7 +106,6 @@ def write_implementer_artifact(
     response: ImplementerResponse,
 ) -> Path:
     """Persist parsed implementer claims as untrusted data for Judge audit."""
-
     path = (
         _structured_artifact_root(progress_path)
         / "evidence"
@@ -120,25 +116,21 @@ def write_implementer_artifact(
 
 def validation_artifact_root(progress_path: Path) -> Path:
     """Return the framework-owned validation ledger directory."""
-
     return _structured_artifact_root(progress_path) / "validation"
 
 
 def profiler_artifact_root(progress_path: Path, round_number: int) -> Path:
     """Return the only durable output directory writable by a Profiler turn."""
-
     return _structured_artifact_root(progress_path) / "profiles" / f"round-{round_number:04d}"
 
 
 def validation_recipe_schema_path(progress_path: Path) -> Path:
     """Return the framework-owned candidate recipe-schema path."""
-
     return validation_artifact_root(progress_path) / "recipe-schema.json"
 
 
 def write_validation_recipe_schema(progress_path: Path) -> Path:
     """Publish the authoritative recipe contract for on-demand agent reads."""
-
     return _write_json_atomic(
         validation_recipe_schema_path(progress_path),
         ValidationRecipeArtifact.model_json_schema(mode="validation"),
@@ -152,7 +144,6 @@ def write_validation_result_artifact(
     results: list[FrameworkValidationResult],
 ) -> Path:
     """Persist framework-executed validation results for replay and reuse."""
-
     path = (
         validation_artifact_root(progress_path)
         / f"round-{round_number:04d}-attempt-{retry:02d}.json"
@@ -167,13 +158,11 @@ def write_validation_result_artifact(
 
 def validation_result_artifact_paths(progress_path: Path) -> list[Path]:
     """Return validation result artifacts in deterministic creation order."""
-
     return sorted(validation_artifact_root(progress_path).glob("round-*-attempt-*.json"))
 
 
 def implementer_artifact_paths(progress_path: Path, round_number: int) -> list[Path]:
     """Return persisted implementer attempts for one round in attempt order."""
-
     evidence_root = _structured_artifact_root(progress_path) / "evidence"
     pattern = f"round-{round_number:04d}-attempt-*-implementer.json"
     return sorted(evidence_root.glob(pattern))
@@ -181,7 +170,6 @@ def implementer_artifact_paths(progress_path: Path, round_number: int) -> list[P
 
 def next_implementer_attempt(progress_path: Path, round_number: int) -> int:
     """Return the next durable attempt number for an interrupted round."""
-
     attempts: list[int] = []
     prefix = f"round-{round_number:04d}-attempt-"
     suffix = "-implementer.json"
@@ -620,7 +608,6 @@ def append_framework_validation_gate(
     results: list[FrameworkValidationResult],
 ) -> None:
     """Record the deterministic local validation gate in the progress ledger."""
-
     passed = bool(results) and all(result.passed for result in results)
     lines = [
         f"## Round {round_number} — Framework local validation (attempt {retry})",

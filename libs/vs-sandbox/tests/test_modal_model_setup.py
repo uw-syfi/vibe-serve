@@ -22,7 +22,7 @@ class TestVolumeNameFor:
         )
 
 
-@pytest.fixture()
+@pytest.fixture
 def mock_modal(monkeypatch):
     import modal
 

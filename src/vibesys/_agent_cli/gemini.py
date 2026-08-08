@@ -83,7 +83,8 @@ class GeminiCodingAgent(CLICodingAgent[GeminiGenerationSession]):
         """Merge servers into ``<workspace>/.gemini/settings.json``.
 
         Gemini CLI discovers the servers from cwd. ``trust: true`` skips
-        Gemini's per-tool approval prompts for these servers."""
+        Gemini's per-tool approval prompts for these servers.
+        """
         server_config: dict[str, dict[str, Any]] = {
             s.name: {
                 "command": s.command,

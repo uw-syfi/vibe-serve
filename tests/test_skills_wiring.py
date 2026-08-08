@@ -74,7 +74,7 @@ def test_trainium_loads_nki_skills_from_sidecar_metadata(tmp_path):
     assert backend is ComputeBackend.TRAINIUM
     names = _skill_names(skills)
     assert "serving-systems" in names
-    assert NKI_SKILL_NAMES <= names
+    assert names >= NKI_SKILL_NAMES
 
 
 def test_cuda_filters_out_trainium_scoped_nki_skills(tmp_path):
@@ -257,7 +257,7 @@ def test_all_repository_skill_metadata_is_valid():
         for item in validate_skill_tree(PROJECT_ROOT / "resources" / "skills")
     }
     assert metadata["serving-systems"].domains == (DomainName.LLM_SERVING,)
-    assert NKI_SKILL_NAMES <= set(metadata)
+    assert set(metadata) >= NKI_SKILL_NAMES
 
 
 def test_all_nki_skills_inherit_trainium_scope_from_wrapper_sidecar():

@@ -81,7 +81,8 @@ class OpencodeCodingAgent(CLICodingAgent[OpencodeGenerationSession]):
         Opencode discovers the MCP servers from cwd and uses the ``mcp`` key (not
         ``mcpServers``) and a single combined ``command`` array. Non-
         interactive ``opencode run`` already auto-approves all permissions,
-        so no extra ``permission`` block is needed."""
+        so no extra ``permission`` block is needed.
+        """
         server_config: dict[str, dict[str, Any]] = {
             s.name: {
                 "type": "local",

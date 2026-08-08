@@ -93,7 +93,6 @@ CLI_PROFILER_CHOICES: tuple[ProfilerKind, ...] = tuple(ProfilerKind)
 
 def profiler_definition(kind: ProfilerKind) -> ProfilerDefinition:
     """Return the declaration for a runnable profiler kind."""
-
     kind = require_profiler_kind(kind)
     try:
         return PROFILER_DEFINITIONS[kind]
@@ -103,7 +102,6 @@ def profiler_definition(kind: ProfilerKind) -> ProfilerDefinition:
 
 def coerce_profiler_kind(value: str, *, label: str = "profiler") -> ProfilerKind:
     """Parse a profiler kind and raise a useful error for unknown values."""
-
     try:
         return ProfilerKind(value)
     except ValueError as exc:
@@ -113,7 +111,6 @@ def coerce_profiler_kind(value: str, *, label: str = "profiler") -> ProfilerKind
 
 def require_profiler_kind(value: object, *, label: str = "profiler") -> ProfilerKind:
     """Require an already-parsed profiler enum at internal API boundaries."""
-
     if not isinstance(value, ProfilerKind):
         raise TypeError(f"{label} must be a ProfilerKind, got {type(value).__name__}.")
     return value
@@ -121,7 +118,6 @@ def require_profiler_kind(value: object, *, label: str = "profiler") -> Profiler
 
 def require_domain_name(value: object, *, label: str = "domain") -> DomainName:
     """Require an already-parsed domain enum at internal API boundaries."""
-
     if not isinstance(value, DomainName):
         raise TypeError(f"{label} must be a DomainName, got {type(value).__name__}.")
     return value
@@ -129,7 +125,6 @@ def require_domain_name(value: object, *, label: str = "domain") -> DomainName:
 
 def allowed_profiler_kinds(domain: DomainName) -> frozenset[ProfilerKind]:
     """Profiler kinds allowed by a domain."""
-
     domain_name = require_domain_name(domain)
     return frozenset(
         {ProfilerKind.NONE}
@@ -155,7 +150,6 @@ def resolve_profiler_kind(
     profiler when the host platform has one; LLM-serving workloads pick the
     backend profiler unless the run environment dictates another safe default.
     """
-
     requested_kind = require_profiler_kind(requested, label="requested profiler")
     domain_name = require_domain_name(domain)
     allowed = allowed_profiler_kinds(domain_name)
@@ -272,7 +266,6 @@ def preflight_profiler_kind(kind: ProfilerKind) -> ProfilerPreflightResult:
     profilers run on the local host, so check their command availability before
     the optimization loop starts.
     """
-
     resolved = require_profiler_kind(kind)
     if resolved is ProfilerKind.NONE:
         return ProfilerPreflightResult(resolved, True)

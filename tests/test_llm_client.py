@@ -35,7 +35,7 @@ FAKE_CREDS_DICT = {
 }
 
 
-@pytest.fixture()
+@pytest.fixture
 def key_file(tmp_path):
     kf = tmp_path / "key.json"
     kf.write_text(json.dumps(FAKE_CREDS_DICT))

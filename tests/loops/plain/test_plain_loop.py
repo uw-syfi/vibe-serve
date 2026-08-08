@@ -103,7 +103,7 @@ def _store_path(exp_dir: Path) -> Path:
     return exp_dir / "workspace" / "issues.json"
 
 
-@pytest.fixture()
+@pytest.fixture
 def ref_file(tmp_path):
     """Create a temporary reference file for run_plain_loop tests."""
     f = tmp_path / "ref.py"

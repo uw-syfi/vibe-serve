@@ -52,7 +52,7 @@ RUST_DOCKER_TOOLCHAIN_VERSION = "1.92.0"
 # return transient "connection timed out" / "mirror sync in progress"
 # errors that fail a single-shot `apt-get update`.
 def _apt_install(pkgs: str, check_bin: str | None = None) -> str:
-    bin_ = check_bin or pkgs.split()[0]
+    bin_ = check_bin or pkgs.split(maxsplit=1)[0]
     return (
         f"command -v {bin_} >/dev/null || "
         "{ for i in 1 2 3 4 5; do "

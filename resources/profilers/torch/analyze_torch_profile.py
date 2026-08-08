@@ -263,8 +263,7 @@ def _summarize_prof(prof, num_iters: int) -> dict:
         if (
             ev.device_type == torch.autograd.DeviceType.CUDA
             or "cuda" in name.lower()
-            or cuda_us > 0
-            and cpu_us < cuda_us / 4
+            or (cuda_us > 0 and cpu_us < cuda_us / 4)
         ):
             category = "kernel"
         elif name.startswith("aten::") or name.startswith("torch::"):
@@ -302,7 +301,7 @@ def _summarize_prof(prof, num_iters: int) -> dict:
 
 # Lazy import to keep module importable without torch
 try:
-    import torch  # noqa: F401
+    import torch
 except ImportError:  # pragma: no cover
     torch = None  # type: ignore
 

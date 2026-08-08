@@ -483,7 +483,6 @@ def run_environment_spec_from_args(args: argparse.Namespace) -> RunEnvironmentSp
 
 def _validate_run_environment_profiler(args: argparse.Namespace) -> None:
     """Validate profiler compatibility through the selected adapter contract."""
-
     spec = run_environment_spec_from_args(args)
     supported = build_run_environment(spec).supported_profiler_kinds
     if supported is None or args.profiler in supported:
@@ -547,8 +546,7 @@ def _clone_experiment(remote: str) -> str:
     repository_name = remote.rstrip("/").rsplit("/", 1)[-1]
     if ":" in repository_name:
         repository_name = repository_name.rsplit(":", 1)[-1]
-    if repository_name.endswith(".git"):
-        repository_name = repository_name[:-4]
+    repository_name = repository_name.removesuffix(".git")
     if not repository_name:
         _configuration_error(
             f"Cannot determine a local directory name from --resume {remote!r}",
@@ -773,7 +771,6 @@ def _build_validate_parser() -> argparse.ArgumentParser:
 
 def _run_validate(argv: list[str]) -> None:
     """Validate one input-bundle contract, then report its resolved paths."""
-
     args = _build_validate_parser().parse_args(argv)
     input_path = (args.input_bundle or Path.cwd()).expanduser().resolve()
 
@@ -835,7 +832,7 @@ def _detect_resume_round(exp_dir: Path) -> int:
         return 1
     try:
         data = json.loads(rounds_json.read_text())
-        return int(len(data)) + 1
+        return len(data) + 1
     except Exception:
         return 1
 

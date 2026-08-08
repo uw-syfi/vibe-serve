@@ -212,7 +212,7 @@ class DockerCommandExecutor:
             # TimeoutExpired is only raised by the wait(timeout=...) branch,
             # so request.timeout is non-None on this path.
             raise subprocess.TimeoutExpired(
-                list(request.argv), cast(float, request.timeout)
+                list(request.argv), cast("float", request.timeout)
             ) from None
         finally:
             if process.poll() is None:
@@ -400,7 +400,7 @@ class DockerCommandExecutor:
             payload_type = payload.get("type")
             if payload_type in {"task_started", "task_complete"}:
                 last_lifecycle_index = index
-                last_lifecycle_type = cast(str, payload_type)
+                last_lifecycle_type = cast("str", payload_type)
         if last_lifecycle_type != "task_complete":
             return None
 

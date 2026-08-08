@@ -34,7 +34,6 @@ LogFn = Callable[[str], None]
 
 def discover_input_project(reference_dir: Path | None) -> Path | None:
     """Return the input project directory for a conventional ``reference/`` path."""
-
     if reference_dir is None or reference_dir.name != "reference":
         return None
     candidate = reference_dir.parent
@@ -57,7 +56,6 @@ def materialize_input_project(
     workspace copy is rewritten so every explicit ``examples/libs`` path dep
     points at ``workspace/_input_libs/<relative-lib-path>``.
     """
-
     pyproject = input_project_dir / "pyproject.toml"
     if not pyproject.is_file():
         return []

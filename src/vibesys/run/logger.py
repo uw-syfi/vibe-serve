@@ -95,7 +95,7 @@ class RunLogger:
         self.path = log_dir / f"run-{run_started}.log"
         self.file = self.path.open("a", encoding="utf-8")
         self.writer = cast(
-            TextIO,
+            "TextIO",
             _CurrentLogWriter(self._write_current, self._flush_current, self._current_closed),
         )
         self._original_stderr = sys.stderr

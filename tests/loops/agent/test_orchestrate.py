@@ -170,7 +170,7 @@ def test_distant_rollback_uses_requested_historical_commit():
     assert child_round is None
 
 
-@pytest.fixture()
+@pytest.fixture
 def ref_file(tmp_path):
     """Create a reference *file* (not dir) + an OBJECTIVE.md sibling.
 
