@@ -102,3 +102,67 @@ uv run vibesys-issue-mcp
 For issue forms and repository issue conventions, see
 [`docs/issue-authoring.md`](issue-authoring.md). For evolutionary search policy
 work, see [`docs/openevolve.md`](openevolve.md).
+
+## CI gates
+
+Every pull request must pass the following gates before it can be merged.
+You can run each one locally before pushing.
+
+### Format
+
+```bash
+./scripts/check_format.sh
+```
+
+Runs `ruff format --check` (whitespace, line length, blank lines) and
+`ruff check --select I` (import order) across `src`, `tests`, `examples`,
+`resources`, and `libs`. To auto-fix locally:
+
+```bash
+uv run ruff format src tests examples resources libs
+uv run ruff check --select I --fix src tests examples resources libs
+```
+
+### Lint
+
+```bash
+./scripts/check_lint.sh
+```
+
+Runs `ruff check .` across the whole repository. Fix automatically where
+possible with `--fix`; the remaining errors need manual attention. Test
+files that trigger false-positive rules (e.g. `S106` on fixture arguments,
+`ANN001`/`ANN201` on helpers, `PLR0913` on builder functions) can suppress
+them with a file-level `# ruff: noqa: <codes>` comment at the top of the
+file.
+
+### Coverage
+
+The test job enforces two independent coverage floors:
+
+**Repo-wide floor — 75 %**  
+`uv run pytest` (with `--cov` already wired in via `pyproject.toml`) must
+reach 75 % combined statement + branch coverage across the tracked packages
+(`vibesys`, `vs_feature_flags`, `vs_github`, `vs_issue_board`, `vs_sandbox`).
+
+**Per-module floor — 40 %**  
+`scripts/check_coverage_floor.py` reads `coverage.json` and rejects any
+module below 40 % that is not in the `allowlist` in
+`[tool.vibesys.per_module_coverage]` in `pyproject.toml`. The repo-wide
+average can mask a single near-zero module; this floor prevents that (see
+issue #298). Modules may be allowlisted only with a comment explaining why
+they are intentionally untested.
+
+**Patch coverage (PRs only)**  
+New lines introduced by a pull request are checked separately against a
+patch-coverage threshold. If your PR adds code that is not exercised by any
+test, this gate will fail even if the repo-wide numbers are healthy. Add
+focused unit tests for the new code paths — prefer pure-function extraction
+(as in issue #290) to make new logic directly testable.
+
+To reproduce the coverage check locally:
+
+```bash
+uv run pytest --cov-report=json
+uv run python scripts/check_coverage_floor.py coverage.json
+```
