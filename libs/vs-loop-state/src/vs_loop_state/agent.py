@@ -24,14 +24,16 @@ deliberately not part of its API.
 
 from __future__ import annotations
 
-from collections.abc import Container
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import ConfigDict, Field, TypeAdapter
 from pydantic.dataclasses import dataclass
 
 from vs_loop_state.core import atomic_write_json, read_json
+
+if TYPE_CHECKING:
+    from collections.abc import Container
+    from pathlib import Path
 
 
 @dataclass(config=ConfigDict(extra="forbid"))
@@ -110,13 +112,14 @@ def _parse_round_record(data: dict[str, Any]) -> RoundRecord:
 class RoundHistory:
     """The round-by-round history of an agent-loop run.
 
-    Wraps the list of `RoundRecord`\\ s produced by a run together with where
+    Wraps the list of round records produced by a run together with where
     (if anywhere) it's persisted. Construct with ``records=`` for a purely
     in-memory history (e.g. in tests); use `RoundHistory.load` to read one
     back from wherever it was previously saved.
     """
 
     def __init__(self, path: Path | None = None, records: list[RoundRecord] | None = None) -> None:
+        """Wrap *records* (empty by default) together with the *path* to persist to."""
         self.path = path
         self.records: list[RoundRecord] = records if records is not None else []
 
@@ -130,10 +133,11 @@ class RoundHistory:
     def save(self) -> None:
         """Persist the current history, atomically, to the path it was loaded/created with."""
         if self.path is None:
-            raise ValueError("RoundHistory has no path to save to")
+            raise ValueError("RoundHistory has no path to save to")  # noqa: TRY003  # tracked: #288
         atomic_write_json(self.path, [_round_record_to_json(record) for record in self.records])
 
     def append(self, record: RoundRecord) -> None:
+        """Add *record* to the end of the history."""
         self.records.append(record)
 
     def resolve_rollback_commit(
