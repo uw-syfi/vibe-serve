@@ -4,7 +4,7 @@ include packaging_support.py
 include resources_packaging.py
 include tui_packaging.py
 include wheel_targets.py
-include third_party/bun/LICENSE.md
+include third_party/bun/LICENSE
 
 # Include the Python package roots owned by the root distribution.
 graft src

@@ -52,14 +52,17 @@ class BuildEnvironment:
 
 
 def build_release_wheel(
-    repo_root: Path,
-    *,
     target_key: str,
     bun: Path,
     output_dir: Path,
+    *,
     environment: BuildEnvironment | None = None,
+    _repo_root: Path = REPO_ROOT,
 ) -> Path:
     """Build exactly one native wheel for ``target_key`` and return its path."""
+    repo_root = _repo_root.resolve()
+    bun = bun.resolve()
+    output_dir = output_dir.resolve()
     build_environment = environment or BuildEnvironment()
     target = resolve_wheel_target(
         target_key,
@@ -87,9 +90,7 @@ def build_release_wheel(
 
     distribution_version, tui_version = _project_versions(repo_root)
     if distribution_version != tui_version:
-        _fail(
-            f"Python version {distribution_version} does not match TUI version {tui_version}"
-        )
+        _fail(f"Python version {distribution_version} does not match TUI version {tui_version}")
 
     _run(
         ["pnpm", "install", "--frozen-lockfile"],
@@ -190,7 +191,7 @@ def _stage_runtime_and_licenses(repo_root: Path, *, bun: Path, payload: Path) ->
 
     licenses = payload / "licenses"
     licenses.mkdir()
-    bun_license = repo_root / "third_party" / "bun" / "LICENSE.md"
+    bun_license = repo_root / "third_party" / "bun" / "LICENSE"
     opentui_license = payload / "app" / "node_modules" / "@opentui" / "core" / "LICENSE"
     if not bun_license.is_file():
         _fail(f"Bun license is missing: {bun_license}")
@@ -252,13 +253,7 @@ def _parse_args() -> argparse.Namespace:
 def main() -> int:
     """Build the requested release wheel from the repository root."""
     args = _parse_args()
-    repo_root = Path(__file__).resolve().parents[1]
-    wheel = build_release_wheel(
-        repo_root,
-        target_key=args.target,
-        bun=args.bun,
-        output_dir=args.output_dir,
-    )
+    wheel = build_release_wheel(args.target, args.bun, args.output_dir)
     print(wheel)
     return 0
 

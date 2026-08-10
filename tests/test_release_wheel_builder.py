@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import json
 import subprocess
 import sys
@@ -15,6 +16,20 @@ from scripts.build_release_wheel import (  # pyright: ignore[reportMissingImport
 )
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_build_release_wheel_preserves_the_public_positional_interface() -> None:
+    """A required repository-root argument must not break release callers."""
+    parameters = list(inspect.signature(build_release_wheel).parameters.values())
+
+    assert [parameter.name for parameter in parameters[:3]] == [
+        "target_key",
+        "bun",
+        "output_dir",
+    ]
+    assert all(
+        parameter.kind is inspect.Parameter.POSITIONAL_OR_KEYWORD for parameter in parameters[:3]
+    )
 
 
 def test_build_script_can_be_invoked_by_file_path(tmp_path: Path) -> None:
@@ -35,13 +50,11 @@ def test_build_script_can_be_invoked_by_file_path(tmp_path: Path) -> None:
 def _make_repo(root: Path) -> tuple[Path, Path]:
     tui = root / "clients" / "tui"
     (tui / "dist").mkdir(parents=True)
-    (tui / "package.json").write_text(
-        json.dumps({"name": "@vibesys/tui", "version": "0.1.0"})
-    )
+    (tui / "package.json").write_text(json.dumps({"name": "@vibesys/tui", "version": "0.1.0"}))
     (tui / "dist" / "launcher.js").write_text("// launcher\n")
     (tui / "dist" / "self-test.js").write_text("// self-test\n")
     (root / "pyproject.toml").write_text('[project]\nname = "vibesys"\nversion = "0.1.0"\n')
-    license_path = root / "third_party" / "bun" / "LICENSE.md"
+    license_path = root / "third_party" / "bun" / "LICENSE"
     license_path.parent.mkdir(parents=True)
     license_path.write_text("Bun license\n")
     bun = root / "tools" / "bun"
@@ -99,15 +112,15 @@ def test_build_release_wheel_assembles_payload_without_mutating_node_modules(tmp
         return subprocess.CompletedProcess(argv, 0, stdout="", stderr="")
 
     wheel = build_release_wheel(
-        repo,
-        target_key="linux-x86_64",
-        bun=bun,
-        output_dir=output,
+        "linux-x86_64",
+        bun,
+        output,
         environment=BuildEnvironment(
             runner=runner,
             host_system="Linux",
             host_machine="x86_64",
         ),
+        _repo_root=repo,
     )
 
     assert wheel.name == "vibesys-0.1.0-py3-none-manylinux_2_28_x86_64.whl"
@@ -132,6 +145,56 @@ def test_build_release_wheel_assembles_payload_without_mutating_node_modules(tmp
     assert "app/node_modules/@opentui/core-linux-arm64" not in files
 
 
+def test_build_release_wheel_resolves_caller_relative_paths(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Changing subprocess cwd must not reinterpret caller-relative paths."""
+    repo, bun = _make_repo(tmp_path / "repo")
+    monkeypatch.chdir(tmp_path)
+    relative_bun = bun.relative_to(tmp_path)
+    relative_output = Path("release")
+    calls: list[tuple[list[str], Path]] = []
+
+    def runner(command, *, cwd, check, **_kwargs):  # noqa: ANN001, ANN003, ANN202, ARG001
+        argv = [str(part) for part in command]
+        command_cwd = Path(cwd)
+        calls.append((argv, command_cwd))
+        if argv[-1] == "--version":
+            return subprocess.CompletedProcess(argv, 0, stdout="1.3.9\n", stderr="")
+        if "deploy" in argv:
+            _fake_deployment(Path(argv[-1]))
+        if argv[:3] == ["uv", "build", "--wheel"]:
+            output_argument = Path(argv[-1])
+            command_output = (
+                output_argument if output_argument.is_absolute() else command_cwd / output_argument
+            )
+            command_output.mkdir(parents=True, exist_ok=True)
+            (command_output / "vibesys-0.1.0-py3-none-manylinux_2_28_x86_64.whl").write_bytes(
+                b"wheel"
+            )
+        return subprocess.CompletedProcess(argv, 0, stdout="", stderr="")
+
+    wheel = build_release_wheel(
+        "linux-x86_64",
+        relative_bun,
+        relative_output,
+        environment=BuildEnvironment(
+            runner=runner,
+            host_system="Linux",
+            host_machine="x86_64",
+        ),
+        _repo_root=repo,
+    )
+
+    expected_output = (tmp_path / relative_output).resolve()
+    assert wheel == expected_output / wheel.name
+    assert calls[0][0] == [str(bun.resolve()), "--version"]
+    build_command = next(
+        command for command, _cwd in calls if command[:3] == ["uv", "build", "--wheel"]
+    )
+    assert build_command[-1] == str(expected_output)
+
+
 def test_build_release_wheel_rejects_the_wrong_bun_version(tmp_path):  # noqa: ANN001, ANN201
     repo, bun = _make_repo(tmp_path / "repo")
 
@@ -140,15 +203,15 @@ def test_build_release_wheel_rejects_the_wrong_bun_version(tmp_path):  # noqa: A
 
     with pytest.raises(ReleaseBuildError, match=r"Bun 1\.3\.9"):
         build_release_wheel(
-            repo,
-            target_key="linux-x86_64",
-            bun=bun,
-            output_dir=tmp_path / "dist",
+            "linux-x86_64",
+            bun,
+            tmp_path / "dist",
             environment=BuildEnvironment(
                 runner=runner,
                 host_system="Linux",
                 host_machine="x86_64",
             ),
+            _repo_root=repo,
         )
 
 
@@ -160,14 +223,14 @@ def test_build_release_wheel_rejects_preexisting_wheels(tmp_path):  # noqa: ANN0
 
     with pytest.raises(ReleaseBuildError, match="already contains"):
         build_release_wheel(
-            repo,
-            target_key="linux-x86_64",
-            bun=bun,
-            output_dir=output,
+            "linux-x86_64",
+            bun,
+            output,
             environment=BuildEnvironment(
                 host_system="Linux",
                 host_machine="x86_64",
             ),
+            _repo_root=repo,
         )
 
 
@@ -188,13 +251,13 @@ def test_build_release_wheel_rejects_a_universal_wheel_tag(tmp_path):  # noqa: A
 
     with pytest.raises(ReleaseBuildError, match="platform tag"):
         build_release_wheel(
-            repo,
-            target_key="linux-x86_64",
-            bun=bun,
-            output_dir=output,
+            "linux-x86_64",
+            bun,
+            output,
             environment=BuildEnvironment(
                 runner=runner,
                 host_system="Linux",
                 host_machine="x86_64",
             ),
+            _repo_root=repo,
         )

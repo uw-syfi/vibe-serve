@@ -48,18 +48,40 @@ def test_root_distribution_discovers_internal_packages_from_their_source_roots()
     assert {"vibesys", *INTERNAL_IMPORT_PACKAGES} <= set(packages)
     assert "vibesys.prompts.backend.cuda" in packages
     assert package_dirs["vibesys"] == "src/vibesys"
-    assert package_dirs["vs_feature_flags"] == (
-        "libs/vs-feature-flags/src/vs_feature_flags"
-    )
+    assert package_dirs["vs_feature_flags"] == ("libs/vs-feature-flags/src/vs_feature_flags")
     assert package_dirs["vs_sandbox"] == "libs/vs-sandbox/src/vs_sandbox"
+
+
+def test_namespace_discovery_excludes_build_and_cache_artifacts(tmp_path: Path) -> None:
+    """Local interpreter and build artifacts must never become wheel packages."""
+    module = _load_packaging_support()
+    package = tmp_path / "src" / "example"
+    package.mkdir(parents=True)
+    (package / "__init__.py").write_text("")
+    (package / "namespace").mkdir()
+    for artifact in (
+        "__pycache__",
+        "build",
+        "dist",
+        ".mypy_cache",
+        ".pytest_cache",
+        ".ruff_cache",
+    ):
+        (package / artifact / "nested").mkdir(parents=True)
+
+    packages, package_dirs = module.discover_distribution_packages(tmp_path)
+
+    assert packages == ["example", "example.namespace"]
+    assert package_dirs == {
+        "example": "src/example",
+        "example.namespace": "src/example/namespace",
+    }
 
 
 def test_root_metadata_declares_internal_runtime_dependencies_directly():  # noqa: ANN201
     """Reintroducing a workspace-only dependency must make PyPI resolution fail here."""
     pyproject = tomllib.loads((PROJECT_ROOT / "pyproject.toml").read_text())
-    requirements = {
-        Requirement(raw).name for raw in pyproject["project"]["dependencies"]
-    }
+    requirements = {Requirement(raw).name for raw in pyproject["project"]["dependencies"]}
 
     assert requirements.isdisjoint(INTERNAL_DISTRIBUTIONS)
     assert {"mcp", "modal"} <= requirements
