@@ -741,9 +741,7 @@ def test_run_context_materializes_sdk_deps_from_workspace_seed(tmp_path):  # noq
     project_root = tmp_path / "project"
     sdk_pkg = project_root / "sdk" / "vs-bench"
     sdk_pkg.mkdir(parents=True)
-    (sdk_pkg / "pyproject.toml").write_text(
-        "[project]\nname = 'vs-bench'\nversion = '0.1.0'\n"
-    )
+    (sdk_pkg / "pyproject.toml").write_text("[project]\nname = 'vs-bench'\nversion = '0.1.0'\n")
     (sdk_pkg / "bench.py").write_text("VALUE = 1\n")
 
     starter = project_root / "examples" / "starters" / "test-starter"
@@ -784,7 +782,7 @@ def test_run_context_materializes_sdk_deps_from_workspace_seed(tmp_path):  # noq
             skills_dirs=[],
             run_environment=RunEnvironmentSpec("local"),
             environment_hooks=NoopEnvironmentHooks(),
-            workspace_seed=str(starter),
+            workspace_seed=starter,
         ) as ctx,
     ):
         assert (ctx.workspace / "_input_libs" / "vs-bench" / "bench.py").is_file()
