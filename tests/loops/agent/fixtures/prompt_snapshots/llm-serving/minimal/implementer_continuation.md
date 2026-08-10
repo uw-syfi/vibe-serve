@@ -31,6 +31,13 @@ The survivor-task counter was not sampled after cancellation.
 
 
 
+## Self-verification
+
+Before declaring `nominated` or `supported`, verify your changes work by running
+the fastest check that exercises the failure-prone path. Use the same tools and
+environment the framework will use. A build that has not been attempted is not
+nominated, it is speculative. State what you verified and what you could not.
+
 Before target work, match exact target-read build/provenance/gate bytes to the
 resolved target package/mount plan; an archive alone is insufficient. A
 rejection is unspent only with raw proof no target allocation or runtime phase

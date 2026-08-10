@@ -88,6 +88,15 @@ No framework-parsable benchmark exists; when the plan requires a canonical
 performance claim, retain a fresh canonical artifact and copy its selected row
 verbatim into the structured response.
 
+## Self-verification
+
+Before declaring `nominated` or `supported`, verify your changes work by running
+the fastest check that exercises the failure-prone path. Use the same tools and
+environment the framework will use. A build that has not been attempted is not
+nominated, it is speculative. If the plan includes verification steps, execute
+them (or a representative subset) before exiting. State what you verified and
+what you could not.
+
 ## Outcome contract
 
 Choose the evidence-supported lifecycle outcome:

@@ -105,6 +105,12 @@ stages without an exhaustive shell recipe; `pass_criteria` adds only activation,
 correctness, cleanup, and evidence gates; `reasoning` gives the decisive
 comparison and rejected alternatives briefly.
 
+Include in `task` a verification strategy: the cheapest checks the implementer
+should run before declaring the work done. These are not exhaustive test plans;
+they are the minimum steps that exercise the failure-prone path (e.g. "confirm
+the image builds," "hit /health and get 200," "run the accuracy checker against
+the live endpoint"). Adapt the strategy across retries based on what failed.
+
 Stage cost: cheap capability, comparable point, then expand past noise.
 Stop on fair falsification; reuse plumbing/rows. State hard paid-call maxima
 over retries. A wrapper rejected before target allocation is

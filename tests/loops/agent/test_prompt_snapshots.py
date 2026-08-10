@@ -561,16 +561,16 @@ _RESPONSE_TYPES = {
 # budget for both paths so a compact native prompt cannot hide fallback bloat.
 _NATIVE_PROMPT_BYTE_BUDGETS = {
     "orchestrator": 8_000,
-    "implementer": 9_000,
-    "implementer_continuation": 3_000,
+    "implementer": 9_500,
+    "implementer_continuation": 3_100,
     "judge": 8_000,
     "single_agent": 7_000,
 }
 
 _FALLBACK_PROMPT_BYTE_BUDGETS = {
-    "orchestrator": 13_000,
+    "orchestrator": 13_200,
     "implementer": 17_000,
-    "implementer_continuation": 9_500,
+    "implementer_continuation": 10_000,
     "judge": 11_000,
     "single_agent": 15_000,
 }
