@@ -17,11 +17,15 @@ from pathlib import Path
 from setuptools import setup
 from setuptools.command.bdist_wheel import bdist_wheel as _bdist_wheel
 from setuptools.command.build_py import build_py as _build_py
+from setuptools.dist import Distribution as _Distribution
 
 _REPO_ROOT = Path(__file__).parent.resolve()
 sys.path.insert(0, str(_REPO_ROOT))
 
-from packaging_support import discover_distribution_packages  # noqa: E402
+from packaging_support import (  # noqa: E402
+    discover_distribution_packages,
+    release_has_native_payload,
+)
 from resources_packaging import stage_resources, stage_sdk  # noqa: E402
 from tui_packaging import stage_prebuilt_tui  # noqa: E402
 from wheel_targets import WheelTarget, resolve_wheel_target  # noqa: E402
@@ -42,6 +46,7 @@ class build_py(_build_py):  # noqa: N801 - setuptools command classes are lowerc
             package_root / "_tui",
             required=required,
             expected_target=target_key,
+            expected_distribution_version=self.distribution.get_version(),
         )
         stage_resources(_REPO_ROOT, package_root / "_resources", required=required)
         stage_sdk(_REPO_ROOT, package_root / "_sdk", required=required)
@@ -74,10 +79,19 @@ class bdist_wheel(_bdist_wheel):  # noqa: N801
         return ("py3", "none", self._release_target.wheel_platform)
 
 
+class ReleaseDistribution(_Distribution):
+    """Select platlib only for wheels that contain a native release payload."""
+
+    def has_ext_modules(self) -> bool:
+        """Make release packages install at wheel root so audit tools can inspect them."""
+        return release_has_native_payload()
+
+
 packages, package_dirs = discover_distribution_packages(_REPO_ROOT)
 
 setup(
     packages=packages,
     package_dir=package_dirs,
     cmdclass={"bdist_wheel": bdist_wheel, "build_py": build_py},
+    distclass=ReleaseDistribution,
 )

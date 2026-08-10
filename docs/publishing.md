@@ -9,9 +9,11 @@ VibeSys publishes four native wheels and no source distribution:
 
 ## One-time external setup
 
-Create a protected GitHub environment named `pypi`. Restrict deployment to the
-`main` branch and require the repository's chosen reviewers. Do not add a PyPI
-API token.
+Create a protected GitHub environment named `pypi`. Restrict deployment to
+selected tags matching `v*`, and require the repository's chosen reviewers. Do
+not restrict the environment to `main`: release jobs run on tag refs. The
+workflow separately proves that the tagged commit is an ancestor of `main`
+before any build or deployment starts. Do not add a PyPI API token.
 
 Configure a pending Trusted Publisher on PyPI with this exact tuple:
 
@@ -27,9 +29,10 @@ the aggregate-verified `release-dist` artifact.
 
 ## Release flow
 
-1. Update `project.version` in `pyproject.toml` and `version` in
-   `clients/tui/package.json` to the same canonical PEP 440 version. Release
-   candidates use a version such as `0.2.0rc1` and tag `v0.2.0rc1`.
+1. Update `project.version` in `pyproject.toml` using canonical PEP 440 and
+   `version` in `clients/tui/package.json` using canonical npm SemVer. For a
+   release candidate, use `0.2.0rc1` in `pyproject.toml`, `0.2.0-rc.1` in
+   `clients/tui/package.json`, and tag `v0.2.0rc1`.
 2. Merge the version change to `main`. Never publish a tag whose commit is not
    contained in `main`.
 3. Create the `v<version>` tag on that commit and publish a GitHub release for

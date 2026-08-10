@@ -10,15 +10,22 @@ import pytest
 from tui_packaging import (  # pyright: ignore[reportMissingImports]
     TuiPackagingError,
     stage_prebuilt_tui,
+    validate_tui_payload,
 )
 
 
-def _write_payload(root: Path, *, target: str = "linux-x86_64") -> Path:
+def _write_payload(
+    root: Path,
+    *,
+    target: str = "linux-x86_64",
+    tui_version: str = "0.1.0",
+    manifest_version: str | None = None,
+) -> Path:
     files = {
         "bin/bun": b"#!/bin/sh\n",
         "app/dist/launcher.js": b"// launcher\n",
         "app/dist/self-test.js": b"// self-test\n",
-        "app/package.json": b'{"name":"@vibesys/tui","version":"0.1.0"}\n',
+        "app/package.json": json.dumps({"name": "@vibesys/tui", "version": tui_version}).encode(),
         "app/node_modules/@opentui/core/index.js": b"// core\n",
         "app/node_modules/@opentui/core-linux-x64/index.js": b"// native\n",
         "licenses/BUN-LICENSE.md": b"Bun license\n",
@@ -37,7 +44,7 @@ def _write_payload(root: Path, *, target: str = "linux-x86_64") -> Path:
                 "schema_version": 1,
                 "target": target,
                 "bun_version": "1.3.9",
-                "tui_version": "0.1.0",
+                "tui_version": manifest_version or tui_version,
                 "files": hashes,
             }
         )
@@ -63,6 +70,27 @@ def test_stage_prebuilt_tui_validates_and_copies_the_payload(tmp_path):  # noqa:
         required=True,
         expected_target="linux-x86_64",
     )
+
+
+@pytest.mark.parametrize("version", ["1.4.0", "0.2.0-rc.1"])
+def test_tui_payload_version_is_dynamic_and_uses_canonical_npm_semver(
+    tmp_path: Path,
+    version: str,
+) -> None:
+    source = _write_payload(tmp_path / "source", tui_version=version)
+
+    validate_tui_payload(source, expected_target="linux-x86_64")
+
+
+def test_tui_payload_rejects_manifest_and_package_version_drift(tmp_path: Path) -> None:
+    source = _write_payload(
+        tmp_path / "source",
+        tui_version="0.2.0-rc.1",
+        manifest_version="0.2.0-rc.2",
+    )
+
+    with pytest.raises(TuiPackagingError, match=r"package\.json"):
+        validate_tui_payload(source, expected_target="linux-x86_64")
 
 
 def test_optional_staging_without_a_payload_is_a_noop(tmp_path):  # noqa: ANN001, ANN201

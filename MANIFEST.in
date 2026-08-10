@@ -3,6 +3,7 @@ include setup.py
 include packaging_support.py
 include resources_packaging.py
 include tui_packaging.py
+include release_versions.py
 include wheel_targets.py
 include third_party/bun/LICENSE
 

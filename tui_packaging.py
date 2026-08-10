@@ -8,13 +8,18 @@ import shutil
 import stat
 from typing import TYPE_CHECKING, Never, cast
 
+from release_versions import (
+    ReleaseIdentity,
+    ReleaseVersionSyntaxError,
+    npm_release_identity,
+    python_release_identity,
+)
 from wheel_targets import TARGETS
 
 if TYPE_CHECKING:
     from pathlib import Path
 
 BUN_VERSION = "1.3.9"
-TUI_VERSION = "0.1.0"
 _REQUIRED_FILES = (
     "bin/bun",
     "app/dist/launcher.js",
@@ -36,6 +41,7 @@ def stage_prebuilt_tui(
     *,
     required: bool,
     expected_target: str | None = None,
+    expected_distribution_version: str | None = None,
 ) -> bool:
     """Validate and copy a prepared TUI payload into the wheel build tree."""
     if source is None or not source.is_dir():
@@ -43,18 +49,32 @@ def stage_prebuilt_tui(
             _fail("Required TUI payload directory is missing")
         return False
 
-    validate_tui_payload(source, expected_target=expected_target)
+    validate_tui_payload(
+        source,
+        expected_target=expected_target,
+        expected_distribution_version=expected_distribution_version,
+    )
     if destination.exists():
         shutil.rmtree(destination)
     shutil.copytree(source, destination, copy_function=shutil.copy2)
     return True
 
 
-def validate_tui_payload(root: Path, *, expected_target: str | None = None) -> None:
+def validate_tui_payload(
+    root: Path,
+    *,
+    expected_target: str | None = None,
+    expected_distribution_version: str | None = None,
+) -> None:
     """Validate a complete TUI payload without copying it."""
     manifest = _load_manifest(root / "manifest.json")
-    target_key = _validate_manifest(manifest, expected_target=expected_target)
+    target_key, manifest_version = _validate_manifest(manifest, expected_target=expected_target)
     _validate_required_files(root)
+    _validate_payload_version(
+        root,
+        manifest_version=manifest_version,
+        expected_distribution_version=expected_distribution_version,
+    )
     _validate_tree_shape(root)
     _validate_native_package(root, target_key=target_key)
     _validate_hashes(root, manifest)
@@ -64,21 +84,63 @@ def _validate_manifest(
     manifest: dict[str, object],
     *,
     expected_target: str | None,
-) -> str:
+) -> tuple[str, str]:
     target_key = _manifest_string(manifest, "target")
     if target_key not in TARGETS:
         _fail(f"Unsupported TUI payload target: {target_key}")
     if expected_target is not None and target_key != expected_target:
-        _fail(
-            f"TUI payload target {target_key!r} does not match {expected_target!r}"
-        )
+        _fail(f"TUI payload target {target_key!r} does not match {expected_target!r}")
     if _manifest_string(manifest, "bun_version") != BUN_VERSION:
         _fail(f"TUI payload must use Bun version {BUN_VERSION}")
-    if _manifest_string(manifest, "tui_version") != TUI_VERSION:
-        _fail(f"TUI payload must use TUI version {TUI_VERSION}")
+    tui_version = _manifest_string(manifest, "tui_version")
+    _npm_identity(tui_version, source="TUI payload manifest version")
     if manifest.get("schema_version") != 1:
         _fail("Unsupported TUI payload manifest schema")
-    return target_key
+    return target_key, tui_version
+
+
+def _validate_payload_version(
+    root: Path,
+    *,
+    manifest_version: str,
+    expected_distribution_version: str | None,
+) -> None:
+    try:
+        document = json.loads((root / "app" / "package.json").read_text())
+    except (OSError, json.JSONDecodeError) as exc:
+        error = TuiPackagingError("TUI payload app/package.json is invalid")
+        raise error from exc
+    if not isinstance(document, dict) or not isinstance(document.get("version"), str):
+        _fail("TUI payload app/package.json must declare version as a string")
+    package_version = cast("str", document["version"])
+    package_identity = _npm_identity(package_version, source="TUI payload package.json version")
+    manifest_identity = _npm_identity(manifest_version, source="TUI payload manifest version")
+    if package_identity != manifest_identity or package_version != manifest_version:
+        _fail(
+            f"TUI payload package.json version {package_version!r} does not match "
+            f"manifest version {manifest_version!r}"
+        )
+    if expected_distribution_version is None:
+        return
+    try:
+        distribution_identity = python_release_identity(
+            expected_distribution_version,
+            source="Python distribution version",
+        )
+    except ReleaseVersionSyntaxError as exc:
+        raise TuiPackagingError(str(exc)) from exc
+    if manifest_identity != distribution_identity:
+        _fail(
+            f"TUI payload version {manifest_version!r} does not match Python distribution "
+            f"version {expected_distribution_version!r}"
+        )
+
+
+def _npm_identity(raw: str, *, source: str) -> ReleaseIdentity:
+    try:
+        return npm_release_identity(raw, source=source)
+    except ReleaseVersionSyntaxError as exc:
+        raise TuiPackagingError(str(exc)) from exc
 
 
 def _validate_required_files(root: Path) -> None:
@@ -117,8 +179,7 @@ def _validate_native_package(root: Path, *, target_key: str) -> None:
 def _validate_hashes(root: Path, manifest: dict[str, object]) -> None:
     raw_hashes = manifest.get("files")
     if not isinstance(raw_hashes, dict) or not all(
-        isinstance(path, str) and isinstance(digest, str)
-        for path, digest in raw_hashes.items()
+        isinstance(path, str) and isinstance(digest, str) for path, digest in raw_hashes.items()
     ):
         _fail("TUI payload manifest has invalid file hashes")
     expected_hashes = cast("dict[str, str]", raw_hashes)

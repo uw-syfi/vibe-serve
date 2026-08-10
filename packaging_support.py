@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 PACKAGE_SOURCE_ROOTS = (
@@ -22,6 +23,11 @@ _BUILD_AND_CACHE_DIRECTORIES = frozenset(
         "dist",
     }
 )
+
+
+def release_has_native_payload() -> bool:
+    """Return whether setuptools is building a target-specific release wheel."""
+    return os.environ.get("VIBESYS_WHEEL_TARGET") is not None
 
 
 def discover_distribution_packages(repo_root: Path) -> tuple[list[str], dict[str, str]]:

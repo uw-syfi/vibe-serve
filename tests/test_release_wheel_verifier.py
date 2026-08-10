@@ -23,7 +23,7 @@ FRAMEWORK_PACKAGES = (
     "vs_loop_state",
     "vs_sandbox",
 )
-PURELIB = "vibesys-0.1.0.data/purelib"
+PLATLIB = ""
 DIST_INFO = "vibesys-0.1.0.dist-info"
 
 
@@ -87,7 +87,7 @@ def _packaged_source_files(source_root: Path) -> dict[str, bytes]:
         for path in (source_root / source_prefix).rglob("*"):
             if path.is_file():
                 relative = path.relative_to(source_root / source_prefix).as_posix()
-                files[f"{PURELIB}/{archive_prefix}/{relative}"] = path.read_bytes()
+                files[f"{PLATLIB}{archive_prefix}/{relative}"] = path.read_bytes()
     return files
 
 
@@ -103,7 +103,7 @@ def _wheel_files(source_root: Path) -> dict[str, bytes]:
         "licenses/BUN-LICENSE.md": b"Bun license\n",
         "licenses/opentui-core.txt": b"OpenTUI license\n",
     }
-    tui_root = f"{PURELIB}/vibesys/_tui"
+    tui_root = f"{PLATLIB}vibesys/_tui"
     files.update({f"{tui_root}/{relative}": content for relative, content in tui_files.items()})
     manifest = {
         "schema_version": 1,
@@ -144,7 +144,7 @@ Tag: py3-none-manylinux_2_28_x86_64
 
 
 def _refresh_payload_manifest(files: dict[str, bytes]) -> None:
-    tui_root = f"{PURELIB}/vibesys/_tui/"
+    tui_root = f"{PLATLIB}vibesys/_tui/"
     manifest_path = f"{tui_root}manifest.json"
     manifest = json.loads(files[manifest_path])
     manifest["files"] = {
@@ -173,7 +173,7 @@ def _write_wheel(
     with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_STORED) as archive:
         for name, content in files.items():
             info = zipfile.ZipInfo(name)
-            mode = 0o755 if executable_bun and name.endswith("/vibesys/_tui/bin/bun") else 0o644
+            mode = 0o755 if executable_bun and name == "vibesys/_tui/bin/bun" else 0o644
             info.external_attr = (stat.S_IFREG | mode) << 16
             archive.writestr(info, content)
     return path
@@ -210,7 +210,7 @@ def test_tolerates_canonical_zip_directory_entries(
     release_fixture: tuple[Path, Path],
 ) -> None:
     source_root, wheel = release_fixture
-    _append_directory(wheel, f"{PURELIB}/vibesys/")
+    _append_directory(wheel, f"{PLATLIB}vibesys/")
 
     _verify(source_root, wheel)
 
@@ -219,7 +219,7 @@ def test_tolerates_canonical_zip_directory_entries(
     ("directory_name", "message"),
     [
         ("unused-directory/", "unexpected directory"),
-        (f"{PURELIB}/vibesys/__init__.py/", "aliases an allowed file"),
+        (f"{PLATLIB}vibesys/__init__.py/", "aliases an allowed file"),
     ],
 )
 def test_rejects_invalid_canonical_zip_directory_entries(
@@ -238,7 +238,7 @@ def test_rejects_file_and_directory_entry_collisions(
     release_fixture: tuple[Path, Path],
 ) -> None:
     source_root, wheel = release_fixture
-    collision = f"{PURELIB}/vibesys"
+    collision = f"{PLATLIB}vibesys"
     _write_wheel(wheel, source_root, extra={collision: b"file\n"})
     _append_directory(wheel, f"{collision}/")
 
@@ -249,10 +249,10 @@ def test_rejects_file_and_directory_entry_collisions(
 @pytest.mark.parametrize(
     "unexpected_name",
     [
-        f"{PURELIB}/arbitrary_package/__init__.py",
-        f"{PURELIB}/vibesys/secret.txt",
+        f"{PLATLIB}arbitrary_package/__init__.py",
+        f"{PLATLIB}vibesys/secret.txt",
         "vibesys-9.9.9.dist-info/METADATA",
-        "vibesys/__init__.py",
+        "other/__init__.py",
     ],
 )
 def test_rejects_every_unexpected_wheel_member(
@@ -269,8 +269,8 @@ def test_rejects_every_unexpected_wheel_member(
 @pytest.mark.parametrize(
     "alias",
     [
-        f"{PURELIB}/vibesys/./__init__.py",
-        f"{PURELIB}//vibesys/__init__.py",
+        f"{PLATLIB}vibesys/./__init__.py",
+        f"{PLATLIB}vibesys//__init__.py",
     ],
 )
 def test_rejects_non_canonical_archive_aliases(
@@ -304,7 +304,7 @@ def test_rejects_a_filename_version_mismatch(release_fixture: tuple[Path, Path])
 
 def test_rejects_a_missing_internal_package(release_fixture: tuple[Path, Path]) -> None:
     source_root, wheel = release_fixture
-    missing = f"{PURELIB}/vs_sandbox/__init__.py"
+    missing = f"{PLATLIB}vs_sandbox/__init__.py"
     _write_wheel(wheel, source_root, remove=(missing,))
 
     with pytest.raises(verifier.ReleaseWheelError, match="vs_sandbox"):
@@ -327,9 +327,9 @@ def test_rejects_an_internal_distribution_dependency(release_fixture: tuple[Path
 @pytest.mark.parametrize(
     ("missing", "message"),
     [
-        (f"{PURELIB}/vibesys/_resources/skills/demo/SKILL.md", "resources/skills"),
-        (f"{PURELIB}/vibesys/_sdk/vs-bench/pyproject.toml", "sdk/vs-bench"),
-        (f"{PURELIB}/vibesys/_tui/licenses/BUN-LICENSE.md", "BUN-LICENSE"),
+        (f"{PLATLIB}vibesys/_resources/skills/demo/SKILL.md", "resources/skills"),
+        (f"{PLATLIB}vibesys/_sdk/vs-bench/pyproject.toml", "sdk/vs-bench"),
+        (f"{PLATLIB}vibesys/_tui/licenses/BUN-LICENSE.md", "BUN-LICENSE"),
     ],
 )
 def test_rejects_missing_release_content(
@@ -347,7 +347,7 @@ def test_rejects_missing_release_content(
 def test_rejects_a_wrong_target_payload(release_fixture: tuple[Path, Path]) -> None:
     source_root, wheel = release_fixture
     files = _wheel_files(source_root)
-    manifest_path = f"{PURELIB}/vibesys/_tui/manifest.json"
+    manifest_path = f"{PLATLIB}vibesys/_tui/manifest.json"
     manifest = json.loads(files[manifest_path])
     manifest["target"] = "macos-arm64"
     files[manifest_path] = json.dumps(manifest).encode()
@@ -359,7 +359,7 @@ def test_rejects_a_wrong_target_payload(release_fixture: tuple[Path, Path]) -> N
 
 def test_rejects_multiple_native_packages(release_fixture: tuple[Path, Path]) -> None:
     source_root, wheel = release_fixture
-    extra_native = f"{PURELIB}/vibesys/_tui/app/node_modules/@opentui/core-darwin-arm64/index.js"
+    extra_native = f"{PLATLIB}vibesys/_tui/app/node_modules/@opentui/core-darwin-arm64/index.js"
     _write_wheel(wheel, source_root, extra={extra_native: b"wrong native\n"})
 
     with pytest.raises(verifier.ReleaseWheelError, match="native package"):
@@ -399,7 +399,7 @@ def test_rejects_a_metadata_version_mismatch(release_fixture: tuple[Path, Path])
 
 def test_rejects_a_source_digest_mismatch(release_fixture: tuple[Path, Path]) -> None:
     source_root, wheel = release_fixture
-    archive_path = f"{PURELIB}/vibesys/__init__.py"
+    archive_path = f"{PLATLIB}vibesys/__init__.py"
     _write_wheel(wheel, source_root, extra={archive_path: b"tampered\n"})
 
     with pytest.raises(verifier.ReleaseWheelError, match="digest"):
@@ -423,7 +423,7 @@ def test_rejects_a_tracked_packaging_source_missing_from_the_worktree(
     ("member", "replacement", "message"),
     [
         (
-            f"{PURELIB}/vibesys/_tui/licenses/BUN-LICENSE.md",
+            f"{PLATLIB}vibesys/_tui/licenses/BUN-LICENSE.md",
             b"substituted Bun license\n",
             "Bun license digest",
         ),
@@ -513,7 +513,7 @@ def test_rejects_unsupported_metadata_standard_versions(
 
 def test_rejects_duplicate_archive_names(release_fixture: tuple[Path, Path]) -> None:
     source_root, wheel = release_fixture
-    duplicate = f"{PURELIB}/vibesys/__init__.py"
+    duplicate = f"{PLATLIB}vibesys/__init__.py"
     with zipfile.ZipFile(wheel, "a") as archive:
         archive.writestr(duplicate, b"duplicate\n")
 
@@ -523,11 +523,11 @@ def test_rejects_duplicate_archive_names(release_fixture: tuple[Path, Path]) -> 
 
 def test_rejects_symlinks_and_source_maps(release_fixture: tuple[Path, Path]) -> None:
     source_root, wheel = release_fixture
-    symlink = zipfile.ZipInfo(f"{PURELIB}/vibesys/_tui/link")
+    symlink = zipfile.ZipInfo(f"{PLATLIB}vibesys/_tui/link")
     symlink.external_attr = (stat.S_IFLNK | 0o777) << 16
     with zipfile.ZipFile(wheel, "a") as archive:
         archive.writestr(symlink, "bin/bun")
-        archive.writestr(f"{PURELIB}/vibesys/_tui/app/dist/launcher.js.map", b"{}")
+        archive.writestr(f"{PLATLIB}vibesys/_tui/app/dist/launcher.js.map", b"{}")
 
     with pytest.raises(verifier.ReleaseWheelError, match=r"symlink|source map"):
         _verify(source_root, wheel)

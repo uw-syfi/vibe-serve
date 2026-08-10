@@ -12,15 +12,19 @@ from email.policy import default
 from pathlib import Path
 from typing import Never, cast
 
-from packaging.version import InvalidVersion, Version
+from packaging.version import Version
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from release_versions import (  # noqa: E402
+    ReleaseIdentity,
+    ReleaseVersionSyntaxError,
+    npm_release_identity,
+    python_release_identity,
+)
 from wheel_targets import TARGETS  # noqa: E402
-
-RELEASE_SEGMENT_COUNT = 3
 
 
 class ReleaseVersionError(RuntimeError):
@@ -49,14 +53,15 @@ def check_release_version(
     if not isinstance(project, dict) or not isinstance(project.get("version"), str):
         _fail("pyproject.toml must declare project.version as a string")
     python_raw = cast("str", project["version"])
-    version = _canonical_version(python_raw, source="project.version")
+    project_identity = _python_identity(python_raw, source="project.version")
+    version = Version(python_raw)
 
     tui_document = json.loads((source_root / "clients/tui/package.json").read_text())
     if not isinstance(tui_document, dict) or not isinstance(tui_document.get("version"), str):
         _fail("clients/tui/package.json must declare version as a string")
     tui_raw = cast("str", tui_document["version"])
-    tui_version = _canonical_version(tui_raw, source="TUI version")
-    if tui_version != version or tui_raw != python_raw:
+    tui_identity = _npm_identity(tui_raw, source="TUI version")
+    if tui_identity != project_identity:
         _fail(f"TUI version {tui_raw!r} does not match project version {python_raw!r}")
 
     if tag is not None:
@@ -64,8 +69,8 @@ def check_release_version(
         if not tag.startswith(prefix) or len(tag) == len(prefix):
             _fail(f"Release tag must start with refs/tags/v, found {tag!r}")
         tag_raw = tag.removeprefix(prefix)
-        tag_version = _canonical_version(tag_raw, source="release tag")
-        if tag_version != version or tag_raw != python_raw:
+        tag_identity = _python_identity(tag_raw, source="release tag")
+        if tag_identity != project_identity:
             _fail(f"Release tag version {tag_raw!r} does not match project version {python_raw!r}")
 
     if wheel_dir is not None:
@@ -73,16 +78,18 @@ def check_release_version(
     return version
 
 
-def _canonical_version(raw: str, *, source: str) -> Version:
+def _python_identity(raw: str, *, source: str) -> ReleaseIdentity:
     try:
-        version = Version(raw)
-    except InvalidVersion as exc:
-        raise ReleaseVersionError.invalid_version(source, raw) from exc
-    if str(version) != raw:
-        _fail(f"{source} must use canonical PEP 440 spelling: {raw!r} normalizes to {version}")
-    if len(version.release) != RELEASE_SEGMENT_COUNT:
-        _fail(f"{source} must use an X.Y.Z release segment: {raw!r}")
-    return version
+        return python_release_identity(raw, source=source)
+    except ReleaseVersionSyntaxError as exc:
+        raise ReleaseVersionError(str(exc)) from exc
+
+
+def _npm_identity(raw: str, *, source: str) -> ReleaseIdentity:
+    try:
+        return npm_release_identity(raw, source=source)
+    except ReleaseVersionSyntaxError as exc:
+        raise ReleaseVersionError(str(exc)) from exc
 
 
 def _check_wheels(wheel_dir: Path, *, version: Version) -> None:

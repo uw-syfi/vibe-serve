@@ -265,6 +265,19 @@ wheels = [
 ]
 
 [[package]]
+name = "auditwheel"
+version = "6.8.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "packaging" },
+    { name = "pyelftools" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/13/b3/02de0882fb6b9a97a32b6bca25c4daa803245c1d9c41e34724aaf41e51f5/auditwheel-6.8.0.tar.gz", hash = "sha256:498ffdf2c3030a9a7bd651bb4cacdc190c1310da32b9819c75441bb6155ea53e", size = 4696591, upload-time = "2026-08-10T18:35:16.131Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e9/38/e0209a09a00bca40942e2172399506f39a91903b309d4a90e9b55d18ec00/auditwheel-6.8.0-py3-none-any.whl", hash = "sha256:5c1659851e6ae6163a41306044726b5a7425694c923c5e9188fde9c6918ae106", size = 65284, upload-time = "2026-08-10T18:35:13.869Z" },
+]
+
+[[package]]
 name = "blinker"
 version = "1.9.0"
 source = { registry = "https://pypi.org/simple" }
@@ -3548,6 +3561,15 @@ wheels = [
 ]
 
 [[package]]
+name = "pyelftools"
+version = "0.33"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/a3/11/767522582afab1b884d277de0e6e011640cb9d7292a38694b4b1a1df1ae8/pyelftools-0.33.tar.gz", hash = "sha256:660d82dcbeb8e83d1702bd97f223f761625da06111c0cc988eac6b8ab0c1b61f", size = 15068655, upload-time = "2026-05-29T12:56:22.553Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/46/2a/f9697576603dae937727827505a6126a066affb227034e77e6f9068910da/pyelftools-0.33-py3-none-any.whl", hash = "sha256:f215ad5f47d3f1373a21496a6c9e0707c622840d0622f23ff7ce08678b020036", size = 201178, upload-time = "2026-05-29T12:56:20.587Z" },
+]
+
+[[package]]
 name = "pygments"
 version = "2.19.2"
 source = { registry = "https://pypi.org/simple" }
@@ -4565,6 +4587,7 @@ omnigent = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "auditwheel" },
     { name = "chardet" },
     { name = "check-wheel-contents" },
     { name = "diff-cover" },
@@ -4607,6 +4630,7 @@ provides-extras = ["omnigent"]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "auditwheel", specifier = "==6.8.0" },
     { name = "chardet", specifier = "<6" },
     { name = "check-wheel-contents" },
     { name = "diff-cover" },

@@ -24,7 +24,12 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from tui_packaging import BUN_VERSION, TUI_VERSION  # noqa: E402
+from release_versions import (  # noqa: E402
+    ReleaseVersionSyntaxError,
+    npm_release_identity,
+    python_release_identity,
+)
+from tui_packaging import BUN_VERSION  # noqa: E402
 from wheel_targets import TARGETS, WheelTarget  # noqa: E402
 
 if TYPE_CHECKING:
@@ -145,7 +150,7 @@ def verify_wheel(wheel: Path, source_root: Path, target: WheelTarget) -> None:
         _fail(f"Wheel exceeds the PyPI 100 MB file limit: {wheel.stat().st_size} bytes")
 
     dist_info = f"vibesys-{version}.dist-info"
-    purelib = f"vibesys-{version}.data/purelib"
+    platlib = ""
     try:
         with zipfile.ZipFile(wheel) as archive:
             infos = archive.infolist()
@@ -155,18 +160,18 @@ def verify_wheel(wheel: Path, source_root: Path, target: WheelTarget) -> None:
             wheel_metadata = _read_metadata(archive, f"{dist_info}/WHEEL")
             _verify_metadata(metadata, project=project, version=version)
             _verify_wheel_metadata(wheel_metadata, target=target)
-            _verify_framework_packages(archive, members, purelib=purelib)
+            _verify_framework_packages(archive, members, platlib=platlib)
             source_members = _verify_tracked_sources(
                 archive,
                 members,
                 source_root=source_root,
-                purelib=purelib,
+                platlib=platlib,
             )
             _verify_entry_points(archive, members, dist_info=dist_info)
             tui_members = _verify_tui_payload(
                 archive,
                 members,
-                purelib=purelib,
+                platlib=platlib,
                 target=target,
                 version=version,
             )
@@ -174,7 +179,7 @@ def verify_wheel(wheel: Path, source_root: Path, target: WheelTarget) -> None:
                 archive,
                 members,
                 source_root=source_root,
-                purelib=purelib,
+                platlib=platlib,
                 dist_info=dist_info,
             )
             dist_info_members = {f"{dist_info}/{name}" for name in _DIST_INFO_FILES}
@@ -333,16 +338,20 @@ def _verify_framework_packages(
     archive: zipfile.ZipFile,
     members: dict[str, zipfile.ZipInfo],
     *,
-    purelib: str,
+    platlib: str,
 ) -> None:
     for package in FRAMEWORK_PACKAGES:
         _required_member(
             members,
-            f"{purelib}/{package}/__init__.py",
+            _archive_path(platlib, f"{package}/__init__.py"),
             f"framework package {package}",
         )
     for package in FRAMEWORK_PACKAGES[1:]:
-        _required_member(members, f"{purelib}/{package}/py.typed", f"{package} py.typed")
+        _required_member(
+            members,
+            _archive_path(platlib, f"{package}/py.typed"),
+            f"{package} py.typed",
+        )
 
     top_level_path = next(
         (name for name in members if name.endswith(".dist-info/top_level.txt")),
@@ -362,10 +371,10 @@ def _verify_tracked_sources(
     members: dict[str, zipfile.ZipInfo],
     *,
     source_root: Path,
-    purelib: str,
+    platlib: str,
 ) -> set[str]:
     tracked = _tracked_files(source_root)
-    expected = _expected_packaged_sources(source_root, tracked=tracked, purelib=purelib)
+    expected = _expected_packaged_sources(source_root, tracked=tracked, platlib=platlib)
 
     for source_relative, archive_name in expected.items():
         _required_member(members, archive_name, source_relative.as_posix())
@@ -380,7 +389,7 @@ def _expected_packaged_sources(
     source_root: Path,
     *,
     tracked: tuple[Path, ...],
-    purelib: str,
+    platlib: str,
 ) -> dict[Path, str]:
     expected: dict[Path, str] = {}
     for source_prefix, package_prefix in _PACKAGE_SOURCE_ROOTS.items():
@@ -391,7 +400,10 @@ def _expected_packaged_sources(
             if not source.is_file():
                 _fail(f"Wheel tracked source is missing from worktree: {relative.as_posix()}")
             suffix = relative.relative_to(source_prefix).as_posix()
-            expected[relative] = f"{purelib}/{package_prefix.as_posix()}/{suffix}"
+            expected[relative] = _archive_path(
+                platlib,
+                f"{package_prefix.as_posix()}/{suffix}",
+            )
 
     sdk_root = Path("sdk/vs-bench")
     for relative in tracked:
@@ -403,7 +415,10 @@ def _expected_packaged_sources(
         source = source_root / relative
         if not source.is_file():
             _fail(f"Wheel tracked source is missing from worktree: {relative.as_posix()}")
-        expected[relative] = f"{purelib}/vibesys/_sdk/vs-bench/{sdk_relative.as_posix()}"
+        expected[relative] = _archive_path(
+            platlib,
+            f"vibesys/_sdk/vs-bench/{sdk_relative.as_posix()}",
+        )
     return expected
 
 
@@ -453,11 +468,11 @@ def _verify_tui_payload(
     archive: zipfile.ZipFile,
     members: dict[str, zipfile.ZipInfo],
     *,
-    purelib: str,
+    platlib: str,
     target: WheelTarget,
     version: str,
 ) -> set[str]:
-    root = f"{purelib}/vibesys/_tui"
+    root = _archive_path(platlib, "vibesys/_tui")
     for relative in _REQUIRED_TUI_FILES:
         _required_member(members, f"{root}/{relative}", relative)
 
@@ -472,8 +487,31 @@ def _verify_tui_payload(
         _fail(f"TUI payload target {manifest.get('target')!r} does not match {target.key!r}")
     if manifest.get("bun_version") != BUN_VERSION:
         _fail(f"TUI payload must use Bun version {BUN_VERSION}")
-    if manifest.get("tui_version") != TUI_VERSION or version != TUI_VERSION:
-        _fail("TUI payload version does not match the Python distribution version")
+    raw_manifest_version = manifest.get("tui_version")
+    if not isinstance(raw_manifest_version, str):
+        _fail("TUI payload manifest version must be a string")
+    package_document = _load_manifest(archive.read(f"{root}/app/package.json"))
+    raw_package_version = package_document.get("version")
+    if not isinstance(raw_package_version, str):
+        _fail("TUI payload app/package.json version must be a string")
+    try:
+        distribution_identity = python_release_identity(version, source="wheel version")
+        manifest_identity = npm_release_identity(
+            raw_manifest_version,
+            source="TUI payload manifest version",
+        )
+        package_identity = npm_release_identity(
+            raw_package_version,
+            source="TUI payload package.json version",
+        )
+    except ReleaseVersionSyntaxError as exc:
+        raise ReleaseWheelError(str(exc)) from exc
+    if (
+        manifest_identity != distribution_identity
+        or package_identity != distribution_identity
+        or raw_manifest_version != raw_package_version
+    ):
+        _fail("TUI payload manifest and package versions do not match the Python distribution")
     manifest_members = _verify_manifest_hashes(archive, members, root=root, manifest=manifest)
     _verify_native_package(members, root=root, target=target)
     return manifest_members
@@ -522,14 +560,14 @@ def _verify_repository_licenses(
     members: dict[str, zipfile.ZipInfo],
     *,
     source_root: Path,
-    purelib: str,
+    platlib: str,
     dist_info: str,
 ) -> None:
     _verify_source_digest(
         archive,
         members,
         source=source_root / "third_party/bun/LICENSE",
-        member=f"{purelib}/vibesys/_tui/licenses/BUN-LICENSE.md",
+        member=_archive_path(platlib, "vibesys/_tui/licenses/BUN-LICENSE.md"),
         description="Bun license",
     )
     _verify_source_digest(
@@ -557,6 +595,10 @@ def _verify_source_digest(
         != hashlib.sha256(source.read_bytes()).digest()
     ):
         _fail(f"Wheel {description} digest does not match {source.name}")
+
+
+def _archive_path(root: str, relative: str) -> str:
+    return f"{root}/{relative}" if root else relative
 
 
 def _verify_exact_members(

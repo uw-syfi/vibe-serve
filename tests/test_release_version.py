@@ -54,6 +54,28 @@ def test_check_release_version_accepts_matching_project_tag_and_four_wheels(tmp_
 
 
 @pytest.mark.parametrize(
+    ("python_version", "tui_version", "tag"),
+    [
+        ("1.4.0", "1.4.0", "refs/tags/v1.4.0"),
+        ("0.2.0rc1", "0.2.0-rc.1", "refs/tags/v0.2.0rc1"),
+    ],
+)
+def test_check_release_version_accepts_canonical_stable_and_rc_spellings(
+    tmp_path: Path,
+    python_version: str,
+    tui_version: str,
+    tag: str,
+) -> None:
+    _write_project(tmp_path, python_version=python_version, tui_version=tui_version)
+    wheel_dir = tmp_path / "dist"
+    _write_wheels(wheel_dir, version=python_version)
+
+    assert check_release_version(tag, source_root=tmp_path, wheel_dir=wheel_dir) == Version(
+        python_version
+    )
+
+
+@pytest.mark.parametrize(
     ("python_version", "tui_version", "tag", "message"),
     [
         ("not-a-version", "not-a-version", None, "PEP 440"),
@@ -63,6 +85,8 @@ def test_check_release_version_accepts_matching_project_tag_and_four_wheels(tmp_
         ("0.1.0", "0.1.0", "refs/heads/v0.1.0", "refs/tags/v"),
         ("0.1", "0.1", "refs/tags/v0.1", "X.Y.Z"),
         ("0.1.0", "0.1.0", "refs/tags/v0.2.0", "does not match"),
+        ("0.2.0rc1", "0.2.0rc1", None, "canonical npm SemVer"),
+        ("0.2.0-rc.1", "0.2.0-rc.1", None, "canonical PEP 440"),
     ],
 )
 def test_check_release_version_rejects_invalid_or_mismatched_versions(

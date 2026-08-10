@@ -22,6 +22,11 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from release_versions import (  # noqa: E402
+    ReleaseVersionSyntaxError,
+    npm_release_identity,
+    python_release_identity,
+)
 from tui_packaging import BUN_VERSION, validate_tui_payload  # noqa: E402
 from wheel_targets import resolve_wheel_target  # noqa: E402
 
@@ -89,7 +94,15 @@ def build_release_wheel(
         raise error
 
     distribution_version, tui_version = _project_versions(repo_root)
-    if distribution_version != tui_version:
+    try:
+        distribution_identity = python_release_identity(
+            distribution_version,
+            source="Python project version",
+        )
+        tui_identity = npm_release_identity(tui_version, source="TUI project version")
+    except ReleaseVersionSyntaxError as exc:
+        raise ReleaseBuildError(str(exc)) from exc
+    if distribution_identity != tui_identity:
         _fail(f"Python version {distribution_version} does not match TUI version {tui_version}")
 
     _run(
@@ -123,7 +136,11 @@ def build_release_wheel(
             target_key=target.key,
             tui_version=tui_version,
         )
-        validate_tui_payload(payload, expected_target=target.key)
+        validate_tui_payload(
+            payload,
+            expected_target=target.key,
+            expected_distribution_version=distribution_version,
+        )
 
         env = {
             **os.environ,
