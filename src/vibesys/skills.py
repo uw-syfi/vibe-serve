@@ -14,7 +14,6 @@ from vibesys.constants import PROJECT_ROOT, ComputeBackend
 from vibesys.domains.base import DomainName
 from vibesys.schemas import SkillResourceSelection  # noqa: TC001  # tracked: #288
 
-DEFAULT_SKILL_ROOTS: tuple[Path, ...] = (Path("resources/skills"),)
 SIDECAR_NAME = ".vibesys.toml"
 _FRONTMATTER_DELIMITER = "---"
 _MATERIALIZATION_EXCLUDED_NAMES = frozenset({".git", "repos", "__pycache__"})

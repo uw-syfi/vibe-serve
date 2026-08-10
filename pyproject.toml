@@ -48,7 +48,7 @@ include = ["vibesys*"]
 [tool.setuptools.package-data]
 # ``_tui`` is produced at build time by setup.py's build_py step and injected
 # into the wheel's build tree; the glob keeps it as package data when present.
-vibesys = ["prompts/*.j2", "prompts/**/*.j2", "prompts/**/*.md", "domains/README.md", "_tui/**/*"]
+vibesys = ["prompts/*.j2", "prompts/**/*.j2", "prompts/**/*.md", "domains/README.md", "_tui/**/*", "_resources/**/*"]
 
 [dependency-groups]
 dev = [

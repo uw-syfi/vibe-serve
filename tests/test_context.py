@@ -255,6 +255,7 @@ def test_run_context_defaults_profiler_support_paths(  # noqa: ANN201  # tracked
 
     with (
         patch("vibesys.context.PROJECT_ROOT", project_root),
+        patch("vibesys.resource_paths.PROJECT_ROOT", project_root),
         patch("vibesys.context.build_model", return_value="mock-model"),
         patch("vibesys.context.build_agent_runner", return_value=MagicMock()),
         patch("vibesys.context.backends.get", return_value=_FakeBackend()),
@@ -280,6 +281,7 @@ def test_cli_context_skips_unused_langchain_model_construction(tmp_path):  # noq
 
     with (
         patch("vibesys.context.PROJECT_ROOT", project_root),
+        patch("vibesys.resource_paths.PROJECT_ROOT", project_root),
         patch("vibesys.context.build_model") as build_model,
         patch("vibesys.context.build_agent_runner", return_value=MagicMock()),
         patch("vibesys.context.backends.get", return_value=_FakeBackend()),
@@ -320,6 +322,7 @@ def test_run_context_copies_only_selected_profiler_support(tmp_path, selected): 
         domain = DomainName.LLM_SERVING
     with (
         patch("vibesys.context.PROJECT_ROOT", project_root),
+        patch("vibesys.resource_paths.PROJECT_ROOT", project_root),
         patch("vibesys.context.build_model", return_value="mock-model"),
         patch("vibesys.context.build_agent_runner", return_value=MagicMock()),
         patch("vibesys.context.backends.get", return_value=_FakeBackend()),
@@ -359,6 +362,7 @@ def test_run_context_generic_auto_resolves_to_macos_profiler(tmp_path):  # noqa:
 
     with (
         patch("vibesys.context.PROJECT_ROOT", project_root),
+        patch("vibesys.resource_paths.PROJECT_ROOT", project_root),
         patch("vibesys.context.build_model", return_value="mock-model"),
         patch("vibesys.context.build_agent_runner", return_value=MagicMock()),
         patch("vibesys.context.backends.get", return_value=_FakeBackend(ProfilerKind.NSYS)),
@@ -392,6 +396,7 @@ def test_run_context_generic_auto_resolves_to_linux_profiler(tmp_path):  # noqa:
 
     with (
         patch("vibesys.context.PROJECT_ROOT", project_root),
+        patch("vibesys.resource_paths.PROJECT_ROOT", project_root),
         patch("vibesys.context.build_model", return_value="mock-model"),
         patch("vibesys.context.build_agent_runner", return_value=MagicMock()),
         patch("vibesys.context.backends.get", return_value=_FakeBackend(ProfilerKind.NSYS)),
@@ -433,6 +438,7 @@ def test_run_context_fails_fast_when_resolved_profiler_is_unusable(tmp_path):  #
 
     with (
         patch("vibesys.context.PROJECT_ROOT", project_root),
+        patch("vibesys.resource_paths.PROJECT_ROOT", project_root),
         patch("vibesys.context.build_model", return_value="mock-model"),
         patch("vibesys.context.build_agent_runner", return_value=MagicMock()),
         patch("vibesys.context.backends.get", return_value=_FakeBackend(ProfilerKind.NSYS)),
@@ -491,6 +497,7 @@ def test_run_context_llm_auto_uses_backend_profiler_and_defaults_support_dir(tmp
 
     with (
         patch("vibesys.context.PROJECT_ROOT", project_root),
+        patch("vibesys.resource_paths.PROJECT_ROOT", project_root),
         patch("vibesys.context.build_model", return_value="mock-model"),
         patch("vibesys.context.build_agent_runner", return_value=MagicMock()),
         patch("vibesys.context.backends.get", return_value=_FakeBackend(ProfilerKind.NSYS)),
@@ -521,6 +528,7 @@ def test_run_context_noop_environment_hooks_do_not_require_model_artifacts(tmp_p
 
     with (
         patch("vibesys.context.PROJECT_ROOT", project_root),
+        patch("vibesys.resource_paths.PROJECT_ROOT", project_root),
         patch("vibesys.context.build_model", return_value="mock-model"),
         patch("vibesys.context.build_agent_runner", return_value=MagicMock()),
         patch("vibesys.context.backends.get", return_value=_FakeBackend()),
@@ -619,6 +627,7 @@ def test_run_context_cleans_up_when_agent_runner_construction_fails(tmp_path):  
 
     with (
         patch("vibesys.context.PROJECT_ROOT", project_root),
+        patch("vibesys.resource_paths.PROJECT_ROOT", project_root),
         patch("vibesys.context.build_model", return_value="mock-model"),
         patch("vibesys.context.build_agent_runner", side_effect=RuntimeError("boom")),
         patch("vibesys.context.backends.get", return_value=_FakeBackend()),
@@ -647,6 +656,7 @@ def test_run_context_tears_down_prepared_hooks_when_workspace_setup_fails(tmp_pa
 
     with (
         patch("vibesys.context.PROJECT_ROOT", project_root),
+        patch("vibesys.resource_paths.PROJECT_ROOT", project_root),
         patch("vibesys.context.build_model", return_value="mock-model"),
         patch("vibesys.context.backends.get", return_value=_FakeBackend()),
         patch("vibesys.context.Workspace.setup", side_effect=RuntimeError("setup failed")),
@@ -713,6 +723,7 @@ def test_run_context_materializes_input_project_path_dependencies(tmp_path):  # 
 
     with (
         patch("vibesys.context.PROJECT_ROOT", project_root),
+        patch("vibesys.resource_paths.PROJECT_ROOT", project_root),
         patch("vibesys.context.build_model", return_value="mock-model"),
         patch("vibesys.context.build_agent_runner", return_value=MagicMock()),
         patch("vibesys.context.backends.get", return_value=_FakeBackend()),
@@ -770,6 +781,7 @@ def test_run_context_materializes_sdk_deps_from_workspace_seed(tmp_path):  # noq
 
     with (
         patch("vibesys.context.PROJECT_ROOT", project_root),
+        patch("vibesys.resource_paths.PROJECT_ROOT", project_root),
         patch("vibesys.context.build_model", return_value="mock-model"),
         patch("vibesys.context.build_agent_runner", return_value=MagicMock()),
         patch("vibesys.context.backends.get", return_value=_FakeBackend()),

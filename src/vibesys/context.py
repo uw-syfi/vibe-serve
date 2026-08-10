@@ -45,6 +45,7 @@ from vibesys.profilers import (
     resolve_profiler_kind,
 )
 from vibesys.render import HeadlessRenderer, output_sink
+from vibesys.resource_paths import profiler_support_dir
 from vibesys.run import (
     DeviceLease,
     ExperimentRepository,
@@ -477,8 +478,8 @@ def _assemble_run_context(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: 
     if resolved_profiler_kind in ACTIVE_PROFILER_KINDS:
         definition = profiler_definition(resolved_profiler_kind)
         profiler_support_name = definition.support_name
-        default_support = PROJECT_ROOT / "resources" / "profilers" / definition.kind.value
-        if default_support.is_dir():
+        default_support = profiler_support_dir(definition.kind.value)
+        if default_support is not None:
             profiler_support_path = str(default_support)
 
     skill_source_paths = _coerce_skills_dirs(skills_dirs)

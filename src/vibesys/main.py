@@ -46,12 +46,13 @@ from vibesys.repository import (
     generate_experiment_name,
     repository_name_from_experiment,
 )
+from vibesys.resource_paths import default_skill_roots
 from vibesys.sandbox.run_environment import (
     RunEnvironmentSpec,
     build_run_environment,
     make_run_environment_spec,
 )
-from vibesys.skills import DEFAULT_SKILL_ROOTS, resolve_skill_source_dirs
+from vibesys.skills import resolve_skill_source_dirs
 from vibesys.tui import KNOWN_TUI_THEMES, TuiTheme
 from vs_github import GitHubCLI, GitHubCLIError
 
@@ -577,7 +578,7 @@ def load_config_and_skills(
     else:
         # --skills-dir overrides the presets; when omitted, the presets are the
         # base. --extra-skills always stacks on top (presets or the override).
-        base = getattr(args, "skills_dir", None) or list(DEFAULT_SKILL_ROOTS)
+        base = getattr(args, "skills_dir", None) or list(default_skill_roots())
         extra = getattr(args, "extra_skills", None) or []
         skills = resolve_skill_source_dirs([*base, *extra], backend=backend, domain=domain)
     return config, skills, backend

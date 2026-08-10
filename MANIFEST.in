@@ -8,3 +8,9 @@ include clients/tui/tsconfig.check.json
 include clients/tui/README.md
 prune clients/tui/dist
 prune clients/tui/node_modules
+# Include the resource trees so a source build can stage them into
+# vibesys/_resources. Vendored skill repo checkouts stay out of the sdist.
+graft resources/profilers
+graft resources/skills
+prune resources/skills/serving-systems/repos
+global-exclude __pycache__ *.pyc
