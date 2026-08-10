@@ -17,7 +17,7 @@ var (
 
 func nativeRunnerPath() (string, error) {
 	runnerOnce.Do(func() {
-		if configured := os.Getenv("VIBESYS_QUEUE_NATIVE_RUNNER"); configured != "" {
+		if configured := os.Getenv("VIBESYS_PRIORITY_QUEUE_NATIVE_RUNNER"); configured != "" {
 			runnerPath, runnerErr = filepath.Abs(configured)
 			if runnerErr == nil {
 				runnerErr = validateRunnerExecutable(runnerPath)
