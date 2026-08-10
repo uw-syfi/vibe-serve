@@ -309,14 +309,14 @@ def test_modal_environment_wraps_service_evaluators_with_remote_dispatch(tmp_pat
     )
 
     helper = "/opt/vibesys-modal-evaluator.py"
-    prefix = f"python {helper} --readiness-timeout-seconds 600 --"
+    prefix = f"python {helper} --readiness-timeout-seconds 1200 --"
     assert session.view.paths.accuracy_command == (
         f"{prefix} uv run python accuracy_checker/checker.py"
     )
     assert session.view.paths.benchmark_command == (
         f"{prefix} uv run python benchmark/benchmark.py --concurrency 16"
     )
-    assert session.view.framework_setup_timeout_seconds == 600
+    assert session.view.framework_setup_timeout_seconds == 1200
     assert any(
         container_path == helper and read_only
         for _, container_path, read_only in backend.calls[0][1]["bind_mounts"]

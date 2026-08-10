@@ -477,7 +477,7 @@ class ModalEnvironment(_NoopWorkspaceRecovery):  # noqa: D101  # tracked: #288
         # DOCKER-kind sandboxes always implement start().
         sandbox.start()  # pyright: ignore[reportAttributeAccessIssue]
 
-        setup_timeout_seconds = 600
+        setup_timeout_seconds = 1200
         evaluator_prefix = (
             f"python {evaluator_container_path} "
             f"--readiness-timeout-seconds {setup_timeout_seconds} --"
