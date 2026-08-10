@@ -735,3 +735,58 @@ def test_run_context_materializes_input_project_path_dependencies(tmp_path):  # 
             "queue-input-core = { path = '_input_libs/queue-input-core', editable = true }\n"
             in (ctx.workspace / "pyproject.toml").read_text()
         )
+
+
+def test_run_context_materializes_sdk_deps_from_workspace_seed(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+    project_root = tmp_path / "project"
+    sdk_pkg = project_root / "sdk" / "vs-bench"
+    sdk_pkg.mkdir(parents=True)
+    (sdk_pkg / "pyproject.toml").write_text(
+        "[project]\nname = 'vs-bench'\nversion = '0.1.0'\n"
+    )
+    (sdk_pkg / "bench.py").write_text("VALUE = 1\n")
+
+    starter = project_root / "examples" / "starters" / "test-starter"
+    starter.mkdir(parents=True)
+    subprocess.run(["git", "init", "-q"], cwd=starter, check=True)  # noqa: S607  # tracked: #288
+    (starter / "pyproject.toml").write_text(
+        "[project]\n"
+        "name = 'test-starter'\n"
+        "version = '0.1.0'\n"
+        "dependencies = ['vs-bench']\n"
+        "\n"
+        "[tool.uv]\n"
+        "package = false\n"
+        "\n"
+        "[tool.uv.sources]\n"
+        "vs-bench = { path = '../../../sdk/vs-bench' }\n"
+    )
+
+    input_dir = project_root / "examples" / "model-serving" / "test-bundle"
+    ref_dir = input_dir / "reference"
+    bench_dir = input_dir / "benchmark"
+    ref_dir.mkdir(parents=True)
+    bench_dir.mkdir()
+    (ref_dir / "server.py").write_text("pass\n")
+    (bench_dir / "benchmark.py").write_text("pass\n")
+
+    with (
+        patch("vibesys.context.PROJECT_ROOT", project_root),
+        patch("vibesys.context.build_model", return_value="mock-model"),
+        patch("vibesys.context.build_agent_runner", return_value=MagicMock()),
+        patch("vibesys.context.backends.get", return_value=_FakeBackend()),
+        create_run_context(
+            config={"model": {"name": "claude-sonnet-4-6"}},  # pyright: ignore[reportArgumentType]  # tracked: #297
+            exp_name="seed-sdk-dep",
+            input_path=str(input_dir),
+            accuracy_command="echo ok",
+            benchmark_command="uv run python benchmark/benchmark.py",
+            skills_dirs=[],
+            run_environment=RunEnvironmentSpec("local"),
+            environment_hooks=NoopEnvironmentHooks(),
+            workspace_seed=str(starter),
+        ) as ctx,
+    ):
+        assert (ctx.workspace / "_input_libs" / "vs-bench" / "bench.py").is_file()
+        ws_pyproject = (ctx.workspace / "pyproject.toml").read_text()
+        assert "vs-bench = { path = '_input_libs/vs-bench' }" in ws_pyproject
