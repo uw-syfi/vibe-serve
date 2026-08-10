@@ -564,6 +564,29 @@ def _verify_exact_members(
     *,
     allowed: set[str],
 ) -> None:
+    directories = {info.filename for info in infos if info.is_dir()}
+    aliases = sorted(name for name in directories if name.removesuffix("/") in allowed)
+    if aliases:
+        _fail(f"Wheel directory entry aliases an allowed file: {aliases}")
+
+    entries_by_path: dict[str, str] = {}
+    for info in infos:
+        path = info.filename.removesuffix("/") if info.is_dir() else info.filename
+        existing = entries_by_path.get(path)
+        if existing is not None:
+            _fail(f"Wheel contains colliding archive entries: {existing!r}, {info.filename!r}")
+        entries_by_path[path] = info.filename
+
+    expected_directories = {
+        f"{parent.as_posix()}/"
+        for name in allowed
+        for parent in PurePosixPath(name).parents
+        if parent != PurePosixPath(".")
+    }
+    unexpected_directories = sorted(directories - expected_directories)
+    if unexpected_directories:
+        _fail(f"Wheel contains unexpected directory entries: {unexpected_directories}")
+
     actual = {info.filename for info in infos if not info.is_dir()}
     unexpected = sorted(actual - allowed)
     if unexpected:

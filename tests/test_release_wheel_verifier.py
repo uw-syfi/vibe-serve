@@ -193,6 +193,13 @@ def _verify(source_root: Path, wheel: Path) -> None:
     verifier.verify_wheel(wheel, source_root, TARGETS["linux-x86_64"])
 
 
+def _append_directory(wheel: Path, name: str) -> None:
+    directory = zipfile.ZipInfo(name)
+    directory.external_attr = (stat.S_IFDIR | 0o755) << 16
+    with zipfile.ZipFile(wheel, "a") as archive:
+        archive.writestr(directory, b"")
+
+
 def test_complete_spread_layout_wheel_passes(release_fixture: tuple[Path, Path]) -> None:
     source_root, wheel = release_fixture
 
@@ -203,12 +210,40 @@ def test_tolerates_canonical_zip_directory_entries(
     release_fixture: tuple[Path, Path],
 ) -> None:
     source_root, wheel = release_fixture
-    directory = zipfile.ZipInfo("unused-directory/")
-    directory.external_attr = (stat.S_IFDIR | 0o755) << 16
-    with zipfile.ZipFile(wheel, "a") as archive:
-        archive.writestr(directory, b"")
+    _append_directory(wheel, f"{PURELIB}/vibesys/")
 
     _verify(source_root, wheel)
+
+
+@pytest.mark.parametrize(
+    ("directory_name", "message"),
+    [
+        ("unused-directory/", "unexpected directory"),
+        (f"{PURELIB}/vibesys/__init__.py/", "aliases an allowed file"),
+    ],
+)
+def test_rejects_invalid_canonical_zip_directory_entries(
+    release_fixture: tuple[Path, Path],
+    directory_name: str,
+    message: str,
+) -> None:
+    source_root, wheel = release_fixture
+    _append_directory(wheel, directory_name)
+
+    with pytest.raises(verifier.ReleaseWheelError, match=message):
+        _verify(source_root, wheel)
+
+
+def test_rejects_file_and_directory_entry_collisions(
+    release_fixture: tuple[Path, Path],
+) -> None:
+    source_root, wheel = release_fixture
+    collision = f"{PURELIB}/vibesys"
+    _write_wheel(wheel, source_root, extra={collision: b"file\n"})
+    _append_directory(wheel, f"{collision}/")
+
+    with pytest.raises(verifier.ReleaseWheelError, match="colliding archive entries"):
+        _verify(source_root, wheel)
 
 
 @pytest.mark.parametrize(
