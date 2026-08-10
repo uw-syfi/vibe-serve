@@ -13,6 +13,13 @@ Keep changes narrowly scoped to the requested behavior, preserve existing
 architecture boundaries, and run the smallest relevant checks before handing
 work back.
 
+# Delegation
+
+The main agent does orchestration: planning high-level effort, monitoring
+progress, and steering. Delegate detailed work (searching, reading, and
+editing across files) to subagents. Use cheaper models whenever the task
+allows, and run independent subagents in parallel.
+
 Before creating a GitHub issue, read
 [`docs/issue-authoring.md`](docs/issue-authoring.md) and the matching form under
 `.github/ISSUE_TEMPLATE/`. Search both the codebase and open and closed issues
