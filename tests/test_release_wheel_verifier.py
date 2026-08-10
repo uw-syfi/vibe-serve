@@ -62,6 +62,8 @@ dependencies = ["example>=1"]
     _source_file(root, "sdk/vs-bench/README.md", b"# vs-bench\n")
     _source_file(root, "sdk/vs-bench/src/vs_bench/__init__.py", b"VALUE = 1\n")
     _source_file(root, "sdk/vs-bench/src/vs_bench/py.typed", b"")
+    _source_file(root, "third_party/bun/LICENSE", b"Bun license\n")
+    _source_file(root, "LICENSE", b"VibeSys license\n")
 
     subprocess.run(["git", "init", "-q"], cwd=root, check=True)  # noqa: S607
     subprocess.run(["git", "add", "."], cwd=root, check=True)  # noqa: S607
@@ -136,6 +138,7 @@ Tag: py3-none-manylinux_2_28_x86_64
         b"vibesys-issue-mcp = vs_issue_board.mcp:main\n"
     )
     files[f"{DIST_INFO}/top_level.txt"] = ("\n".join(FRAMEWORK_PACKAGES) + "\n").encode()
+    files[f"{DIST_INFO}/licenses/LICENSE"] = (source_root / "LICENSE").read_bytes()
     files[f"{DIST_INFO}/RECORD"] = b""
     return files
 
@@ -194,6 +197,56 @@ def test_complete_spread_layout_wheel_passes(release_fixture: tuple[Path, Path])
     source_root, wheel = release_fixture
 
     _verify(source_root, wheel)
+
+
+def test_tolerates_canonical_zip_directory_entries(
+    release_fixture: tuple[Path, Path],
+) -> None:
+    source_root, wheel = release_fixture
+    directory = zipfile.ZipInfo("unused-directory/")
+    directory.external_attr = (stat.S_IFDIR | 0o755) << 16
+    with zipfile.ZipFile(wheel, "a") as archive:
+        archive.writestr(directory, b"")
+
+    _verify(source_root, wheel)
+
+
+@pytest.mark.parametrize(
+    "unexpected_name",
+    [
+        f"{PURELIB}/arbitrary_package/__init__.py",
+        f"{PURELIB}/vibesys/secret.txt",
+        "vibesys-9.9.9.dist-info/METADATA",
+        "vibesys/__init__.py",
+    ],
+)
+def test_rejects_every_unexpected_wheel_member(
+    release_fixture: tuple[Path, Path],
+    unexpected_name: str,
+) -> None:
+    source_root, wheel = release_fixture
+    _write_wheel(wheel, source_root, extra={unexpected_name: b"unexpected\n"})
+
+    with pytest.raises(verifier.ReleaseWheelError, match="unexpected"):
+        _verify(source_root, wheel)
+
+
+@pytest.mark.parametrize(
+    "alias",
+    [
+        f"{PURELIB}/vibesys/./__init__.py",
+        f"{PURELIB}//vibesys/__init__.py",
+    ],
+)
+def test_rejects_non_canonical_archive_aliases(
+    release_fixture: tuple[Path, Path],
+    alias: str,
+) -> None:
+    source_root, wheel = release_fixture
+    _write_wheel(wheel, source_root, extra={alias: b"alias\n"})
+
+    with pytest.raises(verifier.ReleaseWheelError, match="non-canonical"):
+        _verify(source_root, wheel)
 
 
 def test_rejects_a_universal_wheel_filename(release_fixture: tuple[Path, Path]) -> None:
@@ -318,7 +371,51 @@ def test_rejects_a_source_digest_mismatch(release_fixture: tuple[Path, Path]) ->
         _verify(source_root, wheel)
 
 
-@pytest.mark.parametrize("unsafe_name", ["/absolute", "../traversal", "src/vibesys/leak.py"])
+def test_rejects_a_tracked_packaging_source_missing_from_the_worktree(
+    release_fixture: tuple[Path, Path],
+) -> None:
+    source_root, wheel = release_fixture
+    missing = source_root / "resources" / "skills" / "demo" / "SKILL.md"
+    missing.unlink()
+
+    with pytest.raises(
+        verifier.ReleaseWheelError, match=r"tracked source.*missing.*resources/skills"
+    ):
+        _verify(source_root, wheel)
+
+
+@pytest.mark.parametrize(
+    ("member", "replacement", "message"),
+    [
+        (
+            f"{PURELIB}/vibesys/_tui/licenses/BUN-LICENSE.md",
+            b"substituted Bun license\n",
+            "Bun license digest",
+        ),
+        (
+            f"{DIST_INFO}/licenses/LICENSE",
+            b"substituted root license\n",
+            "root license digest",
+        ),
+    ],
+)
+def test_rejects_substituted_repository_owned_licenses(
+    release_fixture: tuple[Path, Path],
+    member: str,
+    replacement: bytes,
+    message: str,
+) -> None:
+    source_root, wheel = release_fixture
+    _write_wheel(wheel, source_root, extra={member: replacement})
+
+    with pytest.raises(verifier.ReleaseWheelError, match=message):
+        _verify(source_root, wheel)
+
+
+@pytest.mark.parametrize(
+    "unsafe_name",
+    ["/absolute", "C:/absolute", "../traversal", "src/vibesys/leak.py"],
+)
 def test_rejects_unsafe_or_repository_archive_paths(
     release_fixture: tuple[Path, Path],
     unsafe_name: str,
@@ -327,6 +424,55 @@ def test_rejects_unsafe_or_repository_archive_paths(
     _write_wheel(wheel, source_root, extra={unsafe_name: b"unsafe\n"})
 
     with pytest.raises(verifier.ReleaseWheelError, match="archive path"):
+        _verify(source_root, wheel)
+
+
+@pytest.mark.parametrize(
+    ("metadata_file", "header"),
+    [
+        ("METADATA", "Name"),
+        ("METADATA", "Version"),
+        ("METADATA", "Requires-Python"),
+        ("WHEEL", "Root-Is-Purelib"),
+        ("WHEEL", "Tag"),
+    ],
+)
+def test_rejects_duplicate_singleton_metadata_headers(
+    release_fixture: tuple[Path, Path],
+    metadata_file: str,
+    header: str,
+) -> None:
+    source_root, wheel = release_fixture
+    member = f"{DIST_INFO}/{metadata_file}"
+    content = _wheel_files(source_root)[member]
+    line = next(
+        line for line in content.splitlines(keepends=True) if line.startswith(f"{header}:".encode())
+    )
+    duplicated = content.replace(line, line + line, 1)
+    _write_wheel(wheel, source_root, extra={member: duplicated})
+
+    with pytest.raises(verifier.ReleaseWheelError, match=rf"exactly one {header}"):
+        _verify(source_root, wheel)
+
+
+@pytest.mark.parametrize(
+    ("metadata_file", "header"),
+    [("METADATA", "Metadata-Version"), ("WHEEL", "Wheel-Version")],
+)
+def test_rejects_unsupported_metadata_standard_versions(
+    release_fixture: tuple[Path, Path],
+    metadata_file: str,
+    header: str,
+) -> None:
+    source_root, wheel = release_fixture
+    member = f"{DIST_INFO}/{metadata_file}"
+    content = _wheel_files(source_root)[member]
+    unsupported = content.replace(f"{header}: 2.4".encode(), f"{header}: 9.9".encode())
+    if header == "Wheel-Version":
+        unsupported = content.replace(b"Wheel-Version: 1.0", b"Wheel-Version: 9.9")
+    _write_wheel(wheel, source_root, extra={member: unsupported})
+
+    with pytest.raises(verifier.ReleaseWheelError, match=rf"unsupported {header}"):
         _verify(source_root, wheel)
 
 

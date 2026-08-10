@@ -14,7 +14,7 @@ import zipfile
 from collections import Counter
 from email.parser import BytesParser
 from email.policy import default
-from pathlib import Path, PurePosixPath
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import TYPE_CHECKING, Never, cast
 
 from packaging.requirements import InvalidRequirement, Requirement
@@ -76,6 +76,18 @@ _EXPECTED_ENTRY_POINTS = {
     "vibesys": "vibesys.cli:main",
     "vibesys-issue-mcp": "vs_issue_board.mcp:main",
 }
+_DIST_INFO_FILES = frozenset(
+    {
+        "METADATA",
+        "WHEEL",
+        "entry_points.txt",
+        "licenses/LICENSE",
+        "RECORD",
+        "top_level.txt",
+    }
+)
+_SUPPORTED_METADATA_VERSIONS = frozenset({"2.1", "2.2", "2.3", "2.4"})
+_SUPPORTED_WHEEL_VERSIONS = frozenset({"1.0"})
 
 
 class ReleaseWheelError(RuntimeError):
@@ -144,21 +156,34 @@ def verify_wheel(wheel: Path, source_root: Path, target: WheelTarget) -> None:
             _verify_metadata(metadata, project=project, version=version)
             _verify_wheel_metadata(wheel_metadata, target=target)
             _verify_framework_packages(archive, members, purelib=purelib)
-            _verify_tracked_sources(
+            source_members = _verify_tracked_sources(
                 archive,
                 members,
                 source_root=source_root,
                 purelib=purelib,
             )
             _verify_entry_points(archive, members, dist_info=dist_info)
-            _verify_tui_payload(
+            tui_members = _verify_tui_payload(
                 archive,
                 members,
                 purelib=purelib,
                 target=target,
                 version=version,
             )
-            _required_member(members, f"{dist_info}/RECORD", "wheel RECORD")
+            _verify_repository_licenses(
+                archive,
+                members,
+                source_root=source_root,
+                purelib=purelib,
+                dist_info=dist_info,
+            )
+            dist_info_members = {f"{dist_info}/{name}" for name in _DIST_INFO_FILES}
+            for name in dist_info_members:
+                _required_member(members, name, "wheel metadata")
+            _verify_exact_members(
+                infos,
+                allowed=source_members | tui_members | dist_info_members,
+            )
     except (OSError, zipfile.BadZipFile) as exc:
         raise ReleaseWheelError.unreadable_wheel(wheel, exc) from exc
 
@@ -194,10 +219,19 @@ def _verify_archive_paths(infos: list[zipfile.ZipInfo]) -> None:
             not name
             or "\\" in name
             or path.is_absolute()
+            or PureWindowsPath(name).is_absolute()
             or ".." in path.parts
             or (path.parts and path.parts[0] in _REPOSITORY_ARCHIVE_ROOTS)
         ):
             _fail(f"Wheel contains an unsafe or repository archive path: {name!r}")
+        canonical_name = path.as_posix() + ("/" if info.is_dir() else "")
+        archive_parts = name[:-1].split("/") if info.is_dir() else name.split("/")
+        if (
+            name != canonical_name
+            or not path.parts
+            or any(part in {"", "."} for part in archive_parts)
+        ):
+            _fail(f"Wheel contains a non-canonical archive path: {name!r}")
         if name.endswith(".map"):
             _fail(f"Wheel contains a source map archive path: {name}")
         mode = info.external_attr >> 16
@@ -219,15 +253,19 @@ def _verify_metadata(
     project: dict[str, object],
     version: str,
 ) -> None:
-    if metadata.get("Name") != "vibesys":
-        _fail(f"Wheel METADATA has the wrong name: {metadata.get('Name')!r}")
-    if metadata.get("Version") != version:
+    metadata_version = _singleton_header(metadata, "Metadata-Version")
+    if metadata_version not in _SUPPORTED_METADATA_VERSIONS:
+        _fail(f"Wheel METADATA has unsupported Metadata-Version: {metadata_version!r}")
+    name = _singleton_header(metadata, "Name")
+    if name != "vibesys":
+        _fail(f"Wheel METADATA has the wrong name: {name!r}")
+    wheel_version = _singleton_header(metadata, "Version")
+    if wheel_version != version:
         _fail(
-            f"Wheel METADATA version {metadata.get('Version')!r} "
-            f"does not match project version {version!r}"
+            f"Wheel METADATA version {wheel_version!r} does not match project version {version!r}"
         )
     expected_python = _project_string(project, "requires-python")
-    if metadata.get("Requires-Python") != expected_python:
+    if _singleton_header(metadata, "Requires-Python") != expected_python:
         _fail("Wheel METADATA Requires-Python does not match pyproject.toml")
 
     raw_requirements = metadata.get_all("Requires-Dist", [])
@@ -271,14 +309,24 @@ def _project_requirements(project: dict[str, object]) -> list[str]:
 
 
 def _verify_wheel_metadata(metadata: Message, *, target: WheelTarget) -> None:
+    wheel_version = _singleton_header(metadata, "Wheel-Version")
+    if wheel_version not in _SUPPORTED_WHEEL_VERSIONS:
+        _fail(f"Wheel metadata has unsupported Wheel-Version: {wheel_version!r}")
     expected_tag = f"py3-none-{target.wheel_platform}"
-    if metadata.get("Root-Is-Purelib", "").lower() != "false":
+    if _singleton_header(metadata, "Root-Is-Purelib").lower() != "false":
         _fail("Native release wheel must declare Root-Is-Purelib: false")
-    if metadata.get_all("Tag", []) != [expected_tag]:
+    tag = _singleton_header(metadata, "Tag")
+    if tag != expected_tag:
         _fail(
-            f"Wheel metadata has the wrong platform tag; expected {expected_tag!r}, "
-            f"found {metadata.get_all('Tag', [])}"
+            f"Wheel metadata has the wrong platform tag; expected {expected_tag!r}, found {tag!r}"
         )
+
+
+def _singleton_header(metadata: Message, name: str) -> str:
+    values = metadata.get_all(name, [])
+    if len(values) != 1:
+        _fail(f"Wheel metadata must contain exactly one {name}; found {len(values)}")
+    return str(values[0])
 
 
 def _verify_framework_packages(
@@ -315,7 +363,7 @@ def _verify_tracked_sources(
     *,
     source_root: Path,
     purelib: str,
-) -> None:
+) -> set[str]:
     tracked = _tracked_files(source_root)
     expected = _expected_packaged_sources(source_root, tracked=tracked, purelib=purelib)
 
@@ -325,6 +373,7 @@ def _verify_tracked_sources(
         archive_digest = hashlib.sha256(archive.read(archive_name)).digest()
         if archive_digest != source_digest:
             _fail(f"Wheel source digest mismatch for {source_relative.as_posix()}")
+    return set(expected.values())
 
 
 def _expected_packaged_sources(
@@ -339,9 +388,10 @@ def _expected_packaged_sources(
             if not relative.is_relative_to(source_prefix) or _excluded(relative):
                 continue
             source = source_root / relative
-            if source.is_file():
-                suffix = relative.relative_to(source_prefix).as_posix()
-                expected[relative] = f"{purelib}/{package_prefix.as_posix()}/{suffix}"
+            if not source.is_file():
+                _fail(f"Wheel tracked source is missing from worktree: {relative.as_posix()}")
+            suffix = relative.relative_to(source_prefix).as_posix()
+            expected[relative] = f"{purelib}/{package_prefix.as_posix()}/{suffix}"
 
     sdk_root = Path("sdk/vs-bench")
     for relative in tracked:
@@ -351,8 +401,9 @@ def _expected_packaged_sources(
         if sdk_relative.parts[0] not in {"README.md", "pyproject.toml", "src"}:
             continue
         source = source_root / relative
-        if source.is_file():
-            expected[relative] = f"{purelib}/vibesys/_sdk/vs-bench/{sdk_relative.as_posix()}"
+        if not source.is_file():
+            _fail(f"Wheel tracked source is missing from worktree: {relative.as_posix()}")
+        expected[relative] = f"{purelib}/vibesys/_sdk/vs-bench/{sdk_relative.as_posix()}"
     return expected
 
 
@@ -405,7 +456,7 @@ def _verify_tui_payload(
     purelib: str,
     target: WheelTarget,
     version: str,
-) -> None:
+) -> set[str]:
     root = f"{purelib}/vibesys/_tui"
     for relative in _REQUIRED_TUI_FILES:
         _required_member(members, f"{root}/{relative}", relative)
@@ -423,8 +474,9 @@ def _verify_tui_payload(
         _fail(f"TUI payload must use Bun version {BUN_VERSION}")
     if manifest.get("tui_version") != TUI_VERSION or version != TUI_VERSION:
         _fail("TUI payload version does not match the Python distribution version")
-    _verify_manifest_hashes(archive, members, root=root, manifest=manifest)
+    manifest_members = _verify_manifest_hashes(archive, members, root=root, manifest=manifest)
     _verify_native_package(members, root=root, target=target)
+    return manifest_members
 
 
 def _load_manifest(content: bytes) -> dict[str, object]:
@@ -443,7 +495,7 @@ def _verify_manifest_hashes(
     *,
     root: str,
     manifest: dict[str, object],
-) -> None:
+) -> set[str]:
     raw_hashes = manifest.get("files")
     if not isinstance(raw_hashes, dict) or not all(
         isinstance(path, str) and isinstance(digest, str) for path, digest in raw_hashes.items()
@@ -462,6 +514,60 @@ def _verify_manifest_hashes(
         actual_digest = hashlib.sha256(archive.read(f"{root}/{relative}")).hexdigest()
         if actual_digest != digest:
             _fail(f"TUI payload hash mismatch for {relative}")
+    return {f"{root}/manifest.json"} | {f"{root}/{relative}" for relative in expected_hashes}
+
+
+def _verify_repository_licenses(
+    archive: zipfile.ZipFile,
+    members: dict[str, zipfile.ZipInfo],
+    *,
+    source_root: Path,
+    purelib: str,
+    dist_info: str,
+) -> None:
+    _verify_source_digest(
+        archive,
+        members,
+        source=source_root / "third_party/bun/LICENSE",
+        member=f"{purelib}/vibesys/_tui/licenses/BUN-LICENSE.md",
+        description="Bun license",
+    )
+    _verify_source_digest(
+        archive,
+        members,
+        source=source_root / "LICENSE",
+        member=f"{dist_info}/licenses/LICENSE",
+        description="root license",
+    )
+
+
+def _verify_source_digest(
+    archive: zipfile.ZipFile,
+    members: dict[str, zipfile.ZipInfo],
+    *,
+    source: Path,
+    member: str,
+    description: str,
+) -> None:
+    if not source.is_file():
+        _fail(f"Repository {description} is missing: {source}")
+    _required_member(members, member, description)
+    if (
+        hashlib.sha256(archive.read(member)).digest()
+        != hashlib.sha256(source.read_bytes()).digest()
+    ):
+        _fail(f"Wheel {description} digest does not match {source.name}")
+
+
+def _verify_exact_members(
+    infos: list[zipfile.ZipInfo],
+    *,
+    allowed: set[str],
+) -> None:
+    actual = {info.filename for info in infos if not info.is_dir()}
+    unexpected = sorted(actual - allowed)
+    if unexpected:
+        _fail(f"Wheel contains unexpected files: {unexpected}")
 
 
 def _verify_native_package(
