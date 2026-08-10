@@ -86,6 +86,23 @@ def test_linux_audit_rejects_symbol_versions_outside_manylinux_2_28(symbol: str)
         validate_linux_symbol_versions({family: {version}}, target_key="linux-x86_64")
 
 
+def test_linux_audit_parses_underscore_symbol_suffixes_before_policy_validation() -> None:
+    versions = parse_symbol_versions(
+        "Name: CXXABI_TM_1  Flags: none\nName: GLIBC_ABI_DT_RELR  Flags: none\n"
+    )
+
+    assert versions == {"CXXABI": {"TM_1"}, "GLIBC": {"ABI_DT_RELR"}}
+    validate_linux_symbol_versions(
+        {"CXXABI": {"TM_1"}},
+        target_key="linux-x86_64",
+    )
+    with pytest.raises(BinaryAuditError, match="GLIBC_ABI_DT_RELR"):
+        validate_linux_symbol_versions(
+            {"GLIBC": {"ABI_DT_RELR"}},
+            target_key="linux-x86_64",
+        )
+
+
 def test_linux_audit_rejects_every_non_policy_dependency() -> None:
     with pytest.raises(BinaryAuditError, match=r"libssl\.so\.3"):
         validate_linux_dependencies(

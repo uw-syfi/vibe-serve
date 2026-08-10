@@ -24,7 +24,7 @@ from wheel_targets import TARGETS, WheelTarget, resolve_wheel_target  # noqa: E4
 Runner = Callable[..., subprocess.CompletedProcess[str]]
 _POLICY_PATH = REPO_ROOT / "packaging" / "manylinux_2_28-policy.json"
 _VERSIONED_SYMBOL_PATTERN = re.compile(
-    r"\b(GLIBCXX|GLIBC|CXXABI|GCC|LIBATOMIC|ZLIB)_([A-Za-z0-9.]+)\b"
+    r"\b(GLIBCXX|GLIBC|CXXABI|GCC|LIBATOMIC|ZLIB)_([A-Za-z0-9_.]+)\b"
 )
 _MACHO_MAGICS = frozenset(
     {
