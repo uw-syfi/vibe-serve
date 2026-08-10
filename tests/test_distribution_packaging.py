@@ -46,6 +46,7 @@ def test_root_distribution_discovers_internal_packages_from_their_source_roots()
     packages, package_dirs = module.discover_distribution_packages(PROJECT_ROOT)
 
     assert {"vibesys", *INTERNAL_IMPORT_PACKAGES} <= set(packages)
+    assert "vibesys.prompts.backend.cuda" in packages
     assert package_dirs["vibesys"] == "src/vibesys"
     assert package_dirs["vs_feature_flags"] == (
         "libs/vs-feature-flags/src/vs_feature_flags"

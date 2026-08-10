@@ -1,4 +1,4 @@
-import {describe, expect, it} from 'vitest';
+import {describe, expect, it} from 'bun:test';
 import {renderPerformanceCurve} from './performance-chart.js';
 import type {ProtocolResponse, RunEvent} from './protocol.js';
 

@@ -1,7 +1,9 @@
 {
   "extends": "./tsconfig.json",
   "compilerOptions": {
-    "noEmit": true
+    "noEmit": true,
+    "skipLibCheck": true,
+    "types": ["node", "bun"]
   },
   "include": ["src/**/*.ts", "src/**/*.tsx"],
   "exclude": []

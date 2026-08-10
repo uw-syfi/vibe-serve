@@ -21,10 +21,14 @@ def discover_distribution_packages(repo_root: Path) -> tuple[list[str], dict[str
 
     for relative_root in PACKAGE_SOURCE_ROOTS:
         source_root = repo_root / relative_root
-        discovered = sorted(
-            init_file.parent.relative_to(source_root).as_posix().replace("/", ".")
-            for init_file in source_root.rglob("__init__.py")
-        )
+        discovered: list[str] = []
+        for top_level_init in source_root.glob("*/__init__.py"):
+            top_level = top_level_init.parent
+            directories = (top_level, *sorted(path for path in top_level.rglob("*") if path.is_dir()))
+            for directory in directories:
+                relative = directory.relative_to(source_root)
+                if all(part.isidentifier() for part in relative.parts):
+                    discovered.append(".".join(relative.parts))
         packages.extend(discovered)
         package_dirs.update(
             {
@@ -33,4 +37,4 @@ def discover_distribution_packages(repo_root: Path) -> tuple[list[str], dict[str
             }
         )
 
-    return packages, package_dirs
+    return sorted(packages), package_dirs

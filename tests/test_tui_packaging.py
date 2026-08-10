@@ -1,138 +1,145 @@
-"""Tests for the wheel-time TUI build/stage helper."""
+"""Contracts for validating and staging a prebuilt TUI payload."""
 
 from __future__ import annotations
 
-import os
-import shutil
-from pathlib import Path  # tracked: #288
+import hashlib
+import json
+from pathlib import Path  # noqa: TC003
 
 import pytest
-
-# `tui_packaging` is a repo-root, build-time module (imported by setup.py). It is
-# not part of the installed package, so pyright's project roots cannot resolve
-# it; pytest picks it up via `pythonpath = ["."]`.
 from tui_packaging import (  # pyright: ignore[reportMissingImports]
-    build_and_stage_tui,
-    build_command,
-    detect_package_manager,
-    install_command,
-    prune_command,
+    TuiPackagingError,
+    stage_prebuilt_tui,
 )
 
 
-def _which_only(*available: str):  # noqa: ANN202  # tracked: #288
-    present = set(available)
-    return lambda name: f"/usr/bin/{name}" if name in present else None
+def _write_payload(root: Path, *, target: str = "linux-x86_64") -> Path:
+    files = {
+        "bin/bun": b"#!/bin/sh\n",
+        "app/dist/launcher.js": b"// launcher\n",
+        "app/dist/self-test.js": b"// self-test\n",
+        "app/package.json": b'{"name":"@vibesys/tui","version":"0.1.0"}\n',
+        "app/node_modules/@opentui/core/index.js": b"// core\n",
+        "app/node_modules/@opentui/core-linux-x64/index.js": b"// native\n",
+        "licenses/BUN-LICENSE.md": b"Bun license\n",
+        "licenses/opentui-core.txt": b"OpenTUI license\n",
+    }
+    hashes: dict[str, str] = {}
+    for relative, content in files.items():
+        path = root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(content)
+        hashes[relative] = hashlib.sha256(content).hexdigest()
+    (root / "bin" / "bun").chmod(0o755)
+    (root / "manifest.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "target": target,
+                "bun_version": "1.3.9",
+                "tui_version": "0.1.0",
+                "files": hashes,
+            }
+        )
+    )
+    return root
 
 
-def test_detect_prefers_bun_over_npm():  # noqa: ANN201  # tracked: #288
-    assert detect_package_manager(which=_which_only("bun", "npm")) == "bun"
+def test_stage_prebuilt_tui_validates_and_copies_the_payload(tmp_path):  # noqa: ANN001, ANN201
+    source = _write_payload(tmp_path / "source")
+    destination = tmp_path / "destination"
+
+    assert stage_prebuilt_tui(
+        source,
+        destination,
+        required=True,
+        expected_target="linux-x86_64",
+    )
+    assert (destination / "bin" / "bun").stat().st_mode & 0o111
+    assert (destination / "app" / "dist" / "launcher.js").is_file()
+    assert stage_prebuilt_tui(
+        source,
+        destination,
+        required=True,
+        expected_target="linux-x86_64",
+    )
 
 
-def test_detect_falls_back_to_npm():  # noqa: ANN201  # tracked: #288
-    assert detect_package_manager(which=_which_only("npm")) == "npm"
+def test_optional_staging_without_a_payload_is_a_noop(tmp_path):  # noqa: ANN001, ANN201
+    destination = tmp_path / "destination"
+
+    assert not stage_prebuilt_tui(None, destination, required=False)
+    assert not destination.exists()
 
 
-def test_detect_returns_none_when_no_toolchain():  # noqa: ANN201  # tracked: #288
-    assert detect_package_manager(which=_which_only()) is None
+def test_required_staging_rejects_a_missing_payload(tmp_path):  # noqa: ANN001, ANN201
+    with pytest.raises(TuiPackagingError, match="TUI payload"):
+        stage_prebuilt_tui(tmp_path / "missing", tmp_path / "dest", required=True)
 
 
 @pytest.mark.parametrize(
-    ("manager", "install_has", "prune_has"),
+    ("relative_path", "message"),
     [
-        ("bun", "install", "--production"),
-        ("npm", "install", "--omit=dev"),
+        ("app/dist/launcher.js", "launcher.js"),
+        ("app/dist/self-test.js", "self-test.js"),
+        ("licenses/BUN-LICENSE.md", "BUN-LICENSE"),
+        ("licenses/opentui-core.txt", "opentui-core"),
     ],
 )
-def test_command_plans(manager, install_has, prune_has):  # noqa: ANN001, ANN201  # tracked: #288
-    assert install_command(manager)[0] == manager
-    assert install_has in install_command(manager)
-    assert build_command(manager) == (manager, "run", "build")
-    assert prune_has in prune_command(manager)
+def test_required_staging_rejects_missing_files(tmp_path, relative_path, message):  # noqa: ANN001, ANN201
+    source = _write_payload(tmp_path / "source")
+    (source / relative_path).unlink()
+
+    with pytest.raises(TuiPackagingError, match=message):
+        stage_prebuilt_tui(source, tmp_path / "dest", required=True)
 
 
-def test_build_skips_when_no_toolchain(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
-    repo = tmp_path / "repo"
-    (repo / "clients" / "tui").mkdir(parents=True)
-    (repo / "clients" / "tui" / "package.json").write_text("{}\n")
-    dest = tmp_path / "staged"
+def test_staging_rejects_a_non_executable_bun(tmp_path):  # noqa: ANN001, ANN201
+    source = _write_payload(tmp_path / "source")
+    (source / "bin" / "bun").chmod(0o644)
 
-    message = "runner must not be called without a toolchain"
-
-    def _boom(*_args, **_kwargs):  # noqa: ANN002, ANN003, ANN202  # tracked: #288
-        raise AssertionError(message)
-
-    ok = build_and_stage_tui(repo, dest, which=_which_only(), runner=_boom)
-
-    assert ok is False
-    assert not dest.exists()
+    with pytest.raises(TuiPackagingError, match="executable"):
+        stage_prebuilt_tui(source, tmp_path / "dest", required=True)
 
 
-def test_build_skips_when_no_tui_project(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    ok = build_and_stage_tui(repo, tmp_path / "staged", which=_which_only("npm"))
-    assert ok is False
+def test_staging_rejects_a_wrong_bun_version_or_target(tmp_path):  # noqa: ANN001, ANN201
+    source = _write_payload(tmp_path / "source")
+    manifest_path = source / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["bun_version"] = "1.3.8"
+    manifest_path.write_text(json.dumps(manifest))
+
+    with pytest.raises(TuiPackagingError, match="Bun version"):
+        stage_prebuilt_tui(source, tmp_path / "dest", required=True)
+
+    source = _write_payload(tmp_path / "other", target="macos-arm64")
+    with pytest.raises(TuiPackagingError, match="target"):
+        stage_prebuilt_tui(
+            source,
+            tmp_path / "dest",
+            required=True,
+            expected_target="linux-x86_64",
+        )
 
 
-def test_build_returns_false_when_build_fails(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
-    import subprocess  # noqa: PLC0415  # tracked: #288
+def test_staging_rejects_an_unexpected_native_package(tmp_path):  # noqa: ANN001, ANN201
+    source = _write_payload(tmp_path / "source")
+    extra = source / "app" / "node_modules" / "@opentui" / "core-darwin-arm64"
+    extra.mkdir(parents=True)
+    (extra / "index.js").write_text("// wrong native package\n")
 
-    repo = tmp_path / "repo"
-    (repo / "clients" / "tui").mkdir(parents=True)
-    (repo / "clients" / "tui" / "package.json").write_text("{}\n")
-
-    def _fail(cmd, **_kwargs):  # noqa: ANN001, ANN003, ANN202  # tracked: #288
-        raise subprocess.CalledProcessError(1, cmd)
-
-    ok = build_and_stage_tui(repo, tmp_path / "staged", which=_which_only("npm"), runner=_fail)
-    assert ok is False
+    with pytest.raises(TuiPackagingError, match="native package"):
+        stage_prebuilt_tui(source, tmp_path / "dest", required=True)
 
 
-def test_build_stages_dist_and_strips_maps(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
-    repo = tmp_path / "repo"
-    tui = repo / "clients" / "tui"
-    tui.mkdir(parents=True)
-    (tui / "package.json").write_text('{"name": "@vibesys/tui"}\n')
+def test_staging_rejects_source_maps_and_hash_mismatches(tmp_path):  # noqa: ANN001, ANN201
+    source = _write_payload(tmp_path / "source")
+    (source / "app" / "dist" / "launcher.js.map").write_text("{}\n")
 
-    calls: list[list[str]] = []
+    with pytest.raises(TuiPackagingError, match="source map"):
+        stage_prebuilt_tui(source, tmp_path / "dest", required=True)
 
-    def _runner(cmd, **_kwargs):  # noqa: ANN001, ANN003, ANN202  # tracked: #288
-        calls.append(cmd)
-        # Simulate the build emitting dist/ + node_modules on first invocation.
-        dist = tui / "dist"
-        dist.mkdir(exist_ok=True)
-        (dist / "launcher.js").write_text("// launcher\n")
-        (dist / "launcher.js.map").write_text("{}\n")
-        nm = tui / "node_modules" / "@opentui" / "core"
-        nm.mkdir(parents=True, exist_ok=True)
-        (nm / "index.js").write_text("// core\n")
-        (nm / "index.js.map").write_text("{}\n")
-
-    dest = tmp_path / "staged"
-    ok = build_and_stage_tui(repo, dest, which=_which_only("npm"), runner=_runner)
-
-    assert ok is True
-    # install, build, prune all ran.
-    assert [c[:2] for c in calls] == [["npm", "install"], ["npm", "run"], ["npm", "prune"]]
-    assert (dest / "dist" / "launcher.js").is_file()
-    assert (dest / "package.json").is_file()
-    assert (dest / "node_modules" / "@opentui" / "core" / "index.js").is_file()
-    # Source maps were stripped from both dist and node_modules.
-    assert not (dest / "dist" / "launcher.js.map").exists()
-    assert not (dest / "node_modules" / "@opentui" / "core" / "index.js.map").exists()
-
-
-@pytest.mark.skipif(
-    not (os.environ.get("VIBESYS_TEST_TUI_BUILD") and shutil.which("npm")),
-    reason="set VIBESYS_TEST_TUI_BUILD=1 and have npm to run the real TUI build",
-)
-def test_real_build_end_to_end(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
-    repo_root = Path(__file__).resolve().parents[1]
-    dest = tmp_path / "staged"
-
-    ok = build_and_stage_tui(repo_root, dest)
-
-    assert ok is True
-    assert (dest / "dist" / "launcher.js").is_file()
-    assert (dest / "node_modules" / "@opentui" / "core").is_dir()
+    (source / "app" / "dist" / "launcher.js.map").unlink()
+    (source / "app" / "dist" / "launcher.js").write_text("// modified\n")
+    with pytest.raises(TuiPackagingError, match="hash"):
+        stage_prebuilt_tui(source, tmp_path / "dest", required=True)

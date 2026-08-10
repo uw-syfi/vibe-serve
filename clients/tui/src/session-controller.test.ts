@@ -1,4 +1,4 @@
-import {describe, expect, it} from 'vitest';
+import {describe, expect, it} from 'bun:test';
 import type {EventSubscription} from './client.js';
 import type {ProtocolResponse, RequestInput, RunEvent, ServerMessage} from './protocol.js';
 import {

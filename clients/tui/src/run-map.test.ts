@@ -1,4 +1,4 @@
-import {describe, expect, it} from 'vitest';
+import {describe, expect, it} from 'bun:test';
 import type {RunEvent} from './protocol.js';
 import {applyRunMapEvent, type RunMapState, roundAgentElapsedMs} from './run-map.js';
 

@@ -1,130 +1,159 @@
-"""Build and stage the OpenTUI client for inclusion in the Python wheel.
-
-The interactive TUI lives in ``clients/tui`` as a TypeScript project whose only
-runtime dependency is the native ``@opentui/core`` renderer. To make a single
-``pip install`` deliver a usable TUI, the wheel build compiles the TypeScript
-and vendors the (platform-matched) ``node_modules`` into the ``vibesys._tui``
-package directory. ``setup.py`` calls :func:`build_and_stage_tui` from a custom
-``build_py`` step.
-
-The step is **best-effort**: when no JavaScript toolchain is available, or the
-build fails, it logs a warning and returns ``False`` so the wheel still installs
-a fully functional headless engine. It is deliberately dependency-free (only the
-standard library) so it imports cleanly inside an isolated build environment.
-"""
+"""Validate and stage a prebuilt, target-specific TUI payload."""
 
 from __future__ import annotations
 
+import hashlib
+import json
 import shutil
-import subprocess
-import sys
-from collections.abc import Callable, Sequence
-from pathlib import Path  # noqa: TC003  # tracked: #288
+import stat
+from typing import TYPE_CHECKING, Never, cast
 
-#: JavaScript package managers tried in preference order. Bun matches the TUI's
-#: runtime and is fastest; npm ships with Node and is the ubiquitous fallback.
-#: pnpm is intentionally omitted: a scoped install inside this repo's pnpm
-#: workspace pulls in workspace resolution we do not want at package-build time.
-_PACKAGE_MANAGERS: tuple[str, ...] = ("bun", "npm")
+from wheel_targets import TARGETS
 
-#: What gets copied from ``clients/tui`` into the staged ``_tui`` package dir.
-_STAGED_ENTRIES: tuple[str, ...] = ("dist", "node_modules", "package.json")
+if TYPE_CHECKING:
+    from pathlib import Path
 
-# The return value is ignored (we only care about exit status via ``check``),
-# so accept any callable shaped like ``subprocess.run`` regardless of return.
-Runner = Callable[..., object]
-Which = Callable[[str], str | None]
-
-
-def detect_package_manager(*, which: Which = shutil.which) -> str | None:
-    """Return the first available package manager, or ``None`` if none exist."""
-    for manager in _PACKAGE_MANAGERS:
-        if which(manager) is not None:
-            return manager
-    return None
+BUN_VERSION = "1.3.9"
+TUI_VERSION = "0.1.0"
+_REQUIRED_FILES = (
+    "bin/bun",
+    "app/dist/launcher.js",
+    "app/dist/self-test.js",
+    "app/package.json",
+    "app/node_modules/@opentui/core/index.js",
+    "licenses/BUN-LICENSE.md",
+    "licenses/opentui-core.txt",
+)
 
 
-def install_command(manager: str) -> tuple[str, ...]:
-    """Argv that installs the TUI's dependencies (all, including dev)."""
-    if manager == "bun":
-        return ("bun", "install")
-    return ("npm", "install", "--no-audit", "--no-fund")
+class TuiPackagingError(RuntimeError):
+    """Raised when a release TUI payload is absent, incomplete, or inconsistent."""
 
 
-def build_command(manager: str) -> tuple[str, ...]:
-    """Argv that runs the ``build`` script (``tsc``) to emit ``dist/``."""
-    return (manager, "run", "build")
-
-
-def prune_command(manager: str) -> tuple[str, ...]:
-    """Argv that drops dev-only dependencies, leaving the runtime set."""
-    if manager == "bun":
-        return ("bun", "install", "--production")
-    return ("npm", "prune", "--omit=dev")
-
-
-def _log(message: str) -> None:
-    print(f"[vibesys build] {message}", file=sys.stderr)  # noqa: T201  # tracked: #288
-
-
-def _run(command: Sequence[str], *, cwd: Path, runner: Runner) -> None:
-    _log(f"$ {' '.join(command)}  (in {cwd})")
-    runner(list(command), cwd=str(cwd), check=True)
-
-
-def build_and_stage_tui(
-    repo_root: Path,
-    dest: Path,
+def stage_prebuilt_tui(
+    source: Path | None,
+    destination: Path,
     *,
-    which: Which = shutil.which,
-    runner: Runner = subprocess.run,
+    required: bool,
+    expected_target: str | None = None,
 ) -> bool:
-    """Compile the TUI and copy ``dist`` + ``node_modules`` into ``dest``.
-
-    Returns ``True`` when the staged bundle is ready, ``False`` when the build
-    was skipped (no toolchain) or failed. Never raises for a build problem: a
-    missing TUI degrades to headless-only, it does not break ``pip install``.
-    """
-    tui_src = repo_root / "clients" / "tui"
-    if not (tui_src / "package.json").is_file():
-        _log(f"no TUI project at {tui_src}; skipping TUI build (headless only).")
+    """Validate and copy a prepared TUI payload into the wheel build tree."""
+    if source is None or not source.is_dir():
+        if required:
+            _fail("Required TUI payload directory is missing")
         return False
 
-    manager = detect_package_manager(which=which)
-    if manager is None:
-        _log(
-            "no JavaScript toolchain (Bun or Node+npm) found; skipping TUI build. "
-            "The engine still installs and runs headless via `python -m vibesys`."
-        )
-        return False
-
-    try:
-        _run(install_command(manager), cwd=tui_src, runner=runner)
-        _run(build_command(manager), cwd=tui_src, runner=runner)
-        _run(prune_command(manager), cwd=tui_src, runner=runner)
-    except (subprocess.CalledProcessError, OSError) as exc:
-        _log(f"TUI build failed ({exc}); installing headless-only.")
-        return False
-
-    dist_dir = tui_src / "dist"
-    if not (dist_dir / "launcher.js").is_file():
-        _log("TUI build produced no dist/launcher.js; installing headless-only.")
-        return False
-
-    if dest.exists():
-        shutil.rmtree(dest)
-    dest.mkdir(parents=True)
-    # Source maps are debug-only and add several MB; the runtime never reads them.
-    ignore = shutil.ignore_patterns("*.map")
-    for entry in _STAGED_ENTRIES:
-        source = tui_src / entry
-        if not source.exists():
-            continue
-        target = dest / entry
-        if source.is_dir():
-            shutil.copytree(source, target, symlinks=True, ignore=ignore)
-        else:
-            shutil.copy2(source, target)
-
-    _log(f"staged TUI bundle into {dest}")
+    validate_tui_payload(source, expected_target=expected_target)
+    if destination.exists():
+        shutil.rmtree(destination)
+    shutil.copytree(source, destination, copy_function=shutil.copy2)
     return True
+
+
+def validate_tui_payload(root: Path, *, expected_target: str | None = None) -> None:
+    """Validate a complete TUI payload without copying it."""
+    manifest = _load_manifest(root / "manifest.json")
+    target_key = _validate_manifest(manifest, expected_target=expected_target)
+    _validate_required_files(root)
+    _validate_tree_shape(root)
+    _validate_native_package(root, target_key=target_key)
+    _validate_hashes(root, manifest)
+
+
+def _validate_manifest(
+    manifest: dict[str, object],
+    *,
+    expected_target: str | None,
+) -> str:
+    target_key = _manifest_string(manifest, "target")
+    if target_key not in TARGETS:
+        _fail(f"Unsupported TUI payload target: {target_key}")
+    if expected_target is not None and target_key != expected_target:
+        _fail(
+            f"TUI payload target {target_key!r} does not match {expected_target!r}"
+        )
+    if _manifest_string(manifest, "bun_version") != BUN_VERSION:
+        _fail(f"TUI payload must use Bun version {BUN_VERSION}")
+    if _manifest_string(manifest, "tui_version") != TUI_VERSION:
+        _fail(f"TUI payload must use TUI version {TUI_VERSION}")
+    if manifest.get("schema_version") != 1:
+        _fail("Unsupported TUI payload manifest schema")
+    return target_key
+
+
+def _validate_required_files(root: Path) -> None:
+    for relative in _REQUIRED_FILES:
+        if not (root / relative).is_file():
+            _fail(f"TUI payload is missing {relative}")
+
+    runtime_mode = (root / "bin" / "bun").stat().st_mode
+    if not runtime_mode & (stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH):
+        _fail("Bundled Bun runtime is not executable")
+
+
+def _validate_tree_shape(root: Path) -> None:
+    for path in root.rglob("*"):
+        if path.is_symlink():
+            _fail(f"TUI payload contains a symlink: {path.relative_to(root)}")
+        if path.name.endswith(".map"):
+            _fail(f"TUI payload contains a source map: {path.relative_to(root)}")
+
+
+def _validate_native_package(root: Path, *, target_key: str) -> None:
+    target = TARGETS[target_key]
+    native_root = root / "app" / "node_modules" / "@opentui"
+    native_packages = {
+        f"@opentui/{path.name}"
+        for path in native_root.iterdir()
+        if path.is_dir() and path.name.startswith("core-")
+    }
+    if native_packages != {target.opentui_package}:
+        _fail(
+            "TUI payload must contain exactly its target OpenTUI native package; "
+            f"found {sorted(native_packages)}"
+        )
+
+
+def _validate_hashes(root: Path, manifest: dict[str, object]) -> None:
+    raw_hashes = manifest.get("files")
+    if not isinstance(raw_hashes, dict) or not all(
+        isinstance(path, str) and isinstance(digest, str)
+        for path, digest in raw_hashes.items()
+    ):
+        _fail("TUI payload manifest has invalid file hashes")
+    expected_hashes = cast("dict[str, str]", raw_hashes)
+    actual_files = {
+        path.relative_to(root).as_posix()
+        for path in root.rglob("*")
+        if path.is_file() and path.name != "manifest.json"
+    }
+    if set(expected_hashes) != actual_files:
+        _fail("TUI payload manifest file list does not match its contents")
+    for relative, expected_hash in expected_hashes.items():
+        actual_hash = hashlib.sha256((root / relative).read_bytes()).hexdigest()
+        if actual_hash != expected_hash:
+            _fail(f"TUI payload hash mismatch for {relative}")
+
+
+def _load_manifest(path: Path) -> dict[str, object]:
+    if not path.is_file():
+        _fail("TUI payload is missing manifest.json")
+    try:
+        value = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError) as exc:
+        error = TuiPackagingError("TUI payload manifest.json is invalid")
+        raise error from exc
+    if not isinstance(value, dict):
+        _fail("TUI payload manifest.json must contain an object")
+    return cast("dict[str, object]", value)
+
+
+def _manifest_string(manifest: dict[str, object], key: str) -> str:
+    value = manifest.get(key)
+    if not isinstance(value, str):
+        _fail(f"TUI payload manifest field {key!r} must be a string")
+    return value
+
+
+def _fail(message: str) -> Never:
+    raise TuiPackagingError(message)

@@ -3,6 +3,8 @@ include setup.py
 include packaging_support.py
 include resources_packaging.py
 include tui_packaging.py
+include wheel_targets.py
+include third_party/bun/LICENSE.md
 
 # Include the Python package roots owned by the root distribution.
 graft src
@@ -18,7 +20,6 @@ graft clients/tui/src
 include clients/tui/package.json
 include clients/tui/tsconfig.json
 include clients/tui/tsconfig.check.json
-include clients/tui/vitest.config.ts
 include clients/tui/README.md
 prune clients/tui/dist
 prune clients/tui/node_modules

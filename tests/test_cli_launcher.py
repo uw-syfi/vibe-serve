@@ -3,15 +3,21 @@
 from __future__ import annotations
 
 import sys
+from unittest.mock import patch
 
 from vibesys import cli
 
 
 def _make_bundle(tmp_path):  # noqa: ANN001, ANN202  # tracked: #288
     tui = tmp_path / "_tui"
-    (tui / "dist").mkdir(parents=True)
-    (tui / "dist" / "launcher.js").write_text("// launcher\n")
-    return tui
+    runtime = tui / "bin" / "bun"
+    launcher = tui / "app" / "dist" / "launcher.js"
+    runtime.parent.mkdir(parents=True)
+    launcher.parent.mkdir(parents=True)
+    runtime.write_text("#!/bin/sh\n")
+    runtime.chmod(0o755)
+    launcher.write_text("// launcher\n")
+    return cli.BundledTui(root=tui, runtime=runtime, launcher=launcher)
 
 
 def _force_interactive(monkeypatch):  # noqa: ANN001, ANN202  # tracked: #288
@@ -19,9 +25,9 @@ def _force_interactive(monkeypatch):  # noqa: ANN001, ANN202  # tracked: #288
     monkeypatch.setattr(cli, "_headless_requested", lambda _args: False)
 
 
-def test_bundled_tui_dir_none_in_source_checkout():  # noqa: ANN201  # tracked: #288
+def test_bundled_tui_none_in_source_checkout():  # noqa: ANN201
     # The source tree ships no built _tui, so resolution returns None here.
-    assert cli.bundled_tui_dir() is None
+    assert cli.bundled_tui() is None
 
 
 def test_headless_requested_detects_flag_and_validate():  # noqa: ANN201  # tracked: #288
@@ -59,10 +65,9 @@ def test_headless_flag_runs_engine_subprocess(monkeypatch):  # noqa: ANN001, ANN
 
 
 def test_interactive_execs_launcher_with_python_env(monkeypatch, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
-    tui = _make_bundle(tmp_path)
+    bundle = _make_bundle(tmp_path)
     _force_interactive(monkeypatch)
-    monkeypatch.setattr(cli, "bundled_tui_dir", lambda: tui)
-    monkeypatch.setattr(cli.shutil, "which", lambda name: "/usr/bin/bun" if name == "bun" else None)
+    monkeypatch.setattr(cli, "bundled_tui", lambda: bundle)
 
     captured: dict[str, object] = {}
 
@@ -73,51 +78,40 @@ def test_interactive_execs_launcher_with_python_env(monkeypatch, tmp_path):  # n
 
     monkeypatch.setattr(cli.subprocess, "call", _call)
 
-    rc = cli.main(["--input", "bundle", "--local"])
+    with patch("shutil.which", side_effect=AssertionError("must not search system runtimes")):
+        rc = cli.main(["--input", "bundle", "--local"])
 
     assert rc == 0
     assert captured["cmd"] == [
-        "bun",
-        str(tui / "dist" / "launcher.js"),
+        str(bundle.runtime),
+        str(bundle.launcher),
         "--input",
         "bundle",
         "--local",
     ]
     assert captured["env"]["VIBESYS_PYTHON"] == sys.executable  # pyright: ignore[reportIndexIssue]
+    assert captured["env"]["VIBESYS_TUI_RUNTIME"] == str(bundle.runtime)  # pyright: ignore[reportIndexIssue]
+    assert captured["env"]["BUN_CONFIG_SKIP_INSTALL_PACKAGES"] == "1"  # pyright: ignore[reportIndexIssue]
 
 
-def test_interactive_prefers_bun_then_node(monkeypatch, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
-    tui = _make_bundle(tmp_path)
+def test_interactive_with_non_executable_bundled_runtime_errors(  # noqa: ANN201
+    monkeypatch,  # noqa: ANN001
+    tmp_path,  # noqa: ANN001
+    capsys,  # noqa: ANN001
+):
     _force_interactive(monkeypatch)
-    monkeypatch.setattr(cli, "bundled_tui_dir", lambda: tui)
-    # Only node available -> launcher runs under node.
-    monkeypatch.setattr(
-        cli.shutil, "which", lambda name: "/usr/bin/node" if name == "node" else None
-    )
-    captured: dict[str, object] = {}
-    monkeypatch.setattr(
-        cli.subprocess,
-        "call",
-        lambda cmd, env=None: captured.setdefault("cmd", cmd) or 0,  # noqa: ARG005  # tracked: #288
-    )
+    bundle = _make_bundle(tmp_path)
+    bundle.runtime.chmod(0o644)
+    monkeypatch.setattr(cli, "bundled_tui", lambda: bundle)
 
-    cli.main([])
-
-    assert captured["cmd"][0] == "node"  # pyright: ignore[reportIndexIssue]
-
-
-def test_interactive_without_runtime_errors(monkeypatch, tmp_path, capsys):  # noqa: ANN001, ANN201  # tracked: #288
-    _force_interactive(monkeypatch)
-    monkeypatch.setattr(cli, "bundled_tui_dir", lambda: _make_bundle(tmp_path))
-    monkeypatch.setattr(cli.shutil, "which", lambda _name: None)
-
-    assert cli.main([]) == 1
-    assert "JavaScript runtime is required" in capsys.readouterr().err
+    with patch("shutil.which", side_effect=AssertionError("must not search system runtimes")):
+        assert cli.main([]) == 1
+    assert "bundled Bun runtime" in capsys.readouterr().err
 
 
 def test_interactive_without_bundle_falls_back_to_headless(monkeypatch, capsys):  # noqa: ANN001, ANN201  # tracked: #288
     _force_interactive(monkeypatch)
-    monkeypatch.setattr(cli, "bundled_tui_dir", lambda: None)
+    monkeypatch.setattr(cli, "bundled_tui", lambda: None)
     captured: dict[str, object] = {}
 
     def _call(cmd, env=None):  # noqa: ANN001, ANN202, ARG001  # tracked: #288

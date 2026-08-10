@@ -1,5 +1,7 @@
 packages:
   - "clients/*"
 
+injectWorkspacePackages: true
+
 allowBuilds:
   esbuild: true

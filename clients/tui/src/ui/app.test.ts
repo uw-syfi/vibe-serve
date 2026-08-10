@@ -1,6 +1,6 @@
 import {InputRenderable, rgbToHex} from '@opentui/core';
 import {createTestRenderer, type TestRendererSetup} from '@opentui/core/testing';
-import {afterEach, describe, expect, it} from 'vitest';
+import {afterEach, describe, expect, it} from 'bun:test';
 import type {SessionController} from '../session-controller.js';
 import {initialSessionState, type SessionState} from '../session-model.js';
 import {createOpenTuiApp, type OpenTuiApp} from './app.js';
