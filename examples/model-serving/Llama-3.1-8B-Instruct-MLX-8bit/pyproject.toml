@@ -1,0 +1,19 @@
+[project]
+name = "llama-3-1-8b-mlx-input"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+  "datasets",
+  "httpx",
+  "huggingface_hub",
+  "jsonschema",
+  "mlx",
+  "mlx-lm",
+  "vs-bench",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+vs-bench = { path = "../../../sdk/vs-bench" }

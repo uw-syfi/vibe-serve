@@ -1,10 +1,9 @@
 """Materialize Python-backed input project dependencies.
 
 Input bundles may be tiny Python projects whose ``pyproject.toml`` declares
-path dependencies on reusable input-only libraries under ``examples/libs``.
-Runs copy inputs into an isolated experiment workspace, so repo-relative paths
-must be rewritten to copied workspace-local paths before agents execute
-``uv run``.
+path dependencies on reusable SDK packages under ``sdk/``.  Runs copy inputs
+into an isolated experiment workspace, so repo-relative paths must be
+rewritten to copied workspace-local paths before agents execute ``uv run``.
 """
 
 from __future__ import annotations
@@ -50,20 +49,20 @@ def materialize_input_project(
     copy_dir: CopyDir,
     log: LogFn | None = None,
 ) -> list[InputDependency]:
-    """Copy an input ``pyproject.toml`` and its ``examples/libs`` path deps.
+    """Copy an input ``pyproject.toml`` and its ``sdk/`` path deps.
 
     The source input project's ``pyproject.toml`` remains repo-relative. The
-    workspace copy is rewritten so every explicit ``examples/libs`` path dep
-    points at ``workspace/_input_libs/<relative-lib-path>``.
+    workspace copy is rewritten so every explicit ``sdk/`` path dep points at
+    ``workspace/_input_libs/<relative-lib-path>``.
     """
     pyproject = input_project_dir / "pyproject.toml"
     if not pyproject.is_file():
         return []
 
-    examples_libs = (project_root / "examples" / "libs").resolve()
-    dependencies = _collect_examples_lib_dependencies(input_project_dir, examples_libs)
+    sdk_root = (project_root / "sdk").resolve()
+    dependencies = _collect_sdk_dependencies(input_project_dir, sdk_root)
     mapping = {
-        dep_path: workspace / "_input_libs" / dep_path.relative_to(examples_libs)
+        dep_path: workspace / "_input_libs" / dep_path.relative_to(sdk_root)
         for dep_path in dependencies
     }
 
@@ -103,7 +102,7 @@ def materialize_input_project(
     ]
 
 
-def _collect_examples_lib_dependencies(project_dir: Path, examples_libs: Path) -> set[Path]:
+def _collect_sdk_dependencies(project_dir: Path, sdk_root: Path) -> set[Path]:
     collected: set[Path] = set()
     visiting: set[Path] = set()
 
@@ -115,9 +114,9 @@ def _collect_examples_lib_dependencies(project_dir: Path, examples_libs: Path) -
         try:
             for dep_name, raw_path in _path_sources(current).items():
                 dep_path = (current / raw_path).resolve()
-                if not _is_relative_to(dep_path, examples_libs):
+                if not _is_relative_to(dep_path, sdk_root):
                     raise InputProjectError(  # noqa: TRY003  # tracked: #288
-                        f"Input dependency {dep_name!r} points outside examples/libs: {raw_path}"
+                        f"Input dependency {dep_name!r} points outside sdk/: {raw_path}"
                     )
                 if not (dep_path / "pyproject.toml").is_file():
                     raise InputProjectError(  # noqa: TRY003  # tracked: #288

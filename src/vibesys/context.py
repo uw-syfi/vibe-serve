@@ -496,6 +496,12 @@ def _assemble_run_context(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: 
 
     environment_reference = ref_dir or (input_dir / "reference")
     input_project_dir = input_dir if (input_dir / "pyproject.toml").is_file() else None
+    if (
+        input_project_dir is None
+        and workspace_seed_path is not None
+        and (workspace_seed_path / "pyproject.toml").is_file()
+    ):
+        input_project_dir = workspace_seed_path
 
     workspace_files = Workspace(
         paths.workspace,

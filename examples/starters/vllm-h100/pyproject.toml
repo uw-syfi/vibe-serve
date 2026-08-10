@@ -13,10 +13,14 @@ dependencies = [
   "pytest>=8.0",
   "tomli>=2.0; python_version < '3.11'",
   "uvicorn>=0.30",
+  "vs-bench",
 ]
 
 [tool.uv]
 package = false
+
+[tool.uv.sources]
+vs-bench = { path = "../../sdk/vs-bench" }
 
 [tool.pytest.ini_options]
 pythonpath = ["."]

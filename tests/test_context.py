@@ -684,7 +684,7 @@ def test_partial_construction_cleanup_does_not_replace_original_error():  # noqa
 
 def test_run_context_materializes_input_project_path_dependencies(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     project_root = tmp_path / "project"
-    input_core = project_root / "examples" / "libs" / "queue-input-core"
+    input_core = project_root / "sdk" / "queue-input-core"
     input_core.mkdir(parents=True)
     (input_core / "pyproject.toml").write_text(
         "[project]\nname = 'queue-input-core'\nversion = '0.1.0'\n"
@@ -708,7 +708,7 @@ def test_run_context_materializes_input_project_path_dependencies(tmp_path):  # 
         "dependencies = ['queue-input-core']\n"
         "\n"
         "[tool.uv.sources]\n"
-        "queue-input-core = { path = '../../libs/queue-input-core', editable = true }\n"
+        "queue-input-core = { path = '../../../sdk/queue-input-core', editable = true }\n"
     )
 
     with (

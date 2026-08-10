@@ -27,9 +27,9 @@ def test_discover_input_project_finds_pyproject_next_to_reference(tmp_path):  # 
     assert discover_input_project(None) is None
 
 
-def test_materialize_input_project_copies_and_rewrites_explicit_lib_path_deps(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+def test_materialize_input_project_copies_and_rewrites_explicit_sdk_path_deps(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     project_root = tmp_path / "project"
-    input_core = project_root / "examples" / "libs" / "queue-input-core"
+    input_core = project_root / "sdk" / "queue-input-core"
     input_core.mkdir(parents=True)
     (input_core / "pyproject.toml").write_text(
         "[project]\nname = 'queue-input-core'\nversion = '0.1.0'\n"
@@ -45,7 +45,7 @@ def test_materialize_input_project_copies_and_rewrites_explicit_lib_path_deps(tm
         "dependencies = ['queue-input-core']\n"
         "\n"
         "[tool.uv.sources]\n"
-        "queue-input-core = { path = '../../libs/queue-input-core', editable = true }\n"
+        "queue-input-core = { path = '../../../sdk/queue-input-core', editable = true }\n"
     )
     (input_dir / "pyproject.toml").write_text(source_pyproject)
 
@@ -68,11 +68,11 @@ def test_materialize_input_project_copies_and_rewrites_explicit_lib_path_deps(tm
     assert (input_dir / "pyproject.toml").read_text() == source_pyproject
 
 
-def test_materialize_input_project_copies_transitive_examples_lib_deps(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+def test_materialize_input_project_copies_transitive_sdk_deps(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     project_root = tmp_path / "project"
-    libs = project_root / "examples" / "libs"
-    common = libs / "queue-common"
-    input_core = libs / "queue-input-core"
+    sdk = project_root / "sdk"
+    common = sdk / "queue-common"
+    input_core = sdk / "queue-input-core"
     common.mkdir(parents=True)
     input_core.mkdir()
     (common / "pyproject.toml").write_text("[project]\nname = 'queue-common'\nversion = '0.1.0'\n")
@@ -95,7 +95,7 @@ def test_materialize_input_project_copies_transitive_examples_lib_deps(tmp_path)
         "dependencies = ['queue-input-core']\n"
         "\n"
         "[tool.uv.sources]\n"
-        "queue-input-core = { path = '../../libs/queue-input-core', editable = true }\n"
+        "queue-input-core = { path = '../../../sdk/queue-input-core', editable = true }\n"
     )
 
     workspace = tmp_path / "workspace"
@@ -119,7 +119,7 @@ def test_materialize_input_project_copies_transitive_examples_lib_deps(tmp_path)
     )
 
 
-def test_materialize_input_project_rejects_path_deps_outside_examples_libs(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+def test_materialize_input_project_rejects_path_deps_outside_sdk(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     project_root = tmp_path / "project"
     input_dir = project_root / "examples" / "data-structures" / "queue-spsc"
     input_dir.mkdir(parents=True)
@@ -132,7 +132,7 @@ def test_materialize_input_project_rejects_path_deps_outside_examples_libs(tmp_p
         "bad-local = { path = '../../../not-a-library' }\n"
     )
 
-    with pytest.raises(InputProjectError, match="outside examples/libs"):
+    with pytest.raises(InputProjectError, match="outside sdk/"):
         materialize_input_project(
             input_dir,
             tmp_path / "workspace",
