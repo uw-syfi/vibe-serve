@@ -205,6 +205,7 @@ reportUnknownArgumentType = "none"
 reportUnnecessaryTypeIgnoreComment = "error"
 pythonVersion = "3.12"
 include = ["src", "tests", "libs/vs-feature-flags/src", "libs/vs-feature-flags/tests", "libs/vs-github/src", "libs/vs-github/tests", "libs/vs-issue-board/src", "libs/vs-issue-board/tests", "libs/vs-loop-state/src", "libs/vs-loop-state/tests", "libs/vs-sandbox/src", "libs/vs-sandbox/tests", "sdk/vs-bench/src", "sdk/vs-bench/tests"]
+extraPaths = ["src", "libs/vs-feature-flags/src", "libs/vs-github/src", "libs/vs-issue-board/src", "libs/vs-loop-state/src", "libs/vs-sandbox/src", "sdk/vs-bench/src"]
 # `tests` and `libs/*/tests` are included above so the strict checker actually
 # sees them (previously they were unchecked entirely). Running them at full
 # strict produced thousands of errors, almost all from patterns strict mode was

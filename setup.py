@@ -15,10 +15,8 @@ import sys
 from pathlib import Path
 
 from setuptools import setup
+from setuptools.command.bdist_wheel import bdist_wheel as _bdist_wheel
 from setuptools.command.build_py import build_py as _build_py
-from wheel.bdist_wheel import (  # pyright: ignore[reportMissingTypeStubs]
-    bdist_wheel as _bdist_wheel,
-)
 
 _REPO_ROOT = Path(__file__).parent.resolve()
 sys.path.insert(0, str(_REPO_ROOT))

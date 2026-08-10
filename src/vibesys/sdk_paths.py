@@ -21,9 +21,7 @@ class InputProjectError(ValueError):
     @classmethod
     def missing_pyproject(cls, candidate: Path, raw_path: str) -> InputProjectError:
         """Build an error for a source that is not an installable project."""
-        return cls(
-            f"Input dependency has no pyproject.toml: {candidate} (declared as {raw_path})"
-        )
+        return cls(f"Input dependency has no pyproject.toml: {candidate} (declared as {raw_path})")
 
     @classmethod
     def dependency(cls, name: str, cause: InputProjectError) -> InputProjectError:

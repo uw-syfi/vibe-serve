@@ -1,5 +1,5 @@
-import {createTestRenderer} from '@opentui/core/testing';
 import {afterEach, describe, expect, it} from 'bun:test';
+import {createTestRenderer} from '@opentui/core/testing';
 import {createSetupForm} from './setup-form.js';
 import type {SetupDefaults} from './setup-model.js';
 import {resolveTheme} from './ui/theme.js';

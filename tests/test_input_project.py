@@ -150,9 +150,7 @@ def test_materialize_input_project_uses_packaged_sdk_without_a_checkout(  # noqa
     packaged_sdk = tmp_path / "site-packages" / "vibesys" / "_sdk"
     vs_bench = packaged_sdk / "vs-bench"
     (vs_bench / "src" / "vs_bench").mkdir(parents=True)
-    (vs_bench / "pyproject.toml").write_text(
-        "[project]\nname = 'vs-bench'\nversion = '0.1.0'\n"
-    )
+    (vs_bench / "pyproject.toml").write_text("[project]\nname = 'vs-bench'\nversion = '0.1.0'\n")
     (vs_bench / "src" / "vs_bench" / "__init__.py").write_text("")
 
     input_dir = project_root / "examples" / "model-serving" / "input"
@@ -179,6 +177,6 @@ def test_materialize_input_project_uses_packaged_sdk_without_a_checkout(  # noqa
 
     assert [dependency.name for dependency in dependencies] == ["vs-bench"]
     assert (workspace / "_input_libs" / "vs-bench" / "src" / "vs_bench").is_dir()
-    assert "vs-bench = { path = '_input_libs/vs-bench' }" in (
-        workspace / "pyproject.toml"
-    ).read_text()
+    assert (
+        "vs-bench = { path = '_input_libs/vs-bench' }" in (workspace / "pyproject.toml").read_text()
+    )

@@ -1,8 +1,8 @@
+import {afterEach, describe, expect, it} from 'bun:test';
 import {access, chmod, mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {dirname, join} from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {afterEach, describe, expect, it} from 'bun:test';
 import {launch} from './launcher.js';
 
 let tempDir: string | undefined;

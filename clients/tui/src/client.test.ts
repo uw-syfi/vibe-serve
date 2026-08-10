@@ -1,8 +1,8 @@
+import {afterEach, describe, expect, it} from 'bun:test';
 import {randomUUID} from 'node:crypto';
 import {unlink} from 'node:fs/promises';
 import {createServer, type Server, type Socket} from 'node:net';
 import {join} from 'node:path';
-import {afterEach, describe, expect, it} from 'bun:test';
 import {SupervisionClient, type SupervisionClientOptions} from './client.js';
 
 let socketPath: string | undefined;
