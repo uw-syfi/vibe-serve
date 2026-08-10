@@ -10,12 +10,15 @@ remain headless; release builds require every staged input.
 from __future__ import annotations
 
 import os
+import platform
 import sys
 from pathlib import Path
 
 from setuptools import setup
-from setuptools.command.bdist_wheel import bdist_wheel as _bdist_wheel
 from setuptools.command.build_py import build_py as _build_py
+from wheel.bdist_wheel import (  # pyright: ignore[reportMissingTypeStubs]
+    bdist_wheel as _bdist_wheel,
+)
 
 _REPO_ROOT = Path(__file__).parent.resolve()
 sys.path.insert(0, str(_REPO_ROOT))
@@ -23,7 +26,7 @@ sys.path.insert(0, str(_REPO_ROOT))
 from packaging_support import discover_distribution_packages  # noqa: E402
 from resources_packaging import stage_resources, stage_sdk  # noqa: E402
 from tui_packaging import stage_prebuilt_tui  # noqa: E402
-from wheel_targets import TARGETS  # noqa: E402
+from wheel_targets import WheelTarget, resolve_wheel_target  # noqa: E402
 
 
 class build_py(_build_py):  # noqa: N801 - setuptools command classes are lowercase
@@ -49,22 +52,28 @@ class build_py(_build_py):  # noqa: N801 - setuptools command classes are lowerc
 class bdist_wheel(_bdist_wheel):  # noqa: N801
     """Emit a native payload wheel with an explicit cross-platform Python tag."""
 
+    _release_target: WheelTarget | None = None
+
     def finalize_options(self) -> None:
         """Apply the requested release target before wheel paths are finalized."""
         super().finalize_options()
         target_key = os.environ.get("VIBESYS_WHEEL_TARGET")
         if target_key is not None:
-            target = TARGETS[target_key]
+            target = resolve_wheel_target(
+                target_key,
+                host_system=platform.system(),
+                host_machine=platform.machine(),
+            )
+            self._release_target = target
             self.root_is_pure = False
             self.plat_name = target.wheel_platform
             self.plat_name_supplied = True
 
     def get_tag(self) -> tuple[str, str, str]:
         """Return the configured release platform or the default development tag."""
-        target_key = os.environ.get("VIBESYS_WHEEL_TARGET")
-        if target_key is None:
+        if self._release_target is None:
             return super().get_tag()
-        return ("py3", "none", TARGETS[target_key].wheel_platform)
+        return ("py3", "none", self._release_target.wheel_platform)
 
 
 packages, package_dirs = discover_distribution_packages(_REPO_ROOT)
