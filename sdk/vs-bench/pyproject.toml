@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vs-bench"
+version = "0.1.0"
+description = "Benchmark toolkit for VibeSys model-serving input bundles"
+requires-python = ">=3.12"
+dependencies = [
+    "httpx>=0.27",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "respx",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["vs_bench*"]
+
+[tool.setuptools.package-data]
+vs_bench = ["py.typed"]

@@ -3,27 +3,18 @@ Prefix-caching workload benchmark for an OpenAI-compatible /v1/completions
 server.
 
 Workload (per request):
-  - 32 768 tokens of shared prefix (identical across every request — the
-    same shared seed is used on every invocation, so a long-lived prefix
-    cache stays hot).
+  - 32 768 tokens of shared prefix (identical across every request).
   - 128 tokens of unique tail.
-  - 128 tokens of generation, temperature 0, ignore_eos so we always get the
-    full 128 decode tokens.
+  - 128 tokens of generation, temperature 0, ignore_eos.
 
 The 20 requests are dispatched concurrently. The headline metric is the
 **aggregate output throughput** (sum of all output tokens / wall clock).
 
 This benchmark synthesises prompts as raw token IDs and sends them via
-``prompt: list[int]`` (vLLM-compatible). The server must accept either a
-``str`` prompt or a ``list[int]`` prompt; the latter is what's used here so
-the 32 k shared portion is byte-identical across requests and across
-invocations (which is what makes the prefix cache hit).
+``prompt: list[int]`` (vLLM-compatible).
 
 Usage:
     python benchmark.py --url http://localhost:8000
-
-Smaller smoke run (judge sanity check):
-    python benchmark.py --url http://localhost:8000 --num-requests 2 --max-tokens 64
 """
 
 from __future__ import annotations
@@ -31,7 +22,6 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
-import math
 import random
 import statistics
 import sys
@@ -40,6 +30,9 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 import httpx
+
+from vs_bench.stats import pct_block
+from vs_bench.transport import stream_sse
 
 DEFAULT_MODEL_ID = "allenai/Olmo-Hybrid-7B"
 
@@ -54,11 +47,6 @@ class RequestResult:
     error: str | None
 
 
-# ---------------------------------------------------------------------------
-# Synthetic prompt construction
-# ---------------------------------------------------------------------------
-
-
 def build_token_ids(
     shared_len: int,
     unique_len: int,
@@ -67,16 +55,6 @@ def build_token_ids(
     seed: int,
     shared_seed: int,
 ) -> tuple[list[int], list[list[int]]]:
-    """Build (shared_prefix, [unique_tail_per_request]).
-
-    Two independent RNGs:
-      - ``shared_seed`` (default 0): controls the shared prefix. Same seed
-        across invocations -> identical 32 k prefix bytes -> deterministic
-        prefix-cache hits.
-      - ``seed`` (default = wall clock): controls per-request unique tails,
-        so consecutive runs don't reuse the same unique tails (which would
-        let the previous run's cache contaminate this run's measurement).
-    """
     lo, hi = 100, max(101, vocab_size - 100)
     shared_rng = random.Random(shared_seed)
     shared = [shared_rng.randint(lo, hi) for _ in range(shared_len)]
@@ -88,18 +66,12 @@ def build_token_ids(
 
 
 def _load_tokenizer_vocab(model_id: str) -> int:
-    """Return the tokenizer vocab size; only used to clamp synthetic IDs."""
     try:
         from transformers import AutoTokenizer
     except ImportError as exc:
         raise SystemExit("transformers is required: pip install transformers") from exc
     tok = AutoTokenizer.from_pretrained(model_id)
     return tok.vocab_size
-
-
-# ---------------------------------------------------------------------------
-# Per-request streaming
-# ---------------------------------------------------------------------------
 
 
 async def stream_one_request(
@@ -110,7 +82,6 @@ async def stream_one_request(
     max_tokens: int,
     idx: int,
 ) -> RequestResult:
-    """Send a /v1/completions streaming request and measure TTFT + decode."""
     body = {
         "model": model_id,
         "prompt": token_ids,
@@ -120,102 +91,28 @@ async def stream_one_request(
         "stream": True,
         "stream_options": {"include_usage": True},
     }
+    r = await stream_sse(client, url, body, timeout=600.0)
 
-    t_start = time.perf_counter()
-    t_first: float | None = None
-    output_tokens = 0
-    error: str | None = None
+    if r.error:
+        return RequestResult(
+            idx=idx, ttft_s=None, total_s=r.latency, output_tokens=0, decode_tps=0.0, error=r.error
+        )
 
-    try:
-        async with client.stream(
-            "POST",
-            f"{url}/v1/completions",
-            json=body,
-            headers={"content-type": "application/json"},
-            timeout=httpx.Timeout(connect=30, read=600, write=120, pool=30),
-        ) as resp:
-            if resp.status_code != 200:
-                body_bytes = await resp.aread()
-                raise RuntimeError(
-                    f"http {resp.status_code}: {body_bytes.decode('utf-8', errors='replace')[:500]}"
-                )
-            async for line in resp.aiter_lines():
-                if not line or not line.startswith("data: "):
-                    continue
-                data = line[len("data: ") :]
-                if data == "[DONE]":
-                    break
-                try:
-                    event = json.loads(data)
-                except json.JSONDecodeError:
-                    continue
-                choices = event.get("choices") or []
-                if choices:
-                    text = choices[0].get("text") or ""
-                    if text and t_first is None:
-                        t_first = time.perf_counter()
-                    if text:
-                        # Server may not include usage on every chunk; count
-                        # chunks as a fallback so single-token chunks are
-                        # tracked even before the final usage event arrives.
-                        output_tokens += 1
-                usage = event.get("usage")
-                if usage and usage.get("completion_tokens") is not None:
-                    # Authoritative count if the server reports it.
-                    output_tokens = usage["completion_tokens"]
-    except Exception as exc:
-        error = f"{type(exc).__name__}: {exc}"
-
-    t_end = time.perf_counter()
-    ttft = (t_first - t_start) if t_first is not None else None
-    decode_window = max(t_end - (t_first or t_start), 1e-6)
-    decode_tps = output_tokens / decode_window if output_tokens else 0.0
-
+    gen = (
+        r.usage["completion_tokens"]
+        if r.usage and "completion_tokens" in r.usage
+        else r.token_count
+    )
+    decode_window = max(r.latency - (r.ttft or 0), 1e-6)
+    decode_tps = gen / decode_window if gen else 0.0
     return RequestResult(
         idx=idx,
-        ttft_s=ttft,
-        total_s=t_end - t_start,
-        output_tokens=output_tokens,
+        ttft_s=r.ttft,
+        total_s=r.latency,
+        output_tokens=gen,
         decode_tps=decode_tps,
-        error=error,
+        error=None,
     )
-
-
-# ---------------------------------------------------------------------------
-# Aggregation helpers
-# ---------------------------------------------------------------------------
-
-
-def percentile(xs: list[float], p: float) -> float:
-    if not xs:
-        return float("nan")
-    s = sorted(xs)
-    k = (len(s) - 1) * (p / 100.0)
-    lo = math.floor(k)
-    hi = math.ceil(k)
-    if lo == hi:
-        return s[int(k)]
-    return s[lo] * (hi - k) + s[hi] * (k - lo)
-
-
-def _pct_block(vals: list[float]) -> dict | None:
-    if not vals:
-        return None
-    s = sorted(vals)
-    return {
-        "mean": sum(s) / len(s),
-        "p50": percentile(s, 50),
-        "p90": percentile(s, 90),
-        "p95": percentile(s, 95),
-        "p99": percentile(s, 99),
-        "max": max(s),
-        "min": min(s),
-    }
-
-
-# ---------------------------------------------------------------------------
-# Main driver
-# ---------------------------------------------------------------------------
 
 
 async def run_benchmark(args: argparse.Namespace) -> dict:
@@ -245,15 +142,10 @@ async def run_benchmark(args: argparse.Namespace) -> dict:
 
     base_url = args.url.rstrip("/")
     max_conn_cap = max(n_requests * 2, 64)
-    limits = httpx.Limits(
-        max_connections=max_conn_cap,
-        max_keepalive_connections=max_conn_cap,
-    )
+    limits = httpx.Limits(max_connections=max_conn_cap, max_keepalive_connections=max_conn_cap)
+
     async with httpx.AsyncClient(limits=limits) as client:
-        # --- Warmup: send one request with the same shared prefix but a
-        # distinct tail so the prefix cache is populated before the measured
-        # requests fire. The 19th-request prefill cost (just the 128 unique
-        # tokens) then dominates, which is the regime we want to measure.
+        # Warmup
         if args.warmup > 0:
             warm_shared, warm_uniques = build_token_ids(
                 args.shared_len,
@@ -281,29 +173,20 @@ async def run_benchmark(args: argparse.Namespace) -> dict:
                     file=sys.stderr,
                 )
 
-        # --- Measured run: dispatch all `n_requests` concurrently. ---
+        # Measured run: all requests concurrent
         print(
-            f"[bench] dispatching {n_requests} concurrent requests "
-            f"(closed-loop, concurrency={n_requests})",
+            f"[bench] dispatching {n_requests} concurrent requests",
             file=sys.stderr,
         )
         t_run0 = time.perf_counter()
         results: list[RequestResult] = await asyncio.gather(
             *[
-                stream_one_request(
-                    client,
-                    base_url,
-                    args.model,
-                    prompts[i],
-                    args.max_tokens,
-                    i,
-                )
+                stream_one_request(client, base_url, args.model, prompts[i], args.max_tokens, i)
                 for i in range(n_requests)
             ]
         )
         t_run = time.perf_counter() - t_run0
 
-    # --- Aggregate ---
     successes = [r for r in results if r.error is None]
     errors = [r for r in results if r.error is not None]
     output_tokens_total = sum(r.output_tokens for r in successes)
@@ -329,20 +212,20 @@ async def run_benchmark(args: argparse.Namespace) -> dict:
     if ttfts:
         print(
             f"TTFT (s)   mean / p50 / p95 / max: "
-            f"{statistics.mean(ttfts):.2f} / {percentile(ttfts, 50):.2f} / "
-            f"{percentile(ttfts, 95):.2f} / {max(ttfts):.2f}"
+            f"{statistics.mean(ttfts):.2f} / {pct_block(ttfts)['p50']:.2f} / "
+            f"{pct_block(ttfts)['p95']:.2f} / {max(ttfts):.2f}"
         )
     if totals:
         print(
             f"Total (s)  mean / p50 / p95 / max: "
-            f"{statistics.mean(totals):.2f} / {percentile(totals, 50):.2f} / "
-            f"{percentile(totals, 95):.2f} / {max(totals):.2f}"
+            f"{statistics.mean(totals):.2f} / {pct_block(totals)['p50']:.2f} / "
+            f"{pct_block(totals)['p95']:.2f} / {max(totals):.2f}"
         )
     if decodes:
         print(
             f"Decode tps mean / p50 / p95 / min: "
-            f"{statistics.mean(decodes):.2f} / {percentile(decodes, 50):.2f} / "
-            f"{percentile(decodes, 95):.2f} / {min(decodes):.2f}"
+            f"{statistics.mean(decodes):.2f} / {pct_block(decodes)['p50']:.2f} / "
+            f"{pct_block(decodes)['p95']:.2f} / {min(decodes):.2f}"
         )
 
     print()
@@ -353,8 +236,6 @@ async def run_benchmark(args: argparse.Namespace) -> dict:
         print("\nErrors:")
         for i, r in enumerate(errors[:5]):
             print(f"  [{i}] req={r.idx} {r.error[:140]}")
-        if len(errors) > 5:
-            print(f"  ... and {len(errors) - 5} more")
 
     result_dict = {
         "config": {
@@ -374,9 +255,9 @@ async def run_benchmark(args: argparse.Namespace) -> dict:
         "wall_clock_sec": t_run,
         "total_output_tokens": output_tokens_total,
         "aggregate_throughput_tok_per_sec": aggregate_throughput,
-        "ttft_sec": _pct_block(ttfts),
-        "total_latency_sec": _pct_block(totals),
-        "decode_tps_per_request": _pct_block(decodes),
+        "ttft_sec": pct_block(ttfts),
+        "total_latency_sec": pct_block(totals),
+        "decode_tps_per_request": pct_block(decodes),
         "per_request": [asdict(r) for r in results],
     }
 
@@ -387,109 +268,28 @@ async def run_benchmark(args: argparse.Namespace) -> dict:
     return result_dict
 
 
-# ---------------------------------------------------------------------------
-# CLI
-# ---------------------------------------------------------------------------
-
-
 def main() -> None:
     p = argparse.ArgumentParser(
-        description=(
-            "Prefix-caching workload benchmark for an OpenAI-compatible "
-            "/v1/completions server. Sends N concurrent requests that share "
-            "a 32 768-token prefix; reports aggregate output throughput."
-        ),
+        description="Prefix-caching workload benchmark for an OpenAI-compatible server.",
     )
-    p.add_argument("--url", default="http://localhost:8000", help="Server base URL")
-    p.add_argument(
-        "--model",
-        default=DEFAULT_MODEL_ID,
-        help="HF model id, used both for tokenizer and the `model` field in completions calls",
-    )
-    p.add_argument(
-        "--shared-len",
-        type=int,
-        default=32_768,
-        help="Shared prefix length in tokens (default 32768).",
-    )
-    p.add_argument(
-        "--unique-len",
-        type=int,
-        default=128,
-        help="Unique tail length per request in tokens (default 128).",
-    )
-    p.add_argument(
-        "--max-tokens", type=int, default=128, help="Output tokens per request (default 128)."
-    )
-    p.add_argument(
-        "--requests", type=int, default=20, help="Number of concurrent requests (default 20)."
-    )
-    # Alias for orchestrate's sanity-check invocation, which uses
-    # `--num-requests 2`. Mirrors the convention from other input bundles.
-    p.add_argument(
-        "--num-requests",
-        type=int,
-        default=None,
-        help="Alias for --requests (orchestrate sanity-check uses this name).",
-    )
-    p.add_argument(
-        "--warmup",
-        type=int,
-        default=1,
-        help="Number of warmup requests to populate the prefix cache (default 1).",
-    )
-    p.add_argument(
-        "--seed",
-        type=int,
-        default=int(time.time()),
-        help="RNG seed for per-request unique tails (default: wall clock).",
-    )
-    p.add_argument(
-        "--shared-seed",
-        type=int,
-        default=0,
-        help=(
-            "RNG seed for the shared prefix. Default 0 keeps the "
-            "32k prefix identical across invocations, which is the "
-            "whole point of measuring shared-prefix caching."
-        ),
-    )
-    p.add_argument(
-        "--output-json", type=str, default=None, help="Optional path to write structured results."
-    )
-
-    # Back-compat no-ops so the orchestrate sanity / profiler invocations
-    # (which default to `--rate 1 --num-requests 5 --max-tokens 64`) do not
-    # choke on flags this benchmark doesn't need.
-    p.add_argument(
-        "--rate",
-        type=float,
-        default=None,
-        help="Ignored — this benchmark is closed-loop concurrent only.",
-    )
-    p.add_argument(
-        "--duration",
-        type=float,
-        default=None,
-        help="Ignored — this benchmark runs to --requests / --num-requests.",
-    )
-    p.add_argument(
-        "--prompt-len",
-        type=int,
-        default=None,
-        help="Ignored — prompts are synthesised from --shared-len + --unique-len.",
-    )
-    p.add_argument(
-        "--temperature",
-        type=float,
-        default=None,
-        help="Ignored — temperature is fixed at 0 for deterministic decoding.",
-    )
-    p.add_argument(
-        "--endpoint", type=str, default=None, help="Ignored — endpoint is /v1/completions."
-    )
-    p.add_argument("--audio-dir", type=str, default=None, help="Ignored — text-only benchmark.")
-
+    p.add_argument("--url", default="http://localhost:8000")
+    p.add_argument("--model", default=DEFAULT_MODEL_ID)
+    p.add_argument("--shared-len", type=int, default=32_768)
+    p.add_argument("--unique-len", type=int, default=128)
+    p.add_argument("--max-tokens", type=int, default=128)
+    p.add_argument("--requests", type=int, default=20)
+    p.add_argument("--num-requests", type=int, default=None)
+    p.add_argument("--warmup", type=int, default=1)
+    p.add_argument("--seed", type=int, default=int(time.time()))
+    p.add_argument("--shared-seed", type=int, default=0)
+    p.add_argument("--output-json", type=str, default=None)
+    # Back-compat no-ops
+    p.add_argument("--rate", type=float, default=None)
+    p.add_argument("--duration", type=float, default=None)
+    p.add_argument("--prompt-len", type=int, default=None)
+    p.add_argument("--temperature", type=float, default=None)
+    p.add_argument("--endpoint", type=str, default=None)
+    p.add_argument("--audio-dir", type=str, default=None)
     args = p.parse_args()
     asyncio.run(run_benchmark(args))
 

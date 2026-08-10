@@ -39,7 +39,6 @@ import argparse
 import asyncio
 import difflib
 import json
-import math
 import random
 import statistics
 import sys
@@ -48,6 +47,9 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+
+from vs_bench.stats import pct_block, percentile
+from vs_bench.transport import stream_sse
 
 # ---------------------------------------------------------------------------
 # Dataset loading
@@ -202,13 +204,7 @@ async def send_request(
     print_stream: bool = False,
     sample_id: str | None = None,
 ) -> dict:
-    """Send one code-edit completion request and measure latency.
-
-    The request body carries OpenAI's ``prediction`` envelope alongside
-    the standard fields. Servers that don't implement predicted outputs
-    will simply ignore the extra field — no need for any feature
-    negotiation.
-    """
+    """Send one code-edit completion request and measure latency."""
     body: dict[str, Any] = {
         "prompt": prompt,
         "max_tokens": max_tokens,
@@ -218,22 +214,10 @@ async def send_request(
             "type": "content",
             "content": prediction_content,
         },
-        # vLLM/SGLang don't auto-template when given raw `prompt`; this
-        # flag is for servers that would otherwise apply a chat template.
         "prompt_is_preformatted": True,
     }
     if model_name:
-        # vLLM's OpenAI-compat endpoint requires `model`; it's optional
-        # for custom servers that have only one loaded model.
         body["model"] = model_name
-
-    t_send = time.perf_counter()
-    t_first_token = None
-    t_done = None
-    num_chunks = 0
-    text_parts: list[str] = []
-    finish_reason: str | None = None
-    error: str | None = None
 
     if print_stream:
         header = f"sample={sample_id}" if sample_id else ""
@@ -241,68 +225,26 @@ async def send_request(
         sys.stderr.write(
             f"===== >>> PREDICTION ({len(prediction_content)} chars) =====\n{prediction_content}\n"
         )
-        sys.stderr.write("===== <<< STREAM =====\n")
         sys.stderr.flush()
 
-    try:
-        async with client.stream("POST", url, json=body, timeout=600.0) as resp:
-            resp.raise_for_status()
-            async for raw_line in resp.aiter_lines():
-                if not raw_line.startswith("data: "):
-                    continue
-                payload = raw_line[len("data: ") :]
-                if payload.strip() == "[DONE]":
-                    t_done = time.perf_counter()
-                    break
-                try:
-                    chunk = json.loads(payload)
-                except json.JSONDecodeError:
-                    continue
-                choice = chunk["choices"][0]
-                text = choice.get("text") or ""
-                reason = choice.get("finish_reason")
-                if reason is not None:
-                    finish_reason = reason
-                if text:
-                    if t_first_token is None:
-                        t_first_token = time.perf_counter()
-                    num_chunks += 1
-                    text_parts.append(text)
-                    if print_stream:
-                        sys.stderr.write(text)
-                        sys.stderr.flush()
-    except Exception as exc:
-        if print_stream:
-            sys.stderr.write(f"\n[stream error: {type(exc).__name__}: {exc}]\n")
-            sys.stderr.flush()
-        error = f"{type(exc).__name__}: {exc}"
-        t_done = time.perf_counter()
+    r = await stream_sse(client, url, body, timeout=600.0)
 
     if print_stream:
-        sys.stderr.write("\n===== <<< END =====\n")
+        sys.stderr.write(f"===== <<< OUTPUT =====\n{r.text}\n===== <<< END =====\n")
         sys.stderr.flush()
 
-    if t_done is None:
-        t_done = time.perf_counter()
-
-    output_text = "".join(text_parts)
-    output_tokens = (
-        len(tokenizer.encode(output_text, add_special_tokens=False)) if output_text else 0
-    )
+    output_tokens = len(tokenizer.encode(r.text, add_special_tokens=False)) if r.text else 0
     result: dict = {
-        "error": error,
+        "error": r.error,
         "output_tokens": output_tokens,
-        "num_chunks": num_chunks,
-        "output_text": output_text,
-        "finish_reason": finish_reason,
-        "total_latency": t_done - t_send,
+        "num_chunks": r.token_count,
+        "output_text": r.text,
+        "finish_reason": r.finish_reason,
+        "total_latency": r.latency,
     }
-    if t_first_token is not None:
-        result["ttft"] = t_first_token - t_send
-        if output_tokens > 1:
-            result["tpot"] = (t_done - t_first_token) / (output_tokens - 1)
-        else:
-            result["tpot"] = None
+    if r.ttft is not None:
+        result["ttft"] = r.ttft
+        result["tpot"] = (r.latency - r.ttft) / (output_tokens - 1) if output_tokens > 1 else None
     else:
         result["ttft"] = None
         result["tpot"] = None
@@ -395,39 +337,16 @@ def _quality_score(
 # ---------------------------------------------------------------------------
 
 
-def _percentile(sorted_vals: list[float], p: float) -> float:
-    if not sorted_vals:
-        return float("nan")
-    k = (len(sorted_vals) - 1) * p / 100.0
-    f = math.floor(k)
-    c = math.ceil(k)
-    if f == c:
-        return sorted_vals[int(k)]
-    return sorted_vals[f] * (c - k) + sorted_vals[c] * (k - f)
-
-
 def _fmt_stats(values: list[float], unit: str = "ms", multiplier: float = 1000.0) -> str:
     if not values:
         return "  (no data)\n"
     s = sorted(values)
     return (
         f"  Mean:    {(sum(s) / len(s)) * multiplier:.1f} {unit}\n"
-        f"  P50:     {_percentile(s, 50) * multiplier:.1f} {unit}\n"
-        f"  P90:     {_percentile(s, 90) * multiplier:.1f} {unit}\n"
-        f"  P99:     {_percentile(s, 99) * multiplier:.1f} {unit}\n"
+        f"  P50:     {percentile(s, 50) * multiplier:.1f} {unit}\n"
+        f"  P90:     {percentile(s, 90) * multiplier:.1f} {unit}\n"
+        f"  P99:     {percentile(s, 99) * multiplier:.1f} {unit}\n"
     )
-
-
-def _pct_block(sorted_vals: list[float]) -> dict | None:
-    if not sorted_vals:
-        return None
-    return {
-        "mean_ms": sum(sorted_vals) / len(sorted_vals) * 1000,
-        "p50_ms": _percentile(sorted_vals, 50) * 1000,
-        "p90_ms": _percentile(sorted_vals, 90) * 1000,
-        "p95_ms": _percentile(sorted_vals, 95) * 1000,
-        "p99_ms": _percentile(sorted_vals, 99) * 1000,
-    }
 
 
 # ---------------------------------------------------------------------------
@@ -550,11 +469,11 @@ async def run_benchmark(args: argparse.Namespace) -> dict:
     )
     sorted_runs = sorted(all_matched_runs)
     matched_run_pct = {
-        "p50": _percentile(sorted_runs, 50) if sorted_runs else None,
-        "p75": _percentile(sorted_runs, 75) if sorted_runs else None,
-        "p90": _percentile(sorted_runs, 90) if sorted_runs else None,
-        "p95": _percentile(sorted_runs, 95) if sorted_runs else None,
-        "p99": _percentile(sorted_runs, 99) if sorted_runs else None,
+        "p50": percentile(sorted_runs, 50) if sorted_runs else None,
+        "p75": percentile(sorted_runs, 75) if sorted_runs else None,
+        "p90": percentile(sorted_runs, 90) if sorted_runs else None,
+        "p95": percentile(sorted_runs, 95) if sorted_runs else None,
+        "p99": percentile(sorted_runs, 99) if sorted_runs else None,
     }
 
     qual_improved = [
@@ -600,7 +519,7 @@ async def run_benchmark(args: argparse.Namespace) -> dict:
         f"p90={matched_run_pct['p90']} p95={matched_run_pct['p95']}"
     )
 
-    p50_latency_ms = _percentile(sorted(latencies), 50) * 1000 if latencies else float("nan")
+    p50_latency_ms = percentile(sorted(latencies), 50) * 1000 if latencies else float("nan")
     median_tok_per_sec = (
         statistics.median(output_tokens) / statistics.median(latencies)
         if output_tokens and latencies and statistics.median(latencies)
@@ -634,9 +553,9 @@ async def run_benchmark(args: argparse.Namespace) -> dict:
         "num_improved_over_input": len(qual_improved),
         "num_echo_input_verbatim": len(qual_echo),
         "actual_duration_sec": wall_clock,
-        "ttft": _pct_block(sorted(ttfts)),
-        "tpot": _pct_block(sorted(tpots)),
-        "total_latency": _pct_block(sorted(latencies)),
+        "ttft": pct_block(ttfts, 1000.0),
+        "tpot": pct_block(tpots, 1000.0),
+        "total_latency": pct_block(latencies, 1000.0),
         "median_output_tokens": statistics.median(output_tokens) if output_tokens else None,
         "median_chunks": median_chunks,
         "median_tokens_per_chunk": median_tok_per_chunk,

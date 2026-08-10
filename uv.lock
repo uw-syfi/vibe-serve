@@ -16,6 +16,7 @@ resolution-markers = [
 [manifest]
 members = [
     "vibesys",
+    "vs-bench",
     "vs-feature-flags",
     "vs-github",
     "vs-issue-board",
@@ -3871,6 +3872,18 @@ wheels = [
 ]
 
 [[package]]
+name = "respx"
+version = "0.23.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "httpx" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/43/98/4e55c9c486404ec12373708d015ebce157966965a5ebe7f28ff2c784d41b/respx-0.23.1.tar.gz", hash = "sha256:242dcc6ce6b5b9bf621f5870c82a63997e8e82bc7c947f9ffe272b8f3dd5a780", size = 29243, upload-time = "2026-04-08T14:37:16.008Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/1d/4a/221da6ca167db45693d8d26c7dc79ccfc978a440251bf6721c9aaf251ac0/respx-0.23.1-py2.py3-none-any.whl", hash = "sha256:b18004b029935384bccfa6d7d9d74b4ec9af73a081cc28600fffc0447f4b8c1a", size = 25557, upload-time = "2026-04-08T14:37:14.613Z" },
+]
+
+[[package]]
 name = "rich"
 version = "14.3.3"
 source = { registry = "https://pypi.org/simple" }
@@ -4452,9 +4465,12 @@ dev = [
     { name = "matplotlib" },
     { name = "pyright" },
     { name = "pytest" },
+    { name = "pytest-asyncio" },
     { name = "pytest-cov" },
+    { name = "respx" },
     { name = "ruff" },
     { name = "vibesys", extra = ["omnigent"] },
+    { name = "vs-bench" },
 ]
 test = [
     { name = "hypothesis" },
@@ -4492,15 +4508,42 @@ dev = [
     { name = "matplotlib", specifier = ">=3.10.8" },
     { name = "pyright", specifier = ">=1.1.411" },
     { name = "pytest" },
+    { name = "pytest-asyncio" },
     { name = "pytest-cov" },
+    { name = "respx" },
     { name = "ruff", specifier = "==0.15.12" },
     { name = "vibesys", extras = ["omnigent"] },
+    { name = "vs-bench", editable = "sdk/vs-bench" },
 ]
 test = [
     { name = "hypothesis" },
     { name = "pytest" },
     { name = "pytest-cov" },
 ]
+
+[[package]]
+name = "vs-bench"
+version = "0.1.0"
+source = { editable = "sdk/vs-bench" }
+dependencies = [
+    { name = "httpx" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "respx" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "httpx", specifier = ">=0.27" },
+    { name = "pytest", marker = "extra == 'dev'" },
+    { name = "pytest-asyncio", marker = "extra == 'dev'" },
+    { name = "respx", marker = "extra == 'dev'" },
+]
+provides-extras = ["dev"]
 
 [[package]]
 name = "vs-feature-flags"
