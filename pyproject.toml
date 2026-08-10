@@ -15,15 +15,12 @@ dependencies = [
     "langchain-google-vertexai>=3.2.2",
     "langchain-openai",
     "huggingface_hub",
+    "mcp>=1.0",
+    "modal>=1.4.2",
     "pydantic>=2",
     "pyyaml>=6",
     "python-dotenv>=1.0.1",
     "loguru>=0.7.2",
-    "vs-feature-flags",
-    "vs-github",
-    "vs-issue-board",
-    "vs-loop-state",
-    "vs-sandbox",
     "openevolve==0.3.1",
 ]
 
@@ -41,14 +38,15 @@ vibesys-issue-mcp = "vs_issue_board.mcp:main"
 # `--headless`/`validate`/no TTY. The engine itself is also `python -m vibesys`.
 vibesys = "vibesys.cli:main"
 
-[tool.setuptools.packages.find]
-where = ["src"]
-include = ["vibesys*"]
-
 [tool.setuptools.package-data]
 # ``_tui`` is produced at build time by setup.py's build_py step and injected
 # into the wheel's build tree; the glob keeps it as package data when present.
 vibesys = ["prompts/*.j2", "prompts/**/*.j2", "prompts/**/*.md", "domains/README.md", "_tui/**/*", "_resources/**/*"]
+vs_feature_flags = ["py.typed"]
+vs_github = ["py.typed"]
+vs_issue_board = ["py.typed"]
+vs_loop_state = ["py.typed"]
+vs_sandbox = ["py.typed"]
 
 [dependency-groups]
 dev = [
@@ -263,12 +261,7 @@ package = true
 
 [tool.uv.workspace]
 exclude = ["exp_env/**"]
-members = ["libs/*", "sdk/*"]
+members = ["sdk/*"]
 
 [tool.uv.sources]
-vs-feature-flags = { workspace = true }
-vs-github = { workspace = true }
-vs-issue-board = { workspace = true }
-vs-loop-state = { workspace = true }
-vs-sandbox = { workspace = true }
 vs-bench = { workspace = true }

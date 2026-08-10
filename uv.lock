@@ -17,11 +17,6 @@ resolution-markers = [
 members = [
     "vibesys",
     "vs-bench",
-    "vs-feature-flags",
-    "vs-github",
-    "vs-issue-board",
-    "vs-loop-state",
-    "vs-sandbox",
 ]
 
 [[package]]
@@ -4441,15 +4436,12 @@ dependencies = [
     { name = "langchain-google-vertexai" },
     { name = "langchain-openai" },
     { name = "loguru" },
+    { name = "mcp" },
+    { name = "modal" },
     { name = "openevolve" },
     { name = "pydantic" },
     { name = "python-dotenv" },
     { name = "pyyaml" },
-    { name = "vs-feature-flags" },
-    { name = "vs-github" },
-    { name = "vs-issue-board" },
-    { name = "vs-loop-state" },
-    { name = "vs-sandbox" },
 ]
 
 [package.optional-dependencies]
@@ -4487,16 +4479,13 @@ requires-dist = [
     { name = "langchain-google-vertexai", specifier = ">=3.2.2" },
     { name = "langchain-openai" },
     { name = "loguru", specifier = ">=0.7.2" },
+    { name = "mcp", specifier = ">=1.0" },
+    { name = "modal", specifier = ">=1.4.2" },
     { name = "omnigent", marker = "extra == 'omnigent'", specifier = "==0.6.0" },
     { name = "openevolve", specifier = "==0.3.1" },
     { name = "pydantic", specifier = ">=2" },
     { name = "python-dotenv", specifier = ">=1.0.1" },
     { name = "pyyaml", specifier = ">=6" },
-    { name = "vs-feature-flags", editable = "libs/vs-feature-flags" },
-    { name = "vs-github", editable = "libs/vs-github" },
-    { name = "vs-issue-board", editable = "libs/vs-issue-board" },
-    { name = "vs-loop-state", editable = "libs/vs-loop-state" },
-    { name = "vs-sandbox", editable = "libs/vs-sandbox" },
 ]
 provides-extras = ["omnigent"]
 
@@ -4544,57 +4533,6 @@ requires-dist = [
     { name = "respx", marker = "extra == 'dev'" },
 ]
 provides-extras = ["dev"]
-
-[[package]]
-name = "vs-feature-flags"
-version = "0.1.0"
-source = { editable = "libs/vs-feature-flags" }
-
-[[package]]
-name = "vs-github"
-version = "0.1.0"
-source = { editable = "libs/vs-github" }
-
-[[package]]
-name = "vs-issue-board"
-version = "0.1.0"
-source = { editable = "libs/vs-issue-board" }
-dependencies = [
-    { name = "mcp" },
-    { name = "pydantic" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "mcp", specifier = ">=1.0" },
-    { name = "pydantic", specifier = ">=2" },
-]
-
-[[package]]
-name = "vs-loop-state"
-version = "0.1.0"
-source = { editable = "libs/vs-loop-state" }
-dependencies = [
-    { name = "pydantic" },
-]
-
-[package.metadata]
-requires-dist = [{ name = "pydantic", specifier = ">=2" }]
-
-[[package]]
-name = "vs-sandbox"
-version = "0.1.0"
-source = { editable = "libs/vs-sandbox" }
-dependencies = [
-    { name = "deepagents" },
-    { name = "modal" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "deepagents" },
-    { name = "modal", specifier = ">=1.4.2" },
-]
 
 [[package]]
 name = "watchfiles"

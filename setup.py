@@ -20,6 +20,7 @@ from setuptools.command.build_py import build_py as _build_py
 _REPO_ROOT = Path(__file__).parent.resolve()
 sys.path.insert(0, str(_REPO_ROOT))
 
+from packaging_support import discover_distribution_packages  # noqa: E402
 from resources_packaging import stage_resources  # noqa: E402
 from tui_packaging import build_and_stage_tui  # noqa: E402
 
@@ -34,4 +35,10 @@ class build_py(_build_py):  # noqa: N801 - setuptools command classes are lowerc
         stage_resources(_REPO_ROOT, Path(self.build_lib) / "vibesys" / "_resources")
 
 
-setup(cmdclass={"build_py": build_py})
+packages, package_dirs = discover_distribution_packages(_REPO_ROOT)
+
+setup(
+    packages=packages,
+    package_dir=package_dirs,
+    cmdclass={"build_py": build_py},
+)

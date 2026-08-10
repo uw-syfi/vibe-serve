@@ -2,6 +2,9 @@
 
 Reusable host, Docker, and Modal sandbox backends for agent workspaces.
 
+This is an internal import package shipped by the `vibesys` distribution. It
+is not published as a separate Python distribution.
+
 `vs-sandbox` owns the sandbox execution backends that do not depend on
 VibeSys: container-backed workspaces implementing the `deepagents`
 `BaseSandbox` protocol, host process confinement, plus Modal model-weight volume provisioning.

@@ -2,6 +2,9 @@
 
 Reusable JSON-backed issue board utilities for small agent workflows.
 
+This is an internal import package shipped by the `vibesys` distribution. It
+is not published as a separate Python distribution.
+
 `vs-issue-board` owns the generic issue tracker pieces that do not depend on
 VibeSys: the persistent issue store, typed issue models, create-policy
 helpers, text formatting helpers, and a stdio MCP server. Applications can use
@@ -91,7 +94,7 @@ is `created issue #N`; on rejection it is a stable error string.
 The package ships a stdio MCP server for generic issue-board access:
 
 ```bash
-uv run vs-issue-board-mcp issues.json --creator agent --allowed-types bug,feature,perf
+uv run vibesys-issue-mcp issues.json --creator agent --allowed-types bug,feature,perf
 ```
 
 It can also be launched as a module:
@@ -139,7 +142,7 @@ test tree when they verify old import paths or VibeSys integration wiring.
 
 For the full repository gate, run the whole suite. `[tool.coverage.run]` in
 the root `pyproject.toml` already measures `vs_issue_board` alongside
-`vibesys` and the other workspace libraries, so a bare `uv run pytest`
+`vibesys` and the other internal import packages, so a bare `uv run pytest`
 reports combined coverage locally; CI additionally enforces the floor:
 
 ```bash

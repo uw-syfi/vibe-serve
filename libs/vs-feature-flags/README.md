@@ -2,6 +2,9 @@
 
 Typed feature flag utilities.
 
+This is an internal import package shipped by the `vibesys` distribution. It
+is not published as a separate Python distribution.
+
 ## Concepts
 
 - `FeatureDefinition` describes one flag with a required `description` and a
