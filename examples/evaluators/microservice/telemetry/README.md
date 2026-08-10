@@ -28,6 +28,39 @@ service identity from `service.name`, and recognizes datastore spans through
 `db.*` semantic attributes. This keeps application and protocol knowledge out
 of the evaluator.
 
+## Trace graph artifact
+
+When a collector receives `--trace-graph-json`, `cmd/otelcapture` also
+reconstructs workload-observed traces into trace graph schema version 1. The
+artifact groups traces by root service and semantic operation, then records:
+
+- path-aware service/operation nodes and synchronous, asynchronous, and linked
+  edges;
+- count, errors, mean, p50, p95, p99, and maximum inclusive and exclusive
+  duration for every node;
+- captured, eligible, and excluded trace counts, including exclusion reasons
+  and per-trial evidence;
+- unambiguous client/server pair collapsing with unmatched-span counters; and
+- one deterministic representative successful trace nearest the root p95 for
+  a waterfall view.
+
+Operation identity uses safe OTel semantic attributes such as `http.route`,
+`rpc.service`, `rpc.method`, `db.system.name`, and `db.operation.name`, then
+falls back to the span name. Arbitrary attributes, request bodies, raw query
+strings, and credentials are not copied into the artifact.
+
+Exclusive duration means a span's wall-clock interval minus the union of its
+direct-child intervals. It is useful attribution evidence, but it is not CPU
+time. Traces with missing parents, duplicate IDs, multiple roots, cycles,
+window crossings, or inconsistent parent/child clocks are excluded rather
+than partially graphed. A graph request fails when no eligible trace remains.
+
+`--trace-graph-text` optionally writes the deterministic human view: boxes and
+arrows show call structure, and a separate timeline shows span overlap.
+Rendering limits affect only this text view and report explicit omitted counts.
+The versioned JSON is the machine contract. Critical-path analysis and
+automatic VibeSys-loop consumption are intentionally deferred.
+
 ## Instrumentation boundary
 
 The application must export spans with synchronized timestamps and meaningful

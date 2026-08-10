@@ -179,6 +179,13 @@ fails closed on command errors, malformed reports, or zero in-window spans.
 Applications own their instrumentation and export pipeline; the evaluator owns
 measurement correlation, normalization, validation, and artifact attachment.
 
+The optional `servicebench trace` command adds a separate trace-graph
+artifact without changing the benchmark summary schema. It reconstructs only
+complete workload-window traces, groups repeated service-call paths, and emits
+a bounded visual rendering. It does not infer a critical path; that analysis
+requires an independently reviewed contract for synchronous, parallel, and
+asynchronous causality.
+
 Closed-loop workloads use the same engine, drivers, observations, and semantic
 validation, but each worker schedules its next logical operation after the
 previous one completes. They are appropriate for saturation-throughput

@@ -211,3 +211,38 @@ func TestShouldCollectTelemetry(t *testing.T) {
 		})
 	}
 }
+
+func TestParseServicebenchCommandRecognizesTraceSubcommand(t *testing.T) {
+	trace, args, err := parseServicebenchCommand([]string{"trace", "--workload", "workload.toml"})
+	if err != nil || !trace || len(args) != 2 || args[0] != "--workload" {
+		t.Fatalf("trace=%v args=%v err=%v", trace, args, err)
+	}
+	trace, args, err = parseServicebenchCommand([]string{"--workload", "workload.toml"})
+	if err != nil || trace || len(args) != 2 {
+		t.Fatalf("legacy trace=%v args=%v err=%v", trace, args, err)
+	}
+	if _, _, err := parseServicebenchCommand([]string{"unknown"}); err == nil {
+		t.Fatal("accepted an unknown subcommand")
+	}
+}
+
+func TestValidateModeFlagsRequiresTraceArtifacts(t *testing.T) {
+	base := modeFlagConfig{
+		mode: "benchmark", trace: true, startupTimeout: 15,
+		telemetryCommand: `["./collector"]`, telemetryOutput: "telemetry.json", telemetryTimeout: 30,
+		traceGraphOutput: "trace.json", traceMaxRoots: 10, traceMaxNodes: 30, traceTimelineWidth: 48,
+	}
+	if err := validateModeFlags(base); err != nil {
+		t.Fatalf("valid trace flags: %v", err)
+	}
+	missing := base
+	missing.traceGraphOutput = ""
+	if err := validateModeFlags(missing); err == nil {
+		t.Fatal("trace mode accepted no graph output")
+	}
+	accuracy := base
+	accuracy.mode = "accuracy"
+	if err := validateModeFlags(accuracy); err == nil {
+		t.Fatal("trace mode accepted accuracy execution")
+	}
+}

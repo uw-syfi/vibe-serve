@@ -17,18 +17,74 @@ const defaultWaitDelay = 10 * time.Second
 
 // CommandCollector invokes a trusted collector command using the normalized contract.
 type CommandCollector struct {
-	Command    []string
-	OutputPath string
-	Timeout    time.Duration
+	Command        []string
+	OutputPath     string
+	TraceGraphPath string
+	Timeout        time.Duration
 	// WaitDelay bounds the wait for the collector's output pipe to close after
 	// the process exits or is killed. Zero uses defaultWaitDelay.
 	WaitDelay time.Duration
+}
+
+type CollectionArtifacts struct {
+	Report     Report
+	TraceGraph TraceGraphReport
 }
 
 // Collect writes a request, invokes the collector, and validates its report.
 func (collector CommandCollector) Collect(
 	ctx context.Context,
 	request CollectionRequest,
+) (Report, error) {
+	return collector.collectReport(ctx, request, nil)
+}
+
+// CollectTrace invokes a collector that produces both normalized telemetry artifacts.
+func (collector CommandCollector) CollectTrace(
+	ctx context.Context,
+	request CollectionRequest,
+) (CollectionArtifacts, error) {
+	if collector.TraceGraphPath == "" {
+		return CollectionArtifacts{}, fmt.Errorf("trace graph output path must not be empty")
+	}
+	graphPath, err := filepath.Abs(collector.TraceGraphPath)
+	if err != nil {
+		return CollectionArtifacts{}, fmt.Errorf("resolve trace graph output path: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(graphPath), 0o755); err != nil {
+		return CollectionArtifacts{}, fmt.Errorf("create trace graph output directory: %w", err)
+	}
+	if err := os.Remove(graphPath); err != nil && !os.IsNotExist(err) {
+		return CollectionArtifacts{}, fmt.Errorf("remove stale trace graph: %w", err)
+	}
+	report, err := collector.collectReport(ctx, request, []string{"--trace-graph-json", graphPath})
+	if err != nil {
+		return CollectionArtifacts{}, err
+	}
+	data, err := os.ReadFile(graphPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return CollectionArtifacts{}, fmt.Errorf("telemetry collector did not write a trace graph to %s", graphPath)
+		}
+		return CollectionArtifacts{}, fmt.Errorf("read trace graph: %w", err)
+	}
+	var graph TraceGraphReport
+	if err := json.Unmarshal(data, &graph); err != nil {
+		return CollectionArtifacts{}, fmt.Errorf("decode trace graph: %w", err)
+	}
+	if err := ValidateTraceGraph(graph); err != nil {
+		return CollectionArtifacts{}, err
+	}
+	if err := validateTraceGraphRequest(graph, request); err != nil {
+		return CollectionArtifacts{}, err
+	}
+	return CollectionArtifacts{Report: report, TraceGraph: graph}, nil
+}
+
+func (collector CommandCollector) collectReport(
+	ctx context.Context,
+	request CollectionRequest,
+	extraArguments []string,
 ) (Report, error) {
 	if err := ValidateRequest(request); err != nil {
 		return Report{}, err
@@ -73,6 +129,7 @@ func (collector CommandCollector) Collect(
 	}
 	arguments := append([]string(nil), collector.Command[1:]...)
 	arguments = append(arguments, "--request-json", requestPath, "--output-json", outputPath)
+	arguments = append(arguments, extraArguments...)
 	command := exec.CommandContext(commandContext, collector.Command[0], arguments...)
 	// CombinedOutput waits for the collector's output pipe to close, which a
 	// killed collector's surviving child processes can otherwise hold open long
@@ -119,6 +176,22 @@ func (collector CommandCollector) Collect(
 		return Report{}, err
 	}
 	return report, nil
+}
+
+func validateTraceGraphRequest(graph TraceGraphReport, request CollectionRequest) error {
+	if graph.WorkloadName != request.WorkloadName || graph.WorkloadHash != request.WorkloadHash {
+		return fmt.Errorf("trace graph workload identity does not match request")
+	}
+	if len(graph.Windows) != len(request.Windows) {
+		return fmt.Errorf("trace graph measurement windows do not match request")
+	}
+	for index := range request.Windows {
+		if !graph.Windows[index].Start.Equal(request.Windows[index].Start) ||
+			!graph.Windows[index].End.Equal(request.Windows[index].End) {
+			return fmt.Errorf("trace graph measurement windows do not match request")
+		}
+	}
+	return nil
 }
 
 func validateReportRequest(report Report, request CollectionRequest) error {

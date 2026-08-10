@@ -62,6 +62,50 @@ EOF
 	}
 }
 
+func TestCommandCollectorCollectTracePassesAndValidatesGraphArtifact(t *testing.T) {
+	directory := t.TempDir()
+	script := filepath.Join(directory, "collector.sh")
+	scriptBody := `#!/bin/sh
+set -eu
+report=""
+graph=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --request-json) request="$2"; shift 2 ;;
+    --output-json) report="$2"; shift 2 ;;
+    --trace-graph-json) graph="$2"; shift 2 ;;
+    *) exit 9 ;;
+  esac
+done
+test -s "$request"
+cat >"$report" <<'EOF'
+{"schema_version":1,"source":"test","collected_at":"2026-07-22T12:00:00Z","workload_name":"test","workload_hash":"abc","measurement_windows":[{"start":"2026-07-22T12:00:00Z","end":"2026-07-22T12:00:01Z"}],"span_count":1,"error_count":0,"services_by_p95":[{"name":"frontend","count":1,"error_count":0,"mean_ms":2,"p50_ms":2,"p95_ms":2,"p99_ms":2,"max_ms":2}],"spans_by_p95":[{"name":"frontend:GET /","count":1,"error_count":0,"mean_ms":2,"p50_ms":2,"p95_ms":2,"p99_ms":2,"max_ms":2}]}
+EOF
+cat >"$graph" <<'EOF'
+{"schema_version":1,"source":"test","collected_at":"2026-07-22T12:00:00Z","workload_name":"test","workload_hash":"abc","measurement_windows":[{"start":"2026-07-22T12:00:00Z","end":"2026-07-22T12:00:01Z"}],"quality":{"captured_traces":1,"eligible_traces":1,"excluded_traces":0,"matched_client_server_pairs":0,"unmatched_client_spans":0,"unmatched_server_spans":0,"async_relationships":0},"trials":[{"trial":1,"captured_traces":1,"eligible_traces":1,"excluded_traces":0}],"roots":[{"service":"frontend","operation":"GET /","trace_count":1,"error_count":0,"latency_ms":{"count":1,"error_count":0,"mean_ms":2,"p50_ms":2,"p95_ms":2,"p99_ms":2,"max_ms":2},"nodes":[{"id":"node-001","path":"frontend:GET /","service":"frontend","operation":"GET /","kind":"server","inclusive_latency_ms":{"count":1,"error_count":0,"mean_ms":2,"p50_ms":2,"p95_ms":2,"p99_ms":2,"max_ms":2},"exclusive_latency_ms":{"count":1,"error_count":0,"mean_ms":2,"p50_ms":2,"p95_ms":2,"p99_ms":2,"max_ms":2}}],"edges":[],"representative_trace":{"trace_id":"trace-a","duration_ms":2,"spans":[{"node_id":"node-001","service":"frontend","operation":"GET /","offset_ms":0,"duration_ms":2}]}}]}
+EOF
+`
+	if err := os.WriteFile(script, []byte(scriptBody), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	start := time.Date(2026, 7, 22, 12, 0, 0, 0, time.UTC)
+	artifacts, err := (CommandCollector{
+		Command:        []string{script},
+		OutputPath:     filepath.Join(directory, "report.json"),
+		TraceGraphPath: filepath.Join(directory, "graph.json"),
+		Timeout:        time.Second,
+	}).CollectTrace(context.Background(), CollectionRequest{
+		SchemaVersion: RequestSchemaVersion, WorkloadName: "test", WorkloadHash: "abc",
+		Windows: []MeasurementWindow{{Start: start, End: start.Add(time.Second)}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if artifacts.Report.SpanCount != 1 || artifacts.TraceGraph.Quality.EligibleTraces != 1 {
+		t.Fatalf("artifacts = %+v", artifacts)
+	}
+}
+
 func TestCommandCollectorRejectsEmptyReport(t *testing.T) {
 	directory := t.TempDir()
 	script := filepath.Join(directory, "collector.sh")

@@ -42,6 +42,7 @@ type targetOverrides map[string]string
 
 type modeFlagConfig struct {
 	mode               string
+	trace              bool
 	explicit           map[string]bool
 	outputRaw          string
 	casesMin           int
@@ -55,6 +56,11 @@ type modeFlagConfig struct {
 	telemetryCommand   string
 	telemetryOutput    string
 	telemetryTimeout   float64
+	traceGraphOutput   string
+	traceTextOutput    string
+	traceMaxRoots      int
+	traceMaxNodes      int
+	traceTimelineWidth int
 }
 
 func (o *targetOverrides) String() string {
@@ -78,6 +84,11 @@ func main() {
 }
 
 func run() (resultErr error) {
+	traceMode, commandArgs, err := parseServicebenchCommand(os.Args[1:])
+	if err != nil {
+		return err
+	}
+	os.Args = append([]string{os.Args[0]}, commandArgs...)
 	var mode string
 	var workloadPath string
 	var profile string
@@ -106,6 +117,11 @@ func run() (resultErr error) {
 	var telemetryCommandJSON string
 	var telemetryOutput string
 	var telemetryTimeout float64
+	var traceGraphOutput string
+	var traceTextOutput string
+	var traceMaxRoots int
+	var traceMaxNodes int
+	var traceTimelineWidth int
 
 	flag.StringVar(&mode, "mode", "benchmark", "execution mode: benchmark or accuracy")
 	flag.StringVar(&workloadPath, "workload", "", "path to the workload TOML file")
@@ -135,17 +151,25 @@ func run() (resultErr error) {
 	flag.StringVar(&telemetryCommandJSON, "telemetry-command-json", "", "trusted telemetry collector command as a JSON string array")
 	flag.StringVar(&telemetryOutput, "telemetry-output", "", "normalized telemetry report path")
 	flag.Float64Var(&telemetryTimeout, "telemetry-timeout", 30, "telemetry collector timeout in seconds")
+	flag.StringVar(&traceGraphOutput, "trace-graph-json", "", "versioned trace graph output path")
+	flag.StringVar(&traceTextOutput, "trace-graph-text", "", "optional rendered trace graph output path")
+	flag.IntVar(&traceMaxRoots, "trace-max-roots", 10, "maximum root groups in rendered trace output")
+	flag.IntVar(&traceMaxNodes, "trace-max-nodes", 30, "maximum nodes per root in rendered trace output")
+	flag.IntVar(&traceTimelineWidth, "trace-timeline-width", 48, "representative waterfall width")
 	flag.Parse()
 	explicitFlags := make(map[string]bool)
 	flag.Visit(func(used *flag.Flag) { explicitFlags[used.Name] = true })
 	if err := validateModeFlags(modeFlagConfig{
-		mode: mode, explicit: explicitFlags, outputRaw: outputRaw,
+		mode: mode, trace: traceMode, explicit: explicitFlags, outputRaw: outputRaw,
 		casesMin: casesMin, casesMax: casesMax, startupTimeout: startupTimeout,
 		runCommandJSON: runCommandJSON, stopCommandJSON: stopCommandJSON,
 		cleanupCommandJSON: cleanupCommandJSON,
 		stateDir:           stateDir, stateEnv: stateEnv,
 		telemetryCommand: telemetryCommandJSON, telemetryOutput: telemetryOutput,
 		telemetryTimeout: telemetryTimeout,
+		traceGraphOutput: traceGraphOutput, traceTextOutput: traceTextOutput,
+		traceMaxRoots: traceMaxRoots, traceMaxNodes: traceMaxNodes,
+		traceTimelineWidth: traceTimelineWidth,
 	}); err != nil {
 		return err
 	}
@@ -336,6 +360,7 @@ func run() (resultErr error) {
 	if err != nil {
 		return err
 	}
+	var renderedTrace string
 	if shouldCollectTelemetry(telemetryCommandJSON, runResult.Summary.Valid) {
 		command, parseErr := parseCommandJSON(
 			telemetryCommandJSON,
@@ -349,20 +374,39 @@ func run() (resultErr error) {
 			windows = append(windows, trial.MeasurementWindow)
 		}
 		collector := telemetry.CommandCollector{
-			Command:    command,
-			OutputPath: telemetryOutput,
-			Timeout:    time.Duration(telemetryTimeout * float64(time.Second)),
+			Command:        command,
+			OutputPath:     telemetryOutput,
+			TraceGraphPath: traceGraphOutput,
+			Timeout:        time.Duration(telemetryTimeout * float64(time.Second)),
 		}
-		report, collectErr := collector.Collect(ctx, telemetry.CollectionRequest{
+		request := telemetry.CollectionRequest{
 			SchemaVersion: telemetry.RequestSchemaVersion,
 			WorkloadName:  workload.Name,
 			WorkloadHash:  hex.EncodeToString(hash[:]),
 			Windows:       windows,
-		})
-		if collectErr != nil {
-			return fmt.Errorf("collect benchmark telemetry: %w", collectErr)
 		}
-		runResult.Summary.Telemetry = &report
+		if traceMode {
+			artifacts, collectErr := collector.CollectTrace(ctx, request)
+			if collectErr != nil {
+				return fmt.Errorf("collect benchmark trace graph: %w", collectErr)
+			}
+			runResult.Summary.Telemetry = &artifacts.Report
+			renderedTrace, err = telemetry.RenderTraceGraph(artifacts.TraceGraph, telemetry.TraceRenderOptions{MaxRoots: traceMaxRoots, MaxNodesPerRoot: traceMaxNodes, TimelineWidth: traceTimelineWidth})
+			if err != nil {
+				return fmt.Errorf("render benchmark trace graph: %w", err)
+			}
+			if traceTextOutput != "" {
+				if err := fsutil.WriteFileAtomic(traceTextOutput, []byte(renderedTrace), 0o644); err != nil {
+					return fmt.Errorf("write rendered trace graph: %w", err)
+				}
+			}
+		} else {
+			report, collectErr := collector.Collect(ctx, request)
+			if collectErr != nil {
+				return fmt.Errorf("collect benchmark telemetry: %w", collectErr)
+			}
+			runResult.Summary.Telemetry = &report
+		}
 	}
 	if outputRaw != "" {
 		if err := writeNDJSON(outputRaw, runResult.Observations); err != nil {
@@ -378,7 +422,11 @@ func run() (resultErr error) {
 			return err
 		}
 	}
-	fmt.Println(string(encoded))
+	if traceMode {
+		fmt.Print(renderedTrace)
+	} else {
+		fmt.Println(string(encoded))
+	}
 	if !runResult.Summary.Valid {
 		return errors.New("benchmark result is invalid; inspect constraints and trial invalid_reasons")
 	}
@@ -395,6 +443,16 @@ func shouldCollectTelemetry(command string, valid bool) bool {
 	return command != "" && valid
 }
 
+func parseServicebenchCommand(args []string) (bool, []string, error) {
+	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
+		return false, args, nil
+	}
+	if args[0] != "trace" {
+		return false, nil, fmt.Errorf("unknown subcommand %q", args[0])
+	}
+	return true, args[1:], nil
+}
+
 func validateModeFlags(config modeFlagConfig) error {
 	if config.mode != "benchmark" && config.mode != "accuracy" {
 		return fmt.Errorf("--mode must be benchmark or accuracy, got %q", config.mode)
@@ -402,10 +460,28 @@ func validateModeFlags(config modeFlagConfig) error {
 	if config.startupTimeout <= 0 {
 		return fmt.Errorf("--startup-timeout must be positive")
 	}
+	if config.trace {
+		if config.mode != "benchmark" {
+			return errors.New("servicebench trace only supports benchmark mode")
+		}
+		if config.telemetryCommand == "" || config.telemetryOutput == "" {
+			return errors.New("servicebench trace requires --telemetry-command-json and --telemetry-output")
+		}
+		if config.traceGraphOutput == "" {
+			return errors.New("servicebench trace requires --trace-graph-json")
+		}
+		if config.traceMaxRoots <= 0 || config.traceMaxNodes <= 0 || config.traceTimelineWidth < 10 {
+			return errors.New("trace render limits must be positive and --trace-timeline-width must be at least 10")
+		}
+	} else if config.traceGraphOutput != "" || config.traceTextOutput != "" ||
+		config.explicit["trace-max-roots"] || config.explicit["trace-max-nodes"] || config.explicit["trace-timeline-width"] {
+		return errors.New("trace graph flags require the servicebench trace subcommand")
+	}
 	accuracyOnly := []string{"cases-min", "cases-max", "state-dir", "state-env"}
 	benchmarkOnly := []string{
 		"output-raw", "skip-prepare", "fixture-seed", "rate", "duration", "warmup", "concurrency", "repetitions",
 		"telemetry-command-json", "telemetry-output", "telemetry-timeout",
+		"trace-graph-json", "trace-graph-text", "trace-max-roots", "trace-max-nodes", "trace-timeline-width",
 	}
 	if config.mode == "benchmark" {
 		for _, name := range accuracyOnly {
