@@ -162,14 +162,7 @@ impl Drop for Queue {
 
 impl Producer {
     pub fn enqueue(&mut self, priority: u64, value: &[u8]) -> u32 {
-        unsafe {
-            (self.api.enqueue)(
-                self.handle,
-                priority,
-                value.as_ptr(),
-                value.len() as u64,
-            )
-        }
+        unsafe { (self.api.enqueue)(self.handle, priority, value.as_ptr(), value.len() as u64) }
     }
 }
 
@@ -371,7 +364,8 @@ unsafe extern "C" fn reference_dequeue(
     else {
         return STATUS_EMPTY;
     };
-    if entry.value.len() > output_capacity as usize || (output.is_null() && !entry.value.is_empty()) {
+    if entry.value.len() > output_capacity as usize || (output.is_null() && !entry.value.is_empty())
+    {
         return STATUS_INVALID;
     }
     let value = values.remove(index).value;
