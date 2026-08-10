@@ -153,6 +153,21 @@ Custom CUDA op entry:
 rg "TORCH_LIBRARY|PYBIND11_MODULE" $SERVE_REPOS/vllm/csrc/
 ```
 
+## Pitfalls
+
+### `setuptools-scm` requires `.git` for editable installs
+
+vLLM uses `setuptools-scm` for version detection. Running `pip install -e ./vllm` in a checkout that has no `.git` directory (e.g. cloned with `strip_git = true`) fails with a `LookupError` from `setuptools-scm`.
+
+Fix: set the pretend-version env var before the install:
+
+```bash
+export SETUPTOOLS_SCM_PRETEND_VERSION_FOR_VLLM="0.10.0"
+pip install -e ./vllm
+```
+
+Derive the version from `vllm/vllm/version.py` (`__version__`) or from the pinned dependency in `pyproject.toml` rather than hardcoding it. The VibeSys vLLM starter's `scripts/install_local_vllm.sh` handles this automatically.
+
 ## See also
 
 - `engines/sglang/`, `engines/trtllm/` — contrast vLLM's design with the other two

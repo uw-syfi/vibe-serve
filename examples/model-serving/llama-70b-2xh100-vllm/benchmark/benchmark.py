@@ -64,7 +64,7 @@ async def send_request(
             async for raw_line in response.aiter_lines():
                 if not raw_line.startswith("data: "):
                     continue
-                payload = raw_line[len("data: "):].strip()
+                payload = raw_line[len("data: ") :].strip()
                 if payload == "[DONE]":
                     done = time.perf_counter()
                     break

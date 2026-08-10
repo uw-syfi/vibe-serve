@@ -60,7 +60,7 @@ async def _stream_text(
             async for raw in resp.aiter_lines():
                 if not raw.startswith("data: "):
                     continue
-                payload = raw[len("data: "):]
+                payload = raw[len("data: ") :]
                 if payload.strip() == "[DONE]":
                     break
                 try:
