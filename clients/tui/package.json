@@ -2,6 +2,14 @@
   "name": "@vibesys/tui",
   "version": "0.1.0",
   "private": false,
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/uw-syfi/vibesys.git"
+  },
+  "bugs": {
+    "url": "https://github.com/uw-syfi/vibesys/issues"
+  },
   "type": "module",
   "engines": {
     "node": ">=20"

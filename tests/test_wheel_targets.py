@@ -16,6 +16,13 @@ EXPECTED_PLATFORMS = {
     "macos-arm64": "macosx_13_0_arm64",
 }
 
+EXPECTED_BUN_SHA256 = {
+    "linux-x86_64": "104d4d037f4b35e10215c0507e1779691f39c57bd91ddeefe11cad781e3fc4b9",
+    "linux-aarch64": "a2c2862bcc1fd1c0b3a8dcdc8c7efb5e2acd871eb20ed2f17617884ede81c844",
+    "macos-x86_64": "a6e15821aa60795f541ce18fce16bca9f2a94e193068b77f6f33330f4d0a3ad5",
+    "macos-arm64": "cde6a4edf19cf64909158fa5a464a12026fd7f0d79a4a950c10cf0af04266d85",
+}
+
 
 @pytest.mark.parametrize("key", EXPECTED_PLATFORMS)
 def test_supported_target_round_trip(key):  # noqa: ANN001, ANN201
@@ -31,6 +38,7 @@ def test_supported_target_round_trip(key):  # noqa: ANN001, ANN201
     assert resolved.wheel_platform == EXPECTED_PLATFORMS[key]
     assert resolved.opentui_package.startswith("@opentui/core-")
     assert resolved.bun_asset.endswith(".zip")
+    assert resolved.bun_sha256 == EXPECTED_BUN_SHA256[key]
 
 
 def test_target_resolution_rejects_an_unknown_target():  # noqa: ANN201

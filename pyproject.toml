@@ -8,6 +8,14 @@ version = "0.1.0"
 description = "AI agent framework for generating bespoke systems from application, workload, and hardware requirements"
 readme = "README.md"
 requires-python = ">=3.12"
+license = "MIT"
+license-files = ["LICENSE"]
+classifiers = [
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+]
 dependencies = [
     "agentshim>=0.5.0",
     "deepagents",
@@ -23,6 +31,10 @@ dependencies = [
     "loguru>=0.7.2",
     "openevolve==0.3.1",
 ]
+
+[project.urls]
+Repository = "https://github.com/uw-syfi/vibesys"
+Issues = "https://github.com/uw-syfi/vibesys/issues"
 
 [project.optional-dependencies]
 # Opt-in backend behind the `omnigent_agent_backend` feature flag. Kept out of
@@ -51,6 +63,7 @@ vs_sandbox = ["py.typed"]
 [dependency-groups]
 dev = [
     "chardet<6",
+    "check-wheel-contents",
     "diff-cover",
     "hypothesis",
     "matplotlib>=3.10.8",
@@ -63,6 +76,7 @@ dev = [
     # Pinned exactly (not `>=`): a routine lock refresh with a floating bound
     # could silently change what CI enforces under the strict rule set below.
     "ruff==0.15.12",
+    "twine",
     # Optional for users, required for contributors: without it pyright cannot
     # resolve the Omnigent backend and its tests silently skip. `uv sync --dev`
     # (what CI runs) therefore installs it. Version comes from the extra, so

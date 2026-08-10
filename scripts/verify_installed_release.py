@@ -31,7 +31,15 @@ FRAMEWORK_PACKAGES = (
     "vs_sandbox",
 )
 SYSTEM_JAVASCRIPT_TOOLS = ("bun", "node", "npm", "pnpm")
-_RUNTIME_ROOT = Path("/tmp")  # noqa: S108 - fixed clean-room runtime root
+
+
+def resolved_runtime_root(path: Path | None = None) -> Path:
+    """Resolve the clean-room root, including macOS's ``/tmp`` symlink."""
+    configured = path or Path(os.environ.get("VIBESYS_RELEASE_RUNTIME_ROOT", "/tmp"))  # noqa: S108
+    return configured.resolve()
+
+
+_RUNTIME_ROOT = resolved_runtime_root()
 
 
 class InstalledReleaseError(RuntimeError):
@@ -47,6 +55,7 @@ def verify_installed_release() -> None:
     """Exercise the installed framework, SDK, resources, and native TUI."""
     _verify_isolated_interpreter()
     _verify_framework_imports()
+    verify_console_entry_point()
     _verify_resources()
     _verify_materialized_sdk()
     _verify_tui()
@@ -63,8 +72,8 @@ def _verify_isolated_interpreter() -> None:
     home = Path(os.environ.get("HOME", ""))
     if not home.is_dir() or any(home.iterdir()):
         _fail(f"HOME must be an empty isolated directory: {home}")
-    if Path.cwd() != _RUNTIME_ROOT:
-        _fail(f"Installed verification must run from /tmp, not {Path.cwd()}")
+    if Path.cwd().resolve() != _RUNTIME_ROOT:
+        _fail(f"Installed verification must run from {_RUNTIME_ROOT}, not {Path.cwd().resolve()}")
 
 
 def _verify_framework_imports() -> None:
@@ -82,6 +91,14 @@ def _verify_framework_imports() -> None:
                 f"Package {package} is not owned only by the vibesys distribution: "
                 f"{distributions.get(package)}"
             )
+
+
+def verify_console_entry_point() -> None:
+    """Exercise the installed ``vibesys`` console script in headless mode."""
+    executable = shutil.which("vibesys")
+    if executable is None:
+        _fail("Installed vibesys console script is absent from PATH")
+    _run([executable, "--headless", "--help"], timeout=30)
 
 
 def _verify_resources() -> None:
@@ -129,17 +146,7 @@ def _verify_materialized_sdk() -> None:
         if "site-packages" not in str(source_path):
             _fail(f"SDK source did not resolve from the installed wheel: {source_path}")
 
-        _run(
-            [
-                "uv",
-                "sync",
-                "--no-cache",
-                "--no-config",
-                "--project",
-                str(workspace),
-            ],
-            timeout=180,
-        )
+        _run(build_sdk_sync_command(workspace), timeout=180)
         sdk_python = workspace / ".venv" / "bin" / "python"
         _run(
             [
@@ -153,6 +160,20 @@ def _verify_materialized_sdk() -> None:
 
 def _copy_tree(source: Path, destination: Path) -> None:
     shutil.copytree(source, destination, dirs_exist_ok=True)
+
+
+def build_sdk_sync_command(workspace: Path) -> list[str]:
+    """Build the nested SDK sync command with the isolated interpreter."""
+    return [
+        "uv",
+        "sync",
+        "--no-cache",
+        "--no-config",
+        "--python",
+        sys.executable,
+        "--project",
+        str(workspace),
+    ]
 
 
 def _verify_tui() -> None:
