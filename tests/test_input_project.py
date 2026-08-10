@@ -5,6 +5,7 @@ from pathlib import Path  # noqa: TC003  # tracked: #288
 
 import pytest
 
+from vibesys import input_project
 from vibesys.input_project import (
     InputProjectError,
     discover_input_project,
@@ -139,3 +140,45 @@ def test_materialize_input_project_rejects_path_deps_outside_sdk(tmp_path):  # n
             project_root=project_root,
             copy_dir=_copy_dir,
         )
+
+
+def test_materialize_input_project_uses_packaged_sdk_without_a_checkout(  # noqa: ANN201
+    tmp_path,  # noqa: ANN001
+    monkeypatch,  # noqa: ANN001
+):
+    project_root = tmp_path / "installed"
+    packaged_sdk = tmp_path / "site-packages" / "vibesys" / "_sdk"
+    vs_bench = packaged_sdk / "vs-bench"
+    (vs_bench / "src" / "vs_bench").mkdir(parents=True)
+    (vs_bench / "pyproject.toml").write_text(
+        "[project]\nname = 'vs-bench'\nversion = '0.1.0'\n"
+    )
+    (vs_bench / "src" / "vs_bench" / "__init__.py").write_text("")
+
+    input_dir = project_root / "examples" / "model-serving" / "input"
+    input_dir.mkdir(parents=True)
+    (input_dir / "pyproject.toml").write_text(
+        "[project]\n"
+        "name = 'model-serving-input'\n"
+        "version = '0.1.0'\n"
+        "dependencies = ['vs-bench']\n"
+        "\n"
+        "[tool.uv.sources]\n"
+        "vs-bench = { path = '../../../sdk/vs-bench' }\n"
+    )
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    monkeypatch.setattr(input_project, "packaged_sdk_root", lambda: packaged_sdk)
+
+    dependencies = materialize_input_project(
+        input_dir,
+        workspace,
+        project_root=project_root,
+        copy_dir=_copy_dir,
+    )
+
+    assert [dependency.name for dependency in dependencies] == ["vs-bench"]
+    assert (workspace / "_input_libs" / "vs-bench" / "src" / "vs_bench").is_dir()
+    assert "vs-bench = { path = '_input_libs/vs-bench' }" in (
+        workspace / "pyproject.toml"
+    ).read_text()

@@ -4,11 +4,15 @@ from __future__ import annotations
 
 from pathlib import Path  # noqa: TC003  # tracked: #288
 
+import pytest
+
 # `resources_packaging` is a repo-root, build-time module (imported by
 # setup.py). It is not part of the installed package, so pyright's project
 # roots cannot resolve it; pytest picks it up via `pythonpath = ["."]`.
 from resources_packaging import (  # pyright: ignore[reportMissingImports]
+    PackagingError,
     stage_resources,
+    stage_sdk,
 )
 
 from vibesys import resource_paths
@@ -55,6 +59,44 @@ def test_stage_resources_without_resources_dir_is_a_noop(tmp_path):  # noqa: ANN
 
     assert not stage_resources(tmp_path / "empty-repo", dest)
     assert not dest.exists()
+
+
+def test_required_resource_staging_rejects_a_missing_tree(tmp_path):  # noqa: ANN001, ANN201
+    repo = tmp_path / "repo"
+    (repo / "resources" / "profilers").mkdir(parents=True)
+
+    with pytest.raises(PackagingError, match="resources/skills"):
+        stage_resources(repo, tmp_path / "dest", required=True)
+
+
+def test_stage_sdk_copies_only_the_installable_project(tmp_path):  # noqa: ANN001, ANN201
+    repo = tmp_path / "repo"
+    sdk = repo / "sdk" / "vs-bench"
+    (sdk / "src" / "vs_bench" / "__pycache__").mkdir(parents=True)
+    (sdk / "tests").mkdir()
+    (sdk / "pyproject.toml").write_text("[project]\nname = 'vs-bench'\n")
+    (sdk / "README.md").write_text("# vs-bench\n")
+    (sdk / "src" / "vs_bench" / "__init__.py").write_text("")
+    (sdk / "src" / "vs_bench" / "py.typed").write_text("")
+    (sdk / "src" / "vs_bench" / "__pycache__" / "module.pyc").write_text("cache")
+    (sdk / "tests" / "test_sdk.py").write_text("assert True\n")
+    dest = tmp_path / "build" / "vibesys" / "_sdk"
+
+    assert stage_sdk(repo, dest, required=True)
+    assert (dest / "vs-bench" / "pyproject.toml").is_file()
+    assert (dest / "vs-bench" / "README.md").is_file()
+    assert (dest / "vs-bench" / "src" / "vs_bench" / "py.typed").is_file()
+    assert not (dest / "vs-bench" / "tests").exists()
+    assert not (dest / "vs-bench" / "src" / "vs_bench" / "__pycache__").exists()
+
+
+def test_required_sdk_staging_rejects_an_incomplete_project(tmp_path):  # noqa: ANN001, ANN201
+    sdk = tmp_path / "repo" / "sdk" / "vs-bench"
+    sdk.mkdir(parents=True)
+    (sdk / "pyproject.toml").write_text("[project]\nname = 'vs-bench'\n")
+
+    with pytest.raises(PackagingError, match="sdk/vs-bench/src"):
+        stage_sdk(tmp_path / "repo", tmp_path / "dest", required=True)
 
 
 def test_resources_root_prefers_the_checkout():  # noqa: ANN201  # tracked: #288

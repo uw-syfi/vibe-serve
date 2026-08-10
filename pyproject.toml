@@ -41,7 +41,7 @@ vibesys = "vibesys.cli:main"
 [tool.setuptools.package-data]
 # ``_tui`` is produced at build time by setup.py's build_py step and injected
 # into the wheel's build tree; the glob keeps it as package data when present.
-vibesys = ["prompts/*.j2", "prompts/**/*.j2", "prompts/**/*.md", "domains/README.md", "_tui/**/*", "_resources/**/*"]
+vibesys = ["prompts/*.j2", "prompts/**/*.j2", "prompts/**/*.md", "domains/README.md", "_tui/**/*", "_resources/**/*", "_sdk/**/*"]
 vs_feature_flags = ["py.typed"]
 vs_github = ["py.typed"]
 vs_issue_board = ["py.typed"]

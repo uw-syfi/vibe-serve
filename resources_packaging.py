@@ -28,11 +28,29 @@ STAGED_TREES: tuple[str, ...] = ("profilers", "skills")
 EXCLUDED_NAMES: frozenset[str] = frozenset({".git", "__pycache__", "repos"})
 
 
+class PackagingError(RuntimeError):
+    """Raised when a required wheel input is absent or incomplete."""
+
+    @classmethod
+    def missing(cls, category: str, paths: list[Path]) -> PackagingError:
+        """Build an error naming missing paths relative to the repository."""
+        formatted = ", ".join(path.as_posix() for path in paths)
+        return cls(f"Missing required {category}: {formatted}")
+
+
 def _ignore(_directory: str, names: list[str]) -> set[str]:
-    return {name for name in names if name in EXCLUDED_NAMES or name.endswith(".pyc")}
+    return {
+        name
+        for name in names
+        if name in EXCLUDED_NAMES or name.endswith((".pyc", ".egg-info"))
+    }
 
 
-def stage_resources(repo_root: Path, dest: Path) -> bool:
+def _copy_tree(source: Path, destination: Path) -> None:
+    shutil.copytree(source, destination, ignore=_ignore)
+
+
+def stage_resources(repo_root: Path, dest: Path, *, required: bool = False) -> bool:
     """Copy the staged resource trees into ``dest``; return whether staged.
 
     Returns ``False`` without side effects when the checkout has no
@@ -41,15 +59,44 @@ def stage_resources(repo_root: Path, dest: Path) -> bool:
     to requiring a checkout, exactly as before staging existed.
     """
     source_root = repo_root / "resources"
+    sources = [(tree, source_root / tree) for tree in STAGED_TREES]
+    missing = [source.relative_to(repo_root) for _tree, source in sources if not source.is_dir()]
+    if required and missing:
+        error = PackagingError.missing("resource trees", missing)
+        raise error
     if not source_root.is_dir():
         return False
     if dest.exists():
         shutil.rmtree(dest)
     staged_any = False
-    for tree in STAGED_TREES:
-        source = source_root / tree
+    for tree, source in sources:
         if not source.is_dir():
             continue
-        shutil.copytree(source, dest / tree, ignore=_ignore)
+        _copy_tree(source, dest / tree)
         staged_any = True
     return staged_any
+
+
+def stage_sdk(repo_root: Path, dest: Path, *, required: bool = False) -> bool:
+    """Stage the installable ``vs-bench`` source project into the wheel."""
+    source = repo_root / "sdk" / "vs-bench"
+    required_files = (source / "pyproject.toml", source / "README.md")
+    required_directories = (source / "src",)
+    missing = [entry.relative_to(repo_root) for entry in required_files if not entry.is_file()]
+    missing.extend(
+        entry.relative_to(repo_root) for entry in required_directories if not entry.is_dir()
+    )
+    if required and missing:
+        error = PackagingError.missing("SDK inputs", missing)
+        raise error
+    if missing:
+        return False
+
+    if dest.exists():
+        shutil.rmtree(dest)
+    destination = dest / "vs-bench"
+    destination.mkdir(parents=True)
+    shutil.copy2(source / "pyproject.toml", destination / "pyproject.toml")
+    shutil.copy2(source / "README.md", destination / "README.md")
+    _copy_tree(source / "src", destination / "src")
+    return True

@@ -15,9 +15,13 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-
-class InputProjectError(ValueError):
-    """Raised when an input project's local dependencies cannot be materialized."""
+from vibesys.sdk_paths import (
+    InputProjectError,
+    SDKRoots,
+    packaged_sdk_root,
+    relative_sdk_source,
+    resolve_sdk_source,
+)
 
 
 @dataclass(frozen=True)
@@ -59,10 +63,17 @@ def materialize_input_project(
     if not pyproject.is_file():
         return []
 
-    sdk_root = (project_root / "sdk").resolve()
-    dependencies = _collect_sdk_dependencies(input_project_dir, sdk_root)
+    checkout_sdk_root = (project_root / "sdk").resolve()
+    roots = SDKRoots(checkout=checkout_sdk_root, packaged=packaged_sdk_root())
+    dependencies = _collect_sdk_dependencies(input_project_dir, roots=roots)
     mapping = {
-        dep_path: workspace / "_input_libs" / dep_path.relative_to(sdk_root)
+        dep_path: workspace
+        / "_input_libs"
+        / relative_sdk_source(
+            dep_path,
+            checkout_sdk_root=roots.checkout,
+            packaged_sdk_root=roots.packaged,
+        )
         for dep_path in dependencies
     }
 
@@ -75,11 +86,14 @@ def materialize_input_project(
                 source_project_dir=source_path,
                 workspace_project_dir=workspace_path,
                 copied_libs=mapping,
+                roots=roots,
             )
         if log:
             log(
                 "[input] copied local input dependency "
-                f"{source_path.relative_to(project_root)} -> {workspace_path.relative_to(workspace)}"
+                "sdk/"
+                f"{relative_sdk_source(source_path, checkout_sdk_root=roots.checkout, packaged_sdk_root=roots.packaged)} "
+                f"-> {workspace_path.relative_to(workspace)}"
             )
 
     workspace_pyproject = workspace / "pyproject.toml"
@@ -89,6 +103,7 @@ def materialize_input_project(
             source_project_dir=input_project_dir,
             workspace_project_dir=workspace,
             copied_libs=mapping,
+            roots=roots,
         )
     )
 
@@ -102,7 +117,11 @@ def materialize_input_project(
     ]
 
 
-def _collect_sdk_dependencies(project_dir: Path, sdk_root: Path) -> set[Path]:
+def _collect_sdk_dependencies(
+    project_dir: Path,
+    *,
+    roots: SDKRoots,
+) -> set[Path]:
     collected: set[Path] = set()
     visiting: set[Path] = set()
 
@@ -113,15 +132,15 @@ def _collect_sdk_dependencies(project_dir: Path, sdk_root: Path) -> set[Path]:
         visiting.add(current)
         try:
             for dep_name, raw_path in _path_sources(current).items():
-                dep_path = (current / raw_path).resolve()
-                if not _is_relative_to(dep_path, sdk_root):
-                    raise InputProjectError(  # noqa: TRY003  # tracked: #288
-                        f"Input dependency {dep_name!r} points outside sdk/: {raw_path}"
+                try:
+                    dep_path = resolve_sdk_source(
+                        current,
+                        raw_path,
+                        checkout_sdk_root=roots.checkout,
+                        packaged_sdk_root=roots.packaged,
                     )
-                if not (dep_path / "pyproject.toml").is_file():
-                    raise InputProjectError(  # noqa: TRY003  # tracked: #288
-                        f"Input dependency {dep_name!r} has no pyproject.toml: {dep_path}"
-                    )
+                except InputProjectError as exc:
+                    raise InputProjectError.dependency(dep_name, exc) from exc
                 if dep_path not in collected:
                     collected.add(dep_path)
                     visit(dep_path)
@@ -151,6 +170,7 @@ def _rewrite_pyproject_in_place(
     source_project_dir: Path,
     workspace_project_dir: Path,
     copied_libs: dict[Path, Path],
+    roots: SDKRoots,
 ) -> None:
     pyproject.write_text(
         _rewrite_pyproject_text(
@@ -158,6 +178,7 @@ def _rewrite_pyproject_in_place(
             source_project_dir=source_project_dir,
             workspace_project_dir=workspace_project_dir,
             copied_libs=copied_libs,
+            roots=roots,
         )
     )
 
@@ -168,10 +189,16 @@ def _rewrite_pyproject_text(
     source_project_dir: Path,
     workspace_project_dir: Path,
     copied_libs: dict[Path, Path],
+    roots: SDKRoots,
 ) -> str:
     replacements: dict[str, tuple[str, str]] = {}
     for source_name, raw_path in _path_sources_from_text(text).items():
-        resolved = (source_project_dir / raw_path).resolve()
+        resolved = resolve_sdk_source(
+            source_project_dir,
+            raw_path,
+            checkout_sdk_root=roots.checkout,
+            packaged_sdk_root=roots.packaged,
+        )
         copied_path = copied_libs.get(resolved)
         if copied_path is None:
             continue
@@ -218,11 +245,3 @@ def _project_name(project_dir: Path) -> str:
     data = tomllib.loads((project_dir / "pyproject.toml").read_text())
     name = data.get("project", {}).get("name")
     return str(name) if name else project_dir.name
-
-
-def _is_relative_to(path: Path, parent: Path) -> bool:
-    try:
-        path.relative_to(parent)
-        return True  # noqa: TRY300  # tracked: #288
-    except ValueError:
-        return False
