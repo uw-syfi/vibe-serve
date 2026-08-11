@@ -51,9 +51,11 @@ Clone this repo, then explicitly initialize the submodule:
 DeathStarBench is tracked as a git submodule at `3rd_party/deathstarbench`. It must be initialised on first clone:
 
 ```bash
-git clone <your-fork-url>
-cd social-network-read-timeline
-git submodule update --init --recursive --checkout
+git clone <your-fork-url> vibesys
+cd vibesys
+git submodule update --init --checkout \
+  examples/microservices/social-network-read-timeline/3rd_party/deathstarbench
+cd examples/microservices/social-network-read-timeline
 ```
 
 To verify if the submodule is properly populated, run the following command: 
