@@ -47,7 +47,7 @@ The reference engines (`repos/{vllm,sglang,TensorRT-LLM}/`) are tracked as
 git submodules — initialize with:
 
 ```bash
-git submodule update --init skills/serving-systems/repos
+git submodule update --init --checkout resources/skills/serving-systems/repos
 ```
 
 `update-repos.sh` is the upstream sparse-checkout helper, kept for parity

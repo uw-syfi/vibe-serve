@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import configparser
 import importlib.util
+import re
 import subprocess
 import tomllib
 import zipfile
@@ -47,6 +48,40 @@ def test_vcs_installs_do_not_initialize_repository_submodules() -> None:
         for section in submodule_sections
         if config.get(section, "update", fallback=None) != "none"
     ] == []
+
+
+def test_tracked_submodule_initialization_commands_override_the_opt_out() -> None:
+    """Adding an ineffective setup command must make the documentation contract fail."""
+    result = subprocess.run(
+        [  # noqa: S607
+            "git",
+            "ls-files",
+            "-z",
+            "--",
+            "*.md",
+            "*.sh",
+            ":(exclude)third_party/**",
+        ],
+        cwd=PROJECT_ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    tracked_files = [Path(path) for path in result.stdout.split("\0") if path]
+
+    ineffective_commands = []
+    for relative_path in tracked_files:
+        for line_number, line in enumerate(
+            (PROJECT_ROOT / relative_path).read_text().splitlines(), start=1
+        ):
+            if (
+                re.search(r"\bgit\s+submodule\s+update\b", line)
+                and "--init" in line
+                and "--checkout" not in line
+            ):
+                ineffective_commands.append(f"{relative_path}:{line_number}")
+
+    assert ineffective_commands == []
 
 
 def _load_packaging_support() -> ModuleType:

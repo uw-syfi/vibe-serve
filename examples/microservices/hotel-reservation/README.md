@@ -13,7 +13,7 @@ default branch is `master`; the pinned revision already matches the latest
 remote `master` at the time this scenario was added.
 
 ```bash
-git submodule update --init \
+git submodule update --init --checkout \
   examples/microservices/social-network-read-timeline/3rd_party/deathstarbench
 examples/microservices/hotel-reservation/scripts/materialize-reference.sh
 ```

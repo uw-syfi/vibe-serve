@@ -19,7 +19,7 @@ git fetch --depth 1 origin 0210024ae796446a121f96d2d31053668ac0fd85
 git checkout -q FETCH_HEAD
 ```
 
-(From the vibesys repo root the equivalent is `git submodule update --init skills/serving-systems/repos/vllm`.)
+(From the vibesys repo root the equivalent is `git submodule update --init --checkout resources/skills/serving-systems/repos/vllm`.)
 
 ## Directory map
 

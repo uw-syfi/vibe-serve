@@ -210,8 +210,8 @@ The `repos/` directory is **excluded** from agent materialization (see `src/vibe
 ## Running the reference repos
 
 ```bash
-git submodule update --init resources/skills/serving-systems/repos       # initialize all
-git submodule update --init resources/skills/serving-systems/repos/vllm  # initialize one
+git submodule update --init --checkout resources/skills/serving-systems/repos       # initialize all
+git submodule update --init --checkout resources/skills/serving-systems/repos/vllm  # initialize one
 git -C resources/skills/serving-systems/repos/vllm pull origin main      # update one
 ```
 

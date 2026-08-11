@@ -18,7 +18,7 @@ git fetch --depth 1 origin 0d2bea7c3c99b734a8e09c4c767820e03136a15b
 git checkout -q FETCH_HEAD
 ```
 
-(From the vibesys repo root the equivalent is `git submodule update --init skills/serving-systems/repos/TensorRT-LLM`.)
+(From the vibesys repo root the equivalent is `git submodule update --init --checkout resources/skills/serving-systems/repos/TensorRT-LLM`.)
 
 ## Runtimes
 

@@ -46,19 +46,14 @@ The following 11 checks are used for this service.
 
 Below are instructions to build and run this system.
 
-Clone this repo with the submodule:
+Clone this repo, then explicitly initialize the submodule:
 
 DeathStarBench is tracked as a git submodule at `3rd_party/deathstarbench`. It must be initialised on first clone:
 
 ```bash
-git clone --recurse-submodules <your-fork-url>
+git clone <your-fork-url>
 cd social-network-read-timeline
-```
-
-If you already cloned without `--recurse-submodules`:
-
-```bash
-git submodule update --init --recursive
+git submodule update --init --recursive --checkout
 ```
 
 To verify if the submodule is properly populated, run the following command: 
