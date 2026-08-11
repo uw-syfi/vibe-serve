@@ -86,6 +86,7 @@ From the root of the project you want to optimize, add these VibeSys files:
 - `vibesys.input.toml` identifies the problem domain and the programs that check
   correctness and benchmark performance.
 - `agent.toml` optionally selects the coding agent, model, and hardware backend.
+  Keep it untracked.
 
 For example:
 
@@ -114,9 +115,10 @@ vibesys --max-rounds 4
 
 The directory must be its Git repository root, or outside Git so VibeSys can
 initialize a repository. An existing repository needs a baseline commit and a
-clean worktree. See [`docs/cli-flags.md`](docs/cli-flags.md) for other coding
-agents, hardware backends, resume behavior, and advanced run modes. Contributor
-setup belongs in [`docs/development.md`](docs/development.md).
+clean worktree. See [Running VibeSys](docs/running-vibesys.md) for isolated
+workspaces, seeded inputs, Docker, Modal, remote repositories, resume, and
+alternate search loops. The [CLI reference](docs/cli-flags.md) documents every
+flag. Contributor setup belongs in [`docs/development.md`](docs/development.md).
 
 ## Citation
 

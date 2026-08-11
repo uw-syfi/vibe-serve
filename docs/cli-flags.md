@@ -4,6 +4,10 @@ This document is the canonical map for VibeSys's CLI flag axes. Update it in
 the same PR whenever a flag, backend, domain, loop, runtime environment, or
 profiler behavior changes.
 
+Start with [Running VibeSys](running-vibesys.md) to choose between an in-place
+project and a materialized experiment. This document is the exhaustive flag
+reference for those workflows.
+
 ## Entry Points
 
 `vibesys` is the single launcher; the same flags below apply no matter how you
@@ -586,9 +590,9 @@ uv run vibesys \
   --input-objective-file ./OBJECTIVE.md \
   --input-domain llm-serving \
   --input-accuracy-command "python checker.py" \
-  --input-benchmark-command "python benchmark.py --result-json out.json" \
+  --input-benchmark-command "python benchmark.py" \
   --input-benchmark-metric requests_per_second \
-  --input-benchmark-result-arg --result-json \
+  --input-benchmark-result-arg=--result-json \
   --input-evaluator-dir ./evaluator \
   --local
 ```
