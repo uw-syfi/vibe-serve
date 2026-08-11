@@ -86,8 +86,7 @@ From the root of the project you want to optimize, add two VibeSys files:
 - `vibesys.input.toml` identifies the problem domain and the programs that check
   correctness and benchmark performance.
 
-These files do not prescribe a layout for the rest of the project. See
-[`examples/`](examples/) for complete objectives and manifests across data
+See [`examples/`](examples/) for complete objectives and manifests across data
 structures, model serving, and microservices.
 
 Run from the project root:
