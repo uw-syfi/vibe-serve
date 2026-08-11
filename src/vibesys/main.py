@@ -120,6 +120,12 @@ def _parse_profiler_kind(value: str) -> ProfilerKind:
         raise argparse.ArgumentTypeError(str(exc)) from exc
 
 
+def _parse_runs_dir(value: str) -> Path:
+    if not value.strip():
+        raise argparse.ArgumentTypeError("must not be empty")  # noqa: TRY003  # tracked: #288
+    return Path(value)
+
+
 # ---------------------------------------------------------------------------
 # Loop selection from argv
 # ---------------------------------------------------------------------------
@@ -340,7 +346,7 @@ def _add_common_args(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument(
         "--runs-dir",
-        type=Path,
+        type=_parse_runs_dir,
         default=None,
         metavar="PATH",
         help="Directory that owns run directories, synthesized inputs, and shared caches.",
@@ -914,7 +920,7 @@ def _build_tui_defaults_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--config", type=Path, default=PROJECT_ROOT / "agent.toml")
     parser.add_argument("--input", type=Path, default=None)
-    parser.add_argument("--runs-dir", type=Path, default=None)
+    parser.add_argument("--runs-dir", type=_parse_runs_dir, default=None)
     parser.add_argument("--exp-name", default=None)
     parser.add_argument("--theme", type=TuiTheme, choices=list(TuiTheme), default=None)
     parser.add_argument("--stub-agent", action="store_true")

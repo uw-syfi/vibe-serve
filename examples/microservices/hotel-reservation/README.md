@@ -94,6 +94,7 @@ between runs to keep the raw capture small.
 ```bash
 ./vs --outer-loop agent \
   --input examples/microservices/hotel-reservation \
+  --runs-dir "$PWD/exp_env" \
   --exp-name hotel-reservation-opt \
   --backend cpu --interface service \
   --agent-backend cli --cli-provider codex \

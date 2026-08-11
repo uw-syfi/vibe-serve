@@ -19,6 +19,7 @@ Start an optimization run with:
 ```bash
 ./vs \
   --input examples/model-serving/qwen3-coder-tracelab-h100 \
+  --runs-dir "$PWD/exp_env" \
   --exp-name qwen3-coder-tracelab-h100 \
   --modal \
   --modal-gpu H100 \

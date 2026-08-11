@@ -175,6 +175,16 @@ def test_run_invocation_requires_runs_dir() -> None:
     assert "--runs-dir PATH is required" in exc.value.diagnostic.message
 
 
+@pytest.mark.parametrize("value", ["", " \t "])
+def test_run_parser_rejects_an_empty_runs_directory(value: str) -> None:
+    with pytest.raises(ConfigurationError) as exc:
+        parse_cli_invocation([f"--runs-dir={value}", *TARGET_INPUT_ARGS])
+
+    assert exc.value.diagnostic.code == "invalid_arguments"
+    assert exc.value.diagnostic.stage == "argument_parsing"
+    assert "--runs-dir" in exc.value.diagnostic.message
+
+
 def test_runs_dir_is_normalized_to_an_absolute_collection_path(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -975,6 +985,18 @@ def test_tui_defaults_resolves_an_explicit_runs_directory(
     assert json.loads(capsys.readouterr().out)["runs_dir"] == str(
         (tmp_path / "selected-runs").resolve()
     )
+
+
+@pytest.mark.parametrize("value", ["", " \t "])
+def test_tui_defaults_parser_rejects_an_empty_runs_directory(value: str) -> None:
+    import vibesys.main as cli  # noqa: PLC0415  # tracked: #288
+
+    with pytest.raises(ConfigurationError) as exc:
+        cli._build_tui_defaults_parser().parse_args([f"--runs-dir={value}"])  # noqa: SLF001  # tracked: #288
+
+    assert exc.value.diagnostic.code == "invalid_arguments"
+    assert exc.value.diagnostic.stage == "argument_parsing"
+    assert "--runs-dir" in exc.value.diagnostic.message
 
 
 def test_tui_defaults_supports_configless_stub_directory_selection(

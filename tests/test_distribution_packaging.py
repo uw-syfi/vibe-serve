@@ -5,6 +5,7 @@ from __future__ import annotations
 import configparser
 import importlib.util
 import re
+import shlex
 import subprocess
 import tomllib
 import zipfile
@@ -32,6 +33,21 @@ INTERNAL_IMPORT_PACKAGES = {
     "vs_loop_state",
     "vs_sandbox",
 }
+
+
+def test_headless_readme_examples_select_a_run_collection() -> None:
+    """Removing the explicit collection from a headless example must fail here."""
+    readmes = [
+        PROJECT_ROOT / "examples/microservices/hotel-reservation/README.md",
+        PROJECT_ROOT / "examples/model-serving/qwen3-coder-tracelab-h100/README.md",
+    ]
+
+    for readme in readmes:
+        blocks = re.findall(r"```bash\n(.*?)```", readme.read_text(), flags=re.DOTALL)
+        headless_block = next(block for block in blocks if "--headless" in block)
+        arguments = shlex.split(headless_block.replace("\\\n", " "))
+        runs_index = arguments.index("--runs-dir")
+        assert arguments[runs_index + 1] == "$PWD/exp_env", readme
 
 
 def test_vcs_installs_do_not_initialize_repository_submodules() -> None:
