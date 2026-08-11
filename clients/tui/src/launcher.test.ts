@@ -180,6 +180,8 @@ process.exit(
     tempDir = await mkdtemp(join(tmpdir(), 'vs-launcher-test-'));
     const backendTerminated = join(tempDir, 'backend-terminated');
     const backendArgs = join(tempDir, 'backend-args.json');
+    const defaultsCwd = join(tempDir, 'defaults-cwd');
+    const backendCwd = join(tempDir, 'backend-cwd');
     const backend = await writeExecutable(
       'setup-backend.mjs',
       `
@@ -187,6 +189,7 @@ import {writeFileSync} from 'node:fs';
 import {createServer} from 'node:net';
 
 if (process.argv.includes('tui-defaults')) {
+  writeFileSync(${JSON.stringify(defaultsCwd)}, process.cwd());
   console.log(JSON.stringify({
     runs_dir: '/repo/exp_env',
     input_path: '/repo/examples/queue-spsc',
@@ -198,6 +201,7 @@ if (process.argv.includes('tui-defaults')) {
   }));
   process.exit(0);
 }
+writeFileSync(${JSON.stringify(backendCwd)}, process.cwd());
 writeFileSync(process.env.VIBESYS_FAKE_BACKEND_ARGS_FILE, JSON.stringify(process.argv.slice(2)));
 const socketPath = process.argv[process.argv.indexOf('--control-socket') + 1];
 const server = createServer(socket => {
@@ -255,6 +259,7 @@ process.exit(0);
     const frontendTheme = join(tempDir, 'frontend-theme');
     process.env['VIBESYS_FAKE_SETUP_THEME_FILE'] = setupTheme;
     process.env['VIBESYS_FAKE_FRONTEND_THEME_FILE'] = frontendTheme;
+    process.chdir(tempDir);
 
     await expect(launch(['--input', 'examples/queue-spsc'])).resolves.toBe(0);
     const args = JSON.parse(await readFile(backendArgs, 'utf8')) as string[];
@@ -262,6 +267,8 @@ process.exit(0);
     expect(args[args.indexOf('--runs-dir') + 1]).toBe('/repo/exp_env');
     expect(args).toContain('vibesys-playground/queue-spsc-generated');
     expect(args).toContain('queue-spsc-generated');
+    expect(await readFile(defaultsCwd, 'utf8')).toBe(tempDir);
+    expect(await readFile(backendCwd, 'utf8')).toBe(tempDir);
     expect(await readFile(setupTheme, 'utf8')).toBe('solarized-dark');
     expect(await readFile(frontendTheme, 'utf8')).toBe('solarized-dark');
     await access(backendTerminated);

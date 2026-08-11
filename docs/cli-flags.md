@@ -18,6 +18,17 @@ start it:
 Examples in this document use `uv run vibesys`; drop the `uv run` prefix when the
 `vibesys` command is installed (add `--headless` to skip the TUI).
 
+### Agent configuration
+
+`--config PATH` selects an explicit `agent.toml`. When the flag is omitted,
+VibeSys loads exactly `agent.toml` from the process launch working directory. It
+does not search parent directories, and a missing file is an error. The
+internal `--stub-agent` smoke mode is the only configless exception.
+
+`./vs` changes to the source checkout root before launching, so its implicit
+config is the checkout's `agent.toml`. The installed `vibesys` command preserves
+the caller's working directory.
+
 ## Mental Model
 
 Several flags look independent, but they combine into one execution contract:

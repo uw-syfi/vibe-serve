@@ -74,7 +74,6 @@ _MODALITIES = (
 
 _STUB_AGENT_DEFAULT_INPUT = PROJECT_ROOT / "examples" / "data-structures" / "queue-spsc"
 _STUB_AGENT_DEFAULT_CONFIG_TEXT = '[model]\nname = "gpt-5.5"\n'
-_INSTALLED_DEFAULT_CONFIG_TEXT = '[model]\nname = "gpt-5.4"\n'
 
 
 class _RunArgumentParser(argparse.ArgumentParser):
@@ -364,8 +363,8 @@ def _add_common_args(parser: argparse.ArgumentParser) -> None:
         type=Path,
         default=None,
         help=(
-            "Path to agent TOML config file. When omitted, use the repository agent.toml "
-            "if present, otherwise use installed defaults."
+            "Path to agent TOML config file (default: agent.toml in the launch working "
+            "directory; a missing file is an error)."
         ),
     )
     parser.add_argument(
@@ -559,7 +558,7 @@ def load_config_and_skills(
 ) -> tuple[Config, list[str] | None, ComputeBackend]:
     """Load config, resolve the backend, and select compatible skills."""
     try:
-        config = _load_config_or_installed_default(
+        config = _load_config_or_stub_default(
             args.config,
             stub_agent=getattr(args, "stub_agent", False),
         )
@@ -626,20 +625,20 @@ def _suggest_repository_owner(config: Config) -> str | None:
         return None
 
 
-def _load_config_or_installed_default(
+def _load_config_or_stub_default(
     config_path: Path | None,
     *,
     stub_agent: bool,
 ) -> Config:
-    """Load an explicit config or use safe defaults when the implicit config is absent."""
+    """Load an explicit or launch-directory config, with a stub-only fallback."""
     if config_path is not None:
         return load_config(config_path)
-    selected_path = PROJECT_ROOT / "agent.toml"
+    selected_path = Path.cwd() / "agent.toml"
     if selected_path.is_file():
         return load_config(selected_path)
     if stub_agent:
         return Config.model_validate(tomllib.loads(_STUB_AGENT_DEFAULT_CONFIG_TEXT))
-    return Config.model_validate(tomllib.loads(_INSTALLED_DEFAULT_CONFIG_TEXT))
+    return load_config(selected_path)
 
 
 def _prepare_experiment_repository(args: argparse.Namespace, config: Config) -> None:
@@ -961,7 +960,7 @@ def _build_tui_defaults_parser() -> argparse.ArgumentParser:
 def _run_tui_defaults(argv: list[str]) -> None:
     args = _build_tui_defaults_parser().parse_args(argv)
     try:
-        config = _load_config_or_installed_default(args.config, stub_agent=args.stub_agent)
+        config = _load_config_or_stub_default(args.config, stub_agent=args.stub_agent)
     except (ValueError, FileNotFoundError) as exc:
         _configuration_error(str(exc), code="config_load_failed", stage="config_loading")
 
@@ -1138,7 +1137,10 @@ def _build_agent_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--stub-agent",
         action="store_true",
-        help="Use deterministic local agent responses for fast TUI smoke tests.",
+        help=(
+            "Use deterministic local agent responses for fast TUI smoke tests. This mode "
+            "may run without agent.toml."
+        ),
     )
     parser.add_argument("--start-round", type=int, default=None, metavar="N")
     parser.add_argument(

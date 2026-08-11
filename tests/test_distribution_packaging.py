@@ -172,6 +172,7 @@ def test_built_distribution_caps_dependencies_without_current_intel_macos_wheels
     )
     wheel = next(tmp_path.glob("vibesys-*.whl"))
     with zipfile.ZipFile(wheel) as archive:
+        assert not any(Path(name).name == "agent.toml" for name in archive.namelist())
         metadata_path = next(
             name for name in archive.namelist() if name.endswith(".dist-info/METADATA")
         )

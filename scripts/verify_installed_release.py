@@ -17,7 +17,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
-from typing import Never
+from typing import Never, cast
 
 from vibesys.cli import bundled_tui
 from vibesys.input_project import materialize_input_project
@@ -139,22 +139,63 @@ def verify_console_entry_point() -> None:
 
 
 def verify_first_launch_defaults() -> None:
-    """Require configless setup defaults to work without an authenticated GitHub CLI."""
-    output = _run_capture([sys.executable, "-m", "vibesys", "tui-defaults"], timeout=30)
+    """Require a user-owned launch-directory config and no bundled default config."""
+    distribution_files = importlib.metadata.distribution("vibesys").files or ()
+    if any(Path(str(path)).name == "agent.toml" for path in distribution_files):
+        _fail("Installed VibeSys distribution unexpectedly contains agent.toml")
+    executable = shutil.which("vibesys")
+    if executable is None:
+        _fail("Installed vibesys console script is absent from PATH")
+    config_path = _RUNTIME_ROOT / "agent.toml"
+    if config_path.exists():
+        _fail(f"Installed first launch unexpectedly contains a config file: {config_path}")
+    config_path.write_text(
+        """\
+[model]
+name = "gpt-5.4"
+
+[repository]
+visibility = "public"
+
+[tui]
+theme = "solarized-light"
+"""
+    )
     try:
-        defaults = json.loads(output)
-    except json.JSONDecodeError as exc:
-        raise InstalledReleaseError.invalid_first_launch_defaults() from exc
-    if not isinstance(defaults, dict):
-        _fail("Installed first-launch defaults must be a JSON object")
+        output = _run_capture(
+            [executable, "tui-defaults"],
+            timeout=30,
+        )
+    finally:
+        config_path.unlink()
+    defaults = _parse_first_launch_defaults(output, source="launch-directory")
     runs_dir = defaults.get("runs_dir")
     expected_runs_dir = (_RUNTIME_ROOT / "exp_env").resolve()
     if not isinstance(runs_dir, str) or Path(runs_dir).resolve() != expected_runs_dir:
         _fail(f"Installed first-launch runs directory is invalid: {runs_dir!r}")
     if defaults.get("input_path") != "":
         _fail(f"Installed first-launch input path must be empty: {defaults.get('input_path')!r}")
-    if "repository_owner" not in defaults or defaults["repository_owner"] is not None:
-        _fail("Installed first launch unexpectedly requires an authenticated GitHub account")
+    expected_defaults = {
+        "repository_owner": None,
+        "visibility": "public",
+        "theme": "solarized-light",
+    }
+    for key, expected in expected_defaults.items():
+        if defaults.get(key) != expected:
+            _fail(
+                f"Installed first launch ignored agent.toml from its working directory: "
+                f"{key}={defaults.get(key)!r}"
+            )
+
+
+def _parse_first_launch_defaults(output: str, *, source: str) -> dict[str, object]:
+    try:
+        defaults: object = json.loads(output)
+    except json.JSONDecodeError as exc:
+        raise InstalledReleaseError.invalid_first_launch_defaults() from exc
+    if not isinstance(defaults, dict):
+        _fail(f"Installed {source} defaults must be a JSON object")
+    return cast("dict[str, object]", defaults)
 
 
 def _verify_resources() -> None:

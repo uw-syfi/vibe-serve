@@ -145,8 +145,11 @@ The wheel does not bundle external coding-agent CLIs or their credentials.
 Install the selected Codex, Claude Code, Gemini, or OpenCode CLI separately and
 complete its login flow. For API-backed agents, export the provider credentials
 (for example, `OPENAI_API_KEY`) or load them through your own configuration.
-Pass `--config /path/to/agent.toml` for an installed-only configuration, and
-add `--local` to skip GitHub sync when `gh` is not installed.
+The wheel does not include `agent.toml`. When `--config` is omitted, VibeSys
+loads exactly `./agent.toml` from the working directory where it was launched
+and reports an error if that file is absent. Pass
+`--config /path/to/agent.toml` to override that path. Add `--local` to skip
+GitHub sync when `gh` is not installed.
 
 ## Quickstart
 

@@ -44,14 +44,19 @@ def test_console_entry_points_run_installed_commands_with_help(
     assert mcp_marker.read_text().splitlines() == ["--help"]
 
 
-def test_first_launch_defaults_are_configless_and_local_capable(
+def test_first_launch_defaults_use_user_owned_launch_directory_configuration(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     observed: list[tuple[list[str], int]] = []
+    executable = tmp_path / "bin" / "vibesys"
 
     def run_capture(command: list[str], *, timeout: int) -> str:
         observed.append((command, timeout))
+        config_path = tmp_path / "agent.toml"
+        config_text = config_path.read_text()
+        assert 'visibility = "public"' in config_text
+        assert "owner" not in config_text
         return json.dumps(
             {
                 "runs_dir": str(tmp_path / "exp_env"),
@@ -59,17 +64,23 @@ def test_first_launch_defaults_are_configless_and_local_capable(
                 "experiment_name": "experiment-20260811-120000",
                 "repository_owner": None,
                 "repository_name": "experiment-20260811-120000",
-                "visibility": "private",
-                "theme": "dark",
+                "visibility": "public",
+                "theme": "solarized-light",
             }
         )
 
     monkeypatch.setattr(verifier, "_RUNTIME_ROOT", tmp_path)
     monkeypatch.setattr(verifier, "_run_capture", run_capture)
+    monkeypatch.setattr(
+        verifier.shutil,
+        "which",
+        lambda name: str(executable) if name == "vibesys" else None,
+    )
 
     verifier.verify_first_launch_defaults()
 
-    assert observed == [([sys.executable, "-m", "vibesys", "tui-defaults"], 30)]
+    assert observed == [([str(executable), "tui-defaults"], 30)]
+    assert not (tmp_path / "agent.toml").exists()
 
 
 def test_sdk_sync_uses_the_running_isolated_interpreter(tmp_path: Path) -> None:
