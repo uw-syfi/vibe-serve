@@ -29,6 +29,7 @@ class InteractiveSetupDefaults(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    runs_dir: str
     input_path: str
     experiment_name: str
     repository_owner: str | None

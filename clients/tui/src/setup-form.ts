@@ -1,5 +1,5 @@
 import {BoxRenderable, type CliRenderer, InputRenderable, TextRenderable} from '@opentui/core';
-import type {SetupDefaults, SetupSelection} from './setup-model.js';
+import type {SetupDefaults, SetupFields, SetupSelection} from './setup-model.js';
 import {validateSetupSelection} from './setup-model.js';
 import type {Theme} from './ui/theme.js';
 
@@ -17,6 +17,7 @@ export interface SetupForm {
 export function createSetupForm(
   renderer: CliRenderer,
   defaults: SetupDefaults,
+  fields: SetupFields,
   theme: Theme,
 ): SetupForm {
   const root = new BoxRenderable(renderer, {
@@ -31,36 +32,54 @@ export function createSetupForm(
   });
   const title = new TextRenderable(renderer, {
     id: 'setup-title',
-    height: 2,
+    height: 1,
     fg: theme.accent,
-    content: 'VibeSys · New experiment',
+    content: fields.experiment ? 'VibeSys · New experiment' : 'VibeSys · Runs directory',
   });
   const instructions = new TextRenderable(renderer, {
     id: 'setup-instructions',
-    height: 2,
+    height: 1,
     fg: theme.textMuted,
-    content: 'Tab / Shift-Tab: move · Enter: launch · Esc: cancel · Clear owner for local-only',
+    content: fields.experiment
+      ? 'Tab / Shift-Tab: move · Enter: launch · Esc: cancel · Clear owner for local-only'
+      : 'Enter: launch · Esc: cancel',
   });
   const error = new TextRenderable(renderer, {
     id: 'setup-error',
-    height: 2,
+    height: 1,
     fg: theme.error,
     content: '',
   });
 
-  const entries = [
-    createField(renderer, 'Input bundle', defaults.input_path, 'examples/<input>', theme),
-    createField(renderer, 'Experiment name', defaults.experiment_name, 'experiment name', theme),
-    createField(
-      renderer,
+  type FieldName =
+    | 'runsDirectory'
+    | 'inputPath'
+    | 'experimentName'
+    | 'repositoryOwner'
+    | 'repositoryName'
+    | 'visibility';
+  const entries: Array<{box: BoxRenderable; input: InputRenderable}> = [];
+  const inputs: Partial<Record<FieldName, InputRenderable>> = {};
+  const addField = (name: FieldName, label: string, value: string, placeholder: string): void => {
+    const entry = createField(renderer, label, value, placeholder, theme);
+    entries.push(entry);
+    inputs[name] = entry.input;
+  };
+  if (fields.runsDirectory) {
+    addField('runsDirectory', 'Runs directory', defaults.runs_dir, 'runs directory');
+  }
+  if (fields.experiment) {
+    addField('inputPath', 'Input bundle', defaults.input_path, 'examples/<input>');
+    addField('experimentName', 'Experiment name', defaults.experiment_name, 'experiment name');
+    addField(
+      'repositoryOwner',
       'Repository owner',
       defaults.repository_owner ?? '',
       'local-only if empty',
-      theme,
-    ),
-    createField(renderer, 'Repository name', defaults.repository_name, 'repository name', theme),
-    createField(renderer, 'Visibility', defaults.visibility, 'private | public | internal', theme),
-  ];
+    );
+    addField('repositoryName', 'Repository name', defaults.repository_name, 'repository name');
+    addField('visibility', 'Visibility', defaults.visibility, 'private | public | internal');
+  }
   root.add(title);
   root.add(instructions);
   for (const entry of entries) root.add(entry.box);
@@ -71,13 +90,19 @@ export function createSetupForm(
   let focused = 0;
   entries[focused]?.input.focus();
 
-  const readSelection = (): SetupSelection => ({
-    inputPath: entries[0]?.input.value ?? '',
-    experimentName: entries[1]?.input.value ?? '',
-    repositoryOwner: entries[2]?.input.value ?? '',
-    repositoryName: entries[3]?.input.value ?? '',
-    visibility: entries[4]?.input.value ?? '',
-  });
+  const readSelection = (): SetupSelection => {
+    const runsDirectory = inputs.runsDirectory?.value ?? defaults.runs_dir;
+    if (!fields.experiment) return {kind: 'runs-directory', runsDirectory};
+    return {
+      kind: 'experiment',
+      runsDirectory,
+      inputPath: inputs.inputPath?.value ?? '',
+      experimentName: inputs.experimentName?.value ?? '',
+      repositoryOwner: inputs.repositoryOwner?.value ?? '',
+      repositoryName: inputs.repositoryName?.value ?? '',
+      visibility: inputs.visibility?.value ?? '',
+    };
+  };
   const moveFocus = (offset: number): void => {
     entries[focused]?.input.blur();
     focused = (focused + offset + entries.length) % entries.length;

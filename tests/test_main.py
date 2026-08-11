@@ -910,7 +910,11 @@ def test_missing_config_reports_configuration_error(tmp_path):  # noqa: ANN001, 
 # ---------------------------------------------------------------------------
 
 
-def test_tui_defaults_uses_repository_config_and_generated_name(tmp_path, capsys):  # noqa: ANN001, ANN201  # tracked: #288
+def test_tui_defaults_uses_repository_config_and_generated_name(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     import json  # noqa: PLC0415  # tracked: #288
 
     config_path = tmp_path / "agent.toml"
@@ -926,6 +930,7 @@ visibility = "private"
     )
     input_path = tmp_path / "Queue MPSC"
     input_path.mkdir()
+    monkeypatch.chdir(tmp_path)
     argv = [
         "vibesys",
         "tui-defaults",
@@ -944,6 +949,57 @@ visibility = "private"
     assert defaults["experiment_name"].startswith("queue-mpsc-")
     assert defaults["repository_name"] == defaults["experiment_name"]
     assert defaults["theme"] == "dark"
+    assert defaults["runs_dir"] == str((tmp_path / "exp_env").resolve())
+
+
+def test_tui_defaults_resolves_an_explicit_runs_directory(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import json  # noqa: PLC0415  # tracked: #288
+
+    monkeypatch.chdir(tmp_path)
+    argv = [
+        "vibesys",
+        "tui-defaults",
+        "--config",
+        str(_write_theme_config(tmp_path, None)),
+        "--runs-dir",
+        "selected-runs",
+    ]
+
+    with patch.object(sys, "argv", argv):
+        main()
+
+    assert json.loads(capsys.readouterr().out)["runs_dir"] == str(
+        (tmp_path / "selected-runs").resolve()
+    )
+
+
+def test_tui_defaults_supports_configless_stub_directory_selection(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import json  # noqa: PLC0415  # tracked: #288
+
+    monkeypatch.chdir(tmp_path)
+    argv = [
+        "vibesys",
+        "tui-defaults",
+        "--config",
+        str(tmp_path / "missing.toml"),
+        "--stub-agent",
+        "--directory-only",
+    ]
+
+    with patch.object(sys, "argv", argv):
+        main()
+
+    defaults = json.loads(capsys.readouterr().out)
+    assert defaults["runs_dir"] == str((tmp_path / "exp_env").resolve())
+    assert defaults["repository_owner"] is None
 
 
 def _write_theme_config(tmp_path, theme: str | None) -> Path:  # noqa: ANN001  # tracked: #288

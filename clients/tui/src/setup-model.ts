@@ -5,6 +5,7 @@ export const REPOSITORY_VISIBILITIES = ['private', 'public', 'internal'] as cons
 export type RepositoryVisibility = (typeof REPOSITORY_VISIBILITIES)[number];
 
 export interface SetupDefaults {
+  runs_dir: string;
   input_path: string;
   experiment_name: string;
   repository_owner: string | null;
@@ -13,7 +14,14 @@ export interface SetupDefaults {
   theme: ThemeName;
 }
 
-export interface SetupSelection {
+export interface SetupFields {
+  experiment: boolean;
+  runsDirectory: boolean;
+}
+
+export interface ExperimentSetupSelection {
+  kind: 'experiment';
+  runsDirectory: string;
   inputPath: string;
   experimentName: string;
   repositoryOwner: string;
@@ -21,11 +29,19 @@ export interface SetupSelection {
   visibility: string;
 }
 
+export interface RunsDirectorySetupSelection {
+  kind: 'runs-directory';
+  runsDirectory: string;
+}
+
+export type SetupSelection = ExperimentSetupSelection | RunsDirectorySetupSelection;
+
 const REPOSITORY_COMPONENT = /^[A-Za-z0-9_.-]+$/;
 
 export function parseSetupDefaults(text: string): SetupDefaults {
   const value = JSON.parse(text) as Partial<SetupDefaults>;
   if (
+    typeof value.runs_dir !== 'string' ||
     typeof value.input_path !== 'string' ||
     typeof value.experiment_name !== 'string' ||
     (value.repository_owner !== null && typeof value.repository_owner !== 'string') ||
@@ -39,6 +55,8 @@ export function parseSetupDefaults(text: string): SetupDefaults {
 }
 
 export function validateSetupSelection(selection: SetupSelection): string | undefined {
+  if (selection.runsDirectory.trim().length === 0) return 'Runs directory is required.';
+  if (selection.kind === 'runs-directory') return undefined;
   if (selection.inputPath.trim().length === 0) return 'Input bundle is required.';
   if (selection.experimentName.trim().length === 0) return 'Experiment name is required.';
 
@@ -57,13 +75,19 @@ export function validateSetupSelection(selection: SetupSelection): string | unde
 }
 
 export function applySetupSelection(argv: string[], selection: SetupSelection): string[] {
-  const result = withoutOptions(argv, [
-    '--input',
-    '--exp-name',
-    '--repo',
-    '--repo-visibility',
-    '--local',
-  ]);
+  const withoutRunsDirectory = withoutOptions(argv, ['--runs-dir']);
+  const result =
+    selection.kind === 'experiment'
+      ? withoutOptions(withoutRunsDirectory, [
+          '--input',
+          '--exp-name',
+          '--repo',
+          '--repo-visibility',
+          '--local',
+        ])
+      : withoutRunsDirectory;
+  result.push('--runs-dir', selection.runsDirectory.trim());
+  if (selection.kind === 'runs-directory') return result;
   result.push('--input', selection.inputPath.trim());
   result.push('--exp-name', selection.experimentName.trim());
 
@@ -77,17 +101,19 @@ export function applySetupSelection(argv: string[], selection: SetupSelection): 
   return result;
 }
 
-export function shouldOfferInteractiveSetup(argv: string[]): boolean {
-  return !argv.some(
-    argument =>
-      argument === '--resume' ||
-      argument.startsWith('--resume=') ||
-      argument === '--repo' ||
-      argument.startsWith('--repo=') ||
-      argument === '--local' ||
-      argument === '--stub-agent' ||
-      argument === '--headless',
+export function setupFieldsFor(argv: string[]): SetupFields | undefined {
+  if (hasOption(argv, '--headless')) return undefined;
+
+  const runsDirectory = !hasOption(argv, '--runs-dir');
+  const experiment = !['--resume', '--repo', '--local', '--stub-agent'].some(option =>
+    hasOption(argv, option),
   );
+  if (!experiment && !runsDirectory) return undefined;
+  return {experiment, runsDirectory};
+}
+
+function hasOption(argv: string[], option: string): boolean {
+  return argv.some(argument => argument === option || argument.startsWith(`${option}=`));
 }
 
 function withoutOptions(argv: string[], options: string[]): string[] {

@@ -94,7 +94,7 @@ process.exit(0);
     process.env['VIBESYS_TUI_ENTRYPOINT'] = frontend;
     process.env['VIBESYS_FAKE_BACKEND_TERM_FILE'] = backendTerminated;
 
-    await expect(launch(['--stub-agent'])).resolves.toBe(0);
+    await expect(launch(['--stub-agent', '--runs-dir', '/tmp/vibesys-test-runs'])).resolves.toBe(0);
     await access(backendTerminated);
   });
 
@@ -148,11 +148,11 @@ process.exit(0);
 
     delete process.env['VIBESYS_RELEASE_SMOKE_MARKER'];
     process.env['VIBESYS_FAKE_BACKEND_TERM_FILE'] = join(tempDir, 'normal-backend-terminated');
-    await expect(launch(['--stub-agent'])).resolves.toBe(2);
+    await expect(launch(['--stub-agent', '--runs-dir', '/tmp/vibesys-test-runs'])).resolves.toBe(2);
 
     process.env['VIBESYS_RELEASE_SMOKE_MARKER'] = smokeMarker;
     process.env['VIBESYS_FAKE_BACKEND_TERM_FILE'] = backendTerminated;
-    await expect(launch(['--stub-agent'])).resolves.toBe(0);
+    await expect(launch(['--stub-agent', '--runs-dir', '/tmp/vibesys-test-runs'])).resolves.toBe(0);
     expect(await readFile(smokeMarker, 'utf8')).toBe('started');
     expect(await readFile(backendTerminated, 'utf8')).toBe('terminated');
   });
@@ -186,6 +186,7 @@ import {createServer} from 'node:net';
 
 if (process.argv.includes('tui-defaults')) {
   console.log(JSON.stringify({
+    runs_dir: '/repo/exp_env',
     input_path: '/repo/examples/queue-spsc',
     experiment_name: 'queue-spsc-generated',
     repository_owner: 'vibesys-playground',
@@ -223,6 +224,8 @@ import {writeFileSync} from 'node:fs';
 const defaults = JSON.parse(process.env.VIBESYS_SETUP_DEFAULTS);
 writeFileSync(process.env.VIBESYS_FAKE_SETUP_THEME_FILE, process.env.VIBESYS_THEME ?? '');
 writeFileSync(process.env.VIBESYS_SETUP_RESULT, JSON.stringify({
+  kind: 'experiment',
+  runsDirectory: defaults.runs_dir,
   inputPath: defaults.input_path,
   experimentName: defaults.experiment_name,
   repositoryOwner: defaults.repository_owner,
@@ -253,6 +256,8 @@ process.exit(0);
 
     await expect(launch(['--input', 'examples/queue-spsc'])).resolves.toBe(0);
     const args = JSON.parse(await readFile(backendArgs, 'utf8')) as string[];
+    expect(args.filter(argument => argument === '--runs-dir')).toHaveLength(1);
+    expect(args[args.indexOf('--runs-dir') + 1]).toBe('/repo/exp_env');
     expect(args).toContain('vibesys-playground/queue-spsc-generated');
     expect(args).toContain('queue-spsc-generated');
     expect(await readFile(setupTheme, 'utf8')).toBe('solarized-dark');

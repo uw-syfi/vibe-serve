@@ -914,22 +914,30 @@ def _build_tui_defaults_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--config", type=Path, default=PROJECT_ROOT / "agent.toml")
     parser.add_argument("--input", type=Path, default=None)
+    parser.add_argument("--runs-dir", type=Path, default=None)
     parser.add_argument("--exp-name", default=None)
     parser.add_argument("--theme", type=TuiTheme, choices=list(TuiTheme), default=None)
+    parser.add_argument("--stub-agent", action="store_true")
+    parser.add_argument("--directory-only", action="store_true")
     return parser
 
 
 def _run_tui_defaults(argv: list[str]) -> None:
     args = _build_tui_defaults_parser().parse_args(argv)
-    try:
-        config = load_config(args.config)
-    except (ValueError, FileNotFoundError) as exc:
-        _configuration_error(str(exc), code="config_load_failed", stage="config_loading")
+    if args.stub_agent and not args.config.is_file():
+        config = Config.model_validate(tomllib.loads(_STUB_AGENT_DEFAULT_CONFIG_TEXT))
+    else:
+        try:
+            config = load_config(args.config)
+        except (ValueError, FileNotFoundError) as exc:
+            _configuration_error(str(exc), code="config_load_failed", stage="config_loading")
 
     input_path = args.input.expanduser().resolve() if args.input is not None else None
+    runs_dir = (args.runs_dir or Path.cwd() / "exp_env").expanduser().resolve()
     experiment_name = args.exp_name or generate_experiment_name(input_path)
-    repository_owner = _resolve_repository_owner(config)
+    repository_owner = None if args.directory_only else _resolve_repository_owner(config)
     defaults = InteractiveSetupDefaults(
+        runs_dir=str(runs_dir),
         input_path=str(input_path) if input_path is not None else "",
         experiment_name=experiment_name,
         repository_owner=repository_owner,
