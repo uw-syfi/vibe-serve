@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -14,6 +15,9 @@ from vibesys.input_synthesis import (
     SynthesizedInputSpec,
     synthesize_input_bundle,
 )
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 _BASE_SPEC = SynthesizedInputSpec(
     objective="Serve the model quickly.",
@@ -163,6 +167,47 @@ def test_standalone_flags_synthesize_bundle(tmp_path, monkeypatch):  # noqa: ANN
     assert args.input == tmp_path / "selected-runs" / "_inputs" / args.exp_name
     assert args.input_bundle.domain == DomainName.LLM_SERVING
     assert args.input_bundle.accuracy_command == ("python", "checker.py")
+
+
+@pytest.mark.parametrize(
+    "unsafe_name",
+    ["/absolute", "nested/name", ".", ".."],
+)
+def test_standalone_flags_reject_unsafe_fresh_experiment_name(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    unsafe_name: str,
+) -> None:
+    import vibesys.main as cli  # noqa: PLC0415  # tracked: #288
+
+    monkeypatch.setattr(cli.sys, "prefix", str(tmp_path / ".venv"))
+    runs_dir = tmp_path / "selected-runs"
+    exp_name = str(tmp_path / "outside") if unsafe_name == "/absolute" else unsafe_name
+
+    with pytest.raises(ConfigurationError) as exc:
+        cli.parse_cli_invocation(
+            [
+                "--outer-loop",
+                "agent",
+                "--runs-dir",
+                str(runs_dir),
+                "--exp-name",
+                exp_name,
+                "--input-objective",
+                "Serve fast.",
+                "--input-domain",
+                "llm-serving",
+                "--input-accuracy-command",
+                "python checker.py",
+                "--input-benchmark-command",
+                "python benchmark.py",
+                "--no-skills",
+            ]
+        )
+
+    assert exc.value.diagnostic.code == "invalid_exp_name"
+    assert not runs_dir.exists()
+    assert not (tmp_path / "outside").exists()
 
 
 def test_objective_file_is_read(tmp_path, monkeypatch):  # noqa: ANN001, ANN201  # tracked: #288

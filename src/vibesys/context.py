@@ -45,6 +45,7 @@ from vibesys.profilers import (
     resolve_profiler_kind,
 )
 from vibesys.render import HeadlessRenderer, output_sink
+from vibesys.repository import validate_experiment_name
 from vibesys.resource_paths import profiler_support_dir
 from vibesys.run import (
     DeviceLease,
@@ -109,6 +110,7 @@ def setup_exp_dir(
     if existing:
         exp_dir = runs_dir / exp_name
     else:
+        validate_experiment_name(exp_name)
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")  # noqa: DTZ005  # tracked: #288
         exp_dir = runs_dir / f"{timestamp}-{uuid.uuid4().hex[:8]}-{exp_name}"
     if existing:

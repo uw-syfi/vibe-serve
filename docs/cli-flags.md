@@ -32,7 +32,8 @@ Several flags look independent, but they combine into one execution contract:
 | Modality | `--modality` | Per-task I/O contract, such as `text_generation` or `speech_to_text`. |
 | Skills | `--skills-dir`, `--extra-skills`, `--no-skills` | Override the preset skill roots, stack extra skills on top of the presets, or disable skill loading. |
 | Target inputs | `--input` | Target bundle directory with manifest-declared correctness and benchmark commands. |
-| Experiment repository | `--repo`, `--repo-visibility`, `--local`, `--resume` | Fresh runs use GitHub by default; `--local` keeps one under `exp_env/`, and `--resume` accepts local paths or GitHub repositories. |
+| Experiment collection | `--runs-dir PATH` | Required for every run. Owns run directories, synthesized inputs, and shared caches. |
+| Experiment repository | `--repo`, `--repo-visibility`, `--local`, `--resume` | Fresh runs use GitHub by default; `--local` keeps one in the selected collection, and `--resume` accepts local paths or GitHub repositories. |
 | Client theme | `--theme` | Presentation only. Which semantic theme the interactive client renders with. |
 
 Do not treat these as simple toggles. Some combinations imply a startup
@@ -116,10 +117,10 @@ Names default to `<input-name>-<UTC timestamp>`.
 
 For headless use, the generated repository name is used automatically. Pass
 `--repo NAME` to override the name, or `--repo OWNER/NAME` to override the owner
-explicitly. Pass `--local` to keep the experiment under `exp_env/` without a
-GitHub repository. Repositories use `[repository].visibility` unless
-`--repo-visibility` overrides it. Creation goes through the authenticated `gh`
-CLI.
+explicitly. Every run requires `--runs-dir PATH`. Pass `--local` to keep the
+experiment in that collection without a GitHub repository. Repositories use
+`[repository].visibility` unless `--repo-visibility` overrides it. Creation goes
+through the authenticated `gh` CLI.
 
 The experiment repository records the materialized workspace and durable state
 needed to continue the loop. Provider/agent `logs/*.log` files and directory
@@ -134,16 +135,17 @@ rather than force-pushing.
 GitHub `OWNER/NAME` pairs, and cloneable HTTPS/SSH URLs:
 
 ```bash
-./vs --resume 20260720-120000-example
-./vs --resume /work/experiments/example
-./vs --resume vibesys-playground/example
-./vs --resume https://github.com/my-org/example.git
+./vs --runs-dir /work/vibesys-runs --resume 20260720-120000-example
+./vs --runs-dir /work/vibesys-runs --resume /work/experiments/example
+./vs --runs-dir /work/vibesys-runs --resume vibesys-playground/example
+./vs --runs-dir /work/vibesys-runs --resume https://github.com/my-org/example.git
 ```
 
-Remote repositories are cloned under `exp_env/`. A local clone can live
-anywhere. Resumed repositories with an `origin` are synchronized again after
-the run. `--repo` only creates a repository for a fresh experiment and cannot
-be combined with `--resume`.
+Remote repositories are cloned into the selected collection. A local clone can
+live anywhere, but `--runs-dir` is still required for shared caches and any
+future runs. Resumed repositories with an `origin` are synchronized again after
+the run. `--repo` only creates a repository for a fresh experiment and cannot be
+combined with `--resume`.
 
 ## Repository Validation
 
@@ -299,7 +301,7 @@ per-status marker, and the running round is the only one with an elapsed-time
 suffix.
 
 ```bash
-./vs --input examples/model-serving/Llama-3-8B --theme solarized-light
+./vs --runs-dir /work/vibesys-runs --input examples/model-serving/Llama-3-8B --theme solarized-light
 ```
 
 ## Skills
@@ -317,12 +319,12 @@ skills, or a single `SKILL.md` file:
 
 ```bash
 # presets + your own skill directory and a single SKILL.md file
-./vs --input <bundle> \
+./vs --runs-dir /work/vibesys-runs --input <bundle> \
   --extra-skills ./my-skills \
   --extra-skills ./one-off-skill/SKILL.md
 
 # use ONLY your skills, ignoring the presets
-./vs --input <bundle> --skills-dir ./my-skills
+./vs --runs-dir /work/vibesys-runs --input <bundle> --skills-dir ./my-skills
 ```
 
 Before a run starts, VibeSys discovers each `SKILL.md` under the candidate
@@ -373,7 +375,7 @@ assumptions in a separate design document.
 For those bundles, pass the root once:
 
 ```bash
-./vs --input examples/<target> ...
+./vs --runs-dir /work/vibesys-runs --input examples/<target> ...
 ```
 
 The manifest declares the evaluator entrypoints and does not define a candidate
@@ -435,6 +437,7 @@ commit the authorized refresh before resuming and pass that immutable revision:
 
 ```bash
 ./vs --outer-loop agent \
+  --runs-dir /work/vibesys-runs \
   --resume /path/to/experiment \
   --trusted-input-baseline <refresh-commit>
 ```
@@ -448,10 +451,10 @@ workspace baseline, so ordinary resumes cannot silently bless agent tampering.
 
 For external usage where no `examples/` bundle is on disk, pass the bundle's
 contents as separate `--input-*` flags instead of `--input`. VibeSys synthesizes
-a bundle under `exp_env/_inputs/<exp-name>/` and then loads it through the same
-path as `--input`, so every loop, resume, and evaluator behaves identically. The
-two forms are mutually exclusive: combining `--input` with any `--input-*` flag
-is rejected.
+a bundle under `<runs-dir>/_inputs/<exp-name>/` and then loads it through the
+same path as `--input`, so every loop, resume, and evaluator behaves identically.
+The two forms are mutually exclusive: combining `--input` with any `--input-*`
+flag is rejected.
 
 Required flags:
 
@@ -482,6 +485,7 @@ use `--input` for those.
 
 ```bash
 ./vs \
+  --runs-dir /work/vibesys-runs \
   --input-objective-file ./OBJECTIVE.md \
   --input-domain llm-serving \
   --input-accuracy-command "python checker.py" \
@@ -498,6 +502,7 @@ Default agent loop on local CUDA-compatible host:
 
 ```bash
 ./vs \
+  --runs-dir /work/vibesys-runs \
   --outer-loop agent \
   --backend cuda \
   --interface inprocess \
@@ -507,25 +512,26 @@ Default agent loop on local CUDA-compatible host:
 Docker CUDA run:
 
 ```bash
-./vs --outer-loop agent --backend cuda --docker ...
+./vs --runs-dir /work/vibesys-runs --outer-loop agent --backend cuda --docker ...
 ```
 
 Modal GPU run:
 
 ```bash
-./vs --outer-loop agent --backend cuda --modal --profiler torch ...
+./vs --runs-dir /work/vibesys-runs --outer-loop agent --backend cuda --modal --profiler torch ...
 ```
 
 Trainium run:
 
 ```bash
-./vs --outer-loop agent --backend trainium --profiler auto ...
+./vs --runs-dir /work/vibesys-runs --outer-loop agent --backend trainium --profiler auto ...
 ```
 
 Over-the-wire service target:
 
 ```bash
 ./vs \
+  --runs-dir /work/vibesys-runs \
   --outer-loop agent \
   --interface service \
   --input examples/<target>
@@ -534,7 +540,7 @@ Over-the-wire service target:
 CPU-only target:
 
 ```bash
-./vs --outer-loop agent --backend cpu --interface service ...
+./vs --runs-dir /work/vibesys-runs --outer-loop agent --backend cpu --interface service ...
 ```
 
 CPU runs support local execution and Docker; use local execution unless you

@@ -45,6 +45,7 @@ from vibesys.repository import (
     RepositoryVisibility,
     generate_experiment_name,
     repository_name_from_experiment,
+    validate_experiment_name,
 )
 from vibesys.resource_paths import default_skill_roots
 from vibesys.sandbox.run_environment import (
@@ -1241,6 +1242,16 @@ def _synthesize_standalone_input(args: argparse.Namespace) -> Path:
 
 
 def _validate_target_inputs(args: argparse.Namespace) -> None:
+    if args.resume is None and args.exp_name is not None:
+        try:
+            validate_experiment_name(args.exp_name)
+        except ValueError as exc:
+            _configuration_error(
+                str(exc),
+                code="invalid_exp_name",
+                stage="argument_parsing",
+            )
+
     input_arg = getattr(args, "input", None)
     standalone = _standalone_input_dests_set(args)
     synthesized = False

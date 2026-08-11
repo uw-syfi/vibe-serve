@@ -56,6 +56,21 @@ def test_setup_exp_dir_uses_selected_collection_and_unique_names(tmp_path):  # n
     assert (second / ".git").is_dir()
 
 
+@pytest.mark.parametrize(
+    "unsafe_name",
+    ["/absolute", "nested/name", ".", ".."],
+)
+def test_setup_exp_dir_rejects_unsafe_fresh_name(tmp_path, unsafe_name):  # noqa: ANN001, ANN201  # tracked: #288
+    runs_dir = tmp_path / "selected-runs"
+    exp_name = str(tmp_path / "outside") if unsafe_name == "/absolute" else unsafe_name
+
+    with pytest.raises(ValueError, match="single path component"):
+        setup_exp_dir(exp_name, runs_dir=runs_dir)
+
+    assert not runs_dir.exists()
+    assert not (tmp_path / "outside").exists()
+
+
 def test_log_switch_retargets_stderr_tee_and_restores_on_close(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     ctx = object.__new__(_RunContext)
     original_stderr = sys.stderr
