@@ -35,17 +35,31 @@ Benchmark command: {{ benchmark_command }}
 
 ## Analysis workflow
 
-1. Run the trusted benchmark command as configured by the input bundle. It must
-   include servicebench telemetry collection flags and produce a normalized
-   telemetry JSON report.
+1. Run the trusted benchmark command as configured by the input bundle. A
+   critical-path run uses `servicebench trace` and produces both a normalized
+   telemetry report and a versioned trace graph for the same measurement
+   windows.
 2. Call the `{{ profiler_mcp_name }}` MCP tools to read the evidence: `reports()`
-   to locate normalized reports, then `summary(path=...)`.
+   to locate normalized reports, then `summary(path=...)`. Call
+   `trace_graphs()` to locate schema-v2 graphs, then
+   `critical_path(path=..., telemetry_path=...)` for bounded wall-clock
+   attribution. The tool rejects a graph unless its workload identity and
+   exact measurement windows match the normalized report.
 3. Rank bottlenecks using concrete service, span, and datastore p50/p95/p99
-   values and error counts.
-4. Use `compare()` when both baseline and candidate reports exist. Treat large
+   values, error counts, and critical-path contribution. Use graph paths and
+   representative segments to distinguish sequential work from overlapping
+   calls; do not add overlapping sibling durations.
+4. Use `compare()` when both baseline and candidate reports exist. Read each
+   run's critical path separately and compare only graphs with matching
+   workload identity and window count. Treat large
    span-count changes as a possible coverage or sampling change.
 5. Report the benchmark's declared `primary_value` as `perf_metric`; internal
    span latency is diagnostic evidence, not the scored result.
+
+The critical path has scope `synchronous_request`. Report
+`async_relationships_excluded` and trace eligibility when they limit coverage.
+If no valid graph exists, say critical-path evidence is unavailable. Never
+invent a path from flat span aggregates.
 
 {% include "profilers/_observer_effect.j2" %}
 

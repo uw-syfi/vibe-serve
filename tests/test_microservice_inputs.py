@@ -154,6 +154,16 @@ def test_hotel_accuracy_uses_shared_evaluator_with_random_cases() -> None:
         bundle.benchmark_command[1:],
         strict=False,
     )
+    assert ("./cmd/servicebench", "trace") in zip(
+        bundle.benchmark_command,
+        bundle.benchmark_command[1:],
+        strict=False,
+    )
+    assert ("--trace-graph-json", "../../metrics/trace-graph.json") in zip(
+        bundle.benchmark_command,
+        bundle.benchmark_command[1:],
+        strict=False,
+    )
     assert ("--telemetry-timeout", "60") in zip(
         bundle.benchmark_command,
         bundle.benchmark_command[1:],

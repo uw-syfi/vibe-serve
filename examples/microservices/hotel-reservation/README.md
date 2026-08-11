@@ -69,7 +69,7 @@ injected one and add the telemetry flags:
 
 ```bash
 SCENARIO="$PWD/examples/microservices/hotel-reservation"
-go -C examples/evaluators/microservice run ./cmd/servicebench \
+go -C examples/evaluators/microservice run ./cmd/servicebench trace \
   --workload "$SCENARIO/benchmark/workload.toml" \
   --seed random \
   --fixture-seed random \
@@ -80,12 +80,14 @@ go -C examples/evaluators/microservice run ./cmd/servicebench \
   --startup-timeout 120 \
   --telemetry-command-json "[\"go\",\"run\",\"./cmd/otelcapture\",\"--input-json\",\"$SCENARIO/metrics/otel/traces.otlp.ndjson\",\"--settle-seconds\",\"5\"]" \
   --telemetry-output /tmp/hotel-telemetry.json \
+  --trace-graph-json /tmp/hotel-trace-graph.json \
   --telemetry-timeout 60 \
   --output-json /tmp/hotel-benchmark.json
 ```
 
 A successful run writes the normalized report to `/tmp/hotel-telemetry.json`
-and embeds it in the benchmark output. Remove
+and the schema-v2 critical-path graph to `/tmp/hotel-trace-graph.json`, and
+embeds normalized telemetry in the benchmark output. Remove
 `examples/microservices/hotel-reservation/metrics/otel/traces.otlp.ndjson`
 between runs to keep the raw capture small.
 
@@ -96,6 +98,7 @@ between runs to keep the raw capture small.
   --input examples/microservices/hotel-reservation \
   --exp-name hotel-reservation-opt \
   --backend cpu --interface service \
+  --profiler otel \
   --agent-backend cli --cli-provider codex \
   --max-rounds 10 --git-tracking --headless
 ```

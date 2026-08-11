@@ -11,6 +11,7 @@ import json
 import sqlite3
 import sys
 from pathlib import Path
+from types import ModuleType
 
 import pytest
 
@@ -105,6 +106,11 @@ async def _call_tool(server, name: str, **kwargs) -> str:  # noqa: ANN001, ANN00
     return structured["result"]
 
 
+async def _call_structured_tool(server, name: str, **kwargs) -> dict:  # noqa: ANN001, ANN003  # tracked: #288
+    _, structured = await server.call_tool(name, kwargs)
+    return structured
+
+
 # ---------------------------------------------------------------------------
 # nsys MCP server
 # ---------------------------------------------------------------------------
@@ -173,7 +179,87 @@ class TestOtelMcpServer:
     def test_registers_expected_tools(self, otel_server_mod):  # noqa: ANN001, ANN201  # tracked: #288
         server = otel_server_mod.build_server()
         names = asyncio.run(_list_tool_names(server))
-        assert names == {"reports", "summary", "compare"}
+        assert names == {"reports", "summary", "compare", "trace_graphs", "critical_path"}
+
+    def test_discovers_and_summarizes_critical_path(self, otel_server_mod, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+        report_path = tmp_path / "telemetry.json"
+        graph_path = tmp_path / "trace-graph.json"
+        report_path.write_text(json.dumps(_otel_report(20.0)))
+        graph_path.write_text(json.dumps(_trace_graph()))
+
+        summary = otel_server_mod.summarize_critical_path(str(graph_path), str(report_path), top=1)
+
+        assert otel_server_mod.find_reports(str(tmp_path)) == [report_path.as_posix()]
+        assert otel_server_mod.find_trace_graphs(str(tmp_path)) == [graph_path.as_posix()]
+        assert summary.workload_name == "hotel"
+        assert summary.quality.eligible_traces == 3
+        assert len(summary.roots) == 1
+        assert summary.omitted_root_count == 0
+        root = summary.roots[0]
+        assert root.algorithm == "wall_clock_active_leaf_v1"
+        assert root.scope == "synchronous_request"
+        assert root.nodes_by_contribution[0].operation == "Search/Nearby"
+        assert root.omitted_contributor_count == 1
+        assert root.representative.segments[0].node_id == "node-001"
+        assert root.representative.omitted_segment_count == 1
+
+    def test_critical_path_tool_returns_structured_summary(self, otel_server_mod, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+        graph_path = tmp_path / "trace-graph.json"
+        report_path = tmp_path / "telemetry.json"
+        graph_path.write_text(json.dumps(_trace_graph()))
+        report_path.write_text(json.dumps(_otel_report(20.0)))
+
+        server = otel_server_mod.build_server()
+        result = asyncio.run(
+            _call_structured_tool(
+                server,
+                "critical_path",
+                path=str(graph_path),
+                telemetry_path=str(report_path),
+                top=1,
+            )
+        )
+
+        assert result["workload_name"] == "hotel"
+        assert result["roots"][0]["nodes_by_contribution"][0]["service"] == "search"
+
+    def test_critical_path_rejects_graph_from_another_measurement_window(
+        self, otel_server_mod: ModuleType, tmp_path: Path
+    ) -> None:
+        graph_path = tmp_path / "trace-graph.json"
+        report_path = tmp_path / "telemetry.json"
+        graph = _trace_graph()
+        graph["measurement_windows"][0]["start"] = "2026-07-23T12:00:00Z"
+        graph["measurement_windows"][0]["end"] = "2026-07-23T12:00:01Z"
+        graph_path.write_text(json.dumps(graph))
+        report_path.write_text(json.dumps(_otel_report(20.0)))
+
+        with pytest.raises(ValueError, match="matching workload identity and windows"):
+            otel_server_mod.summarize_critical_path(str(graph_path), str(report_path))
+
+    def test_load_trace_graph_rejects_invalid_critical_path_geometry(
+        self, otel_server_mod: ModuleType, tmp_path: Path
+    ) -> None:
+        graph = _trace_graph()
+        graph["roots"][0]["critical_path"]["representative"]["segments"][1]["offset_ms"] = 0.0
+        graph_path = tmp_path / "invalid-trace-graph.json"
+        graph_path.write_text(json.dumps(graph))
+
+        with pytest.raises(ValueError, match="contiguous"):
+            otel_server_mod.load_trace_graph(str(graph_path))
+
+    def test_find_trace_graphs_skips_hostile_and_malformed_json(
+        self, otel_server_mod: ModuleType, tmp_path: Path
+    ) -> None:
+        valid = tmp_path / "valid-graph.json"
+        valid.write_text(json.dumps(_trace_graph()))
+        malformed = _trace_graph()
+        malformed["quality"]["eligible_traces"] = 99
+        (tmp_path / "malformed-graph.json").write_text(json.dumps(malformed))
+        (tmp_path / "binary.json").write_bytes(b"\xff\xfe\x00\x01 not valid utf-8")
+        (tmp_path / "nested.json").write_text("[" * 3000 + "]" * 3000)
+
+        assert otel_server_mod.find_trace_graphs(str(tmp_path)) == [valid.as_posix()]
 
     def test_summary_and_compare_use_normalized_service_rows(self, otel_server_mod, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         before = tmp_path / "before.json"
@@ -391,6 +477,121 @@ def _otel_report(p95: float) -> dict:
         "services_by_p95": [row],
         "spans_by_p95": [span],
         "datastores_by_p95": [datastore],
+    }
+
+
+def _trace_graph() -> dict:
+    def distribution(mean: float, *, count: int = 3) -> dict:
+        return {
+            "count": count,
+            "error_count": 0,
+            "mean_ms": mean,
+            "p50_ms": mean,
+            "p95_ms": mean + 1.0,
+            "p99_ms": mean + 2.0,
+            "max_ms": mean + 3.0,
+        }
+
+    return {
+        "schema_version": 2,
+        "source": "otlp-json",
+        "collected_at": "2026-07-22T12:00:00Z",
+        "workload_name": "hotel",
+        "workload_hash": "abc123",
+        "measurement_windows": [{"start": "2026-07-22T12:00:00Z", "end": "2026-07-22T12:00:01Z"}],
+        "quality": {
+            "captured_traces": 3,
+            "eligible_traces": 3,
+            "excluded_traces": 0,
+            "matched_client_server_pairs": 3,
+            "unmatched_client_spans": 0,
+            "unmatched_server_spans": 0,
+            "async_relationships": 1,
+        },
+        "trials": [{"trial": 1, "captured_traces": 3, "eligible_traces": 3, "excluded_traces": 0}],
+        "roots": [
+            {
+                "service": "frontend",
+                "operation": "GET /hotels",
+                "trace_count": 3,
+                "error_count": 0,
+                "latency_ms": distribution(20.0),
+                "nodes": [
+                    {
+                        "id": "node-001",
+                        "path": "frontend:GET /hotels",
+                        "service": "frontend",
+                        "operation": "GET /hotels",
+                        "kind": "server",
+                        "inclusive_latency_ms": distribution(20.0),
+                        "exclusive_latency_ms": distribution(5.0),
+                    },
+                    {
+                        "id": "node-002",
+                        "path": "frontend:GET /hotels > search:Search/Nearby",
+                        "service": "search",
+                        "operation": "Search/Nearby",
+                        "kind": "server",
+                        "inclusive_latency_ms": distribution(15.0),
+                        "exclusive_latency_ms": distribution(15.0),
+                    },
+                ],
+                "edges": [
+                    {"from": "node-001", "to": "node-002", "relationship": "child", "count": 3}
+                ],
+                "representative_trace": {
+                    "trace_id": "trace-a",
+                    "duration_ms": 20.0,
+                    "spans": [
+                        {
+                            "node_id": "node-001",
+                            "service": "frontend",
+                            "operation": "GET /hotels",
+                            "offset_ms": 0.0,
+                            "duration_ms": 20.0,
+                        },
+                        {
+                            "node_id": "node-002",
+                            "service": "search",
+                            "operation": "Search/Nearby",
+                            "offset_ms": 5.0,
+                            "duration_ms": 15.0,
+                        },
+                    ],
+                },
+                "critical_path": {
+                    "algorithm": "wall_clock_active_leaf_v1",
+                    "scope": "synchronous_request",
+                    "trace_count": 3,
+                    "async_relationships_excluded": 1,
+                    "duration_ms": distribution(20.0),
+                    "nodes_by_contribution": [
+                        {
+                            "node_id": "node-002",
+                            "path": "frontend:GET /hotels > search:Search/Nearby",
+                            "service": "search",
+                            "operation": "Search/Nearby",
+                            "contribution_ms": distribution(15.0),
+                        },
+                        {
+                            "node_id": "node-001",
+                            "path": "frontend:GET /hotels",
+                            "service": "frontend",
+                            "operation": "GET /hotels",
+                            "contribution_ms": distribution(5.0),
+                        },
+                    ],
+                    "representative": {
+                        "trace_id": "trace-a",
+                        "duration_ms": 20.0,
+                        "segments": [
+                            {"node_id": "node-001", "offset_ms": 0.0, "duration_ms": 5.0},
+                            {"node_id": "node-002", "offset_ms": 5.0, "duration_ms": 15.0},
+                        ],
+                    },
+                },
+            }
+        ],
     }
 
 

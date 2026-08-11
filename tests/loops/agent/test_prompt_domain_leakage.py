@@ -272,3 +272,25 @@ def test_profiler_prompts_calibrate_observer_effects():  # noqa: ANN201  # track
         assert "observer_effect_fraction" in rendered
         assert "differ by more than 10%" in rendered
         assert "must not be converted into exclusive phase shares" in rendered
+
+
+def test_microservice_otel_profiler_uses_critical_path_as_diagnostic_evidence():  # noqa: ANN201  # tracked: #288
+    context = _NEUTRAL_CONTEXT
+    rendered = render_template(
+        "profilers/otel.j2",
+        template_dir=_TEMPLATE_DIR,
+        profile_focus="microservice latency",
+        benchmark_command=context["benchmark_command"],
+        domain_profiler=_domain_section(DomainName.MICROSERVICES, "profiler", context),
+        runtime_notes=context["runtime_notes"],
+        objective=context["objective"],
+        profiler_support_name="otel_profiler",
+        profiler_mcp_name="vibesys-otel-profiler",
+    )
+
+    assert "trace_graphs()" in rendered
+    assert "critical_path(path=..., telemetry_path=...)" in rendered
+    assert "async_relationships_excluded" in rendered
+    assert "do not add overlapping sibling durations" in rendered
+    assert "primary_value" in rendered
+    assert "diagnostic evidence, not the scored result" in rendered
