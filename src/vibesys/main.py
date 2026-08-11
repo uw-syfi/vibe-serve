@@ -74,6 +74,7 @@ _MODALITIES = (
 
 _STUB_AGENT_DEFAULT_INPUT = PROJECT_ROOT / "examples" / "data-structures" / "queue-spsc"
 _STUB_AGENT_DEFAULT_CONFIG_TEXT = '[model]\nname = "gpt-5.5"\n'
+_INSTALLED_DEFAULT_CONFIG_TEXT = '[model]\nname = "gpt-5.4"\n'
 
 
 class _RunArgumentParser(argparse.ArgumentParser):
@@ -361,8 +362,11 @@ def _add_common_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--config",
         type=Path,
-        default=PROJECT_ROOT / "agent.toml",
-        help="Path to agent TOML config file (default: agent.toml)",
+        default=None,
+        help=(
+            "Path to agent TOML config file. When omitted, use the repository agent.toml "
+            "if present, otherwise use installed defaults."
+        ),
     )
     parser.add_argument(
         "--profiler",
@@ -554,13 +558,13 @@ def load_config_and_skills(
     domain: DomainName,
 ) -> tuple[Config, list[str] | None, ComputeBackend]:
     """Load config, resolve the backend, and select compatible skills."""
-    if getattr(args, "stub_agent", False) and not Path(args.config).is_file():
-        config = Config.model_validate(tomllib.loads(_STUB_AGENT_DEFAULT_CONFIG_TEXT))
-    else:
-        try:
-            config = load_config(args.config)
-        except (ValueError, FileNotFoundError) as e:
-            _configuration_error(str(e), code="config_load_failed", stage="config_loading")
+    try:
+        config = _load_config_or_installed_default(
+            args.config,
+            stub_agent=getattr(args, "stub_agent", False),
+        )
+    except (ValueError, FileNotFoundError) as e:
+        _configuration_error(str(e), code="config_load_failed", stage="config_loading")
 
     repository = getattr(args, "repo", None)
     if getattr(args, "local", False) and repository is not None:
@@ -610,6 +614,32 @@ def _resolve_repository_owner(config: Config) -> str:
             code="repository_setup_failed",
             stage="repository_setup",
         )
+
+
+def _suggest_repository_owner(config: Config) -> str | None:
+    """Return a setup-form owner suggestion without requiring GitHub access."""
+    if config.repository.owner is not None:
+        return config.repository.owner
+    try:
+        return GitHubCLI().current_user()
+    except GitHubCLIError:
+        return None
+
+
+def _load_config_or_installed_default(
+    config_path: Path | None,
+    *,
+    stub_agent: bool,
+) -> Config:
+    """Load an explicit config or use safe defaults when the implicit config is absent."""
+    if config_path is not None:
+        return load_config(config_path)
+    selected_path = PROJECT_ROOT / "agent.toml"
+    if selected_path.is_file():
+        return load_config(selected_path)
+    if stub_agent:
+        return Config.model_validate(tomllib.loads(_STUB_AGENT_DEFAULT_CONFIG_TEXT))
+    return Config.model_validate(tomllib.loads(_INSTALLED_DEFAULT_CONFIG_TEXT))
 
 
 def _prepare_experiment_repository(args: argparse.Namespace, config: Config) -> None:
@@ -918,7 +948,7 @@ def _build_tui_defaults_parser() -> argparse.ArgumentParser:
         prog="vibesys tui-defaults",
         description="Resolve configuration defaults for the pre-launch TUI.",
     )
-    parser.add_argument("--config", type=Path, default=PROJECT_ROOT / "agent.toml")
+    parser.add_argument("--config", type=Path, default=None)
     parser.add_argument("--input", type=Path, default=None)
     parser.add_argument("--runs-dir", type=_parse_runs_dir, default=None)
     parser.add_argument("--exp-name", default=None)
@@ -930,18 +960,15 @@ def _build_tui_defaults_parser() -> argparse.ArgumentParser:
 
 def _run_tui_defaults(argv: list[str]) -> None:
     args = _build_tui_defaults_parser().parse_args(argv)
-    if args.stub_agent and not args.config.is_file():
-        config = Config.model_validate(tomllib.loads(_STUB_AGENT_DEFAULT_CONFIG_TEXT))
-    else:
-        try:
-            config = load_config(args.config)
-        except (ValueError, FileNotFoundError) as exc:
-            _configuration_error(str(exc), code="config_load_failed", stage="config_loading")
+    try:
+        config = _load_config_or_installed_default(args.config, stub_agent=args.stub_agent)
+    except (ValueError, FileNotFoundError) as exc:
+        _configuration_error(str(exc), code="config_load_failed", stage="config_loading")
 
     input_path = args.input.expanduser().resolve() if args.input is not None else None
     runs_dir = (args.runs_dir or Path.cwd() / "exp_env").expanduser().resolve()
     experiment_name = args.exp_name or generate_experiment_name(input_path)
-    repository_owner = None if args.directory_only else _resolve_repository_owner(config)
+    repository_owner = None if args.directory_only else _suggest_repository_owner(config)
     defaults = InteractiveSetupDefaults(
         runs_dir=str(runs_dir),
         input_path=str(input_path) if input_path is not None else "",

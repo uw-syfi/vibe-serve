@@ -39,6 +39,13 @@ async def _call_tool(server, name: str, **kwargs) -> str:  # noqa: ANN001, ANN00
 
 
 class TestArgparse:
+    def test_help_uses_published_console_script_name(self, capsys):  # noqa: ANN001, ANN201
+        with pytest.raises(SystemExit) as exc_info:
+            build_parser().parse_args(["--help"])
+
+        assert exc_info.value.code == 0
+        assert capsys.readouterr().out.startswith("usage: vibesys-issue-mcp ")
+
     def test_defaults(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         args = _ns(tmp_path)
         assert args.store_path == tmp_path / "issues.json"

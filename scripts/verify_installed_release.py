@@ -5,6 +5,7 @@ from __future__ import annotations
 import errno
 import importlib
 import importlib.metadata
+import json
 import os
 import pty
 import select
@@ -69,12 +70,18 @@ class InstalledReleaseError(RuntimeError):
         """Build an error for a failed PTY-backed interactive check."""
         return cls(f"Installed interactive verification {reason}: {command}\n{output}")
 
+    @classmethod
+    def invalid_first_launch_defaults(cls) -> InstalledReleaseError:
+        """Build an error for malformed installed setup defaults."""
+        return cls("Installed first-launch defaults are not valid JSON")
+
 
 def verify_installed_release() -> None:
     """Exercise the installed framework, SDK, resources, and native TUI."""
     _verify_isolated_interpreter()
     _verify_framework_imports()
     verify_console_entry_point()
+    verify_first_launch_defaults()
     _verify_resources()
     _verify_materialized_sdk()
     _verify_tui()
@@ -129,6 +136,25 @@ def verify_console_entry_point() -> None:
     if issue_mcp is None:
         _fail("Installed vibesys-issue-mcp console script is absent from PATH")
     _run([issue_mcp, "--help"], timeout=30)
+
+
+def verify_first_launch_defaults() -> None:
+    """Require configless setup defaults to work without an authenticated GitHub CLI."""
+    output = _run_capture([sys.executable, "-m", "vibesys", "tui-defaults"], timeout=30)
+    try:
+        defaults = json.loads(output)
+    except json.JSONDecodeError as exc:
+        raise InstalledReleaseError.invalid_first_launch_defaults() from exc
+    if not isinstance(defaults, dict):
+        _fail("Installed first-launch defaults must be a JSON object")
+    runs_dir = defaults.get("runs_dir")
+    expected_runs_dir = (_RUNTIME_ROOT / "exp_env").resolve()
+    if not isinstance(runs_dir, str) or Path(runs_dir).resolve() != expected_runs_dir:
+        _fail(f"Installed first-launch runs directory is invalid: {runs_dir!r}")
+    if defaults.get("input_path") != "":
+        _fail(f"Installed first-launch input path must be empty: {defaults.get('input_path')!r}")
+    if "repository_owner" not in defaults or defaults["repository_owner"] is not None:
+        _fail("Installed first launch unexpectedly requires an authenticated GitHub account")
 
 
 def _verify_resources() -> None:
@@ -358,7 +384,10 @@ def _mutable_install_paths(prefix: Path) -> set[Path]:
         if (
             "exp_env" in parts
             or ".hf_cache" in parts
-            or any(parts[index : index + 2] == (".cache", "huggingface") for index in range(len(parts) - 1))
+            or any(
+                parts[index : index + 2] == (".cache", "huggingface")
+                for index in range(len(parts) - 1)
+            )
         ):
             mutable_paths.add(path.resolve())
     return mutable_paths
@@ -468,6 +497,20 @@ def _run(
         )
     except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
         raise InstalledReleaseError.command_failed(command) from exc
+
+
+def _run_capture(command: list[str], *, timeout: int) -> str:
+    try:
+        result = subprocess.run(  # noqa: S603
+            command,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+        raise InstalledReleaseError.command_failed(command) from exc
+    return result.stdout
 
 
 def _fail(message: str) -> Never:

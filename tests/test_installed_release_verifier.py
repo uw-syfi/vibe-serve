@@ -44,6 +44,34 @@ def test_console_entry_points_run_installed_commands_with_help(
     assert mcp_marker.read_text().splitlines() == ["--help"]
 
 
+def test_first_launch_defaults_are_configless_and_local_capable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed: list[tuple[list[str], int]] = []
+
+    def run_capture(command: list[str], *, timeout: int) -> str:
+        observed.append((command, timeout))
+        return json.dumps(
+            {
+                "runs_dir": str(tmp_path / "exp_env"),
+                "input_path": "",
+                "experiment_name": "experiment-20260811-120000",
+                "repository_owner": None,
+                "repository_name": "experiment-20260811-120000",
+                "visibility": "private",
+                "theme": "dark",
+            }
+        )
+
+    monkeypatch.setattr(verifier, "_RUNTIME_ROOT", tmp_path)
+    monkeypatch.setattr(verifier, "_run_capture", run_capture)
+
+    verifier.verify_first_launch_defaults()
+
+    assert observed == [([sys.executable, "-m", "vibesys", "tui-defaults"], 30)]
+
+
 def test_sdk_sync_uses_the_running_isolated_interpreter(tmp_path: Path) -> None:
     command = verifier.build_sdk_sync_command(tmp_path / "workspace")
 

@@ -32,7 +32,7 @@ def _parse_allowed_types(value: str) -> frozenset[IssueType]:
 
 def build_parser() -> argparse.ArgumentParser:  # noqa: D103  # tracked: #288
     parser = argparse.ArgumentParser(
-        prog="vs-issue-board-mcp",
+        prog="vibesys-issue-mcp",
         description=(
             "Stdio MCP server exposing an IssueBoard as four "
             "tools: list_issues, get_issue, search_issues, create_issue."
