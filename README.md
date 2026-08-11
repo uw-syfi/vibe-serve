@@ -79,12 +79,27 @@ Install and authenticate a supported coding-agent CLI. For Codex CLI, run
 `codex login`; see the [CLI reference](docs/cli-flags.md) for other supported
 agents.
 
-From the root of the project you want to optimize, add two VibeSys files:
+From the root of the project you want to optimize, add these VibeSys files:
 
 - `OBJECTIVE.md` describes what to optimize and the constraints the result must
   preserve.
 - `vibesys.input.toml` identifies the problem domain and the programs that check
   correctness and benchmark performance.
+- `agent.toml` optionally selects the coding agent, model, and hardware backend.
+
+For example:
+
+```toml
+[model]
+name = "gpt-5.4"
+
+[agent]
+backend = "cli"
+cli_provider = "codex"
+
+[backend]
+name = "cpu"
+```
 
 See [`examples/`](examples/) for complete objectives and manifests across data
 structures, model serving, and microservices.
@@ -94,15 +109,14 @@ Run from the project root:
 ```bash
 cd /path/to/my-project
 vibesys validate
-vibesys --cli-provider codex --backend cpu --max-rounds 4
+vibesys --max-rounds 4
 ```
 
 The directory must be its Git repository root, or outside Git so VibeSys can
 initialize a repository. An existing repository needs a baseline commit and a
-clean worktree. `agent.toml` is optional. See
-[`docs/cli-flags.md`](docs/cli-flags.md) for other coding agents, hardware
-backends, resume behavior, and advanced run modes. Contributor setup belongs in
-[`docs/development.md`](docs/development.md).
+clean worktree. See [`docs/cli-flags.md`](docs/cli-flags.md) for other coding
+agents, hardware backends, resume behavior, and advanced run modes. Contributor
+setup belongs in [`docs/development.md`](docs/development.md).
 
 ## Citation
 
