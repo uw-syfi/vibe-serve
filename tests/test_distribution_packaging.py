@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import configparser
 import importlib.util
 import subprocess
 import tomllib
@@ -30,6 +31,22 @@ INTERNAL_IMPORT_PACKAGES = {
     "vs_loop_state",
     "vs_sandbox",
 }
+
+
+def test_vcs_installs_do_not_initialize_repository_submodules() -> None:
+    """Removing the opt-out from one submodule must make source installs fail here."""
+    config = configparser.ConfigParser()
+    config.read(PROJECT_ROOT / ".gitmodules")
+
+    submodule_sections = [
+        section for section in config.sections() if section.startswith('submodule "')
+    ]
+    assert submodule_sections
+    assert [
+        section
+        for section in submodule_sections
+        if config.get(section, "update", fallback=None) != "none"
+    ] == []
 
 
 def _load_packaging_support() -> ModuleType:

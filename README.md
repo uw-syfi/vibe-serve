@@ -103,6 +103,17 @@ To use the interactive TUI, install Node.js 20+, Bun, and pnpm 11 (or enable
 Corepack). Run `./vs --runs-dir "$PWD/exp_env"`; it installs the frontend
 dependencies and builds the TUI when needed. npm is not required.
 
+### Installing from GitHub source
+
+```bash
+python -m pip install "git+https://github.com/uw-syfi/vibesys.git"
+```
+
+Source installs skip the repository's optional submodules and do not build the
+bundled native TUI. They run VibeSys headless; pass `--headless` explicitly to
+suppress the fallback notice. Use a supported PyPI wheel for the one-command
+install with the bundled Bun and OpenTUI runtime.
+
 ### Installing from PyPI
 
 ```bash

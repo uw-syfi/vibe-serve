@@ -35,6 +35,13 @@ The main framework boundaries are:
 
 ## Local development
 
+Repository submodules are opt-in. Initialize them only when your work needs the
+vendored sources, using `--checkout` to override their default update policy:
+
+```bash
+git submodule update --init --recursive --checkout
+```
+
 Run the Python checks from the repository root:
 
 ```bash
