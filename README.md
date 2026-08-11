@@ -4,6 +4,83 @@
 
 **An agentic framework that generates bespoke systems from application requirements, workload characteristics, and the underlying hardware.**
 
+## Installation
+
+Install Python 3.12+, Git, and [uv](https://docs.astral.sh/uv/). Linux also
+requires `bubblewrap`; macOS includes the required `sandbox-exec` command.
+
+```bash
+uv tool install vibesys
+```
+
+VibeSys drives a coding-agent CLI that is already installed and authenticated.
+This quickstart uses Codex CLI: install it and run `codex login`. Claude Code,
+Gemini CLI, and OpenCode are also supported; see the
+[CLI reference](docs/cli-flags.md).
+
+## Quickstart
+
+Start with the project you want to optimize, including its source and evaluation
+programs. VibeSys requires only two files at the project root: `OBJECTIVE.md`
+and `vibesys.input.toml`. It does not prescribe the rest of the project layout.
+
+Describe the goal and constraints in `OBJECTIVE.md`:
+
+```markdown
+# Objective
+
+Optimize this SPSC queue for maximum throughput. Preserve its public API and
+pass the configured correctness check.
+```
+
+Point VibeSys at the correctness check and benchmark in `vibesys.input.toml`:
+
+```toml
+version = 1
+
+[agent]
+domain = "generic"
+
+# This can be any directory containing project-local evaluator code.
+[evaluator]
+source = "evaluation"
+
+[accuracy]
+command = ["python", "evaluation/check.py"]
+
+[benchmark]
+command = ["python", "evaluation/benchmark.py"]
+
+[benchmark.result]
+json_argument = "--output-json"
+metric = "throughput"
+```
+
+The accuracy command passes when it exits with status 0. VibeSys appends
+`--output-json <path>` to the benchmark command, which must exit with status 0
+and write a finite number such as `{"throughput": 123.4}` to that path. The
+metric should be a higher-is-better score. The optional `[evaluator]` entry
+makes project-local evaluator code read-only; omit it when the commands use
+tools installed outside the project.
+
+Run from the project root. It must be the Git repository root, or outside Git
+so VibeSys can initialize a repository. An existing repository needs a baseline
+commit and a clean worktree.
+
+```bash
+cd /path/to/my-project
+vibesys validate
+vibesys --cli-provider codex --backend cpu --max-rounds 4
+```
+
+VibeSys edits the project on a `vibesys/<run-id>` branch and stores run state in
+`.vs/`. Use `vibesys --resume` to continue the latest run. `agent.toml` is
+optional and only needed for persistent runtime overrides. See
+[`docs/cli-flags.md`](docs/cli-flags.md) for other coding agents, hardware
+backends, explicit input paths, headless execution, resume behavior, and
+advanced run modes. Contributor setup belongs in
+[`docs/development.md`](docs/development.md).
+
 One of VibeSys's first initiatives is **VibeServe**, which asks whether AI agents
 can generate a bespoke LLM serving system for each model, workload, and hardware
 target. The figures, blog post, and paper below document that initiative.
@@ -64,217 +141,6 @@ The framework factors the work along two axes:
 Each round is recorded in git and a framework-owned audit. Provisional rounds
 remain explicitly unreviewed; only judge-approved candidates receive official
 accuracy and performance results.
-
-## Installation
-
-Install Python 3.12+, Git, and [uv](https://docs.astral.sh/uv/), then install the
-published package:
-
-```bash
-uv tool install vibesys
-```
-
-### Coding-agent setup
-
-Install and authenticate one of the supported coding-agent CLIs:
-
-| Agent | Selection | Authentication |
-| --- | --- | --- |
-| Codex CLI | `--agent-backend cli --cli-provider codex` | Install Codex and run `codex login`. |
-| Claude Code | `--agent-backend cli --cli-provider claude` | Install Claude Code and use its login flow. |
-| Gemini CLI | `--agent-backend cli --cli-provider gemini` | Install Gemini CLI and use its login flow. |
-| OpenCode | `--agent-backend cli --cli-provider opencode` | Install OpenCode and configure its provider. |
-
-CLI credentials stay with the CLI.
-Materialized workspaces created with `--runs-dir` also support DeepAgents via
-`--agent-backend deepagents`; export its provider credentials, such as
-`OPENAI_API_KEY`, or load them through your own configuration.
-
-Run VibeSys from a complete project containing its candidate source,
-`OBJECTIVE.md`, and `vibesys.input.toml`:
-
-```bash
-cd /path/to/my-project
-vibesys validate
-vibesys --backend cpu --max-rounds 4
-```
-
-The project directory must be its Git repository root, or outside any existing
-Git repository so VibeSys can initialize one. An existing repository needs a
-baseline commit and a clean worktree. On Linux, install `bubblewrap`; macOS uses
-the system `sandbox-exec` command.
-
-The published wheel includes the interactive TUI for Linux x86-64, Linux ARM64,
-macOS Intel, and macOS Apple Silicon. No separate JavaScript runtime is needed.
-Use `--headless` to run without the TUI. Install the selected coding-agent CLI
-separately. Bring a complete project; starter bundles are not included in the
-installed package.
-
-`agent.toml` is optional. When `--config` is omitted, VibeSys loads
-`./agent.toml` from the launch directory if present, otherwise it uses built-in
-defaults. Pass `--config /path/to/agent.toml` to select another file.
-
-The [GitHub CLI](https://cli.github.com/) is only needed when an experiment
-collection created with `--runs-dir` should sync to GitHub. Use `--local` to
-keep that collection on the local machine.
-
-The `vibesys` command accepts the same run flags described in
-[`docs/cli-flags.md`](docs/cli-flags.md). The default agent-loop workflow runs
-directly in a complete project and stores its state under `.vs/`.
-
-```bash
-# Run from a complete project containing source, OBJECTIVE.md, and vibesys.input.toml
-cd <project>
-vibesys --agent-backend cli --cli-provider codex
-
-# Equivalent explicit input in headless mode
-vibesys --headless --input <project> --agent-backend cli --cli-provider codex
-
-vibesys --help                    # full flag list
-```
-
-`vibesys` also runs headless automatically for `validate` and when stdin/stdout
-is not a TTY (pipes, CI).
-
-In-place runs keep agent-authored source in the project root. Git records code
-evolution on a `vibesys/<run-id>` branch. Portable completed-run metadata lives
-in committed `.vs/project.json` and `.vs/runs/<run-id>/`; `.vs/local/` contains
-logs, active state, and the current-run pointer and is ignored by `.vs/.gitignore`.
-Use `vibesys --resume` for the current run or `vibesys --resume <run-id>` to
-select a run explicitly.
-
-`--runs-dir PATH` selects materialized-workspace mode and stores experiments in
-the given collection. Use it for `plain` and `evolve`, standalone `--input-*`
-synthesis, Docker or Modal execution, seed/source materialization, and remote
-experiment repositories.
-
-## Quickstart
-
-```bash
-# A complete project already contains the candidate source and evaluator contract
-cd /path/to/my-project
-vibesys --backend cpu --max-rounds 4
-
-# Launch the same mode without changing directories
-vibesys --input /path/to/my-project --backend cpu --max-rounds 4
-```
-
-Input manifests used in-place must not declare `[workspace].seed` or
-`[[workspace.sources]]`; materialize the starter source into the project first.
-
-`--outer-loop` defaults to `agent`. Pass `--outer-loop plain` or `--outer-loop evolve` to switch. See `vibesys --outer-loop <kind> --help` for loop-specific flags, and [`docs/cli-flags.md`](docs/cli-flags.md) for the supported flag combinations.
-
-## Search strategies
-
-VibeSys supports three outer-loop search strategies:
-
-- `agent` (default): an orchestrator plans each round and delegates to the
-  implementer, judge, and profiler. It uses the `multi-agent` inner loop by
-  default; pass `--inner-loop single-agent` to run the single-agent ablation.
-- `evolve`: an evolutionary search over candidate implementations.
-- `plain`: an issue-board loop that drains implementation issues and evaluates
-  performance.
-
-For contributor workflows and extension guides, see
-[`docs/development.md`](docs/development.md).
-
-## Project layout
-
-A complete project keeps candidate source and its evaluation contract together:
-
-```
-project/
-├── OBJECTIVE.md          # deployment goal, workload, hardware, and interface
-├── vibesys.input.toml    # domain, checker, benchmark, and optional inputs
-├── <candidate source>    # files the optimization agent edits
-├── reference/            # optional reference or seed inputs
-│   ├── reference.py
-│   ├── config.json
-│   └── meta.json         # model id + revision
-├── accuracy_checker/     # optional correctness gate
-├── benchmark/            # benchmark that emits the metric to optimize
-├── _evaluator/           # optional evaluator-owned support code
-└── README.md             # human-readable description
-```
-
-Launch from the root of a complete project or pass that root with `--input`.
-For default in-place execution, the project root also contains the candidate
-source and must be the Git repository root (or outside any existing Git
-repository so VibeSys can initialize one).
-The manifest declares the
-agent domain, correctness command, benchmark command, optional starter
-workspace, optional evaluator source, and optional benchmark result
-metric.
-
-Evaluator, checker, and benchmark files are visible to agents but read-only and
-integrity-checked during in-place runs.
-
-For external usage without a bundle on disk, supply the same pieces as separate
-`--input-objective`/`--input-objective-file`, `--input-domain`,
-`--input-accuracy-command`, and `--input-benchmark-command` flags (plus optional
-`--input-reference`, `--input-evaluator-dir`, and others) together with
-`--runs-dir`. VibeSys synthesizes a bundle and runs it identically. See
-[`docs/cli-flags.md`](docs/cli-flags.md#providing-inputs-without-a-bundle---input-)
-for the full flag list.
-
-`OBJECTIVE.md` is read at the start of every run and must live next to the
-`reference/` directory (sibling, not inside).
-
-For multi-objective evolutionary runs, drop an `objectives.toml` next to `OBJECTIVE.md` (or pass `--objective name:max|min` flags) — see `vibesys --outer-loop evolve --help`.
-
-## Optional configuration (`agent.toml`)
-
-```toml
-[model]
-name = "gpt-5.4"             # auto-detected provider for claude-* / gpt-* / gemini-* / gemma-*
-# provider = "openai"        # optional override
-
-[backend]
-name = "cuda"                 # or "metal", "trainium", "rocm", or "cpu"
-
-[agent]
-backend = "cli"               # in-place; "deepagents" is available with --runs-dir
-cli_provider = "codex"        # which coding-agent harness to drive
-# cli_timeout = 1800          # per-invocation timeout (seconds)
-
-# Optional role-specific CLI models. Other roles, including the independent
-# judge, continue to use [model].name and [thinking].level.
-[agent.outer]
-model = "gpt-5.6-sol"         # orchestrator pre-round and planning calls
-reasoning_effort = "xhigh"
-
-[agent.inner]
-model = "gpt-5.6-luna"        # implementer calls
-reasoning_effort = "xhigh"
-
-[repository]
-# Optional GitHub user/org override. If omitted, use the account from `gh auth status`.
-# owner = "your-github-user"
-visibility = "private"        # private, public, or internal
-
-# Optional: benchmark load levels handed to the perf evaluator.
-# [[perf_eval.load_levels]]
-# rate = 1
-# duration = 20
-# max_tokens = 128
-```
-
-Provider credentials can be exported or placed in a root `.env`. The CLI flags
-`--agent-backend`, `--cli-provider`, and `--backend` override these settings.
-
-The interactive client ships four light/dark theme pairs: `dark` (default) /
-`light`, `solarized-dark` / `solarized-light`, `catppuccin-mocha` /
-`catppuccin-latte`, and `high-contrast-dark` / `high-contrast-light`. Set one
-with `--theme`, or switch mid-session with `/theme <name>`.
-See [`docs/cli-flags.md`](docs/cli-flags.md#client-theme).
-
-The config is validated against a typed schema on load (`vibesys/config.py`): unknown sections or keys, unknown providers/backends, and missing required fields are rejected with an error rather than silently ignored.
-
-Fresh in-place runs stay local and use a `vibesys/<run-id>` branch. Experiment
-collections created with `--runs-dir` use GitHub-backed tracking by default;
-pass `--local` to keep an experiment local. See
-[`docs/cli-flags.md`](docs/cli-flags.md) for the full repository and resume
-contracts.
 
 ## Citation
 
