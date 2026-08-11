@@ -103,6 +103,13 @@ def test_codex_container_installs_luna_capable_cli_version():  # noqa: ANN201  #
 
 
 @pytest.mark.parametrize("provider", ["claude", "gemini", "codex", "opencode"])
+def test_editor_container_installs_only_mcp_v1(provider: str) -> None:
+    commands = cli_docker.docker_init_commands(provider)
+
+    assert "python3 -m pip install --quiet 'mcp>=1.0,<2'" in commands
+
+
+@pytest.mark.parametrize("provider", ["claude", "gemini", "codex", "opencode"])
 def test_editor_container_installs_pinned_rust_toolchain(provider: str):  # noqa: ANN201  # tracked: #288
     commands = cli_docker.docker_init_commands(provider)
     rust_install = next(command for command in commands if "rustup-init.sh" in command)

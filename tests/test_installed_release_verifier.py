@@ -22,20 +22,26 @@ def test_runtime_root_uses_the_resolved_filesystem_path(tmp_path: Path) -> None:
     assert verifier.resolved_runtime_root(apparent) == actual.resolve()
 
 
-def test_console_entry_point_runs_installed_command_with_headless_help(
+def test_console_entry_points_run_installed_commands_with_help(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    marker = tmp_path / "args"
-    executable = tmp_path / "vibesys"
-    executable.write_text('#!/bin/sh\nprintf "%s\\n" "$@" > "$VIBESYS_TEST_ARGS"\n')
-    executable.chmod(0o755)
+    vibesys_marker = tmp_path / "vibesys-args"
+    mcp_marker = tmp_path / "mcp-args"
+    vibesys = tmp_path / "vibesys"
+    vibesys.write_text('#!/bin/sh\nprintf "%s\\n" "$@" > "$VIBESYS_TEST_ARGS"\n')
+    vibesys.chmod(0o755)
+    issue_mcp = tmp_path / "vibesys-issue-mcp"
+    issue_mcp.write_text('#!/bin/sh\nprintf "%s\\n" "$@" > "$VIBESYS_MCP_TEST_ARGS"\n')
+    issue_mcp.chmod(0o755)
     monkeypatch.setenv("PATH", str(tmp_path))
-    monkeypatch.setenv("VIBESYS_TEST_ARGS", str(marker))
+    monkeypatch.setenv("VIBESYS_TEST_ARGS", str(vibesys_marker))
+    monkeypatch.setenv("VIBESYS_MCP_TEST_ARGS", str(mcp_marker))
 
     verifier.verify_console_entry_point()
 
-    assert marker.read_text().splitlines() == ["--headless", "--help"]
+    assert vibesys_marker.read_text().splitlines() == ["--headless", "--help"]
+    assert mcp_marker.read_text().splitlines() == ["--help"]
 
 
 def test_sdk_sync_uses_the_running_isolated_interpreter(tmp_path: Path) -> None:

@@ -117,3 +117,4 @@ def test_built_distribution_caps_dependencies_without_current_intel_macos_wheels
 
     assert str(requirements["cbor2"].specifier) == "<6"
     assert str(requirements["cryptography"].specifier) == "<50"
+    assert str(requirements["mcp"].specifier) == "<2,>=1.0"

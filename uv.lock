@@ -4622,7 +4622,7 @@ requires-dist = [
     { name = "langchain-google-vertexai", specifier = ">=3.2.2" },
     { name = "langchain-openai" },
     { name = "loguru", specifier = ">=0.7.2" },
-    { name = "mcp", specifier = ">=1.0" },
+    { name = "mcp", specifier = ">=1.0,<2" },
     { name = "modal", specifier = ">=1.4.2" },
     { name = "omnigent", marker = "extra == 'omnigent'", specifier = "==0.6.0" },
     { name = "openevolve", specifier = "==0.3.1" },

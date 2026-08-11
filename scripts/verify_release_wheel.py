@@ -280,8 +280,11 @@ def _verify_metadata(
         raise ReleaseWheelError.invalid_requirement(exc) from exc
     for requirement in actual:
         parsed = Requirement(requirement)
-        if canonicalize_name(parsed.name) in _INTERNAL_DISTRIBUTIONS:
+        canonical_name = canonicalize_name(parsed.name)
+        if canonical_name in _INTERNAL_DISTRIBUTIONS:
             _fail(f"Wheel must not depend on internal distribution {parsed.name}")
+        if canonical_name == "mcp" and parsed.specifier.contains("2.0.0", prereleases=True):
+            _fail("Wheel MCP dependency must exclude MCP 2.0.0")
 
     expected_values = _project_requirements(project)
     expected = Counter(str(Requirement(value)) for value in expected_values)

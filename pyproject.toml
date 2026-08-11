@@ -25,7 +25,7 @@ dependencies = [
     "langchain-google-vertexai>=3.2.2",
     "langchain-openai",
     "huggingface_hub",
-    "mcp>=1.0",
+    "mcp>=1.0,<2",
     "modal>=1.4.2",
     "pydantic>=2",
     "pyyaml>=6",

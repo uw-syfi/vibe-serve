@@ -397,6 +397,21 @@ def test_rejects_a_metadata_version_mismatch(release_fixture: tuple[Path, Path])
         _verify(source_root, wheel)
 
 
+def test_rejects_an_mcp_requirement_that_admits_version_2(
+    release_fixture: tuple[Path, Path],
+) -> None:
+    source_root, wheel = release_fixture
+    project = source_root / "pyproject.toml"
+    project.write_text(project.read_text().replace("example>=1", "mcp>=1.0"))
+    metadata = _wheel_files(source_root)[f"{DIST_INFO}/METADATA"].replace(
+        b"Requires-Dist: example>=1", b"Requires-Dist: mcp>=1.0"
+    )
+    _write_wheel(wheel, source_root, extra={f"{DIST_INFO}/METADATA": metadata})
+
+    with pytest.raises(verifier.ReleaseWheelError, match=r"MCP.*2\.0\.0"):
+        _verify(source_root, wheel)
+
+
 def test_rejects_a_source_digest_mismatch(release_fixture: tuple[Path, Path]) -> None:
     source_root, wheel = release_fixture
     archive_path = f"{PLATLIB}vibesys/__init__.py"

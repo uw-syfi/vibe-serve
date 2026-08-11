@@ -11,6 +11,6 @@ Each subpackage corresponds to one ``--outer-loop`` value:
 
 This package's ``__init__.py`` is intentionally empty so submodules with
 lightweight footprints (e.g. ``loops.plain.mcp_server``, spawned inside
-Docker containers that only have ``mcp>=1.0`` installed) don't drag in
+Docker containers that only have ``mcp>=1.0,<2`` installed) don't drag in
 heavy optional dependencies via package-level re-exports.
 """

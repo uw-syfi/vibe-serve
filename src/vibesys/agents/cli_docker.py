@@ -99,7 +99,7 @@ _COMMON_DOCKER_TOOLING_INSTALL = [
     _RUST_TOOLCHAIN_INSTALL,
     _apt_install("ripgrep", check_bin="rg"),
     _apt_install("python3 python3-pip"),
-    "python3 -m pip install --quiet 'mcp>=1.0'",
+    "python3 -m pip install --quiet 'mcp>=1.0,<2'",
 ]
 
 _DOCKER_INSTALL_COMMANDS: dict[str, list[str]] = {
