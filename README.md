@@ -85,7 +85,7 @@ Install and authenticate one of the supported coding-agent CLIs:
 | Gemini CLI | `--agent-backend cli --cli-provider gemini` | Install Gemini CLI and use its login flow. |
 | OpenCode | `--agent-backend cli --cli-provider opencode` | Install OpenCode and configure its provider. |
 
-The built-in defaults select the Codex CLI. CLI credentials stay with the CLI.
+CLI credentials stay with the CLI.
 Materialized workspaces created with `--runs-dir` also support DeepAgents via
 `--agent-backend deepagents`; export its provider credentials, such as
 `OPENAI_API_KEY`, or load them through your own configuration.
