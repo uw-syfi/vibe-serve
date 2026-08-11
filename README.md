@@ -4,83 +4,6 @@
 
 **An agentic framework that generates bespoke systems from application requirements, workload characteristics, and the underlying hardware.**
 
-## Installation
-
-Install Python 3.12+, Git, and [uv](https://docs.astral.sh/uv/). Linux also
-requires `bubblewrap`; macOS includes the required `sandbox-exec` command.
-
-```bash
-uv tool install vibesys
-```
-
-VibeSys drives a coding-agent CLI that is already installed and authenticated.
-This quickstart uses Codex CLI: install it and run `codex login`. Claude Code,
-Gemini CLI, and OpenCode are also supported; see the
-[CLI reference](docs/cli-flags.md).
-
-## Quickstart
-
-Start with the project you want to optimize, including its source and evaluation
-programs. VibeSys requires only two files at the project root: `OBJECTIVE.md`
-and `vibesys.input.toml`. It does not prescribe the rest of the project layout.
-
-Describe the goal and constraints in `OBJECTIVE.md`:
-
-```markdown
-# Objective
-
-Optimize this SPSC queue for maximum throughput. Preserve its public API and
-pass the configured correctness check.
-```
-
-Point VibeSys at the correctness check and benchmark in `vibesys.input.toml`:
-
-```toml
-version = 1
-
-[agent]
-domain = "generic"
-
-# This can be any directory containing project-local evaluator code.
-[evaluator]
-source = "evaluation"
-
-[accuracy]
-command = ["python", "evaluation/check.py"]
-
-[benchmark]
-command = ["python", "evaluation/benchmark.py"]
-
-[benchmark.result]
-json_argument = "--output-json"
-metric = "throughput"
-```
-
-The accuracy command passes when it exits with status 0. VibeSys appends
-`--output-json <path>` to the benchmark command, which must exit with status 0
-and write a finite number such as `{"throughput": 123.4}` to that path. The
-metric should be a higher-is-better score. The optional `[evaluator]` entry
-makes project-local evaluator code read-only; omit it when the commands use
-tools installed outside the project.
-
-Run from the project root. It must be the Git repository root, or outside Git
-so VibeSys can initialize a repository. An existing repository needs a baseline
-commit and a clean worktree.
-
-```bash
-cd /path/to/my-project
-vibesys validate
-vibesys --cli-provider codex --backend cpu --max-rounds 4
-```
-
-VibeSys edits the project on a `vibesys/<run-id>` branch and stores run state in
-`.vs/`. Use `vibesys --resume` to continue the latest run. `agent.toml` is
-optional and only needed for persistent runtime overrides. See
-[`docs/cli-flags.md`](docs/cli-flags.md) for other coding agents, hardware
-backends, explicit input paths, headless execution, resume behavior, and
-advanced run modes. Contributor setup belongs in
-[`docs/development.md`](docs/development.md).
-
 One of VibeSys's first initiatives is **VibeServe**, which asks whether AI agents
 can generate a bespoke LLM serving system for each model, workload, and hardware
 target. The figures, blog post, and paper below document that initiative.
@@ -141,6 +64,46 @@ The framework factors the work along two axes:
 Each round is recorded in git and a framework-owned audit. Provisional rounds
 remain explicitly unreviewed; only judge-approved candidates receive official
 accuracy and performance results.
+
+## Quickstart
+
+Install Python 3.12+, Git, and [uv](https://docs.astral.sh/uv/). Linux also
+requires `bubblewrap`; macOS includes the required `sandbox-exec` command. Then
+install VibeSys:
+
+```bash
+uv tool install vibesys
+```
+
+Install and authenticate a supported coding-agent CLI. For Codex CLI, run
+`codex login`; see the [CLI reference](docs/cli-flags.md) for other supported
+agents.
+
+From the root of the project you want to optimize, add two VibeSys files:
+
+- `OBJECTIVE.md` describes what to optimize and the constraints the result must
+  preserve.
+- `vibesys.input.toml` identifies the problem domain and the programs that check
+  correctness and benchmark performance.
+
+These files do not prescribe a layout for the rest of the project. See
+[`examples/`](examples/) for complete objectives and manifests across data
+structures, model serving, and microservices.
+
+Run from the project root:
+
+```bash
+cd /path/to/my-project
+vibesys validate
+vibesys --cli-provider codex --backend cpu --max-rounds 4
+```
+
+The directory must be its Git repository root, or outside Git so VibeSys can
+initialize a repository. An existing repository needs a baseline commit and a
+clean worktree. `agent.toml` is optional. See
+[`docs/cli-flags.md`](docs/cli-flags.md) for other coding agents, hardware
+backends, resume behavior, and advanced run modes. Contributor setup belongs in
+[`docs/development.md`](docs/development.md).
 
 ## Citation
 
