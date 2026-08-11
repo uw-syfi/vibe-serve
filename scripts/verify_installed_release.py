@@ -2,14 +2,20 @@
 
 from __future__ import annotations
 
+import errno
 import importlib
 import importlib.metadata
+import json
 import os
+import pty
+import select
 import shutil
+import signal
 import site
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 from typing import Never
 
@@ -31,6 +37,9 @@ FRAMEWORK_PACKAGES = (
     "vs_sandbox",
 )
 SYSTEM_JAVASCRIPT_TOOLS = ("bun", "node", "npm", "pnpm")
+TUI_SMOKE_MARKER_ENV = "VIBESYS_RELEASE_SMOKE_MARKER"
+TUI_SMOKE_MARKER_CONTENT = "renderer initialized; control protocol exchanged\n"
+PTY_OUTPUT_LIMIT = 64 * 1024
 
 
 def resolved_runtime_root(path: Path | None = None) -> Path:
@@ -49,6 +58,16 @@ class InstalledReleaseError(RuntimeError):
     def command_failed(cls, command: list[str]) -> InstalledReleaseError:
         """Build an error for a failed installed-artifact command."""
         return cls(f"Installed verification command failed: {command}")
+
+    @classmethod
+    def interactive_failed(
+        cls,
+        command: list[str],
+        reason: str,
+        output: str,
+    ) -> InstalledReleaseError:
+        """Build an error for a failed PTY-backed interactive check."""
+        return cls(f"Installed interactive verification {reason}: {command}\n{output}")
 
 
 def verify_installed_release() -> None:
@@ -193,11 +212,153 @@ def _verify_tui() -> None:
         env=environment,
         timeout=30,
     )
-    _run(
-        [str(bundle.runtime), str(bundle.launcher), "--backend", "cpu", "--help"],
+    executable = shutil.which("vibesys")
+    if executable is None:
+        _fail("Installed vibesys console script is absent from PATH")
+    run_interactive_tui_smoke(
+        [executable],
         env=environment,
-        timeout=30,
+        runtime_root=_RUNTIME_ROOT,
+        timeout=60,
     )
+
+
+def run_interactive_tui_smoke(
+    command_prefix: list[str],
+    *,
+    env: dict[str, str],
+    runtime_root: Path,
+    timeout: int,
+) -> None:
+    """Run the installed interactive CLI through a PTY until controller startup."""
+    with tempfile.TemporaryDirectory(prefix="vibesys-tui-smoke-", dir=runtime_root) as temporary:
+        smoke_root = Path(temporary)
+        input_root = smoke_root / "input"
+        input_root.mkdir()
+        (input_root / "OBJECTIVE.md").write_text("Verify installed interactive startup.\n")
+        python_literal = json.dumps(sys.executable)
+        (input_root / "vibesys.input.toml").write_text(
+            "version = 1\n"
+            "\n"
+            "[agent]\n"
+            'domain = "generic"\n'
+            "\n"
+            "[accuracy]\n"
+            f'command = [{python_literal}, "-c", "raise SystemExit(0)"]\n'
+            "\n"
+            "[benchmark]\n"
+            f'command = [{python_literal}, "-c", "raise SystemExit(0)"]\n'
+        )
+        marker = smoke_root / "controller-started"
+        smoke_environment = {**env, TUI_SMOKE_MARKER_ENV: str(marker)}
+        command = [
+            *command_prefix,
+            "--stub-agent",
+            "--input",
+            str(input_root),
+            "--exp-name",
+            "installed-release-smoke",
+            "--max-rounds",
+            "1",
+            "--local",
+            "--no-skills",
+            "--backend",
+            "cpu",
+            "--profiler",
+            "none",
+        ]
+        _run_in_pty(command, env=smoke_environment, timeout=timeout)
+        if not marker.is_file() or marker.read_text() != TUI_SMOKE_MARKER_CONTENT:
+            _fail("Interactive TUI did not write its control-protocol marker")
+
+
+def _run_in_pty(command: list[str], *, env: dict[str, str], timeout: int) -> None:
+    master_fd, slave_fd = pty.openpty()
+    try:
+        process = subprocess.Popen(  # noqa: S603
+            command,
+            env=env,
+            stdin=slave_fd,
+            stdout=slave_fd,
+            stderr=slave_fd,
+            start_new_session=True,
+        )
+    except OSError as exc:
+        os.close(master_fd)
+        raise InstalledReleaseError.command_failed(command) from exc
+    finally:
+        os.close(slave_fd)
+
+    output = bytearray()
+    deadline = time.monotonic() + timeout
+    timed_out = False
+    try:
+        while process.poll() is None:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                timed_out = True
+                break
+            readable, _, _ = select.select([master_fd], [], [], min(0.1, remaining))
+            if readable:
+                _read_pty_output(master_fd, output)
+        while not timed_out and select.select([master_fd], [], [], 0)[0]:
+            if not _read_pty_output(master_fd, output):
+                break
+    finally:
+        os.close(master_fd)
+
+    if timed_out:
+        _terminate_process_group(process)
+        detail = _render_pty_output(output)
+        raise InstalledReleaseError.interactive_failed(
+            command, f"timed out after {timeout}s", detail
+        )
+
+    return_code = process.wait()
+    if return_code != 0:
+        detail = _render_pty_output(output)
+        raise InstalledReleaseError.interactive_failed(
+            command, f"exited with status {return_code}", detail
+        )
+
+
+def _read_pty_output(master_fd: int, output: bytearray) -> bool:
+    try:
+        chunk = os.read(master_fd, 4096)
+    except OSError as exc:
+        if exc.errno == errno.EIO:
+            return False
+        raise
+    if not chunk:
+        return False
+    output.extend(chunk)
+    if len(output) > PTY_OUTPUT_LIMIT:
+        del output[:-PTY_OUTPUT_LIMIT]
+    return True
+
+
+def _terminate_process_group(process: subprocess.Popen[bytes]) -> None:
+    if process.poll() is not None:
+        return
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        return
+    try:
+        process.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        pass
+    else:
+        return
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        return
+    process.wait(timeout=5)
+
+
+def _render_pty_output(output: bytearray) -> str:
+    return bytes(output).decode(errors="replace").strip()
 
 
 def _run(

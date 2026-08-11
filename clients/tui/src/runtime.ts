@@ -12,11 +12,13 @@ export async function runTuiSession(
   renderer: RuntimeRenderer,
   controller: Pick<SessionController, 'start' | 'stop'>,
   app: OpenTuiApp,
+  completeStartupSmoke?: () => Promise<void>,
 ): Promise<void> {
   renderer.start();
   try {
     await controller.start();
-    await new Promise<void>(resolve => renderer.once(CliRenderEvents.DESTROY, resolve));
+    if (completeStartupSmoke) await completeStartupSmoke();
+    else await new Promise<void>(resolve => renderer.once(CliRenderEvents.DESTROY, resolve));
   } finally {
     try {
       renderer.destroy();
