@@ -100,8 +100,8 @@ with the CLI; API credentials are loaded from `.env` automatically.
 `uv sync` first.
 
 To use the interactive TUI, install Node.js 20+, Bun, and pnpm 11 (or enable
-Corepack). Run `./vs`; it installs the frontend dependencies and builds the TUI
-when needed. npm is not required.
+Corepack). Run `./vs --runs-dir "$PWD/exp_env"`; it installs the frontend
+dependencies and builds the TUI when needed. npm is not required.
 
 ### Installing from PyPI
 
