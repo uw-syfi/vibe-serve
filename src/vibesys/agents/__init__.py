@@ -28,7 +28,7 @@ from .progress import AgentProgress, CandidateProgress, RoundProgress
 # The ``TYPE_CHECKING`` imports let pyright resolve the lazily provided
 # names statically without triggering the runtime cycle.
 if TYPE_CHECKING:
-    from vs_sandbox import HostResource
+    from vs_sandbox import HostResource, ProjectPathPolicy
 
     from .cli_runner import CliAgentRunner
     from .deepagents_runner import DeepAgentsRunner
@@ -56,7 +56,7 @@ def __getattr__(name: str) -> Any:  # noqa: ANN401  # tracked: #288
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")  # noqa: TRY003  # tracked: #288
 
 
-def build_agent_runner(  # noqa: D417, PLR0913  # tracked: #288
+def build_agent_runner(  # noqa: C901, D417, PLR0913  # tracked: #288
     config: Config,
     *,
     agent_backend: str | None,
@@ -71,6 +71,8 @@ def build_agent_runner(  # noqa: D417, PLR0913  # tracked: #288
     use_docker: bool,
     log_dir: Path | None = None,
     host_resources: Iterable[HostResource] = (),
+    project_path_policy: ProjectPathPolicy | None = None,
+    require_host_sandbox: bool = False,
 ) -> AgentRunner:
     """Construct the right :class:`AgentRunner` for the requested backend.
 
@@ -116,6 +118,12 @@ def build_agent_runner(  # noqa: D417, PLR0913  # tracked: #288
     agent_cfg = config.agent
     backend = agent_backend or agent_cfg.backend or DEFAULT_AGENT_BACKEND
 
+    if require_host_sandbox and backend not in {"cli", "stub"}:
+        raise SystemExit(  # noqa: TRY003  # tracked: #288
+            "in-place project execution requires the CLI agent backend so VibeSys can "
+            "enforce nested read-only and hidden paths"
+        )
+
     if backend == "deepagents":
         if backends is None:
             raise SystemExit(  # noqa: TRY003  # tracked: #288
@@ -142,6 +150,11 @@ def build_agent_runner(  # noqa: D417, PLR0913  # tracked: #288
         timeout = agent_cfg.cli_timeout
 
         if is_feature_enabled(FeatureFlag.OMNIGENT_AGENT_BACKEND, config):
+            if require_host_sandbox:
+                raise SystemExit(  # noqa: TRY003  # tracked: #288
+                    "in-place project execution does not yet support the Omnigent "
+                    "backend; disable feature_flags.omnigent_agent_backend"
+                )
             # Opt-in alternative to agentshim. Validated and constructed here
             # so an unsupported provider or a missing optional dependency
             # fails before the loop starts. With the flag off (the default)
@@ -229,6 +242,8 @@ def build_agent_runner(  # noqa: D417, PLR0913  # tracked: #288
                 }.items()
                 if configured is not None
             },
+            project_path_policy=project_path_policy,
+            require_host_sandbox=require_host_sandbox,
         )
 
     raise SystemExit(f"unknown agent backend: {backend!r}")  # noqa: TRY003  # tracked: #288

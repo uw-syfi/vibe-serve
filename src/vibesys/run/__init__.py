@@ -12,6 +12,13 @@ from vibesys.run.git_tracker import GitTracker
 from vibesys.run.logger import RunLogger
 from vibesys.run.paths import RunCommands, RunPaths
 from vibesys.run.protocol import LoopContext
+from vibesys.run.round_transaction import (
+    CompletedRound,
+    RoundRecoveryOutcome,
+    RoundTransaction,
+    RoundTransactionCoordinator,
+    RoundTransactionError,
+)
 from vibesys.run.workspace import (
     EXCLUDED_WORKSPACE_DIRS,
     CopySpec,
@@ -22,6 +29,7 @@ from vibesys.run.workspace import (
 
 __all__ = [
     "EXCLUDED_WORKSPACE_DIRS",
+    "CompletedRound",
     "CopySpec",
     "DeviceLease",
     "ExperimentRepository",
@@ -29,6 +37,10 @@ __all__ = [
     "InputProjectSpec",
     "LoopContext",
     "RepositoryVisibility",
+    "RoundRecoveryOutcome",
+    "RoundTransaction",
+    "RoundTransactionCoordinator",
+    "RoundTransactionError",
     "RunCommands",
     "RunLogger",
     "RunPaths",

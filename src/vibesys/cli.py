@@ -272,7 +272,7 @@ def _run_source_tui(root: Path, args: list[str]) -> int:
         "PATH": os.pathsep.join([str(bun.parent), os.environ.get("PATH", "")]),
     }
     return subprocess.call(  # noqa: S603  # tracked: #288
-        [str(node), str(launcher), *args], cwd=str(root), env=env
+        [str(node), str(launcher), *args], env=env
     )
 
 

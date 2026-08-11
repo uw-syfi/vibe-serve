@@ -87,14 +87,15 @@ class RoundRecord:
 _ROUND_RECORD_ADAPTER: TypeAdapter[RoundRecord] = TypeAdapter(RoundRecord)
 
 
-def _round_record_to_json(record: RoundRecord) -> dict[str, Any]:
+def serialize_round_record(record: RoundRecord) -> dict[str, Any]:
+    """Return the stable JSON-compatible representation of *record*."""
     dumped = _ROUND_RECORD_ADAPTER.dump_python(record, mode="json")
     round_number = dumped.pop("round_number")
     return {"round": round_number, **dumped}
 
 
-def _parse_round_record(data: dict[str, Any]) -> RoundRecord:
-    """Parse one raw JSON object (e.g. one entry of a persisted history) into a `RoundRecord`."""
+def parse_round_record(data: dict[str, Any]) -> RoundRecord:
+    """Parse one JSON-compatible round record, including legacy records."""
     if "round_number" not in data and "round" in data:
         data = dict(data)
         data["round_number"] = data.pop("round")
@@ -127,14 +128,14 @@ class RoundHistory:
     def load(cls, path: Path) -> RoundHistory:
         """Load the round history from *path*, or start empty if it doesn't exist yet."""
         data = read_json(path)
-        records = [] if data is None else [_parse_round_record(entry) for entry in data]
+        records = [] if data is None else [parse_round_record(entry) for entry in data]
         return cls(path, records)
 
     def save(self) -> None:
         """Persist the current history, atomically, to the path it was loaded/created with."""
         if self.path is None:
             raise ValueError("RoundHistory has no path to save to")  # noqa: TRY003  # tracked: #288
-        atomic_write_json(self.path, [_round_record_to_json(record) for record in self.records])
+        atomic_write_json(self.path, [serialize_round_record(record) for record in self.records])
 
     def append(self, record: RoundRecord) -> None:
         """Add *record* to the end of the history."""

@@ -65,14 +65,14 @@ accuracy and performance results.
 ## Installation
 
 1. Install Python 3.12+, Git, and [uv](https://docs.astral.sh/uv/).
-2. For the default GitHub-synced runs, install the [GitHub CLI](https://cli.github.com/)
-   and sign in with `gh auth login`. You do not need `gh` when every run uses
-   `--local`.
-3. From the repository root, create the local configuration files:
+2. For legacy `--runs-dir` runs that sync to GitHub, install the
+   [GitHub CLI](https://cli.github.com/) and sign in with `gh auth login`.
+   Default in-place runs do not need `gh`.
+3. From the repository root, optionally create local configuration files:
 
 ```bash
 cp .env.example .env       # provider keys for API-backed/deepagents runs
-cp agent.toml.example agent.toml
+cp agent.toml.example agent.toml  # optional overrides; built-in CLI defaults work without it
 ```
 
 ### Coding-agent setup
@@ -87,10 +87,11 @@ Choose one of these agent options in `agent.toml` or with command-line flags:
 | OpenCode | `--agent-backend cli --cli-provider opencode` | Install OpenCode and configure its provider. |
 | DeepAgents | `--agent-backend deepagents` | Put the selected provider's API credentials in `.env`. |
 
-The default `agent.toml.example` selects the Codex CLI. CLI credentials stay
-with the CLI; API credentials are loaded from `.env` automatically.
+The built-in defaults and `agent.toml.example` select the Codex CLI. CLI
+credentials stay with the CLI; API credentials are loaded from `.env`
+automatically.
 
-3. Check the installation:
+4. Check the installation:
 
 ```bash
 uv run vibesys validate examples/data-structures/queue-spsc
@@ -100,8 +101,10 @@ uv run vibesys validate examples/data-structures/queue-spsc
 `uv sync` first.
 
 To use the interactive TUI, install Node.js 20+, Bun, and pnpm 11 (or enable
-Corepack). Run `uv run vibesys --runs-dir "$PWD/exp_env"`; it installs the frontend
-dependencies and builds the TUI when needed. npm is not required.
+Corepack). Run `uv run vibesys --runs-dir "$PWD/exp_env" --input
+examples/data-structures/queue-spsc`; this checked-in seed-based example uses
+the legacy copied-workspace mode. The launcher installs frontend dependencies
+and builds the TUI when needed. npm is not required.
 
 ### Installing from GitHub source
 
@@ -124,15 +127,16 @@ The published wheel installs the **`vibesys`** command and bundles the native
 Bun and OpenTUI runtime for Linux x86-64, Linux ARM64, macOS Intel, or macOS
 Apple Silicon. It accepts the same run flags described in
 [`docs/cli-flags.md`](docs/cli-flags.md). No separate JavaScript runtime is
-needed for the installed tool. Every run requires `--runs-dir PATH`; VibeSys
-stores experiment directories, synthesized inputs, and shared caches there.
+needed for the installed tool. The default agent-loop workflow runs directly
+in a complete input project and stores its state under `.vs/`.
 
 ```bash
-# Interactive TUI
-vibesys --runs-dir ~/vibesys-runs --input <bundle> --local --agent-backend cli --cli-provider codex
+# Run from a complete project containing source, OBJECTIVE.md, and vibesys.input.toml
+cd <project>
+vibesys --agent-backend cli --cli-provider codex
 
-# Same run, headless (no TUI, no Bun)
-vibesys --headless --runs-dir ~/vibesys-runs --input <bundle> --local
+# Equivalent explicit input, headless (no TUI, no Bun)
+vibesys --headless --input <project> --agent-backend cli --cli-provider codex
 
 vibesys --help                    # full flag list
 ```
@@ -146,23 +150,39 @@ Install the selected Codex, Claude Code, Gemini, or OpenCode CLI separately and
 complete its login flow. For API-backed agents, export the provider credentials
 (for example, `OPENAI_API_KEY`) or load them through your own configuration.
 The wheel does not include `agent.toml`. When `--config` is omitted, VibeSys
-loads exactly `./agent.toml` from the working directory where it was launched
-and reports an error if that file is absent. Pass
-`--config /path/to/agent.toml` to override that path. Add `--local` to skip
-GitHub sync when `gh` is not installed.
+loads `./agent.toml` from the launch directory if present, otherwise it uses
+safe built-in CLI defaults. Pass `--config /path/to/agent.toml` to override
+that path.
+
+In-place runs keep agent-authored source in the project root. Git records code
+evolution on a `vibesys/<run-id>` branch. Portable completed-run metadata lives
+in committed `.vs/project.json` and `.vs/runs/<run-id>/`; `.vs/local/` contains
+logs, active state, and the current-run pointer and is ignored by `.vs/.gitignore`.
+Use `vibesys --resume <run-id>` from the same project to continue a run.
+
+`--runs-dir PATH` selects the legacy copied-workspace workflow. It remains
+required for `plain` and `evolve`, standalone `--input-*` synthesis, Docker or
+Modal execution, seed/source materialization, and remote experiment repositories.
 
 ## Quickstart
 
 ```bash
-# Issue-tracker outer loop, Codex CLI, Docker on local CUDA, 4 rounds
-uv run vibesys \
-  --runs-dir ~/vibesys-runs \
-  --input examples/model-serving/moonshine-streaming \
-  --exp-name my-experiment \
-  --docker \
-  --agent-backend cli --cli-provider codex \
-  --max-rounds 4 \
-  --modality speech_to_text
+# A complete project already contains the candidate source and evaluator contract
+cd /path/to/my-project
+vibesys --backend cpu --max-rounds 4
+
+# Launch the same mode without changing directories
+vibesys --input /path/to/my-project --backend cpu --max-rounds 4
+```
+
+Input manifests used in-place must not declare `[workspace].seed` or
+`[[workspace.sources]]`; materialize the starter source into the project first.
+For a checked-in seed-based example, keep using the legacy form:
+
+```bash
+uv run vibesys --runs-dir ~/vibesys-runs \
+  --input examples/data-structures/queue-spsc \
+  --backend cpu --max-rounds 4
 ```
 
 `--outer-loop` defaults to `agent`. Pass `--outer-loop plain` or `--outer-loop evolve` to switch. See `uv run vibesys --outer-loop <kind> --help` for loop-specific flags, and [`docs/cli-flags.md`](docs/cli-flags.md) for the supported flag combinations.
@@ -198,7 +218,9 @@ examples/<name>/
 └── README.md             # human-readable description
 ```
 
-Pass the bundle root with `--input examples/<name>/`. The manifest declares the
+Launch from a complete bundle root or pass it with `--input examples/<name>/`.
+For default in-place execution, that root also contains the candidate source.
+The manifest declares the
 agent domain, correctness command, benchmark command, optional starter
 workspace, optional trusted evaluator source, and optional benchmark result
 metric.
@@ -246,9 +268,6 @@ reasoning_effort = "xhigh"
 # owner = "your-github-user"
 visibility = "private"        # private, public, or internal
 
-[tui]
-theme = "dark"                # interactive client theme; --theme overrides
-
 # Optional: benchmark load levels handed to the perf evaluator.
 # [[perf_eval.load_levels]]
 # rate = 1
@@ -258,17 +277,18 @@ theme = "dark"                # interactive client theme; --theme overrides
 
 Provider credentials live in `.env` — see `.env.example`. The CLI flags `--agent-backend` / `--cli-provider` / `--backend` override these.
 
-The interactive client ships four light/dark theme pairs — `dark` (default) /
+The interactive client ships four light/dark theme pairs: `dark` (default) /
 `light`, `solarized-dark` / `solarized-light`, `catppuccin-mocha` /
 `catppuccin-latte`, and `high-contrast-dark` / `high-contrast-light`. Set one
-with `[tui].theme` or `--theme`, or switch mid-session with `/theme <name>`.
+with `--theme`, or switch mid-session with `/theme <name>`.
 See [`docs/cli-flags.md`](docs/cli-flags.md#client-theme).
 
 The config is validated against a typed schema on load (`vibesys/config.py`): unknown sections or keys, unknown providers/backends, and missing required fields are rejected with an error rather than silently ignored.
 
-Fresh runs use GitHub-backed tracking by default. Pass `--local` for a local-only
-run in the collection selected by `--runs-dir`; see
-[`docs/cli-flags.md`](docs/cli-flags.md) for repository and resume options.
+Fresh in-place runs stay local and use a `vibesys/<run-id>` branch. The legacy
+`--runs-dir` workflow uses GitHub-backed tracking by default; pass `--local` to
+keep a legacy run local. See [`docs/cli-flags.md`](docs/cli-flags.md) for the
+full repository and resume contracts.
 
 ## Citation
 

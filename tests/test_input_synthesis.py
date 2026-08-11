@@ -245,12 +245,23 @@ def test_input_conflicts_with_standalone_flags(tmp_path):  # noqa: ANN001, ANN20
         cli._validate_target_inputs(args)  # noqa: SLF001  # tracked: #288
 
 
-def test_missing_input_and_standalone_flags_errors():  # noqa: ANN201  # tracked: #288
+def test_removed_hidden_evaluator_flag_is_rejected() -> None:
+    with pytest.raises(ConfigurationError) as exc:
+        _agent_args(["--input-hidden-evaluator-source", "evaluator"])
+
+    assert exc.value.diagnostic.code == "invalid_arguments"
+
+
+def test_missing_current_project_and_standalone_flags_errors(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
     args = _agent_args([])
 
     import vibesys.main as cli  # noqa: PLC0415  # tracked: #288
 
-    with pytest.raises(ConfigurationError, match="missing required target input"):
+    with pytest.raises(ConfigurationError, match="Current directory is not a VibeSys project"):
         cli._validate_target_inputs(args)  # noqa: SLF001  # tracked: #288
 
 

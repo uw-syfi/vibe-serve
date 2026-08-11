@@ -6,7 +6,7 @@ Maximize **TraceLab replay output throughput** for `Qwen/Qwen3-Coder-30B-A3B-Ins
 
 ## Workload Contract
 
-- The framework-owned benchmark uses TraceLab's real public collected trace data and TraceLab's own `session_runner`. The runner and trace release are hidden from the candidate workspace.
+- The benchmark uses TraceLab's real public collected trace data and TraceLab's own `session_runner`. The evaluator implementation is available at `_evaluator/tracelab-replay`.
 - Requests are session-ordered and closed-loop: the next round in a session starts only after the previous model response completes and the trace-derived tool wait elapses.
 - Each prompt is sent as integer token IDs so prefix-cache keys are stable and server-side chat templating cannot perturb the benchmark.
 - The benchmark asks for streaming completions, `temperature=0`, `ignore_eos=true`, `return_token_ids=true`, and `stream_options.include_usage=true`.

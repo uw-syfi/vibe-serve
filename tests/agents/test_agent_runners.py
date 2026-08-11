@@ -22,7 +22,7 @@ from vibesys.schemas import (
     JudgeResponse,
     Verdict,
 )
-from vs_sandbox import HostResource
+from vs_sandbox import HostResource, ProjectPathPolicy
 
 
 def _agent_config(**agent) -> Config:  # noqa: ANN003  # tracked: #288
@@ -735,6 +735,51 @@ class TestCliAgentRunner:
 
         assert result.verdict == Verdict.PASS
         assert resource in builds[0]["resources"]
+
+    def test_cli_runner_forwards_required_project_path_policy(  # noqa: ANN201  # tracked: #288
+        self,
+        monkeypatch,  # noqa: ANN001  # tracked: #288
+        tmp_path,  # noqa: ANN001  # tracked: #288
+    ):
+        captured: list = []
+        fake_cls = _make_fake_agent_class(
+            generate_returns='{"analysis": "ok", "feedback": "", "verdict": "pass"}',
+            captured=captured,
+        )
+        cli_runner_module = __import__("vibesys.agents.cli_runner", fromlist=["_"])
+        monkeypatch.setitem(cli_runner_module._PROVIDER_CLASSES, "codex", fake_cls)  # noqa: SLF001  # tracked: #288
+        sandbox = MagicMock(name="project-sandbox")
+        build_sandbox = MagicMock(return_value=sandbox)
+        monkeypatch.setattr(cli_runner_module, "build_host_sandbox", build_sandbox)
+        policy = ProjectPathPolicy(
+            read_only_paths=(".vs",),
+            hidden_paths=(".vs/local",),
+        )
+        runner = CliAgentRunner(
+            provider="codex",
+            model="m",
+            project_path_policy=policy,
+            require_host_sandbox=True,
+            run_log_file=None,
+        )
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+
+        result = runner.invoke(
+            kind="judge",
+            workspace=workspace,
+            system_prompt="sys",
+            user_prompt="usr",
+            response_cls=JudgeResponse,
+            fallback_factory=_judge_fallback,
+            round_label="judge #1",
+        )
+
+        assert result.verdict == Verdict.PASS
+        assert build_sandbox.call_args.args == (workspace,)
+        assert build_sandbox.call_args.kwargs["project_path_policy"] is policy
+        assert build_sandbox.call_args.kwargs["require_enforcement"] is True
+        assert captured[0].sandbox is sandbox
 
     def test_cli_runner_falls_back_on_unparseable_output(self, monkeypatch, tmp_path, capsys):  # noqa: ANN001, ANN201  # tracked: #288
         captured: list = []
@@ -1965,6 +2010,88 @@ class TestBuildAgentRunner:
                 run_log_file=None,
                 use_docker=False,
             )
+
+    def test_required_project_enforcement_rejects_deepagents(self):  # noqa: ANN201  # tracked: #288
+        with pytest.raises(SystemExit, match="requires the CLI agent backend"):
+            build_agent_runner(
+                _agent_config(backend="deepagents"),
+                agent_backend=None,
+                cli_provider=None,
+                backends={"implementer": MagicMock()},
+                skills=[],
+                skill_source_dirs=[],
+                model="m",
+                model_name="m",
+                run_log_file=None,
+                use_docker=False,
+                require_host_sandbox=True,
+            )
+
+    def test_required_project_enforcement_rejects_omnigent(self):  # noqa: ANN201  # tracked: #288
+        config = Config.model_validate(
+            {
+                "model": {"name": "m"},
+                "agent": {"backend": "cli", "cli_provider": "codex"},
+                "feature_flags": {"omnigent_agent_backend": True},
+            }
+        )
+
+        with pytest.raises(SystemExit, match="does not yet support the Omnigent backend"):
+            build_agent_runner(
+                config,
+                agent_backend=None,
+                cli_provider=None,
+                backends=None,
+                skills=[],
+                skill_source_dirs=[],
+                model=None,
+                model_name="m",
+                run_log_file=None,
+                use_docker=False,
+                require_host_sandbox=True,
+            )
+
+    def test_required_project_enforcement_permits_stub(self):  # noqa: ANN201  # tracked: #288
+        runner = build_agent_runner(
+            _agent_config(backend="stub"),
+            agent_backend=None,
+            cli_provider=None,
+            backends=None,
+            skills=[],
+            skill_source_dirs=[],
+            model=None,
+            model_name="m",
+            run_log_file=None,
+            use_docker=False,
+            require_host_sandbox=True,
+        )
+
+        assert runner.backend_name == "stub"
+
+    def test_build_agent_runner_forwards_project_policy_to_cli(self):  # noqa: ANN201  # tracked: #288
+        policy = ProjectPathPolicy(
+            read_only_paths=(".vs",),
+            hidden_paths=(".vs/local",),
+        )
+
+        runner = build_agent_runner(
+            _agent_config(backend="cli", cli_provider="codex"),
+            agent_backend=None,
+            cli_provider=None,
+            backends=None,
+            skills=[],
+            skill_source_dirs=[],
+            model=None,
+            model_name="m",
+            run_log_file=None,
+            use_docker=False,
+            project_path_policy=policy,
+            require_host_sandbox=True,
+        )
+
+        assert isinstance(runner, CliAgentRunner)
+        assert runner._project_path_policy is policy  # noqa: SLF001  # tracked: #288
+        assert runner._require_host_sandbox is True  # noqa: SLF001  # tracked: #288
 
     # --- model resolution for the cli backend ---------------------------------
     #

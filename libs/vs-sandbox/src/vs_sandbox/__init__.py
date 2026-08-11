@@ -9,6 +9,8 @@ imported when a Modal-backed export is first accessed).
 
 from typing import TYPE_CHECKING, Any
 
+from vs_sandbox.project_paths import ProjectPathPolicy, ProjectPathPolicyError
+
 if TYPE_CHECKING:
     from vs_sandbox.docker_sandbox import DockerSandbox
     from vs_sandbox.host_resources import (
@@ -20,6 +22,7 @@ if TYPE_CHECKING:
     )
     from vs_sandbox.host_sandbox import (
         HostSandbox,
+        SandboxUnavailableError,
         SeatbeltSandbox,
         WorkspaceSandbox,
     )
@@ -37,6 +40,9 @@ __all__ = [
     "HostResourceDeclarer",
     "HostSandbox",
     "ModalSandbox",
+    "ProjectPathPolicy",
+    "ProjectPathPolicyError",
+    "SandboxUnavailableError",
     "SeatbeltSandbox",
     "WorkspaceSandbox",
     "build_host_sandbox",
@@ -60,7 +66,12 @@ def __getattr__(name: str) -> Any:  # noqa: ANN401  # tracked: #288
         from vs_sandbox import host_resources  # noqa: PLC0415  # tracked: #288
 
         return getattr(host_resources, name)
-    if name in {"HostSandbox", "SeatbeltSandbox", "WorkspaceSandbox"}:
+    if name in {
+        "HostSandbox",
+        "SandboxUnavailableError",
+        "SeatbeltSandbox",
+        "WorkspaceSandbox",
+    }:
         from vs_sandbox import host_sandbox  # noqa: PLC0415  # tracked: #288
 
         return getattr(host_sandbox, name)

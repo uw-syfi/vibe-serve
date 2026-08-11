@@ -25,7 +25,7 @@
   ],
   "scripts": {
     "generate:protocol": "uv run --project ../.. python -m vibesys.server.schema src/generated/protocol.schema.json && json2ts -i src/generated/protocol.schema.json -o src/generated/protocol.generated.ts --bannerComment '/* Generated from the Python protocol models. Do not edit. */'",
-    "build": "tsc -p tsconfig.json",
+    "build": "node -e \"require('node:fs').rmSync('dist', {recursive: true, force: true})\" && tsc -p tsconfig.json",
     "check": "tsc -p tsconfig.check.json",
     "prepack": "pnpm run build",
     "test": "bun test --max-concurrency 1 src"

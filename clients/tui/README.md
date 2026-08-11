@@ -9,9 +9,11 @@ vs --help
 
 The package installs `vs` and `vibesys` as aliases for the same launcher. The
 launcher starts the Python VibeSys backend with `python -m vibesys --headless`
-and then attaches the OpenTUI client. Install the Python `vibesys` package in
-the Python environment you want to use, or set `VIBESYS_PYTHON` to that Python
-executable.
+from the current directory and then attaches the OpenTUI client. The launcher
+passes run arguments through unchanged, including an explicit legacy
+`--runs-dir`; it does not open a separate setup form. Install the Python
+`vibesys` package in the Python environment you want to use, or set
+`VIBESYS_PYTHON` to that Python executable.
 
 ## Operator interface
 
@@ -71,10 +73,10 @@ overlay, round labels use the same body-text color as card content, and the
 chat panel's inner border matches its outer one. `theme.test.ts` pins all of
 this so the baseline cannot drift.
 
-Pick one with `--theme <name>` or `[tui].theme` in `agent.toml`; the flag wins.
-The launcher resolves the name once and passes it to both the pre-launch setup
-screen and the main client through `VIBESYS_THEME`. Inside a session, `/theme`
-lists the themes and `/theme <name>` re-themes every view in place.
+Pick one with `--theme <name>`; launches without the flag use `dark`. The
+launcher passes the selected name to the client through `VIBESYS_THEME`.
+Inside a session, `/theme` lists the themes and `/theme <name>` re-themes every
+view in place.
 
 `ui/theme.ts` is the only module holding color literals. A theme declares
 semantic roles — `canvas`, `surface`, `elevatedSurface`, `selectedSurface`;

@@ -1,4 +1,4 @@
-"""Thin benchmark shim for the hidden TraceLab replay evaluator."""
+"""Thin benchmark shim for the TraceLab replay evaluator."""
 
 from __future__ import annotations
 
@@ -14,12 +14,12 @@ from pathlib import Path
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description=(
-            "Run the trusted TraceLab replay benchmark. The TraceLab runner and "
-            "released trace data are hidden from candidate agents and injected "
-            "only for framework-owned benchmark execution."
-        )
+    parser = argparse.ArgumentParser(description="Run the TraceLab replay benchmark.")
+    parser.add_argument(
+        "--evaluator-dir",
+        type=Path,
+        default=Path("_evaluator/tracelab-replay"),
+        help="TraceLab replay evaluator directory (default: _evaluator/tracelab-replay).",
     )
     parser.add_argument("--url", default=os.environ.get("VIBESYS_SERVICE_URL"))
     parser.add_argument("--model", default="Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8")
@@ -89,18 +89,9 @@ def _wait_for_health(base_url: str, timeout_secs: float = 900.0) -> None:
 
 def main() -> int:
     args = parse_args()
-    hidden_dir = os.environ.get("VIBESYS_TRACELAB_EVALUATOR_DIR") or os.environ.get(
-        "VIBESYS_HIDDEN_EVALUATOR_DIR"
-    )
-    if not hidden_dir:
-        raise SystemExit(
-            "VIBESYS_HIDDEN_EVALUATOR_DIR is not set. This benchmark must run through "
-            "the VibeSys framework gate so TraceLab code and data remain hidden from agents."
-        )
-
-    runner = Path(hidden_dir) / "run_tracelab_replay.py"
+    runner = args.evaluator_dir / "run_tracelab_replay.py"
     if not runner.is_file():
-        raise SystemExit(f"hidden TraceLab replay runner not found: {runner}")
+        raise SystemExit(f"TraceLab replay runner not found: {runner}")
 
     url = args.url
     if url is None and not args.dry_run:

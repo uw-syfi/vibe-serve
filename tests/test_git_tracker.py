@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import subprocess
+from pathlib import Path
 
 import pytest
 
 from vibesys.run import GitTracker
+from vibesys.run.git_tracker import GitTrackingMode
 
 _EXCLUDED = {".git", "__pycache__", "target"}
 
@@ -18,6 +20,37 @@ def _make_tracker(ws, logs=None):  # noqa: ANN001, ANN202  # tracked: #288
 
 def _git_stdout(ws, *args) -> str:  # noqa: ANN001, ANN002  # tracked: #288
     return subprocess.run(["git", *args], cwd=ws, check=True, capture_output=True, text=True).stdout  # noqa: S603, S607  # tracked: #288
+
+
+def _git_run(ws, *args):  # noqa: ANN001, ANN002, ANN202
+    return subprocess.run(["git", *args], cwd=ws, check=True)  # noqa: S603, S607
+
+
+def _make_project_tracker(ws, run_id="test-run", logs=None):  # noqa: ANN001, ANN202
+    log = logs.append if logs is not None else (lambda _msg: None)
+    return GitTracker(
+        ws,
+        log=log,
+        excluded_dirs=_EXCLUDED,
+        mode=GitTrackingMode.USER_PROJECT,
+        run_id=run_id,
+    )
+
+
+def _init_repo_with_commit(project):  # noqa: ANN001, ANN202
+    _git_run(project, "init", "-q", "-b", "main")
+    _git_run(project, "add", "-A")
+    _git_run(
+        project,
+        "-c",
+        "user.name=test",
+        "-c",
+        "user.email=test@example.com",
+        "commit",
+        "-q",
+        "-m",
+        "baseline",
+    )
 
 
 @pytest.fixture
@@ -355,3 +388,334 @@ def test_remove_worktree_deletes_orphaned_directory(ws, tmp_path):  # noqa: ANN0
     shutil.rmtree(ws / ".git" / "worktrees")
     tracker.remove_worktree(wt)
     assert not wt.exists()
+
+
+def test_project_mode_initializes_baseline_branch_and_local_excludes(ws):  # noqa: ANN001, ANN201
+    (ws / ".env").write_text("TOKEN=secret\n")
+    (ws / "agent.toml").write_text("provider = 'local'\n")
+    local_state = ws / ".vs" / "local" / "state.json"
+    local_state.parent.mkdir(parents=True)
+    local_state.write_text("{}\n")
+
+    tracker = _make_project_tracker(ws, run_id="run-001")
+    tracker.init(existing=False)
+
+    assert not (ws / ".gitignore").exists()
+    assert _git_stdout(ws, "branch", "--show-current").strip() == "vibesys/run-001"
+    assert _git_stdout(ws, "log", "--format=%s").strip() == "initial: project baseline"
+    assert _git_stdout(ws, "show", "--format=", "--name-only").splitlines() == ["main.py"]
+    exclude_file = Path(_git_stdout(ws, "rev-parse", "--git-path", "info/exclude").strip())
+    if not exclude_file.is_absolute():
+        exclude_file = ws / exclude_file
+    excludes = exclude_file.read_text().splitlines()
+    assert excludes.count("/.vs/local/") == 1
+    assert excludes.count("/.env") == 1
+    assert excludes.count("/agent.toml") == 1
+    assert "__pycache__/" in excludes
+    assert "target/" in excludes
+
+    # Rebinding the same run is idempotent and leaves in-flight project edits
+    # alone. It also switches back from another clean branch.
+    _git_run(ws, "switch", "main")
+    resumed = _make_project_tracker(ws, run_id="run-001")
+    resumed.init(existing=True)
+    assert _git_stdout(ws, "branch", "--show-current").strip() == "vibesys/run-001"
+    assert exclude_file.read_text().splitlines().count("/.vs/local/") == 1
+
+
+def test_project_mode_branches_from_clean_existing_repository(ws):  # noqa: ANN001, ANN201
+    _init_repo_with_commit(ws)
+    baseline = _git_stdout(ws, "rev-parse", "HEAD").strip()
+    original_gitignore = "user-owned\n"
+    (ws / ".gitignore").write_text(original_gitignore)
+    _git_run(ws, "add", ".gitignore")
+    _git_run(
+        ws,
+        "-c",
+        "user.name=test",
+        "-c",
+        "user.email=test@example.com",
+        "commit",
+        "-q",
+        "-m",
+        "gitignore",
+    )
+    baseline = _git_stdout(ws, "rev-parse", "HEAD").strip()
+
+    tracker = _make_project_tracker(ws, run_id="existing")
+    tracker.init(existing=False)
+
+    assert tracker.current_sha() == baseline
+    assert tracker.trusted_input_baseline == baseline
+    assert _git_stdout(ws, "branch", "--show-current").strip() == "vibesys/existing"
+    assert (ws / ".gitignore").read_text() == original_gitignore
+
+
+def test_project_mode_trusts_evaluator_state_at_run_branch_point(ws):  # noqa: ANN001, ANN201
+    checker = ws / "accuracy_checker" / "checker.py"
+    checker.parent.mkdir()
+    checker.write_text("print('v1')\n")
+    _init_repo_with_commit(ws)
+
+    checker.write_text("print('operator-authorized v2')\n")
+    _git_run(ws, "add", "accuracy_checker/checker.py")
+    _git_run(
+        ws,
+        "-c",
+        "user.name=test",
+        "-c",
+        "user.email=test@example.com",
+        "commit",
+        "-q",
+        "-m",
+        "update evaluator before VibeSys",
+    )
+    branch_point = _git_stdout(ws, "rev-parse", "HEAD").strip()
+
+    tracker = _make_project_tracker(ws, run_id="updated-evaluator")
+    tracker.init(existing=False)
+
+    assert tracker.trusted_input_baseline == branch_point
+    assert tracker.trusted_input_changes() == []
+
+    _git_run(ws, "switch", "main")
+    resumed = _make_project_tracker(ws, run_id="updated-evaluator")
+    resumed.init(existing=True, trusted_input_baseline=branch_point)
+
+    assert resumed.trusted_input_baseline == branch_point
+    assert resumed.trusted_input_changes() == []
+
+    checker.write_text("print('agent tampering')\n")
+    assert resumed.trusted_input_changes() == ["accuracy_checker/checker.py"]
+
+
+def test_project_mode_tracks_bundle_declared_evaluator_path_literally(ws):  # noqa: ANN001, ANN201
+    evaluator = ws / "custom[evaluator]"
+    evaluator.mkdir()
+    checker = evaluator / "check.py"
+    checker.write_text("print('ok')\n")
+    _init_repo_with_commit(ws)
+
+    tracker = GitTracker(
+        ws,
+        log=lambda _message: None,
+        excluded_dirs=_EXCLUDED,
+        mode=GitTrackingMode.USER_PROJECT,
+        run_id="custom-evaluator",
+        trusted_input_paths=(evaluator.relative_to(ws),),
+    )
+    tracker.init(existing=False)
+
+    checker.write_text("print('agent tampering')\n")
+    assert tracker.trusted_input_changes() == ["custom[evaluator]/check.py"]
+
+
+@pytest.mark.parametrize("private_name", [".env", ".env.local", "agent.toml"])
+def test_project_mode_rejects_private_inputs_in_git_history(ws, private_name):  # noqa: ANN001, ANN201
+    (ws / private_name).write_text("SECRET=value\n")
+    _init_repo_with_commit(ws)
+
+    tracker = _make_project_tracker(ws, run_id="private-history")
+    with pytest.raises(ValueError, match=r"Git history contains private inputs"):
+        tracker.init(existing=False)
+
+
+def test_project_mode_rejects_private_inputs_removed_from_head(ws):  # noqa: ANN001, ANN201
+    secret = ws / ".env"
+    secret.write_text("SECRET=value\n")
+    _init_repo_with_commit(ws)
+    secret.unlink()
+    _git_run(ws, "add", "-A")
+    _git_run(
+        ws,
+        "-c",
+        "user.name=test",
+        "-c",
+        "user.email=test@example.com",
+        "commit",
+        "-q",
+        "-m",
+        "remove private input",
+    )
+
+    tracker = _make_project_tracker(ws, run_id="removed-private-history")
+    with pytest.raises(ValueError, match=r"\.env"):
+        tracker.init(existing=False)
+
+
+def test_project_mode_allows_untracked_private_inputs(ws):  # noqa: ANN001, ANN201
+    _init_repo_with_commit(ws)
+    (ws / ".env").write_text("SECRET=value\n")
+
+    tracker = _make_project_tracker(ws, run_id="untracked-private")
+    tracker.init(existing=False)
+
+    assert _git_stdout(ws, "branch", "--show-current").strip() == "vibesys/untracked-private"
+
+
+def test_project_mode_rejects_dirty_existing_repository(ws):  # noqa: ANN001, ANN201
+    _init_repo_with_commit(ws)
+    (ws / "main.py").write_text("VALUE = 2\n")
+
+    tracker = _make_project_tracker(ws, run_id="dirty")
+    with pytest.raises(ValueError, match=r"must be clean.*main.py"):
+        tracker.init(existing=False)
+
+    assert _git_stdout(ws, "branch", "--show-current").strip() == "main"
+
+
+def test_project_mode_rejects_parent_repository(tmp_path):  # noqa: ANN001, ANN201
+    parent = tmp_path / "parent"
+    project = parent / "project"
+    project.mkdir(parents=True)
+    (parent / "README.md").write_text("parent\n")
+    (project / "main.py").write_text("VALUE = 1\n")
+    _init_repo_with_commit(parent)
+
+    tracker = _make_project_tracker(project, run_id="nested")
+    with pytest.raises(ValueError, match=r"repository root.*containing repository"):
+        tracker.init(existing=False)
+
+    assert not (project / ".git").exists()
+
+
+def test_project_mode_rejects_existing_run_branch(ws):  # noqa: ANN001, ANN201
+    tracker = _make_project_tracker(ws, run_id="duplicate")
+    tracker.init(existing=False)
+
+    duplicate = _make_project_tracker(ws, run_id="duplicate")
+    with pytest.raises(ValueError, match="run branch already exists"):
+        duplicate.init(existing=False)
+
+
+def test_project_snapshot_excludes_framework_private_and_cache_paths(ws):  # noqa: ANN001, ANN201
+    tracker = _make_project_tracker(ws)
+    tracker.init(existing=False)
+    tracker.snapshot_with_framework_metadata(
+        "record run",
+        {".vs/run.json": '{"run": 1}\n'},
+    )
+
+    (ws / "main.py").write_text("VALUE = 2\n")
+    (ws / ".vs" / "run.json").write_text('{"forged": true}\n')
+    (ws / ".vs" / "untracked.json").write_text("{}\n")
+    (ws / ".env").write_text("TOKEN=secret\n")
+    (ws / "agent.toml").write_text("provider = 'local'\n")
+    cache = ws / "pkg" / "__pycache__" / "module.pyc"
+    cache.parent.mkdir(parents=True)
+    cache.write_bytes(b"cache")
+
+    tracker.snapshot("candidate edit")
+
+    assert _git_stdout(ws, "show", "HEAD:main.py") == "VALUE = 2\n"
+    assert _git_stdout(ws, "show", "HEAD:.vs/run.json") == '{"run": 1}\n'
+    committed = _git_stdout(ws, "show", "--format=", "--name-only", "HEAD").splitlines()
+    assert committed == ["main.py"]
+    assert tracker.pending_changes() == [".vs/run.json", ".vs/untracked.json"]
+
+
+def test_framework_metadata_snapshot_writes_exact_files_and_candidate(ws):  # noqa: ANN001, ANN201
+    tracker = _make_project_tracker(ws)
+    tracker.init(existing=False)
+    (ws / "main.py").write_text("VALUE = 2\n")
+
+    tracker.snapshot_with_framework_metadata(
+        "round 1",
+        {
+            ".vs/project.toml": "schema = 1\n",
+            ".vs/runs/test-run/rounds/0001.json": b'{"round": 1}\n',
+        },
+    )
+
+    committed = _git_stdout(ws, "show", "--format=", "--name-only", "HEAD").splitlines()
+    assert committed == [
+        ".vs/project.toml",
+        ".vs/runs/test-run/rounds/0001.json",
+        "main.py",
+    ]
+    assert _git_stdout(ws, "status", "--porcelain") == ""
+
+
+def test_framework_metadata_snapshot_rejects_pending_committed_metadata(ws):  # noqa: ANN001, ANN201
+    tracker = _make_project_tracker(ws)
+    tracker.init(existing=False)
+    tracker.snapshot_with_framework_metadata(
+        "record run",
+        {".vs/run.json": '{"run": 1}\n'},
+    )
+    (ws / ".vs" / "run.json").write_text('{"forged": true}\n')
+
+    with pytest.raises(ValueError, match=r"unexpectedly modified.*\.vs/run.json"):
+        tracker.snapshot_with_framework_metadata(
+            "round 2",
+            {".vs/runs/test-run/rounds/0002.json": '{"round": 2}\n'},
+        )
+
+    assert not (ws / ".vs" / "runs" / "test-run" / "rounds" / "0002.json").exists()
+
+
+def test_framework_metadata_snapshot_commits_exact_supplied_update(ws):  # noqa: ANN001, ANN201
+    tracker = _make_project_tracker(ws)
+    tracker.init(existing=False)
+    tracker.snapshot_with_framework_metadata("record run", {".vs/run.json": '{"limit": 1}\n'})
+    updated = '{"limit": 2}\n'
+    (ws / ".vs" / "run.json").write_text(updated)
+
+    tracker.snapshot_with_framework_metadata("increase limit", {".vs/run.json": updated})
+
+    assert _git_stdout(ws, "show", "HEAD:.vs/run.json") == updated
+    assert _git_stdout(ws, "status", "--porcelain") == ""
+
+
+def test_framework_metadata_snapshot_rejects_supplied_content_mismatch(ws):  # noqa: ANN001, ANN201
+    tracker = _make_project_tracker(ws)
+    tracker.init(existing=False)
+    tracker.snapshot_with_framework_metadata("record run", {".vs/run.json": '{"limit": 1}\n'})
+    (ws / ".vs" / "run.json").write_text('{"forged": true}\n')
+
+    with pytest.raises(ValueError, match=r"unexpectedly modified.*\.vs/run.json"):
+        tracker.snapshot_with_framework_metadata(
+            "increase limit", {".vs/run.json": '{"limit": 2}\n'}
+        )
+
+
+@pytest.mark.parametrize(
+    "path",
+    ["run.json", ".vs/local/state.json", ".vs/../outside.json"],
+)
+def test_framework_metadata_snapshot_rejects_nonportable_paths(ws, path):  # noqa: ANN001, ANN201
+    tracker = _make_project_tracker(ws)
+    tracker.init(existing=False)
+
+    with pytest.raises(ValueError, match=r"below \.vs/.*outside \.vs/local"):
+        tracker.snapshot_with_framework_metadata("invalid", {path: "{}\n"})
+
+
+def test_project_checkout_preserves_all_framework_metadata(ws):  # noqa: ANN001, ANN201
+    tracker = _make_project_tracker(ws)
+    tracker.init(existing=False)
+    (ws / "main.py").write_text("VALUE = 2\n")
+    tracker.snapshot_with_framework_metadata(
+        "round 1",
+        {".vs/runs/test-run/rounds/0001.json": '{"round": 1}\n'},
+    )
+    round_one = tracker.current_sha()
+    assert round_one is not None
+
+    (ws / "main.py").write_text("VALUE = 3\n")
+    tracker.snapshot_with_framework_metadata(
+        "round 2",
+        {".vs/runs/test-run/rounds/0002.json": '{"round": 2}\n'},
+    )
+    local_state = ws / ".vs" / "local" / "state.json"
+    local_state.parent.mkdir(parents=True)
+    local_state.write_text("in progress\n")
+    untracked_metadata = ws / ".vs" / "diagnostic.txt"
+    untracked_metadata.write_text("keep\n")
+
+    assert tracker.checkout_tree(round_one, clean=True)
+
+    assert (ws / "main.py").read_text() == "VALUE = 2\n"
+    assert (ws / ".vs" / "runs" / "test-run" / "rounds" / "0002.json").is_file()
+    assert local_state.read_text() == "in progress\n"
+    assert untracked_metadata.read_text() == "keep\n"

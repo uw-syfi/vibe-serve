@@ -27,7 +27,6 @@ from vibesys.input_manifest import MANIFEST_NAME, InputManifest
 #: permits sources that resolve here.
 SEED_DIRNAME = "_seed"
 EVALUATOR_SRC_DIRNAME = "_evaluator_src"
-HIDDEN_EVALUATOR_SRC_DIRNAME = "_hidden_evaluator_src"
 
 #: Top-level entries the synthesizer owns. An ``--evaluator-dir`` whose contents
 #: are copied into the bundle root must not collide with any of these.
@@ -38,7 +37,6 @@ _RESERVED_ROOT_ENTRIES = frozenset(
         "reference",
         SEED_DIRNAME,
         EVALUATOR_SRC_DIRNAME,
-        HIDDEN_EVALUATOR_SRC_DIRNAME,
     }
 )
 
@@ -67,7 +65,6 @@ class SynthesizedInputSpec:
     evaluator_dir: Path | None = None
     workspace_seed_dir: Path | None = None
     evaluator_source_dir: Path | None = None
-    hidden_evaluator_source_dir: Path | None = None
 
 
 def _toml_string(value: str) -> str:
@@ -125,8 +122,6 @@ def _build_manifest_dict(spec: SynthesizedInputSpec) -> dict[str, object]:
         manifest["workspace"] = {"seed": SEED_DIRNAME}
     if spec.evaluator_source_dir is not None:
         manifest["evaluator"] = {"source": EVALUATOR_SRC_DIRNAME}
-    if spec.hidden_evaluator_source_dir is not None:
-        manifest["hidden_evaluator"] = {"source": HIDDEN_EVALUATOR_SRC_DIRNAME}
     return manifest
 
 
@@ -165,12 +160,6 @@ def _render_manifest_toml(spec: SynthesizedInputSpec) -> str:
     for present, table, key, value in (
         (spec.workspace_seed_dir is not None, "workspace", "seed", SEED_DIRNAME),
         (spec.evaluator_source_dir is not None, "evaluator", "source", EVALUATOR_SRC_DIRNAME),
-        (
-            spec.hidden_evaluator_source_dir is not None,
-            "hidden_evaluator",
-            "source",
-            HIDDEN_EVALUATOR_SRC_DIRNAME,
-        ),
     ):
         if present:
             lines.append(f"[{table}]")
@@ -230,12 +219,6 @@ def synthesize_input_bundle(spec: SynthesizedInputSpec, destination: Path) -> Pa
         if spec.evaluator_source_dir is not None
         else None
     )
-    hidden_evaluator_source_dir = (
-        _require_source_dir(spec.hidden_evaluator_source_dir, "--input-hidden-evaluator-source")
-        if spec.hidden_evaluator_source_dir is not None
-        else None
-    )
-
     root = destination.expanduser().resolve()
     if root.exists():
         raise InputSynthesisError(f"synthesized bundle directory already exists: {root}")  # noqa: TRY003
@@ -256,7 +239,5 @@ def synthesize_input_bundle(spec: SynthesizedInputSpec, destination: Path) -> Pa
         _copy_tree_into(seed_dir, root / SEED_DIRNAME)
     if evaluator_source_dir is not None:
         _copy_tree_into(evaluator_source_dir, root / EVALUATOR_SRC_DIRNAME)
-    if hidden_evaluator_source_dir is not None:
-        _copy_tree_into(hidden_evaluator_source_dir, root / HIDDEN_EVALUATOR_SRC_DIRNAME)
 
     return root

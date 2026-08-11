@@ -42,6 +42,7 @@ FRAMEWORK_PACKAGES = (
     "vs_github",
     "vs_issue_board",
     "vs_loop_state",
+    "vs_project_state",
     "vs_sandbox",
 )
 _INTERNAL_DISTRIBUTIONS = frozenset(
@@ -50,6 +51,7 @@ _INTERNAL_DISTRIBUTIONS = frozenset(
         "vs-github",
         "vs-issue-board",
         "vs-loop-state",
+        "vs-project-state",
         "vs-sandbox",
     }
 )
@@ -59,6 +61,7 @@ _PACKAGE_SOURCE_ROOTS = {
     Path("libs/vs-github/src/vs_github"): PurePosixPath("vs_github"),
     Path("libs/vs-issue-board/src/vs_issue_board"): PurePosixPath("vs_issue_board"),
     Path("libs/vs-loop-state/src/vs_loop_state"): PurePosixPath("vs_loop_state"),
+    Path("libs/vs-project-state/src/vs_project_state"): PurePosixPath("vs_project_state"),
     Path("libs/vs-sandbox/src/vs_sandbox"): PurePosixPath("vs_sandbox"),
     Path("resources/profilers"): PurePosixPath("vibesys/_resources/profilers"),
     Path("resources/skills"): PurePosixPath("vibesys/_resources/skills"),

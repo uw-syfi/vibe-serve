@@ -154,7 +154,7 @@ def replay_manifest(tracelab_root: Path, cache_dir: Path) -> Path:
     TraceLab's replay runner is invoked directly, but its pinned
     ``tokenizers = 0.19`` dependency cannot parse Qwen3's current tokenizer JSON.
     Build a cached copy of the runner with a newer tokenizers crate instead of
-    mutating the TraceLab submodule or exposing the wrapper to candidate agents.
+    mutating the TraceLab source tree.
     """
     compat = cache_dir / f"tracelab-replay-cargo-tokenizers-{TOKENIZERS_CRATE_VERSION}"
     manifest = compat / "Cargo.toml"

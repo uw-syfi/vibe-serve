@@ -51,7 +51,7 @@ from vibesys.agents.cli_common import (
 from vibesys.agents.host_resource_declarations import declare_agent_host_resources
 from vibesys.agents.progress import AgentProgress  # noqa: TC001  # tracked: #288
 from vibesys.constants import ComputeBackend  # noqa: TC001  # tracked: #288
-from vs_sandbox import HostResource, build_host_sandbox
+from vs_sandbox import HostResource, ProjectPathPolicy, build_host_sandbox
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -125,6 +125,8 @@ class CliAgentRunner:
         default_reasoning_effort: str | None = None,
         role_models: dict[str, str] | None = None,
         role_reasoning_efforts: dict[str, str] | None = None,
+        project_path_policy: ProjectPathPolicy | None = None,
+        require_host_sandbox: bool = False,
     ):
         if provider not in _PROVIDER_CLASSES:
             raise SystemExit(  # noqa: TRY003  # tracked: #288
@@ -145,6 +147,8 @@ class CliAgentRunner:
         # Additional resource intent is provider-independent. The declaration
         # policy combines it with provider defaults only on the local CLI path.
         self._host_resources = tuple(host_resources)
+        self._project_path_policy = project_path_policy
+        self._require_host_sandbox = require_host_sandbox
         # When set, each ``invoke()`` appends one JSON record to
         # ``<log_dir>/usage.jsonl`` capturing per-call token counts and
         # cost. ``None`` disables the file write (legacy callers, unit
@@ -376,6 +380,8 @@ class CliAgentRunner:
                 env=agent.env,
                 resources=resources,
                 log=lambda msg: log_and_print(msg, self._run_log_file),
+                project_path_policy=self._project_path_policy,
+                require_enforcement=self._require_host_sandbox,
             )
             if reuse_agent:
                 self._agents[cache_key] = agent

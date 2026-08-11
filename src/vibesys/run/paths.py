@@ -17,6 +17,9 @@ class RunPaths:
     log_dir: Path
     workspace: Path
     run_log_path: Path
+    project_root: Path | None = None
+    committed_state_dir: Path | None = None
+    local_state_dir: Path | None = None
 
 
 @dataclass(frozen=True)

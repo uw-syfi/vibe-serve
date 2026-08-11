@@ -34,6 +34,7 @@ FRAMEWORK_PACKAGES = (
     "vs_github",
     "vs_issue_board",
     "vs_loop_state",
+    "vs_project_state",
     "vs_sandbox",
 )
 REQUIRED_SYSTEM_TOOLS = ("git",)
@@ -139,7 +140,7 @@ def verify_console_entry_point() -> None:
 
 
 def verify_first_launch_defaults() -> None:
-    """Require a user-owned launch-directory config and no bundled default config."""
+    """Verify optional launch-directory config and no bundled default config."""
     distribution_files = importlib.metadata.distribution("vibesys").files or ()
     if any(Path(str(path)).name == "agent.toml" for path in distribution_files):
         _fail("Installed VibeSys distribution unexpectedly contains agent.toml")
@@ -310,6 +311,7 @@ def _verify_tui() -> None:
 def _write_stub_input(input_root: Path) -> None:
     input_root.mkdir()
     (input_root / "OBJECTIVE.md").write_text("Verify the installed release.\n")
+    (input_root / "candidate.py").write_text("VALUE = 1\n")
     (input_root / "vibesys.input.toml").write_text(
         "version = 1\n"
         "\n"
@@ -324,7 +326,7 @@ def _write_stub_input(input_root: Path) -> None:
     )
 
 
-def _stub_smoke_command(
+def _legacy_stub_smoke_command(
     command_prefix: list[str],
     *,
     input_root: Path,
@@ -352,6 +354,25 @@ def _stub_smoke_command(
     ]
 
 
+def _in_place_stub_smoke_command(command_prefix: list[str]) -> list[str]:
+    return [
+        *command_prefix,
+        "--headless",
+        "--stub-agent",
+        "--agent-backend",
+        "cli",
+        "--exp-name",
+        "installed-release-smoke",
+        "--max-rounds",
+        "1",
+        "--no-skills",
+        "--backend",
+        "cpu",
+        "--profiler",
+        "none",
+    ]
+
+
 def run_interactive_tui_smoke(
     command_prefix: list[str],
     *,
@@ -367,7 +388,7 @@ def run_interactive_tui_smoke(
         marker = smoke_root / "controller-started"
         runs_root = smoke_root / "runs"
         smoke_environment = {**env, TUI_SMOKE_MARKER_ENV: str(marker)}
-        command = _stub_smoke_command(
+        command = _legacy_stub_smoke_command(
             command_prefix,
             input_root=input_root,
             runs_root=runs_root,
@@ -385,35 +406,53 @@ def run_headless_stub_smoke(
     runtime_root: Path,
     timeout: int,
 ) -> None:
-    """Run the installed headless stub loop to completion in an explicit collection."""
+    """Run a configless installed loop from a complete project working directory."""
     mutable_prefix_paths_before = _mutable_install_paths(Path(sys.prefix))
     with tempfile.TemporaryDirectory(
         prefix="vibesys-headless-smoke-", dir=runtime_root
     ) as temporary:
         smoke_root = Path(temporary)
-        input_root = smoke_root / "input"
-        _write_stub_input(input_root)
-        runs_root = smoke_root / "runs"
-        command = _stub_smoke_command(
-            command_prefix,
-            input_root=input_root,
-            runs_root=runs_root,
-            headless=True,
-        )
-        _run(command, env=env, timeout=timeout)
-        runs = [
-            path
-            for path in (runs_root.iterdir() if runs_root.is_dir() else ())
-            if path.is_dir() and not path.name.startswith((".", "_"))
-        ]
-        if len(runs) != 1 or not runs[0].name.endswith("-installed-release-smoke"):
-            _fail(f"Headless smoke did not create exactly one run under {runs_root}: {runs}")
+        project_root = smoke_root / "project"
+        _write_stub_input(project_root)
+        command = _in_place_stub_smoke_command(command_prefix)
+        _run(command, env=env, cwd=project_root, timeout=timeout)
+        _verify_in_place_project_state(project_root)
     added_prefix_paths = _mutable_install_paths(Path(sys.prefix)) - mutable_prefix_paths_before
     if added_prefix_paths:
         _fail(
             "Headless smoke created a mutable run tree or cache beneath the Python "
             f"installation prefix: {sorted(added_prefix_paths)}"
         )
+
+
+def _verify_in_place_project_state(project_root: Path) -> None:
+    if (project_root / "agent.toml").exists():
+        _fail("Configless headless smoke unexpectedly created agent.toml")
+    metadata_dir = project_root / ".vs"
+    if not (metadata_dir / "project.json").is_file():
+        _fail(f"In-place smoke did not create {metadata_dir / 'project.json'}")
+    gitignore = metadata_dir / ".gitignore"
+    if not gitignore.is_file() or "/local/" not in gitignore.read_text().splitlines():
+        _fail(f"In-place smoke did not preserve the local-state ignore rule: {gitignore}")
+    runs_dir = metadata_dir / "runs"
+    runs = list(runs_dir.iterdir()) if runs_dir.is_dir() else []
+    if (
+        len(runs) != 1
+        or not runs[0].is_dir()
+        or not runs[0].name.endswith("-installed-release-smoke")
+    ):
+        _fail(f"In-place smoke did not create exactly one run under {runs_dir}: {runs}")
+    run_dir = runs[0]
+    committed = (run_dir / "run.json", run_dir / "rounds" / "0001.json")
+    if not all(path.is_file() for path in committed):
+        _fail(f"In-place smoke did not persist committed run metadata: {committed}")
+    current_run = metadata_dir / "local" / "current-run"
+    if not current_run.is_file() or current_run.read_text().strip() != run_dir.name:
+        _fail(f"In-place smoke did not persist its local current-run pointer: {current_run}")
+    if not (metadata_dir / "local" / "runs" / run_dir.name / "logs").is_dir():
+        _fail("In-place smoke did not keep logs under .vs/local")
+    if not (project_root / ".git").is_dir():
+        _fail("In-place smoke did not initialize Git in the project directory")
 
 
 def _mutable_install_paths(prefix: Path) -> set[Path]:
@@ -527,11 +566,13 @@ def _run(
     command: list[str],
     *,
     env: dict[str, str] | None = None,
+    cwd: Path | None = None,
     timeout: int,
 ) -> None:
     try:
         subprocess.run(  # noqa: S603
             command,
+            cwd=cwd,
             env=env,
             check=True,
             timeout=timeout,

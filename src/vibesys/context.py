@@ -9,10 +9,11 @@ from collections.abc import Callable, Generator
 from contextlib import ExitStack, contextmanager
 from dataclasses import replace
 from datetime import datetime
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as distribution_version
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TextIO, TypeVar, overload
 
-from deepagents.backends import LocalShellBackend
 from pydantic import BaseModel
 
 from vibesys import backends
@@ -57,6 +58,16 @@ from vibesys.run import (
     RunPaths,
     Workspace,
 )
+from vibesys.run.git_tracker import GitTrackingMode
+from vibesys.run.project_policy import (
+    build_project_path_policy,
+    trusted_project_input_paths,
+)
+from vibesys.run.round_transaction import (
+    RoundRecoveryOutcome,
+    RoundTransaction,
+    RoundTransactionCoordinator,
+)
 from vibesys.sandbox.run_environment import (
     RunEnvironment,
     RunEnvironmentRequest,
@@ -65,9 +76,11 @@ from vibesys.sandbox.run_environment import (
     build_run_environment,
     make_run_environment_spec,
 )
+from vs_project_state import ProjectStore, RunConfiguration, generate_run_id
 
 if TYPE_CHECKING:
     from vibesys.server.supervisor import RunSupervisor
+    from vs_loop_state import RoundRecord
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -139,6 +152,50 @@ def _coerce_dir(raw: str | Path | None, label: str) -> Path | None:
     return p
 
 
+def _installed_vibesys_version() -> str:
+    """Return the installed distribution version for portable run metadata."""
+    try:
+        return distribution_version("vibesys")
+    except PackageNotFoundError:
+        return "0+unknown"
+
+
+def _resume_configuration_update(
+    recorded: RunConfiguration,
+    requested: RunConfiguration,
+) -> RunConfiguration | None:
+    """Validate resume settings and return an increased total round limit, if any."""
+    recorded_core = recorded.model_dump(exclude={"max_rounds"})
+    requested_core = requested.model_dump(exclude={"max_rounds"})
+    changed = sorted(
+        field for field, value in requested_core.items() if recorded_core.get(field) != value
+    )
+    if changed:
+        raise ConfigurationError(
+            ConfigurationDiagnostic(
+                code="project_resume_configuration_mismatch",
+                stage="resume_resolution",
+                message=(
+                    "resuming an in-place run cannot change its recorded configuration "
+                    f"fields: {', '.join(changed)}"
+                ),
+            )
+        )
+    if requested.max_rounds < recorded.max_rounds:
+        raise ConfigurationError(
+            ConfigurationDiagnostic(
+                code="project_resume_configuration_mismatch",
+                stage="resume_resolution",
+                message=(
+                    "--max-rounds is the run's total limit and cannot decrease when "
+                    f"resuming (recorded {recorded.max_rounds}, requested "
+                    f"{requested.max_rounds})"
+                ),
+            )
+        )
+    return requested if requested.max_rounds > recorded.max_rounds else None
+
+
 @overload
 def _coerce_dir_path(raw: str, label: str) -> str: ...
 
@@ -150,73 +207,6 @@ def _coerce_dir_path(raw: None, label: str) -> None: ...
 def _coerce_dir_path(raw: str | None, label: str) -> str | None:
     path = _coerce_dir(raw, label)
     return str(path) if path is not None else None
-
-
-def _hidden_copy_ignore(_directory: str, names: list[str]) -> list[str]:
-    return [name for name in names if name in {"target", "__pycache__", ".pytest_cache", ".venv"}]
-
-
-def _materialize_hidden_evaluator(source: Path | None, exp_dir: Path) -> Path | None:
-    if source is None:
-        return None
-    destination = exp_dir / "_hidden_evaluator" / source.name
-    if destination.exists():
-        shutil.rmtree(destination)
-    shutil.copytree(source, destination, symlinks=True, ignore=_hidden_copy_ignore)
-    return destination
-
-
-def _materialize_agent_project_root(
-    *,
-    exp_dir: Path,
-    hidden_evaluator_source: Path | None,
-    project_root: Path,
-) -> Path:
-    """Copy a project view for CLI agents that omits hidden evaluator sources."""
-    if hidden_evaluator_source is None:
-        return project_root
-
-    destination = exp_dir / "_agent_project_root"
-    if destination.exists():
-        shutil.rmtree(destination)
-
-    hidden_resolved = hidden_evaluator_source.resolve()
-
-    def ignore(directory: str, names: list[str]) -> list[str]:
-        directory_path = Path(directory).resolve()
-        ignored = {
-            name
-            for name in names
-            if name in {".git", "exp_env", "__pycache__", ".pytest_cache", ".venv"}
-        }
-        for name in names:
-            child = (directory_path / name).resolve()
-            if child == hidden_resolved:
-                ignored.add(name)
-        return sorted(ignored)
-
-    shutil.copytree(project_root, destination, symlinks=True, ignore=ignore)
-    return destination
-
-
-def _framework_env(
-    hidden_evaluator_path: Path | None,
-    *,
-    modal_app_name: str | None = None,
-) -> dict[str, str]:
-    env: dict[str, str] = {}
-    if modal_app_name:
-        env["VIBESYS_MODAL_APP_NAME"] = modal_app_name
-    if hidden_evaluator_path is None:
-        return env
-    value = str(hidden_evaluator_path)
-    env.update(
-        {
-            "VIBESYS_HIDDEN_EVALUATOR_DIR": value,
-            "VIBESYS_TRACELAB_EVALUATOR_DIR": value,
-        }
-    )
-    return env
 
 
 def _coerce_skills_dirs(raw_dirs: list[str] | None) -> list[Path]:
@@ -247,9 +237,10 @@ def create_run_context(  # noqa: PLR0913  # tracked: #288
     workspace_seed: Path | None = None,
     workspace_sources: tuple[WorkspaceSource, ...] = (),
     evaluator_path: Path | None = None,
-    hidden_evaluator_path: Path | None = None,
     objective: str | None = None,
     existing: bool = False,
+    project_mode: bool = False,
+    project_configuration: RunConfiguration | None = None,
     trusted_input_baseline: str | None = None,
     debug: bool = False,
     profiler_kind: ProfilerKind = ProfilerKind.AUTO,
@@ -285,9 +276,10 @@ def create_run_context(  # noqa: PLR0913  # tracked: #288
             workspace_seed=workspace_seed,
             workspace_sources=workspace_sources,
             evaluator_path=evaluator_path,
-            hidden_evaluator_path=hidden_evaluator_path,
             objective=objective,
             existing=existing,
+            project_mode=project_mode,
+            project_configuration=project_configuration,
             trusted_input_baseline=trusted_input_baseline,
             debug=debug,
             profiler_kind=profiler_kind,
@@ -332,9 +324,10 @@ def _assemble_run_context(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: 
     workspace_seed: Path | None,
     workspace_sources: tuple[WorkspaceSource, ...],
     evaluator_path: Path | None,
-    hidden_evaluator_path: Path | None,
     objective: str | None,
     existing: bool,
+    project_mode: bool,
+    project_configuration: RunConfiguration | None,
     trusted_input_baseline: str | None,
     debug: bool,
     profiler_kind: ProfilerKind,
@@ -350,6 +343,14 @@ def _assemble_run_context(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: 
     repo_visibility: RepositoryVisibility,
 ) -> "_RunContext":
     config = as_config(config)
+    if project_mode and not git_tracking:
+        raise ConfigurationError(
+            ConfigurationDiagnostic(
+                code="in_place_git_required",
+                stage="workspace_setup",
+                message="in-place project runs require Git tracking",
+            )
+        )
     if git_tracking:
         # A non-stripped nested ``.git`` makes ``git add -A`` record the
         # checkout as a bare gitlink: round snapshots stop seeing edits inside
@@ -375,9 +376,22 @@ def _assemble_run_context(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: 
     environment = build_run_environment(run_environment_spec)
 
     runs_dir = runs_dir.expanduser().resolve()
-    exp_dir = setup_exp_dir(exp_name, runs_dir=runs_dir, existing=existing)
+    input_path_str = _coerce_dir_path(input_path, "--input")
+    input_dir = Path(input_path_str)
+    project_store: ProjectStore | None = None
+    run_id: str | None = None
+    round_transaction_coordinator: RoundTransactionCoordinator | None = None
+    if project_mode:
+        project_store = ProjectStore(input_dir)
+        run_id = exp_name if existing else generate_run_id(exp_name)
+        exp_dir = input_dir
+        log_dir = project_store.logs_dir(run_id)
+        workspace_root = input_dir
+    else:
+        exp_dir = setup_exp_dir(exp_name, runs_dir=runs_dir, existing=existing)
+        log_dir = exp_dir / "logs"
+        workspace_root = exp_dir / "workspace"
 
-    log_dir = exp_dir / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
     from vibesys.server.registry import active_supervisor  # noqa: PLC0415  # tracked: #288
 
@@ -393,7 +407,15 @@ def _assemble_run_context(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: 
     # construction order (device → environment hooks → session → logs).
     teardown_stack.callback(logger.close)
     experiment_repository = ExperimentRepository(exp_dir, logger.lprint)
-    if remote_repo is not None:
+    if project_mode and remote_repo is not None:
+        raise ConfigurationError(
+            ConfigurationDiagnostic(
+                code="repository_setup_failed",
+                stage="repository_setup",
+                message="in-place project runs do not create or replace Git remotes",
+            )
+        )
+    if not project_mode and remote_repo is not None:
         try:
             experiment_repository.create_remote(remote_repo, repo_visibility)
         except Exception as exc:
@@ -405,7 +427,7 @@ def _assemble_run_context(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: 
                 )
             ) from exc
     tracked_experiment_repository: ExperimentRepository | None = None
-    if experiment_repository.has_origin():
+    if not project_mode and experiment_repository.has_origin():
         tracked_experiment_repository = experiment_repository
 
         def _sync_experiment_repository() -> None:
@@ -433,8 +455,11 @@ def _assemble_run_context(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: 
     paths = RunPaths(
         exp_dir=exp_dir,
         log_dir=log_dir,
-        workspace=exp_dir / "workspace",
+        workspace=workspace_root,
         run_log_path=logger.path,
+        project_root=input_dir if project_mode else None,
+        committed_state_dir=project_store.metadata_dir if project_store is not None else None,
+        local_state_dir=project_store.local_dir if project_store is not None else None,
     )
 
     # Construct the platform backend (image + GPU spec come from it).
@@ -455,18 +480,13 @@ def _assemble_run_context(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: 
     model = None if resolved_backend == "cli" else build_model(config)
     model_name = config.model.name
 
-    input_path_str = _coerce_dir_path(input_path, "--input")
     workspace_seed_path = _coerce_dir(workspace_seed, "workspace.seed")
     evaluator_source = _coerce_dir(evaluator_path, "evaluator.source")
-    hidden_evaluator_source = _coerce_dir(hidden_evaluator_path, "hidden_evaluator.source")
-    hidden_evaluator_runtime = _materialize_hidden_evaluator(hidden_evaluator_source, exp_dir)
-    agent_project_root = _materialize_agent_project_root(
-        exp_dir=exp_dir,
-        hidden_evaluator_source=hidden_evaluator_source,
-        project_root=PROJECT_ROOT,
+    effective_profiler_kind = (
+        ProfilerKind.NONE if project_mode and profiler_kind is ProfilerKind.AUTO else profiler_kind
     )
     resolved_profiler_kind = resolve_profiler_kind(
-        profiler_kind,
+        effective_profiler_kind,
         domain=profiler_domain,
         backend_profiler_kind=getattr(backend_impl, "profiler_kind", None),
         environment_default_profiler_kind=environment.default_profiler_kind,
@@ -481,6 +501,17 @@ def _assemble_run_context(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: 
                 message=profiler_preflight.error_message(),
             )
         )
+    if project_mode and resolved_profiler_kind in ACTIVE_PROFILER_KINDS:
+        raise ConfigurationError(
+            ConfigurationDiagnostic(
+                code="in_place_profiler_unsupported",
+                stage="profiler_preflight",
+                message=(
+                    "in-place projects currently support --profiler none only because "
+                    "profiler harnesses must not be copied into the user's source tree"
+                ),
+            )
+        )
 
     profiler_support_path: str | None = None
     profiler_support_name: str | None = None
@@ -492,8 +523,13 @@ def _assemble_run_context(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: 
             profiler_support_path = str(default_support)
 
     skill_source_paths = _coerce_skills_dirs(skills_dirs)
+    if project_mode and skill_source_paths:
+        logger.lprint(
+            "[project] packaged skills are not materialized into in-place source trees; "
+            "continuing without copied skill bundles"
+        )
+        skill_source_paths = []
 
-    input_dir = Path(input_path_str)
     ref_dir: Path | None = input_dir / "reference"
     if ref_dir.exists():
         if not ref_dir.is_dir():
@@ -525,8 +561,144 @@ def _assemble_run_context(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: 
 
     # Fix ownership of workspace files that may have been created as root
     # by a previous Docker run, so the agent can write to them.
-    if existing:
+    if existing and not project_mode:
         workspace_files.repair()
+
+    project_excluded_dirs = set(workspace_files.excluded_dirs)
+    if profiler_support_name is not None:
+        project_excluded_dirs.add(profiler_support_name)
+    git = GitTracker(
+        workspace_files.root,
+        log=logger.lprint,
+        excluded_dirs=project_excluded_dirs,
+        mode=(GitTrackingMode.USER_PROJECT if project_mode else GitTrackingMode.LEGACY_WORKSPACE),
+        run_id=run_id,
+        trusted_input_paths=(
+            trusted_project_input_paths(input_dir, evaluator_source=evaluator_source)
+            if project_mode
+            else ()
+        ),
+    )
+    if git_tracking and project_mode:
+        git.init(existing, trusted_input_baseline=trusted_input_baseline)
+        assert project_store is not None  # noqa: S101  # tracked: #288
+        assert run_id is not None  # noqa: S101  # tracked: #288
+        if project_configuration is None:
+            raise ConfigurationError(
+                ConfigurationDiagnostic(
+                    code="project_state_missing_configuration",
+                    stage="workspace_setup",
+                    message="in-place project runs require sanitized run configuration",
+                )
+            )
+        effective_configuration = project_configuration.model_copy(
+            update={"profiler": resolved_profiler_kind.value}
+        )
+        if existing:
+            project_store.load_project()
+            run_manifest = project_store.load_run(run_id)
+            if git.trusted_input_baseline is None:
+                git.configure_trusted_input_baseline(run_manifest.trusted_input_baseline)
+            elif git.trusted_input_baseline != run_manifest.trusted_input_baseline:
+                raise ConfigurationError(
+                    ConfigurationDiagnostic(
+                        code="project_trusted_baseline_mismatch",
+                        stage="resume_resolution",
+                        message=(
+                            f"run {run_id!r} records trusted input baseline "
+                            f"{run_manifest.trusted_input_baseline!r}, but "
+                            f"--trusted-input-baseline resolved to "
+                            f"{git.trusted_input_baseline!r}"
+                        ),
+                    )
+                )
+            if run_manifest.branch != git.project_branch:
+                raise ConfigurationError(
+                    ConfigurationDiagnostic(
+                        code="project_state_mismatch",
+                        stage="resume_resolution",
+                        message=(
+                            f"run {run_id!r} records branch {run_manifest.branch!r}, "
+                            f"but Git selected {git.project_branch!r}"
+                        ),
+                    )
+                )
+            round_transaction_coordinator = RoundTransactionCoordinator(
+                project_store,
+                git,
+                run_id,
+            )
+            recovery = round_transaction_coordinator.recover()
+            if recovery is not RoundRecoveryOutcome.NO_TRANSACTION:
+                logger.lprint(f"[project] recovered round transaction: {recovery.value}")
+            configuration_update = _resume_configuration_update(
+                run_manifest.configuration,
+                effective_configuration,
+            )
+            if configuration_update is not None:
+                pending = git.pending_changes()
+                if pending:
+                    raise ConfigurationError(
+                        ConfigurationDiagnostic(
+                            code="project_resume_configuration_dirty",
+                            stage="resume_resolution",
+                            message=(
+                                "commit or discard pending project changes before increasing "
+                                f"--max-rounds: {', '.join(pending)}"
+                            ),
+                        )
+                    )
+                path = project_store.update_run_configuration(run_id, configuration_update)
+                git.snapshot_with_framework_metadata(
+                    f"vibesys: increase run limit to {configuration_update.max_rounds}",
+                    {path.relative_to(project_store.project_root): path.read_bytes()},
+                )
+            project_store.set_current_run(run_id)
+        else:
+            project_store.create_project(input_dir.name)
+            if git.trusted_input_baseline is None:
+                raise ConfigurationError(
+                    ConfigurationDiagnostic(
+                        code="project_trusted_baseline_missing",
+                        stage="workspace_setup",
+                        message="Git did not provide the in-place run branch-point commit",
+                    )
+                )
+            run_manifest = project_store.new_run_manifest(
+                exp_name,
+                run_id=run_id,
+                branch=git.project_branch or f"vibesys/{run_id}",
+                vibesys_version=_installed_vibesys_version(),
+                configuration=effective_configuration,
+                trusted_input_baseline=git.trusted_input_baseline,
+            )
+            project_store.create_run(run_manifest)
+            metadata_paths = (
+                project_store.metadata_gitignore_path,
+                project_store.project_manifest_path,
+                project_store.run_manifest_path(run_id),
+            )
+            git.snapshot_with_framework_metadata(
+                f"vibesys: initialize run {run_id}",
+                {
+                    path.relative_to(project_store.project_root): path.read_bytes()
+                    for path in metadata_paths
+                },
+            )
+            round_transaction_coordinator = RoundTransactionCoordinator(
+                project_store,
+                git,
+                run_id,
+            )
+
+    project_path_policy = (
+        build_project_path_policy(
+            input_dir,
+            evaluator_source=evaluator_source,
+        )
+        if project_mode
+        else None
+    )
 
     hooks = environment_hooks or NoopEnvironmentHooks()
     environment_context = EnvironmentContext(
@@ -552,25 +724,20 @@ def _assemble_run_context(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: 
     # from the previous run.  Only skills are refreshed and profiler
     # harnesses ensured; see Workspace.plan_setup.
     plan = workspace_files.plan_setup(
-        existing=existing,
-        seed=workspace_seed_path,
+        existing=existing or project_mode,
+        seed=None if project_mode else workspace_seed_path,
         input_dir=input_dir,
-        evaluator_source=evaluator_source,
+        evaluator_source=None if project_mode else evaluator_source,
         skill_sources=skill_source_paths,
-        input_project_dir=input_project_dir,
+        input_project_dir=None if project_mode else input_project_dir,
         profiler_support_path=profiler_support_path,
         profiler_support_name=profiler_support_name,
-        workspace_sources=workspace_sources,
+        workspace_sources=() if project_mode else workspace_sources,
         extra_input_excludes=environment_patch.copy_excludes,
     )
-    workspace_files.setup(plan, existing=existing)
+    workspace_files.setup(plan, existing=existing or project_mode)
 
-    git = GitTracker(
-        workspace_files.root,
-        log=logger.lprint,
-        excluded_dirs=workspace_files.excluded_dirs,
-    )
-    if git_tracking:
+    if git_tracking and not project_mode:
         git.init(existing, trusted_input_baseline=trusted_input_baseline)
 
     session = teardown_stack.enter_context(
@@ -591,7 +758,7 @@ def _assemble_run_context(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: 
                 git_history_root=git.history_root,
                 environment_bind_mounts=environment_patch.bind_mounts,
                 log=logger.lprint,
-                project_root=agent_project_root,
+                project_root=PROJECT_ROOT,
             )
         )
     )
@@ -641,19 +808,9 @@ def _assemble_run_context(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: 
         run_log_file=logger.writer,
         use_docker=session.view.cli_sandboxed,
         log_dir=log_dir,
+        project_path_policy=project_path_policy,
+        require_host_sandbox=project_mode,
     )
-
-    framework_judge_backend = session.sandbox
-    if hidden_evaluator_runtime is not None:
-        framework_judge_backend = LocalShellBackend(
-            root_dir=str(workspace_files.root),
-            virtual_mode=True,
-            inherit_env=True,
-            env=_framework_env(
-                hidden_evaluator_runtime,
-                modal_app_name=session.view.deployment_namespace,
-            ),
-        )
 
     return _RunContext(
         backend=backend,
@@ -670,8 +827,6 @@ def _assemble_run_context(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: 
         workspace_seed_path=workspace_seed_path,
         workspace_sources=workspace_sources,
         evaluator_path=evaluator_source,
-        hidden_evaluator_path=hidden_evaluator_runtime,
-        framework_judge_backend=framework_judge_backend,
         effective_objective=objective,
         accuracy_command=accuracy_command,
         benchmark_command=benchmark_command,
@@ -691,6 +846,9 @@ def _assemble_run_context(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: 
         commands=commands,
         device=device,
         agent_runner=agent_runner,
+        project_store=project_store,
+        run_id=run_id,
+        round_transaction_coordinator=round_transaction_coordinator,
     )
 
 
@@ -805,7 +963,7 @@ def _assemble_candidate_context(  # noqa: PLR0913  # tracked: #288
                 git_history_root=parent.git.history_root,
                 environment_bind_mounts=parent.environment_patch.bind_mounts,
                 log=logger.lprint,
-                project_root=getattr(parent, "agent_project_root", PROJECT_ROOT),
+                project_root=PROJECT_ROOT,
             )
         )
     )
@@ -838,18 +996,6 @@ def _assemble_candidate_context(  # noqa: PLR0913  # tracked: #288
         log_dir=log_dir,
     )
 
-    framework_judge_backend = session.sandbox
-    if getattr(parent, "hidden_evaluator_path", None) is not None:
-        framework_judge_backend = LocalShellBackend(
-            root_dir=str(workspace),
-            virtual_mode=True,
-            inherit_env=True,
-            env=_framework_env(
-                parent.hidden_evaluator_path,
-                modal_app_name=session.view.deployment_namespace,
-            ),
-        )
-
     paths = RunPaths(
         exp_dir=parent.exp_dir,
         log_dir=log_dir,
@@ -872,8 +1018,6 @@ def _assemble_candidate_context(  # noqa: PLR0913  # tracked: #288
         workspace_seed_path=None,
         workspace_sources=parent.workspace_sources,
         evaluator_path=parent.evaluator_path,
-        hidden_evaluator_path=getattr(parent, "hidden_evaluator_path", None),
-        framework_judge_backend=framework_judge_backend,
         effective_objective=effective_objective,
         accuracy_command=parent.accuracy_command,
         benchmark_command=parent.benchmark_command,
@@ -931,8 +1075,6 @@ class _RunContext:
         workspace_seed_path: Path | None,
         workspace_sources: tuple[WorkspaceSource, ...],
         evaluator_path: Path | None,
-        hidden_evaluator_path: Path | None,
-        framework_judge_backend: Any,  # noqa: ANN401  # tracked: #288
         effective_objective: str | None,
         accuracy_command: str,
         benchmark_command: str,
@@ -952,6 +1094,9 @@ class _RunContext:
         commands: RunCommands,
         device: DeviceLease,
         agent_runner: AgentRunner,
+        project_store: ProjectStore | None = None,
+        run_id: str | None = None,
+        round_transaction_coordinator: RoundTransactionCoordinator | None = None,
     ):
         self.backend = backend
         self.run_environment = run_environment
@@ -967,7 +1112,6 @@ class _RunContext:
         self.workspace_seed_path = workspace_seed_path
         self.workspace_sources = workspace_sources
         self.evaluator_path = evaluator_path
-        self.hidden_evaluator_path = hidden_evaluator_path
         self.effective_objective = effective_objective
         self.accuracy_command = accuracy_command
         self.benchmark_command = benchmark_command
@@ -983,17 +1127,16 @@ class _RunContext:
         self.workspace_files = workspace_files
         self.EXCLUDED_WORKSPACE_DIRS = workspace_files.excluded_dirs
         self.git = git
+        self.project_store = project_store
+        self.run_id = run_id
+        self._round_transaction_coordinator = round_transaction_coordinator
+        self._pending_round_transaction: RoundTransaction | None = None
         self._experiment_repository = experiment_repository
         self._teardown_stack = teardown_stack
         self.run_environment_session = run_environment_session
         self.run_environment_view = run_environment_session.view
         self.implementer_backend = run_environment_session.sandbox
         self.judge_backend = run_environment_session.sandbox
-        self.framework_judge_backend = framework_judge_backend
-        agent_project_root = paths.exp_dir / "_agent_project_root"
-        self.agent_project_root = (
-            agent_project_root if agent_project_root.exists() else PROJECT_ROOT
-        )
         self.commands = commands
         self.device = device
         # Expose the picked device for legacy callers (gpu monitor tests etc).
@@ -1021,6 +1164,44 @@ class _RunContext:
     @property
     def workspace(self) -> Path:
         return self._paths.workspace
+
+    @property
+    def rounds_state_path(self) -> Path:
+        """Return the machine-local compatibility ledger for completed rounds."""
+        return self.log_dir / "rounds.json"
+
+    @property
+    def active_hypothesis_path(self) -> Path:
+        """Return the machine-local in-progress hypothesis path."""
+        if self.project_store is not None and self.run_id is not None:
+            return self.project_store.active_state_path(self.run_id)
+        return self.log_dir / "active_hypothesis.json"
+
+    def begin_completed_round(
+        self,
+        record: "RoundRecord",
+        *,
+        next_active_contents: bytes | None,
+    ) -> None:
+        """Journal a completed project round before mutating local state."""
+        if self._round_transaction_coordinator is None:
+            return
+        if self._pending_round_transaction is not None:
+            raise RuntimeError("a completed-round transaction is already active")  # noqa: TRY003  # tracked: #288
+        self._pending_round_transaction = self._round_transaction_coordinator.begin(
+            record,
+            next_active_contents=next_active_contents,
+        )
+
+    def persist_completed_round(self) -> None:
+        """Commit one completed project round and its active-state transition."""
+        if self._round_transaction_coordinator is None:
+            return
+        transaction = self._pending_round_transaction
+        if transaction is None:
+            raise RuntimeError("begin_completed_round must precede project round persistence")  # noqa: TRY003  # tracked: #288
+        transaction.complete()
+        self._pending_round_transaction = None
 
     @property
     def run_log_path(self) -> Path:

@@ -21,9 +21,9 @@ Examples in this document use `uv run vibesys`; drop the `uv run` prefix when th
 ### Agent configuration
 
 `--config PATH` selects an explicit `agent.toml`. When the flag is omitted,
-VibeSys loads exactly `agent.toml` from the process launch working directory. It
-does not search parent directories, and a missing file is an error. The
-internal `--stub-agent` smoke mode is the only configless exception.
+VibeSys loads `agent.toml` from the process launch working directory if it
+exists, otherwise it uses built-in CLI defaults. It does not search parent
+directories.
 
 `./vs` changes to the source checkout root before launching, so its implicit
 config is the checkout's `agent.toml`. The installed `vibesys` command preserves
@@ -43,9 +43,9 @@ Several flags look independent, but they combine into one execution contract:
 | Domain | `[agent].domain` in `vibesys.input.toml` | Problem-space package used by the agent and evolve loops, such as `llm-serving`, `microservices`, or `generic`. |
 | Modality | `--modality` | Per-task I/O contract, such as `text_generation` or `speech_to_text`. |
 | Skills | `--skills-dir`, `--extra-skills`, `--no-skills` | Override the preset skill roots, stack extra skills on top of the presets, or disable skill loading. |
-| Target inputs | `--input` | Target bundle directory with manifest-declared correctness and benchmark commands. |
-| Experiment collection | `--runs-dir PATH` | Required for every run. Owns run directories, synthesized inputs, and shared caches. |
-| Experiment repository | `--repo`, `--repo-visibility`, `--local`, `--resume` | Fresh runs use GitHub by default; `--local` keeps one in the selected collection, and `--resume` accepts local paths or GitHub repositories. |
+| Target inputs | `--input` | Complete target project. Defaults to the current directory. |
+| State layout | omitted `--runs-dir` or `--runs-dir PATH` | Omit it for an in-place agent run with `.vs/` state. Pass it for the legacy copied-workspace collection. |
+| Experiment repository | `--repo`, `--repo-visibility`, `--local`, `--resume` | In-place runs use local branches. Legacy fresh runs use GitHub by default, and legacy resume also accepts local paths or GitHub repositories. |
 | Client theme | `--theme` | Presentation only. Which semantic theme the interactive client renders with. |
 
 Do not treat these as simple toggles. Some combinations imply a startup
@@ -64,6 +64,56 @@ Run the commands below with `uv run vibesys` (from a checkout) or `vibesys`
 (installed). Both forward every argument to the engine and prepare the
 interactive client when needed.
 Use `vibesys --outer-loop <kind> --help` for loop-specific flags.
+
+## Default In-Place Project Runs
+
+The default agent-loop launch treats the input directory as the working
+project. `--input` defaults to the current directory:
+
+```bash
+cd /path/to/project
+vibesys
+
+# Equivalent without changing directory
+vibesys --input /path/to/project
+```
+
+The project must contain `OBJECTIVE.md`, `vibesys.input.toml`, and the candidate
+source the agent will edit. Its manifest must not declare `[workspace].seed` or
+`[[workspace.sources]]`; materialize those starter files into the project first.
+In-place execution is initially limited to the `agent` outer loop and native
+agent sandbox. Docker, Modal, `plain`, `evolve`, and standalone `--input-*`
+synthesis still require `--runs-dir`.
+
+VibeSys initializes Git when needed and creates one `vibesys/<run-id>` branch
+per run. Agent-authored source stays at its normal project paths. State is split
+under `.vs/`:
+
+```text
+.vs/
+├── .gitignore                         # contains /local/
+├── project.json                       # committed project identity
+├── runs/<run-id>/
+│   ├── run.json                       # committed sanitized run configuration
+│   └── rounds/NNNN.json               # committed completed-round records
+└── local/                             # ignored operational state
+    ├── current-run
+    └── runs/<run-id>/
+        ├── active.json
+        └── logs/
+```
+
+The committed files contain portable configuration, fingerprints, metrics, and
+round outcomes. They exclude provider credentials, environment variables,
+absolute source paths, sessions, and raw logs. Resume uses the saved run and
+branch explicitly:
+
+```bash
+vibesys --resume <run-id>
+```
+
+A plain `vibesys` launch starts a new run. It does not silently resume the
+current or latest run.
 
 ### Agent-loop review and memory policy
 
@@ -108,7 +158,7 @@ flag-defined objectives are restored, and incompatible changes are rejected.
 On a new run, supplying any
 `--openevolve-*` setting also selects the OpenEvolve policy.
 
-## Remote Experiment Repositories
+## Legacy Remote Experiment Repositories
 
 Configure interactive defaults in `agent.toml`:
 
@@ -119,16 +169,15 @@ Configure interactive defaults in `agent.toml`:
 visibility = "private"
 ```
 
-Fresh runs use GitHub by default. The owner can be any GitHub user or
-organization; when `owner` is omitted, VibeSys uses the account authenticated
-with `gh`. On a fresh interactive run, a pre-launch form shows the input path,
-generated experiment/repository names, owner, and visibility. Tab and Shift-Tab
-move between fields, Enter launches, and clearing the owner keeps the run local.
-Names default to `<input-name>-<UTC timestamp>`.
+Legacy `--runs-dir` runs use GitHub by default. The owner can be any GitHub user
+or organization; when `owner` is omitted, VibeSys uses the account authenticated
+with `gh`. Interactive and headless launchers pass the same arguments directly
+to the engine, so provide the input and collection explicitly. Names default to
+`<input-name>-<UTC timestamp>`.
 
 For headless use, the generated repository name is used automatically. Pass
 `--repo NAME` to override the name, or `--repo OWNER/NAME` to override the owner
-explicitly. Every run requires `--runs-dir PATH`. Pass `--local` to keep the
+explicitly. This workflow requires `--runs-dir PATH`. Pass `--local` to keep the
 experiment in that collection without a GitHub repository. Repositories use
 `[repository].visibility` unless `--repo-visibility` overrides it. Creation goes
 through the authenticated `gh` CLI.
@@ -295,8 +344,7 @@ run state, and it is ignored in headless mode.
 Resolution order, highest first:
 
 1. `--theme <name>` on the command line.
-2. `[tui].theme` in `agent.toml`.
-3. `dark`.
+2. `dark`.
 
 An unknown name is rejected before any process starts. Inside a running
 session, `/theme` lists the available themes and `/theme <name>` switches
@@ -383,7 +431,17 @@ to it from `OBJECTIVE.md`. A shared evaluator may own this file when several
 input bundles use exactly the same contract. Keep evaluator internals and trust
 assumptions in a separate design document.
 
-For those bundles, pass the root once:
+For a complete in-place project, launch from its root or pass the root once:
+
+```bash
+cd /path/to/project
+vibesys ...
+
+vibesys --input /path/to/project ...
+```
+
+Checked-in bundles that reference a separate starter with `[workspace].seed`
+or `[[workspace.sources]]` use legacy materialization:
 
 ```bash
 uv run vibesys --runs-dir /work/vibesys-runs --input examples/<target> ...
@@ -444,7 +502,9 @@ Resumed runs keep the evaluator snapshot from the original run instead of
 refreshing it from repository source.
 
 To intentionally upgrade evaluator-owned inputs in an existing experiment,
-commit the authorized refresh before resuming and pass that immutable revision:
+commit the authorized refresh before resuming and pass that immutable revision.
+This applies only to legacy copied workspaces created with `--runs-dir`; in-place
+project runs persist their original baseline and reject this flag.
 
 ```bash
 uv run vibesys --outer-loop agent \
@@ -486,7 +546,6 @@ Optional flags:
 | `--input-evaluator-dir DIR` | contents copied into the bundle root (evaluator scripts the commands invoke) |
 | `--input-workspace-seed DIR` | `[workspace].seed` (staged inside the bundle) |
 | `--input-evaluator-source DIR` | `[evaluator].source` (staged inside the bundle) |
-| `--input-hidden-evaluator-source DIR` | `[hidden_evaluator].source` (staged inside the bundle) |
 
 Unlike bundle-declared `workspace.seed` and `evaluator.source`, which must
 resolve inside `examples/starters/` and `examples/evaluators/`, the synthesized

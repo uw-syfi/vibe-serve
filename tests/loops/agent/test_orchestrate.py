@@ -268,6 +268,71 @@ def _invoke_orchestrate(tmp_path, ref_file, runner, **kwargs):  # noqa: ANN001, 
 # ---------------------------------------------------------------------------
 
 
+def test_project_configuration_captures_effective_agent_behavior(tmp_path: Path) -> None:
+    with (
+        patch(
+            "vibesys.loops.agent.loop.create_run_context",
+            side_effect=RuntimeError("captured project configuration"),
+        ) as create_context,
+        pytest.raises(RuntimeError, match="captured project configuration"),
+    ):
+        run_agent_loop(
+            config={  # pyright: ignore[reportArgumentType]  # tracked: #297
+                "model": {"name": "gpt-default"},
+                "thinking": {"level": "high"},
+                "agent": {
+                    "backend": "cli",
+                    "cli_provider": "codex",
+                    "cli_timeout": 900,
+                    "outer": {"model": "gpt-outer", "reasoning_effort": "xhigh"},
+                    "inner": {"model": "gpt-inner", "reasoning_effort": "medium"},
+                },
+            },
+            exp_name="queue",
+            input_path=str(tmp_path),
+            accuracy_command="check",
+            benchmark_command="benchmark",
+            objective="Optimize the queue",
+            runs_dir=tmp_path / ".vs" / "local",
+            project_mode=True,
+            inner_loop="single-agent",
+            interface="service",
+            modality="messages",
+            max_rounds=7,
+            max_retries_per_round=4,
+            judge_every=2,
+            official_eval_every=5,
+            memory_layout="directories",
+            operator_constraints=("Preserve ordering",),
+            domain=DomainName.GENERIC,
+        )
+
+    configuration = create_context.call_args.kwargs["project_configuration"]
+    assert configuration.model_dump() == {
+        "model": "gpt-default",
+        "outer_loop": "agent",
+        "inner_loop": "single-agent",
+        "interface": "service",
+        "agent_backend": "cli",
+        "cli_provider": "codex",
+        "cli_timeout": 900,
+        "compute_backend": "cuda",
+        "profiler": "auto",
+        "max_rounds": 7,
+        "max_retries_per_round": 4,
+        "judge_every": 2,
+        "official_eval_every": 5,
+        "memory_layout": "directories",
+        "modality": "messages",
+        "default_reasoning_effort": "high",
+        "outer_model": "gpt-outer",
+        "outer_reasoning_effort": "xhigh",
+        "inner_model": "gpt-inner",
+        "inner_reasoning_effort": "medium",
+        "operator_constraints": ("Preserve ordering",),
+    }
+
+
 def test_validation_recipe_rejects_non_workspace_inputs():  # noqa: ANN201  # tracked: #288
     with pytest.raises(ValueError, match="workspace-relative"):
         ValidationRecipe(

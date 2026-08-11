@@ -132,7 +132,6 @@ def test_manifest_without_workspace_seed_remains_valid(tmp_path):  # noqa: ANN00
 
     assert loaded.workspace_seed_path is None
     assert loaded.evaluator_path is None
-    assert loaded.hidden_evaluator_path is None
 
 
 def test_manifest_resolves_seed_relative_to_bundle(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
@@ -255,20 +254,6 @@ def test_manifest_resolves_evaluator_relative_to_bundle(tmp_path):  # noqa: ANN0
     assert loaded.evaluator_path == evaluator.resolve()
 
 
-def test_manifest_resolves_hidden_evaluator_relative_to_bundle(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
-    project_root = tmp_path / "project"
-    evaluator = project_root / "examples" / "evaluators" / "tracelab-replay"
-    evaluator.mkdir(parents=True)
-    bundle = _write_bundle(
-        project_root,
-        '[hidden_evaluator]\nsource = "../../evaluators/tracelab-replay"',
-    )
-
-    loaded = load_input_bundle(bundle, project_root=project_root)
-
-    assert loaded.hidden_evaluator_path == evaluator.resolve()
-
-
 def test_bundle_local_seed_rejected_without_flag_but_allowed_with_it(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     project_root = tmp_path / "project"
     bundle = _write_bundle(project_root, '[workspace]\nseed = "_seed"')
@@ -286,14 +271,12 @@ def test_bundle_local_evaluator_sources_allowed_with_flag(tmp_path):  # noqa: AN
     project_root = tmp_path / "project"
     bundle = _write_bundle(
         project_root,
-        '[evaluator]\nsource = "_evaluator_src"\n\n[hidden_evaluator]\nsource = "_hidden_evaluator_src"',
+        '[evaluator]\nsource = "_evaluator_src"',
     )
     (bundle / "_evaluator_src").mkdir()
-    (bundle / "_hidden_evaluator_src").mkdir()
 
     loaded = load_input_bundle(bundle, project_root=project_root, allow_bundle_local_sources=True)
     assert loaded.evaluator_path == (bundle / "_evaluator_src").resolve()
-    assert loaded.hidden_evaluator_path == (bundle / "_hidden_evaluator_src").resolve()
 
 
 @pytest.mark.parametrize(
@@ -420,32 +403,11 @@ def test_manifest_rejects_unknown_evaluator_keys(tmp_path):  # noqa: ANN001, ANN
         load_input_bundle(bundle, project_root=project_root)
 
 
-@pytest.mark.parametrize(
-    ("source_value", "error"),
-    [
-        ("/tmp/evaluator", "source must be relative"),  # noqa: S108  # tracked: #288
-        ("../../../outside", "must resolve inside"),
-        ("../../evaluators/missing", "path does not exist"),
-    ],
-)
-def test_manifest_rejects_invalid_hidden_evaluator_paths(tmp_path, source_value, error):  # noqa: ANN001, ANN201  # tracked: #288
+def test_manifest_rejects_removed_hidden_evaluator_table(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     project_root = tmp_path / "project"
     bundle = _write_bundle(
         project_root,
-        f'[hidden_evaluator]\nsource = "{source_value}"',
-    )
-
-    with pytest.raises((FileNotFoundError, ValueError), match=error):
-        load_input_bundle(bundle, project_root=project_root)
-
-
-def test_manifest_rejects_unknown_hidden_evaluator_keys(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
-    project_root = tmp_path / "project"
-    evaluator = project_root / "examples" / "evaluators" / "queue"
-    evaluator.mkdir(parents=True)
-    bundle = _write_bundle(
-        project_root,
-        '[hidden_evaluator]\nsource = "../../evaluators/queue"\nmutable = false',
+        '[hidden_evaluator]\nsource = "../../evaluators/queue"',
     )
 
     with pytest.raises(ValueError, match="Extra inputs are not permitted"):
@@ -488,7 +450,6 @@ def test_fresh_workspace_materializes_seed_and_preserves_it_in_initial_commit(tm
     ):
         assert ctx.workspace_seed_path == seed.resolve()
         assert ctx.evaluator_path == evaluator.resolve()
-        assert ctx.hidden_evaluator_path is None
         assert (ctx.workspace / "Cargo.toml").is_file()
         assert (ctx.workspace / "src" / "lib.rs").is_file()
         assert (ctx.workspace / "OBJECTIVE.md").is_file()
@@ -513,43 +474,6 @@ def test_fresh_workspace_materializes_seed_and_preserves_it_in_initial_commit(tm
 
         (ctx.workspace / "_evaluator" / "queue" / "checker.go").write_text("package compromised\n")
         assert ctx.trusted_input_changes() == ["_evaluator/queue/checker.go"]
-
-
-def test_hidden_evaluator_stays_out_of_workspace_and_agent_project_mount(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
-    project_root = tmp_path / "project"
-    _init_git_repo(project_root)
-    bundle = _write_bundle(
-        project_root,
-        '[hidden_evaluator]\nsource = "../../evaluators/tracelab-replay"',
-    )
-    hidden = project_root / "examples" / "evaluators" / "tracelab-replay"
-    hidden.mkdir(parents=True)
-    (hidden / "secret-runner.py").write_text("secret\n")
-    (project_root / "src").mkdir()
-    (project_root / "src" / "visible.py").write_text("visible\n")
-
-    with (
-        _patched_context_dependencies(project_root),
-        patch("vibesys.input_manifest.PROJECT_ROOT", project_root),
-    ):
-        loaded = load_input_bundle(bundle, project_root=project_root)
-        with _make_context(
-            loaded.root,
-            hidden_evaluator_path=loaded.hidden_evaluator_path,
-            git_tracking=True,
-        ) as ctx:
-            assert ctx.hidden_evaluator_path is not None
-            assert (ctx.hidden_evaluator_path / "secret-runner.py").is_file()
-            assert not (ctx.workspace / "_evaluator").exists()
-            assert not (ctx.workspace / "secret-runner.py").exists()
-            assert (ctx.agent_project_root / "src" / "visible.py").is_file()
-            assert not (
-                ctx.agent_project_root
-                / "examples"
-                / "evaluators"
-                / "tracelab-replay"
-                / "secret-runner.py"
-            ).exists()
 
 
 def test_fresh_workspace_materializes_git_source_and_strips_nested_git(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288

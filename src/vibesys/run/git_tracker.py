@@ -12,8 +12,33 @@ import os
 import re
 import shutil
 import subprocess
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
+from enum import StrEnum
 from pathlib import Path
+
+from vibesys.run.project_policy import TRUSTED_PROJECT_INPUT_PATHS
+
+
+def _normalize_project_paths(paths: Iterable[str | Path]) -> tuple[Path, ...]:
+    """Normalize safe repository-relative paths used in literal Git pathspecs."""
+    normalized: list[Path] = []
+    for raw in paths:
+        path = Path(raw)
+        if (
+            path.is_absolute()
+            or path == Path()
+            or any(part in {"", ".", ".."} for part in path.parts)
+        ):
+            raise ValueError(f"project path must be a normalized relative path: {raw}")  # noqa: TRY003  # tracked: #288
+        normalized.append(path)
+    return tuple(normalized)
+
+
+class GitTrackingMode(StrEnum):
+    """Repository ownership model used by :class:`GitTracker`."""
+
+    LEGACY_WORKSPACE = "legacy-workspace"
+    USER_PROJECT = "user-project"
 
 
 class GitTracker:
@@ -45,26 +70,49 @@ class GitTracker:
         "neuron-compile-cache/",
     )
 
-    _TRUSTED_INPUT_PATHS: tuple[str, ...] = (
-        "OBJECTIVE.md",
-        "vibesys.input.toml",
-        "reference",
-        "accuracy_checker",
-        "benchmark",
-        "_input_libs",
-        "_evaluator",
+    _TRUSTED_INPUT_PATHS = TRUSTED_PROJECT_INPUT_PATHS
+
+    _PROJECT_LOCAL_EXCLUDE_PATTERNS: tuple[str, ...] = (
+        "/.vs/local/",
+        "/.env",
+        "/.env.*",
+        "/agent.toml",
+        "*.py[co]",
+        "__pycache__/",
+        ".mypy_cache/",
+        ".pytest_cache/",
+        ".ruff_cache/",
     )
 
-    def __init__(  # noqa: D107  # tracked: #288
+    _PRIVATE_PROJECT_INPUTS: tuple[str, ...] = (
+        ".env",
+        ".env.*",
+        "agent.toml",
+    )
+
+    def __init__(  # noqa: D107, PLR0913  # tracked: #288
         self,
         root: Path,
         *,
         log: Callable[[str], None],
         excluded_dirs: Iterable[str] = (),
+        mode: GitTrackingMode = GitTrackingMode.LEGACY_WORKSPACE,
+        run_id: str | None = None,
+        trusted_input_paths: Iterable[str | Path] = (),
     ) -> None:
         self.root = root
         self._log = log
         self._excluded_dirs = frozenset(excluded_dirs)
+        self.mode = GitTrackingMode(mode)
+        self.run_id = run_id
+        self._trusted_input_paths = tuple(
+            dict.fromkeys(
+                (
+                    *_normalize_project_paths(self._TRUSTED_INPUT_PATHS),
+                    *_normalize_project_paths(trusted_input_paths),
+                )
+            )
+        )
         self._trusted_input_baseline: str | None = None
         self._git_dir: Path | None = None
         self._work_tree: Path | None = None
@@ -77,10 +125,9 @@ class GitTracker:
     def _GIT_ENV(self) -> dict[str, str]:  # noqa: N802  # tracked: #288
         """Git env pinned to the repository selected during initialization."""
         safe_directory = self._work_tree or self.root
-        config = (
-            ("safe.directory", str(safe_directory)),
-            ("core.excludesFile", str(self._exclude_file)),
-        )
+        config = [("safe.directory", str(safe_directory))]
+        if self.mode is GitTrackingMode.LEGACY_WORKSPACE:
+            config.append(("core.excludesFile", str(self._exclude_file)))
         result = {
             **self._GIT_ENV_STATIC,
             "GIT_CONFIG_COUNT": str(len(config)),
@@ -115,6 +162,13 @@ class GitTracker:
         operation scoped to the workspace. Standalone callers still get a
         repository rooted directly at ``self.root``.
         """
+        if self.mode is GitTrackingMode.USER_PROJECT:
+            self._init_user_project(
+                existing=existing,
+                trusted_input_baseline=trusted_input_baseline,
+            )
+            return
+
         if existing:
             if not self._inside_work_tree():
                 raise ValueError(  # noqa: TRY003  # tracked: #288
@@ -122,12 +176,7 @@ class GitTracker:
                 )
             self._bind_repository()
             if trusted_input_baseline is not None:
-                self._trusted_input_baseline = self._resolve_trusted_input_baseline(
-                    trusted_input_baseline
-                )
-                self._log(
-                    f"[git-tracking] trusted input baseline: {self._trusted_input_baseline[:12]}"
-                )
+                self.configure_trusted_input_baseline(trusted_input_baseline)
             return
 
         if trusted_input_baseline is not None:
@@ -182,6 +231,10 @@ class GitTracker:
     def snapshot(self, label: str) -> None:
         """Commit current workspace state with *label* as the commit message."""
         self._add_all()
+        self._commit_staged(label)
+
+    def _commit_staged(self, label: str) -> None:
+        """Commit the current index, logging when it contains no changes."""
         # git diff --cached --quiet exits 1 when there are staged changes
         has_changes = (
             self.run(
@@ -194,6 +247,48 @@ class GitTracker:
             self.run(["git", "commit", "-m", label])
         else:
             self._log(f"[git-tracking] no changes to commit for '{label}'")
+
+    def snapshot_with_framework_metadata(
+        self,
+        label: str,
+        metadata: Mapping[str | Path, str | bytes],
+    ) -> None:
+        """Commit candidate changes with exact framework-authored ``.vs`` files.
+
+        This is the only project-mode snapshot API that stages ``.vs``. The
+        framework supplies complete file contents so the tracker can verify
+        existing committed metadata before it writes anything. Local runtime
+        state under ``.vs/local`` is never accepted or staged.
+        """
+        if self.mode is not GitTrackingMode.USER_PROJECT:
+            raise ValueError("framework metadata snapshots require user-project mode")  # noqa: TRY003  # tracked: #288
+
+        destinations = self._framework_metadata_destinations(metadata)
+        pending = self._pending_committed_framework_metadata()
+        supplied = {relative.as_posix(): content for relative, _, content in destinations}
+        unexpected = [path for path in pending if path not in supplied]
+        mismatched = [
+            relative.as_posix()
+            for relative, destination, content in destinations
+            if relative.as_posix() in pending
+            and destination.read_bytes()
+            != (content.encode("utf-8") if isinstance(content, str) else content)
+        ]
+        if unexpected or mismatched:
+            shown = ", ".join(sorted({*unexpected, *mismatched}))
+            raise ValueError(  # noqa: TRY003  # tracked: #288
+                f"refusing to overwrite unexpectedly modified committed VibeSys metadata: {shown}"
+            )
+
+        self._add_all()
+        for relative, destination, content in destinations:
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            if isinstance(content, str):
+                destination.write_text(content)
+            else:
+                destination.write_bytes(content)
+            self.run(["git", "add", "--force", "--", relative.as_posix()])
+        self._commit_staged(label)
 
     def current_sha(self) -> str | None:
         """Return the HEAD commit sha, or ``None`` if it cannot be resolved."""
@@ -215,6 +310,23 @@ class GitTracker:
         without granting them ownership of snapshot bookkeeping.
         """
         return self._work_tree
+
+    @property
+    def trusted_input_baseline(self) -> str | None:
+        """Return the resolved commit used as the trusted-input baseline.
+
+        Fresh user-project runs capture their branch-point commit. Legacy
+        workspaces retain their historical behavior and return ``None`` unless
+        an explicit baseline was supplied while resuming.
+        """
+        return self._trusted_input_baseline
+
+    def configure_trusted_input_baseline(self, revision: str) -> str:
+        """Resolve and install the persisted trusted-input baseline."""
+        resolved = self._resolve_trusted_input_baseline(revision)
+        self._trusted_input_baseline = resolved
+        self._log(f"[git-tracking] trusted input baseline: {resolved[:12]}")
+        return resolved
 
     def pending_changes(self) -> list[str]:
         """Return tracked and untracked workspace paths changed since ``HEAD``.
@@ -263,19 +375,24 @@ class GitTracker:
         preserved: dict[Path, bytes] = {}
         try:
             preserved = self._capture_preserved_paths(preserve_paths)
-            self.run(
-                [
-                    "git",
-                    "restore",
-                    f"--source={sha}",
-                    "--staged",
-                    "--worktree",
-                    "--",
-                    ".",
-                ]
-            )
+            restore_cmd = [
+                "git",
+                "restore",
+                f"--source={sha}",
+                "--staged",
+                "--worktree",
+                "--",
+                ".",
+            ]
+            if self.mode is GitTrackingMode.USER_PROJECT:
+                restore_cmd.extend([":(exclude).vs", ":(exclude).vs/**"])
+            self.run(restore_cmd)
             if clean:
-                self.run(["git", "clean", "-fd", "--", "."], check=False)
+                clean_cmd = ["git", "clean", "-fd"]
+                if self.mode is GitTrackingMode.USER_PROJECT:
+                    clean_cmd.extend(["-e", ".vs/"])
+                clean_cmd.extend(["--", "."])
+                self.run(clean_cmd, check=False)
             self._restore_preserved_paths(preserved)
             return True  # noqa: TRY300  # tracked: #288
         except Exception as exc:  # noqa: BLE001  # tracked: #288
@@ -314,6 +431,7 @@ class GitTracker:
 
     def trusted_input_changes(self) -> list[str]:
         """Return evaluator-owned paths changed since the trusted baseline."""
+        trusted_pathspecs = self._trusted_input_pathspecs()
         initial_commit = self._trusted_input_baseline
         if initial_commit is None:
             baseline = self.run(
@@ -324,7 +442,7 @@ class GitTracker:
                     "--format=%H",
                     "--reverse",
                     "--",
-                    *self._TRUSTED_INPUT_PATHS,
+                    *trusted_pathspecs,
                 ]
             )
             commits = baseline.stdout.decode().splitlines()[0:1]
@@ -332,7 +450,7 @@ class GitTracker:
                 return ["unable to resolve the initial workspace commit"]
             initial_commit = commits[0]
 
-        pathspec = ["--", *self._TRUSTED_INPUT_PATHS]
+        pathspec = ["--", *trusted_pathspecs]
         committed = self.run(["git", "diff", "--name-only", f"{initial_commit}..HEAD", *pathspec])
         pending = self.run(
             [
@@ -388,6 +506,228 @@ class GitTracker:
         """Contents of the workspace ``.gitignore`` (excluded dirs + artifacts)."""
         lines = sorted(self._excluded_dirs) + list(self._ARTIFACT_GITIGNORE_PATTERNS)
         return "\n".join(lines) + "\n"
+
+    # -- in-place user projects ---------------------------------------------
+
+    @property
+    def project_branch(self) -> str | None:
+        """Return the run branch name selected for project mode."""
+        if self.mode is not GitTrackingMode.USER_PROJECT or self.run_id is None:
+            return None
+        return f"vibesys/{self.run_id}"
+
+    def _init_user_project(
+        self,
+        *,
+        existing: bool,
+        trusted_input_baseline: str | None,
+    ) -> None:
+        """Initialize or resume tracking directly in a user's project root."""
+        branch = self._validated_project_branch()
+        inside_work_tree = self._prepare_project_repository(existing=existing)
+        self._bind_repository()
+        self._install_project_excludes()
+        self._require_private_inputs_absent_from_history()
+        if existing:
+            self._resume_user_project(branch, trusted_input_baseline)
+            return
+
+        self._start_user_project(
+            branch=branch,
+            inside_work_tree=inside_work_tree,
+            trusted_input_baseline=trusted_input_baseline,
+        )
+
+    def _validated_project_branch(self) -> str:
+        branch = self.project_branch
+        if branch is None:
+            raise ValueError("user-project git tracking requires a run id")  # noqa: TRY003  # tracked: #288
+        valid = self.run(["git", "check-ref-format", "--branch", branch], check=False)
+        if valid.returncode != 0:
+            raise ValueError(f"invalid VibeSys run id for a Git branch: {self.run_id!r}")  # noqa: TRY003  # tracked: #288
+        return branch
+
+    def _prepare_project_repository(self, *, existing: bool) -> bool:
+        inside_work_tree = self._inside_work_tree()
+        if not inside_work_tree:
+            if existing:
+                raise ValueError(  # noqa: TRY003  # tracked: #288
+                    f"cannot resume VibeSys run {self.run_id!r}: no Git repository in {self.root}"
+                )
+            self.run(["git", "init", "-q", "-b", "main"])
+            return False
+
+        top_level = self.run(["git", "rev-parse", "--show-toplevel"])
+        repository_root = Path(top_level.stdout.decode(errors="replace").strip()).resolve()
+        if repository_root != self.root.resolve():
+            raise ValueError(  # noqa: TRY003  # tracked: #288
+                "user-project git tracking requires the input directory to be "
+                f"the repository root; found containing repository {repository_root}"
+            )
+        return True
+
+    def _resume_user_project(
+        self,
+        branch: str,
+        trusted_input_baseline: str | None,
+    ) -> None:
+        if not self._branch_exists(branch):
+            raise ValueError(  # noqa: TRY003  # tracked: #288
+                f"cannot resume VibeSys run {self.run_id!r}: branch {branch!r} does not exist"
+            )
+        if self._current_branch() != branch:
+            self._require_clean_project(
+                "cannot switch to the resumed VibeSys branch with pending project changes"
+            )
+            self.run(["git", "switch", branch])
+        if trusted_input_baseline is not None:
+            self.configure_trusted_input_baseline(trusted_input_baseline)
+
+    def _start_user_project(
+        self,
+        *,
+        branch: str,
+        inside_work_tree: bool,
+        trusted_input_baseline: str | None,
+    ) -> None:
+        if trusted_input_baseline is not None:
+            raise ValueError("trusted input baseline is only valid when resuming a run")  # noqa: TRY003  # tracked: #288
+
+        if inside_work_tree:
+            if self.current_sha() is None:
+                raise ValueError(  # noqa: TRY003  # tracked: #288
+                    "existing project repository has no baseline commit"
+                )
+            self._require_clean_project(
+                "existing project repository must be clean before starting a VibeSys run"
+            )
+        else:
+            self._add_all()
+            self.run(["git", "commit", "--allow-empty", "-m", "initial: project baseline"])
+
+        branch_point = self.current_sha()
+        if branch_point is None:
+            raise ValueError("user-project baseline commit could not be resolved")  # noqa: TRY003  # tracked: #288
+
+        if self._branch_exists(branch):
+            raise ValueError(f"VibeSys run branch already exists: {branch}")  # noqa: TRY003  # tracked: #288
+        self.run(["git", "switch", "-c", branch])
+        self._trusted_input_baseline = branch_point
+        self._log(f"[git-tracking] trusted input baseline: {branch_point[:12]}")
+
+    def _install_project_excludes(self) -> None:
+        """Idempotently add local/private paths to ``.git/info/exclude``."""
+        patterns = list(self._PROJECT_LOCAL_EXCLUDE_PATTERNS)
+        patterns.extend(
+            f"{directory}/" for directory in sorted(self._excluded_dirs) if directory != ".git"
+        )
+        patterns.extend(self._ARTIFACT_GITIGNORE_PATTERNS)
+        self._append_exclude_patterns(patterns)
+
+    def _trusted_input_pathspecs(self) -> tuple[str, ...]:
+        return tuple(f":(literal){path.as_posix()}" for path in self._trusted_input_paths)
+
+    def _require_private_inputs_absent_from_history(self) -> None:
+        """Reject private root inputs recoverable through reachable Git objects."""
+        if self.current_sha() is None:
+            return
+        objects = self.run(
+            ["git", "rev-list", "--objects", "--all", "--reflog"],
+            check=False,
+        )
+        if objects.returncode != 0:
+            raise ValueError("cannot inspect project Git history for private inputs")  # noqa: TRY003  # tracked: #288
+        private_paths = sorted(
+            {
+                path
+                for line in objects.stdout.decode(errors="replace").splitlines()
+                if (path := line.partition(" ")[2]) and self._is_private_project_input(path)
+            }
+        )
+        if private_paths:
+            raise ValueError(  # noqa: TRY003  # tracked: #288
+                "project Git history contains private inputs that an optimization agent "
+                f"could recover: {', '.join(private_paths)}. Remove them from history or "
+                "start from a fresh repository."
+            )
+
+    @staticmethod
+    def _is_private_project_input(path: str) -> bool:
+        return path in {".env", "agent.toml"} or path.startswith(".env.")
+
+    def _append_exclude_patterns(self, patterns: Iterable[str]) -> None:
+        exclude_file = self._exclude_file
+        exclude_file.parent.mkdir(parents=True, exist_ok=True)
+        existing = exclude_file.read_text() if exclude_file.exists() else ""
+        have = set(existing.splitlines())
+        new = [pattern for pattern in dict.fromkeys(patterns) if pattern not in have]
+        if not new:
+            return
+        prefix = "" if not existing or existing.endswith("\n") else "\n"
+        exclude_file.write_text(existing + prefix + "\n".join(new) + "\n")
+
+    def _require_clean_project(self, message: str) -> None:
+        changes = self.pending_changes()
+        if changes:
+            raise ValueError(f"{message}: {', '.join(changes)}")  # noqa: TRY003  # tracked: #288
+
+    def _branch_exists(self, branch: str) -> bool:
+        result = self.run(
+            ["git", "show-ref", "--verify", "--quiet", f"refs/heads/{branch}"],
+            check=False,
+        )
+        return result.returncode == 0
+
+    def _current_branch(self) -> str | None:
+        result = self.run(
+            ["git", "symbolic-ref", "--quiet", "--short", "HEAD"],
+            check=False,
+        )
+        if result.returncode != 0:
+            return None
+        return result.stdout.decode(errors="replace").strip()
+
+    def _framework_metadata_destinations(
+        self,
+        metadata: Mapping[str | Path, str | bytes],
+    ) -> list[tuple[Path, Path, str | bytes]]:
+        """Validate metadata keys and resolve their safe project destinations."""
+        vs_root = self.root / ".vs"
+        if vs_root.is_symlink():
+            raise ValueError("framework metadata directory must not be a symlink")  # noqa: TRY003  # tracked: #288
+
+        result: list[tuple[Path, Path, str | bytes]] = []
+        seen: set[Path] = set()
+        for raw_path, content in metadata.items():
+            relative = Path(raw_path)
+            if (
+                relative.is_absolute()
+                or relative == Path()
+                or ".." in relative.parts
+                or relative.parts[:1] != (".vs",)
+                or relative.parts[:2] == (".vs", "local")
+            ):
+                raise ValueError(  # noqa: TRY003  # tracked: #288
+                    f"framework metadata path must be below .vs/ but outside .vs/local/: {raw_path}"
+                )
+            if relative in seen:
+                raise ValueError(f"duplicate framework metadata path: {raw_path}")  # noqa: TRY003  # tracked: #288
+            seen.add(relative)
+
+            destination = self.root / relative
+            for parent in (destination, *destination.parents):
+                if parent == self.root:
+                    break
+                if parent.is_symlink():
+                    raise ValueError(  # noqa: TRY003  # tracked: #288
+                        f"framework metadata path traverses a symlink: {raw_path}"
+                    )
+            result.append((relative, destination, content))
+        return result
+
+    def _pending_committed_framework_metadata(self) -> list[str]:
+        result = self.run(["git", "diff", "--name-only", "HEAD", "--", ".vs"])
+        return sorted(path for path in result.stdout.decode(errors="replace").splitlines() if path)
 
     # -- snapshot resilience --------------------------------------------------
     #
@@ -472,9 +812,15 @@ class GitTracker:
         permission failure (a file may appear between the scan and the add).
         """
         self._exclude_paths(self._collect_unreadable())
+        if self.mode is GitTrackingMode.USER_PROJECT and self.current_sha() is not None:
+            # Discard any index mutations made by the candidate before staging
+            # the exact candidate-owned path set ourselves.
+            self.run(["git", "reset", "--quiet", "HEAD", "--", "."])
+        add_cmd = ["git", "add", "-A", "--", "."]
         for _ in range(3):
-            result = self.run(["git", "add", "-A", "--", "."], check=False)
+            result = self.run(add_cmd, check=False)
             if result.returncode == 0:
+                self._unstage_project_owned_paths()
                 return
             stderr = result.stderr.decode(errors="replace")
             offenders = self._unreadable_from_stderr(stderr)
@@ -482,7 +828,33 @@ class GitTracker:
                 break  # failure unrelated to unreadable files — surface it
             self._exclude_paths(offenders)
         # Final attempt: let run() raise with full diagnostics if it still fails.
-        self.run(["git", "add", "-A", "--", "."])
+        self.run(add_cmd)
+        self._unstage_project_owned_paths()
+
+    def _unstage_project_owned_paths(self) -> None:
+        """Remove framework, private, and cache paths from the candidate index."""
+        if self.mode is not GitTrackingMode.USER_PROJECT:
+            return
+        protected = [
+            ".vs",
+            ".env",
+            "agent.toml",
+        ]
+        protected.extend(
+            f":(glob)**/{directory}/**"
+            for directory in sorted(self._excluded_dirs)
+            if directory != ".git"
+        )
+        for pattern in self._ARTIFACT_GITIGNORE_PATTERNS:
+            normalized = pattern.removesuffix("/")
+            if pattern.endswith("/"):
+                protected.append(f":(glob)**/{normalized}/**")
+            else:
+                protected.append(f":(glob)**/{normalized}")
+        if self.current_sha() is None:
+            self.run(["git", "rm", "--cached", "-r", "--ignore-unmatch", "--", *protected])
+        else:
+            self.run(["git", "reset", "--quiet", "HEAD", "--", *protected])
 
     def _bind_repository(self) -> None:
         """Pin future commands to the repository currently containing ``root``.
@@ -496,6 +868,12 @@ class GitTracker:
         work_tree = self.run(["git", "rev-parse", "--show-toplevel"])
         self._git_dir = Path(git_dir.stdout.decode(errors="replace").strip()).resolve()
         self._work_tree = Path(work_tree.stdout.decode(errors="replace").strip()).resolve()
+        if self.mode is GitTrackingMode.USER_PROJECT:
+            exclude_file = self.run(["git", "rev-parse", "--git-path", "info/exclude"])
+            exclude_path = Path(exclude_file.stdout.decode(errors="replace").strip())
+            if not exclude_path.is_absolute():
+                exclude_path = self.root / exclude_path
+            self._exclude_file = exclude_path.resolve()
 
     def _exclude_pattern(self, rel_path: str) -> str:
         """Return an exact repository-root-relative ignore pattern."""

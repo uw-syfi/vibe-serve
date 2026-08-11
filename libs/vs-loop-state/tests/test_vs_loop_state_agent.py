@@ -6,11 +6,28 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from vs_loop_state.agent import RoundHistory, RoundRecord
+from vs_loop_state import (
+    RoundHistory,
+    RoundRecord,
+    parse_round_record,
+    serialize_round_record,
+)
 
 # ---------------------------------------------------------------------------
 # On-disk shape
 # ---------------------------------------------------------------------------
+
+
+def test_public_round_record_codec_round_trips() -> None:
+    record = RoundRecord(
+        round_number=3,
+        commit="a" * 40,
+        perf_metric=1.0,
+        perf_unit="ops/s",
+        passed=True,
+    )
+
+    assert parse_round_record(serialize_round_record(record)) == record
 
 
 def test_persisted_round_uses_the_round_key_not_round_number(tmp_path: Path) -> None:

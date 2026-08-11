@@ -158,7 +158,7 @@ def test_source_checkout_root_finds_this_repo():  # noqa: ANN201  # tracked: #28
     assert (root / "clients" / "tui" / "package.json").is_file()
 
 
-def test_source_checkout_builds_and_runs_launcher(monkeypatch, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+def test_source_checkout_builds_and_runs_launcher_from_callers_directory(monkeypatch, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     _force_interactive(monkeypatch)
     monkeypatch.setattr(cli, "bundled_tui", lambda: None)
     monkeypatch.setattr(cli, "source_checkout_root", lambda: tmp_path)
@@ -187,7 +187,7 @@ def test_source_checkout_builds_and_runs_launcher(monkeypatch, tmp_path):  # noq
     assert build_calls == [True]  # a stale checkout was rebuilt
     launcher = tmp_path / "clients" / "tui" / "dist" / "launcher.js"
     assert captured["cmd"] == ["/usr/bin/node", str(launcher), "--input", "bundle", "--local"]
-    assert captured["cwd"] == str(tmp_path)
+    assert captured["cwd"] is None
     assert captured["env"]["VIBESYS_PYTHON"] == sys.executable  # pyright: ignore[reportIndexIssue]
 
 

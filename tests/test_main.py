@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -33,6 +34,7 @@ from vibesys.main import (
 )
 from vibesys.profilers import ProfilerKind
 from vs_github import GitHubCLI
+from vs_project_state import ProjectStore, RunConfiguration
 
 
 def _patch_loop_runner(loop_name: str, runner: Mock):  # noqa: ANN202  # tracked: #288
@@ -88,6 +90,47 @@ def _write_resume_event(
         '"max_rounds": 2}}\n'
     )
     (logs / "run-events.jsonl").write_text(content)
+
+
+def _git_run(cwd: Path, *args: str) -> None:
+    subprocess.run(["git", *args], cwd=cwd, check=True)  # noqa: S603, S607  # test-only arguments
+
+
+def _write_project_run(
+    project: Path,
+    run_id: str,
+    *,
+    created_at: datetime,
+    make_current: bool = True,
+    configuration: RunConfiguration | None = None,
+) -> ProjectStore:
+    store = ProjectStore(project)
+    store.create_project(project.name)
+    configuration = configuration or RunConfiguration(
+        model="gpt-5.4",
+        outer_loop="agent",
+        inner_loop="multi-agent",
+        interface="inprocess",
+        agent_backend="cli",
+        cli_provider="codex",
+        compute_backend="cpu",
+        max_rounds=5,
+        max_retries_per_round=3,
+        judge_every=3,
+        official_eval_every=3,
+        memory_layout="files",
+    )
+    manifest = store.new_run_manifest(
+        project.name,
+        run_id=run_id,
+        branch=f"vibesys/{run_id}",
+        vibesys_version="0.2.0-test",
+        configuration=configuration,
+        trusted_input_baseline="0" * 40,
+        now=created_at,
+    )
+    store.create_run(manifest, make_current=make_current)
+    return store
 
 
 # ---------------------------------------------------------------------------
@@ -167,12 +210,35 @@ def test_target_input_defaults_to_none():  # noqa: ANN201  # tracked: #288
     assert args.input_objective is None
 
 
-def test_run_invocation_requires_runs_dir() -> None:
-    with pytest.raises(ConfigurationError) as exc:
-        parse_cli_invocation(["--outer-loop", "agent", *TARGET_INPUT_ARGS])
+def test_run_invocation_defaults_to_in_place_current_project(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bundle = _write_input_bundle(tmp_path)
+    monkeypatch.chdir(bundle)
 
-    assert exc.value.diagnostic.code == "missing_runs_dir"
-    assert "--runs-dir PATH is required" in exc.value.diagnostic.message
+    invocation = parse_cli_invocation(["--outer-loop", "agent"])
+
+    assert invocation.args.project_mode is True
+    assert invocation.args.input == bundle.resolve()
+    assert invocation.args.input_bundle.root == bundle.resolve()
+    assert invocation.args.runs_dir == bundle.resolve() / ".vs" / "local"
+
+
+def test_run_invocation_accepts_explicit_in_place_input_from_another_directory(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bundle = _write_input_bundle(tmp_path)
+    launch_dir = tmp_path / "launch"
+    launch_dir.mkdir()
+    monkeypatch.chdir(launch_dir)
+
+    invocation = parse_cli_invocation(["--input", str(bundle)])
+
+    assert invocation.args.project_mode is True
+    assert invocation.args.input_bundle.root == bundle.resolve()
+    assert invocation.args.runs_dir == bundle.resolve() / ".vs" / "local"
 
 
 @pytest.mark.parametrize("value", ["", " \t "])
@@ -196,6 +262,7 @@ def test_runs_dir_is_normalized_to_an_absolute_collection_path(
         ["--outer-loop", "agent", "--runs-dir", "runs", "--input", str(bundle)]
     )
 
+    assert invocation.args.project_mode is False
     assert invocation.args.runs_dir == (tmp_path / "runs").resolve()
 
 
@@ -791,7 +858,7 @@ command = ["./tools/bench"]
     assert "benchmark.command executable does not exist" in exc.value.diagnostic.message
 
 
-def test_validate_target_inputs_requires_input():  # noqa: ANN201  # tracked: #288
+def test_validate_target_inputs_explains_invalid_launch_directory():  # noqa: ANN201  # tracked: #288
     from vibesys.main import _build_agent_parser  # noqa: PLC0415  # tracked: #288
 
     args = _build_agent_parser().parse_args([])
@@ -800,10 +867,10 @@ def test_validate_target_inputs_requires_input():  # noqa: ANN201  # tracked: #2
         _validate_target_inputs(args)
 
     message = exc.value.diagnostic.message
-    assert "missing required target input" in message
-    # The error points at both ways to supply a target.
-    assert "--input" in message
-    assert "--input-objective" in message
+    assert "Current directory is not a VibeSys project" in message
+    assert "OBJECTIVE.md" in message
+    assert "vibesys.input.toml" in message
+    assert "Launch VibeSys from the input project or pass --input PATH" in message
 
 
 def test_trusted_input_baseline_requires_resume(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
@@ -858,13 +925,10 @@ def test_agent_operator_constraints_are_repeatable_and_do_not_mutate_objective()
     assert effective.endswith("## Operator constraints\n\n- No quantization.\n- One H100 only.\n")
 
 
-def test_stub_agent_smoke_defaults_supply_input_and_unique_exp_name():  # noqa: ANN201  # tracked: #288
+def test_stub_agent_smoke_defaults_use_the_normal_cwd_input_flow():  # noqa: ANN201  # tracked: #288
     argv = _prepare_stub_agent_smoke_defaults(["--stub-agent", "--max-rounds", "1"])
 
-    assert argv[:2] == ["--input", str(Path("examples/data-structures/queue-spsc").resolve())]
-    assert argv[2] == "--exp-name"
-    assert argv[3].startswith("stub-smoke-")
-    assert argv[-2:] == ["--max-rounds", "1"]
+    assert argv == ["--stub-agent", "--max-rounds", "1"]
 
 
 def test_stub_agent_smoke_defaults_preserve_explicit_input():  # noqa: ANN201  # tracked: #288
@@ -895,7 +959,7 @@ def test_stub_agent_can_run_without_agent_toml(
 
     config, skills, _ = load_config_and_skills(args, domain=DomainName.GENERIC)
 
-    assert config.model.name == "gpt-5.5"
+    assert config.model.name == "gpt-5.4"
     assert skills is None
 
 
@@ -906,11 +970,11 @@ def test_config_help_describes_launch_directory_discovery() -> None:
         cli._build_agent_parser().format_help().split()  # noqa: SLF001  # tracked: #288
     )
 
-    assert "agent.toml in the launch working directory" in help_text
-    assert "a missing file is an error" in help_text
+    assert "reads agent.toml from the launch directory if present" in help_text
+    assert "otherwise uses built-in CLI defaults" in help_text
 
 
-def test_omitted_config_reports_missing_launch_directory_config(
+def test_omitted_config_uses_builtin_defaults(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -922,12 +986,10 @@ def test_omitted_config_reports_missing_launch_directory_config(
         ["--input", str(bundle), "--local", "--no-skills"]
     )
 
-    with pytest.raises(ConfigurationError) as exc:
-        load_config_and_skills(args, domain=DomainName.GENERIC)
+    config, skills, _ = load_config_and_skills(args, domain=DomainName.GENERIC)
 
-    assert exc.value.diagnostic.code == "config_load_failed"
-    assert exc.value.diagnostic.stage == "config_loading"
-    assert str(tmp_path / "agent.toml") in exc.value.diagnostic.message
+    assert config.model.name == "gpt-5.4"
+    assert skills is None
 
 
 def test_omitted_config_does_not_search_parent_for_agent_toml(
@@ -945,12 +1007,9 @@ def test_omitted_config_does_not_search_parent_for_agent_toml(
         ["--input", str(bundle), "--local", "--no-skills"]
     )
 
-    with pytest.raises(ConfigurationError) as exc:
-        load_config_and_skills(args, domain=DomainName.GENERIC)
+    config, _, _ = load_config_and_skills(args, domain=DomainName.GENERIC)
 
-    assert exc.value.diagnostic.code == "config_load_failed"
-    assert str(launch_dir / "agent.toml") in exc.value.diagnostic.message
-    assert "parent-model" not in exc.value.diagnostic.message
+    assert config.model.name == "gpt-5.4"
 
 
 def test_omitted_config_loads_launch_directory_config_when_present(
@@ -1073,21 +1132,27 @@ def test_tui_defaults_supports_first_launch_without_github_authentication(
     github.current_user.assert_called_once_with()
 
 
-def test_tui_defaults_reports_missing_launch_directory_config(
+def test_tui_defaults_uses_builtin_config_on_first_launch(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    import json  # noqa: PLC0415  # tracked: #288
+
     monkeypatch.chdir(tmp_path)
 
-    with (
-        patch.object(sys, "argv", ["vibesys", "tui-defaults"]),
-        pytest.raises(SystemExit) as exc,
+    with patch.object(
+        sys,
+        "argv",
+        ["vibesys", "tui-defaults", "--directory-only"],
     ):
         main()
 
-    assert exc.value.code == 2
-    assert str(tmp_path / "agent.toml") in capsys.readouterr().err
+    defaults = json.loads(capsys.readouterr().out)
+    assert defaults["runs_dir"] == str((tmp_path / "exp_env").resolve())
+    assert defaults["repository_owner"] is None
+    assert defaults["visibility"] == "private"
+    assert defaults["theme"] == "dark"
 
 
 def test_tui_defaults_rejects_an_explicit_missing_config(
@@ -1253,6 +1318,20 @@ def test_validate_command_accepts_input_bundle_path(tmp_path, capsys):  # noqa: 
     assert f"objective: {bundle / 'OBJECTIVE.md'}" in output
 
 
+def test_validate_command_accepts_bundle_local_evaluator(tmp_path, capsys):  # noqa: ANN001, ANN201  # tracked: #288
+    bundle = _write_input_bundle(tmp_path)
+    evaluator = bundle / "_evaluator" / "queue"
+    evaluator.mkdir(parents=True)
+    (evaluator / "check.py").write_text("print('ok')\n")
+    with (bundle / "vibesys.input.toml").open("a") as manifest:
+        manifest.write('\n[evaluator]\nsource = "_evaluator/queue"\n')
+
+    with patch.object(sys, "argv", ["vibesys", "validate", str(bundle)]):
+        main()
+
+    assert f"evaluator source: {evaluator}" in capsys.readouterr().out
+
+
 def test_validate_command_rejects_run_input_flag(tmp_path, capsys):  # noqa: ANN001, ANN201  # tracked: #288
     bundle = _write_input_bundle(tmp_path)
     argv = ["vibesys", "validate", "--input", str(bundle)]
@@ -1292,6 +1371,275 @@ def test_validate_command_reports_invalid_harness_without_running_agent(tmp_path
     error = capsys.readouterr().err
     assert "Validation failed for input bundle" in error
     assert "OBJECTIVE.md not found" in error
+
+
+def test_project_resume_resolves_explicit_run_id_from_current_directory(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    bundle = _write_input_bundle(tmp_path)
+    run_id = "20260811-120000-12345678-queue-spsc"
+    _write_project_run(
+        bundle,
+        run_id,
+        created_at=datetime(2026, 8, 11, 12, tzinfo=UTC),
+    )
+    monkeypatch.chdir(bundle)
+
+    invocation = parse_cli_invocation(["--resume", run_id])
+
+    assert invocation.args.project_mode is True
+    assert invocation.args.resume == run_id
+    assert invocation.args.exp_name == run_id
+    assert invocation.args.input_bundle.root == bundle.resolve()
+
+
+def test_project_resume_defaults_to_current_run_before_latest(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    bundle = _write_input_bundle(tmp_path)
+    current_run = "20260811-120000-11111111-current"
+    latest_run = "20260811-130000-22222222-latest"
+    store = _write_project_run(
+        bundle,
+        current_run,
+        created_at=datetime(2026, 8, 11, 12, tzinfo=UTC),
+    )
+    _write_project_run(
+        bundle,
+        latest_run,
+        created_at=datetime(2026, 8, 11, 13, tzinfo=UTC),
+        make_current=False,
+    )
+    monkeypatch.chdir(bundle)
+
+    invocation = parse_cli_invocation(["--resume"])
+
+    assert invocation.args.resume == current_run
+
+    store.set_current_run(None)
+    invocation = parse_cli_invocation(["--resume"])
+
+    assert invocation.args.resume == latest_run
+
+
+@pytest.mark.parametrize("explicit_run_id", [False, True])
+def test_project_resume_from_another_branch_uses_saved_run_branch(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    *,
+    explicit_run_id: bool,
+) -> None:
+    bundle = _write_input_bundle(tmp_path)
+    _git_run(bundle, "init", "-q", "-b", "main")
+    _git_run(bundle, "add", ".")
+    _git_run(
+        bundle,
+        "-c",
+        "user.name=test",
+        "-c",
+        "user.email=test@example.com",
+        "commit",
+        "-q",
+        "-m",
+        "initial",
+    )
+    run_id = "20260811-120000-11111111-current"
+    _git_run(bundle, "switch", "-q", "-c", f"vibesys/{run_id}")
+    (bundle / "OBJECTIVE.md").write_text("objective from the saved run branch\n")
+    _write_project_run(bundle, run_id, created_at=datetime(2026, 8, 11, 12, tzinfo=UTC))
+    _git_run(bundle, "add", "OBJECTIVE.md", ".vs")
+    _git_run(
+        bundle,
+        "-c",
+        "user.name=test",
+        "-c",
+        "user.email=test@example.com",
+        "commit",
+        "-q",
+        "-m",
+        "run state",
+    )
+    _git_run(bundle, "switch", "-q", "main")
+    monkeypatch.chdir(bundle)
+
+    invocation = parse_cli_invocation(["--resume", *([run_id] if explicit_run_id else [])])
+
+    assert invocation.args.resume == run_id
+    assert invocation.args.input_bundle.objective == "objective from the saved run branch\n"
+    branch = subprocess.run(
+        ["git", "branch", "--show-current"],  # noqa: S607  # test-only executable
+        cwd=bundle,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    assert branch == f"vibesys/{run_id}"
+
+
+def test_project_resume_restores_omitted_run_configuration(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    bundle = _write_input_bundle(tmp_path)
+    run_id = "20260811-120000-11111111-current"
+    configuration = RunConfiguration(
+        model="gpt-recorded",
+        outer_loop="agent",
+        inner_loop="single-agent",
+        interface="service",
+        agent_backend="cli",
+        cli_provider="claude",
+        cli_timeout=321,
+        compute_backend="cpu",
+        profiler="none",
+        max_rounds=7,
+        max_retries_per_round=4,
+        judge_every=2,
+        official_eval_every=5,
+        memory_layout="directories",
+        modality="kv_store",
+        default_reasoning_effort="high",
+        outer_model="gpt-outer",
+        outer_reasoning_effort="medium",
+        inner_model="gpt-inner",
+        inner_reasoning_effort="low",
+        operator_constraints=("Preserve the ABI.",),
+    )
+    _write_project_run(
+        bundle,
+        run_id,
+        created_at=datetime(2026, 8, 11, 12, tzinfo=UTC),
+        configuration=configuration,
+    )
+    monkeypatch.chdir(bundle)
+
+    invocation = parse_cli_invocation(["--resume", run_id])
+    args = invocation.args
+    config, _, backend = load_config_and_skills(args, domain=DomainName.GENERIC)
+
+    assert args.max_rounds == 7
+    assert args.max_retries_per_round == 4
+    assert args.judge_every == 2
+    assert args.official_eval_every == 5
+    assert args.inner_loop == "single-agent"
+    assert args.interface == "service"
+    assert args.memory_layout == "directories"
+    assert args.modality == "kv_store"
+    assert args.constraint == ["Preserve the ABI."]
+    assert args.profiler is ProfilerKind.NONE
+    assert args.agent_backend == "cli"
+    assert args.cli_provider == "claude"
+    assert backend.value == "cpu"
+    assert config.model.name == "gpt-recorded"
+    assert config.agent.cli_timeout == 321
+    assert config.thinking.level == "high"
+    assert config.agent.outer.model == "gpt-outer"
+    assert config.agent.outer.reasoning_effort == "medium"
+    assert config.agent.inner.model == "gpt-inner"
+    assert config.agent.inner.reasoning_effort == "low"
+
+
+def test_project_resume_rejects_explicit_configuration_changes(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    bundle = _write_input_bundle(tmp_path)
+    run_id = "20260811-120000-11111111-current"
+    _write_project_run(bundle, run_id, created_at=datetime(2026, 8, 11, 12, tzinfo=UTC))
+    monkeypatch.chdir(bundle)
+
+    with pytest.raises(ConfigurationError) as exc:
+        parse_cli_invocation(["--resume", run_id, "--judge-every", "2"])
+
+    assert exc.value.diagnostic.code == "project_resume_configuration_mismatch"
+    assert "judge_every" in exc.value.diagnostic.message
+
+
+def test_project_resume_only_increases_max_rounds_when_explicit(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    bundle = _write_input_bundle(tmp_path)
+    run_id = "20260811-120000-11111111-current"
+    _write_project_run(bundle, run_id, created_at=datetime(2026, 8, 11, 12, tzinfo=UTC))
+    monkeypatch.chdir(bundle)
+
+    omitted = parse_cli_invocation(["--resume", run_id])
+    increased = parse_cli_invocation(["--resume", run_id, "--max-rounds", "6"])
+
+    assert omitted.args.max_rounds == 5
+    assert increased.args.max_rounds == 6
+    with pytest.raises(ConfigurationError, match="cannot decrease"):
+        parse_cli_invocation(["--resume", run_id, "--max-rounds", "4"])
+
+
+def test_project_resume_rejects_explicit_config_file_changes(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    bundle = _write_input_bundle(tmp_path)
+    run_id = "20260811-120000-11111111-current"
+    _write_project_run(bundle, run_id, created_at=datetime(2026, 8, 11, 12, tzinfo=UTC))
+    config_path = tmp_path / "resume.toml"
+    config_path.write_text('[model]\nname = "gpt-different"\n')
+    monkeypatch.chdir(bundle)
+    invocation = parse_cli_invocation(["--resume", run_id, "--config", str(config_path)])
+
+    with pytest.raises(ConfigurationError) as exc:
+        load_config_and_skills(invocation.args, domain=DomainName.GENERIC)
+
+    assert exc.value.diagnostic.code == "project_resume_configuration_mismatch"
+    assert "model" in exc.value.diagnostic.message
+
+
+def test_project_resume_rejects_trusted_baseline_refresh(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    bundle = _write_input_bundle(tmp_path)
+    run_id = "20260811-120000-11111111-current"
+    _write_project_run(bundle, run_id, created_at=datetime(2026, 8, 11, 12, tzinfo=UTC))
+    monkeypatch.chdir(bundle)
+
+    with pytest.raises(ConfigurationError) as exc:
+        parse_cli_invocation(["--resume", run_id, "--trusted-input-baseline", "HEAD"])
+
+    assert exc.value.diagnostic.code == "invalid_arguments"
+    assert "cannot refresh the persisted baseline" in exc.value.diagnostic.message
+
+
+def test_project_resume_keeps_bundle_local_evaluator(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    bundle = _write_input_bundle(tmp_path)
+    evaluator = bundle / "_evaluator" / "queue"
+    evaluator.mkdir(parents=True)
+    with (bundle / "vibesys.input.toml").open("a") as manifest:
+        manifest.write('\n[evaluator]\nsource = "_evaluator/queue"\n')
+    run_id = "20260811-120000-11111111-current"
+    _write_project_run(bundle, run_id, created_at=datetime(2026, 8, 11, 12, tzinfo=UTC))
+    monkeypatch.chdir(bundle)
+
+    invocation = parse_cli_invocation(["--resume", run_id])
+
+    assert invocation.args.input_bundle.evaluator_path == evaluator.resolve()
+
+
+def test_project_resume_without_project_state_is_actionable(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    bundle = _write_input_bundle(tmp_path)
+    monkeypatch.chdir(bundle)
+
+    with pytest.raises(ConfigurationError) as exc:
+        parse_cli_invocation(["--resume"])
+
+    assert exc.value.diagnostic.code == "resume_not_found"
+    assert "No VibeSys runs exist" in exc.value.diagnostic.message
 
 
 def test_resume_without_input_infers_original_input(monkeypatch, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288

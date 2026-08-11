@@ -8,14 +8,6 @@ import {createConnection} from 'node:net';
 import {tmpdir} from 'node:os';
 import {dirname, join} from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {
-  applySetupSelection,
-  parseSetupDefaults,
-  type SetupDefaults,
-  type SetupFields,
-  type SetupSelection,
-  setupFieldsFor,
-} from './setup-model.js';
 import {DEFAULT_THEME_NAME, isThemeName, THEME_NAMES, type ThemeName} from './ui/theme.js';
 
 const READY_TIMEOUT_MS = 30_000;
@@ -48,7 +40,7 @@ export async function launch(argv: string[]): Promise<number> {
     return 1;
   }
 
-  const prepared = await prepareInteractiveArgs(backend, runtime, entrypoint, argv);
+  const prepared = prepareInteractiveArgs(argv);
   if ('exitCode' in prepared) return prepared.exitCode;
   const runArgv = prepared.argv;
   const theme = prepared.theme;
@@ -113,91 +105,13 @@ interface BackendCommand {
 
 type PreparedArguments = {argv: string[]; theme: ThemeName} | {exitCode: number};
 
-async function themeFromBackend(backend: BackendCommand, argv: string[]): Promise<ThemeName> {
-  const result = await resolveSetupDefaults(backend, argv);
-  if (result.exitCode !== 0) return DEFAULT_THEME_NAME;
-  try {
-    return parseSetupDefaults(result.stdout.trim()).theme;
-  } catch {
-    return DEFAULT_THEME_NAME;
-  }
-}
-
-async function prepareInteractiveArgs(
-  backend: BackendCommand,
-  runtime: string,
-  frontendEntrypoint: string,
-  argv: string[],
-): Promise<PreparedArguments> {
+function prepareInteractiveArgs(argv: string[]): PreparedArguments {
   const requestedTheme = optionValue(argv, '--theme');
   if (requestedTheme !== undefined && !isThemeName(requestedTheme)) {
     console.error(`vs: unknown --theme ${requestedTheme}. Available: ${THEME_NAMES.join(', ')}.`);
     return {exitCode: 2};
   }
-
-  const fields = setupFieldsFor(argv);
-  if (fields === undefined) {
-    return {argv, theme: requestedTheme ?? (await themeFromBackend(backend, argv))};
-  }
-
-  const defaultsResult = await resolveSetupDefaults(backend, argv, fields);
-  if (defaultsResult.exitCode !== 0) {
-    console.error(defaultsResult.stderr || 'vs: could not resolve interactive setup defaults');
-    return {exitCode: defaultsResult.exitCode};
-  }
-
-  let defaults: SetupDefaults;
-  try {
-    defaults = parseSetupDefaults(defaultsResult.stdout.trim());
-  } catch (error) {
-    console.error(`vs: ${error instanceof Error ? error.message : String(error)}`);
-    return {exitCode: 1};
-  }
-  const theme = requestedTheme ?? defaults.theme;
-  const setupEntrypoint =
-    process.env['VIBESYS_SETUP_ENTRYPOINT'] ?? join(dirname(frontendEntrypoint), 'setup.js');
-  if (!(await fileExists(setupEntrypoint))) {
-    console.error('vs: TUI setup build is missing; run `pnpm --dir clients/tui build`.');
-    return {exitCode: 1};
-  }
-
-  const setupDir = await mkdtemp(join(tmpdir(), 'vibesys-setup-'));
-  const resultPath = join(setupDir, 'selection.json');
-  try {
-    const exitCode = await runSetupFrontend(
-      runtime,
-      setupEntrypoint,
-      defaults,
-      fields,
-      resultPath,
-      theme,
-    );
-    if (exitCode !== 0) return {exitCode};
-    let selection: SetupSelection;
-    try {
-      selection = JSON.parse(await readFile(resultPath, 'utf8')) as SetupSelection;
-    } catch {
-      return {exitCode: 130};
-    }
-    return {argv: applySetupSelection(argv, selection), theme};
-  } finally {
-    await rm(setupDir, {recursive: true, force: true});
-  }
-}
-
-function resolveSetupDefaults(
-  backend: BackendCommand,
-  argv: string[],
-  fields?: SetupFields,
-): Promise<{exitCode: number; stdout: string; stderr: string}> {
-  const args = [...backend.args, 'tui-defaults'];
-  for (const option of ['--config', '--input', '--runs-dir', '--exp-name', '--theme']) {
-    const value = optionValue(argv, option);
-    if (value !== undefined) args.push(option, value);
-  }
-  if (argv.includes('--stub-agent')) args.push('--stub-agent');
-  if (fields?.experiment === false) args.push('--directory-only');
-  return runCaptured(backend.command, args);
+  return {argv, theme: requestedTheme ?? DEFAULT_THEME_NAME};
 }
 
 function optionValue(argv: string[], option: string): string | undefined {
@@ -207,56 +121,6 @@ function optionValue(argv: string[], option: string): string | undefined {
     if (argument?.startsWith(`${option}=`)) return argument.slice(option.length + 1);
   }
   return undefined;
-}
-
-function runSetupFrontend(
-  runtime: string,
-  entrypoint: string,
-  defaults: SetupDefaults,
-  fields: SetupFields,
-  resultPath: string,
-  theme: ThemeName,
-): Promise<number> {
-  return new Promise(resolve => {
-    const child = spawn(runtime, [entrypoint], {
-      env: {
-        ...process.env,
-        VIBESYS_SETUP_DEFAULTS: JSON.stringify(defaults),
-        VIBESYS_SETUP_FIELDS: JSON.stringify(fields),
-        VIBESYS_SETUP_RESULT: resultPath,
-        VIBESYS_THEME: theme,
-      },
-      stdio: 'inherit',
-    });
-    child.once('exit', (code, signal) => resolve(code ?? signalExitCode(signal)));
-    child.once('error', error => {
-      console.error(`vs: failed to start interactive setup: ${error.message}`);
-      resolve(1);
-    });
-  });
-}
-
-function runCaptured(
-  command: string,
-  args: string[],
-): Promise<{exitCode: number; stdout: string; stderr: string}> {
-  return new Promise(resolve => {
-    const child = spawn(command, args, {stdio: ['ignore', 'pipe', 'pipe']});
-    let stdout = '';
-    let stderr = '';
-    child.stdout?.setEncoding('utf8');
-    child.stderr?.setEncoding('utf8');
-    child.stdout?.on('data', chunk => {
-      stdout += String(chunk);
-    });
-    child.stderr?.on('data', chunk => {
-      stderr += String(chunk);
-    });
-    child.once('exit', (code, signal) =>
-      resolve({exitCode: code ?? signalExitCode(signal), stdout, stderr}),
-    );
-    child.once('error', error => resolve({exitCode: 1, stdout, stderr: error.message}));
-  });
 }
 
 function resolveBackendCommand(): BackendCommand | undefined {

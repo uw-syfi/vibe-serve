@@ -131,27 +131,43 @@ import tomllib
 from pathlib import Path
 
 arguments = sys.argv[1:]
-input_index = arguments.index("--input")
-input_root = Path(arguments[input_index + 1])
-runs_index = arguments.index("--runs-dir")
-runs_root = Path(arguments[runs_index + 1])
 headless = "--headless" in arguments
 if headless:
-    (runs_root / "20260811-120000-installed-release-smoke").mkdir(parents=True)
+    input_root = Path.cwd()
+    run_id = "20260811-120000-deadbeef-installed-release-smoke"
+    metadata = input_root / ".vs"
+    run_root = metadata / "runs" / run_id
+    (run_root / "rounds").mkdir(parents=True)
+    (run_root / "run.json").write_text("{}")
+    (run_root / "rounds" / "0001.json").write_text("{}")
+    (metadata / "project.json").write_text("{}")
+    (metadata / ".gitignore").write_text("/local/\\n")
+    local = metadata / "local"
+    (local / "runs" / run_id / "logs").mkdir(parents=True)
+    (local / "current-run").write_text(f"{run_id}\\n")
+    (input_root / ".git").mkdir()
 else:
+    input_index = arguments.index("--input")
+    input_root = Path(arguments[input_index + 1])
+    runs_index = arguments.index("--runs-dir")
+    runs_root = Path(arguments[runs_index + 1])
     marker = Path(os.environ["VIBESYS_RELEASE_SMOKE_MARKER"])
     marker.write_text("renderer initialized; control protocol exchanged\\n")
 normalized_arguments = list(arguments)
-normalized_arguments[input_index + 1] = "<temporary-input>"
-normalized_arguments[runs_index + 1] = "<temporary-runs>"
+if not headless:
+    normalized_arguments[input_index + 1] = "<temporary-input>"
+    normalized_arguments[runs_index + 1] = "<temporary-runs>"
 manifest = tomllib.loads((input_root / "vibesys.input.toml").read_text())
 record = {
     "normalized_argv": normalized_arguments,
-    "runs_share_smoke_root": runs_root.parent == input_root.parent,
-    "input_files": sorted(path.name for path in input_root.iterdir()),
+    "configless": not (input_root / "agent.toml").exists(),
     "manifest_commands": [manifest["accuracy"]["command"], manifest["benchmark"]["command"]],
 }
-if not headless:
+if headless:
+    record["launched_from_input"] = input_root == Path.cwd()
+else:
+    record["runs_share_smoke_root"] = runs_root.parent == input_root.parent
+    record["input_files"] = sorted(path.name for path in input_root.iterdir())
     record["ttys"] = [os.isatty(fd) for fd in (0, 1, 2)]
 observed_path = Path(os.environ["VIBESYS_TEST_OBSERVED"])
 observed = json.loads(observed_path.read_text()) if observed_path.exists() else []
@@ -195,15 +211,30 @@ observed_path.write_text(json.dumps(observed))
     assert json.loads(observed.read_text()) == [
         {
             "normalized_argv": common_arguments,
+            "configless": True,
             "runs_share_smoke_root": True,
-            "input_files": ["OBJECTIVE.md", "vibesys.input.toml"],
+            "input_files": ["OBJECTIVE.md", "candidate.py", "vibesys.input.toml"],
             "manifest_commands": valid_commands,
             "ttys": [True, True, True],
         },
         {
-            "normalized_argv": ["--headless", *common_arguments],
-            "runs_share_smoke_root": True,
-            "input_files": ["OBJECTIVE.md", "vibesys.input.toml"],
+            "normalized_argv": [
+                "--headless",
+                "--stub-agent",
+                "--agent-backend",
+                "cli",
+                "--exp-name",
+                "installed-release-smoke",
+                "--max-rounds",
+                "1",
+                "--no-skills",
+                "--backend",
+                "cpu",
+                "--profiler",
+                "none",
+            ],
+            "configless": True,
+            "launched_from_input": True,
             "manifest_commands": valid_commands,
         },
     ]
@@ -237,12 +268,11 @@ from pathlib import Path
 prefix = Path(os.environ["VIBESYS_TEST_PREFIX"])
 (prefix / "lib" / "exp_env" / "unexpected-run").mkdir(parents=True)
 arguments = os.sys.argv[1:]
-runs_root = Path(arguments[arguments.index("--runs-dir") + 1])
-(runs_root / "20260811-120000-installed-release-smoke").mkdir(parents=True)
 """
     )
     monkeypatch.setattr(verifier.sys, "prefix", str(prefix))
     environment = {**os.environ, "VIBESYS_TEST_PREFIX": str(prefix)}
+    monkeypatch.setattr(verifier, "_verify_in_place_project_state", lambda _root: None)
 
     with pytest.raises(verifier.InstalledReleaseError, match="installation prefix"):
         verifier.run_headless_stub_smoke(
@@ -254,28 +284,17 @@ runs_root = Path(arguments[arguments.index("--runs-dir") + 1])
 
 
 @pytest.mark.parametrize("run_count", [0, 2])
-def test_headless_smoke_requires_exactly_one_run_in_selected_collection(
+def test_in_place_smoke_requires_exactly_one_run(
     tmp_path: Path,
     run_count: int,
 ) -> None:
-    fake_cli = tmp_path / "fake_installed_cli.py"
-    fake_cli.write_text(
-        """\
-import os
-from pathlib import Path
-
-arguments = os.sys.argv[1:]
-runs_root = Path(arguments[arguments.index("--runs-dir") + 1])
-for index in range(int(os.environ["VIBESYS_TEST_RUN_COUNT"])):
-    (runs_root / f"20260811-12000{index}-installed-release-smoke").mkdir(parents=True)
-"""
-    )
-    environment = {**os.environ, "VIBESYS_TEST_RUN_COUNT": str(run_count)}
+    metadata = tmp_path / ".vs"
+    runs_root = metadata / "runs"
+    runs_root.mkdir(parents=True)
+    (metadata / "project.json").write_text("{}")
+    (metadata / ".gitignore").write_text("/local/\n")
+    for index in range(run_count):
+        (runs_root / f"20260811-12000{index}-installed-release-smoke").mkdir()
 
     with pytest.raises(verifier.InstalledReleaseError, match="exactly one run"):
-        verifier.run_headless_stub_smoke(
-            [sys.executable, str(fake_cli)],
-            env=environment,
-            runtime_root=tmp_path,
-            timeout=5,
-        )
+        verifier._verify_in_place_project_state(tmp_path)  # noqa: SLF001

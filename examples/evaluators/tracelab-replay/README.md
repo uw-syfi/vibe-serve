@@ -1,10 +1,10 @@
 # TraceLab Replay Evaluator
 
-This evaluator is intended for `[hidden_evaluator]` use only. VibeSys copies it
-outside the candidate workspace and injects its path only for framework-owned
-accuracy/benchmark execution.
+Declare this directory as an ordinary `[evaluator]` source. VibeSys materializes
+it at `_evaluator/tracelab-replay` in copied workspaces, where both the candidate
+agent and evaluator commands can inspect it.
 
 The benchmark uses TraceLab's own Rust `session_runner` and the pinned public
-TraceLab `v0.0.1` DuckDB release. The visible input bundle contains only a thin
-shim so optimization agents can learn the benchmark command shape without
-seeing the runner implementation or collected trace data.
+TraceLab `v0.0.1` DuckDB release. The input bundle contains a thin benchmark
+shim, while the materialized evaluator directory contains the replay runner and
+the code that downloads the public trace data.

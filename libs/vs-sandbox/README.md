@@ -19,6 +19,10 @@ Applications wire these into their own run-environment policy.
 - `HostSandbox` and `SeatbeltSandbox` consume those declarations to confine a
   local process with bubblewrap on Linux or Seatbelt on macOS. Applications own
   their resource lists; this package owns validation and import mechanics.
+- `ProjectPathPolicy` protects workspace-relative files and directories inside
+  an otherwise writable project. It supports read-only paths and hidden paths,
+  validates containment and overlap, and can require the host backend to fail
+  closed when confinement is unavailable.
 - `ModalSandbox` mirrors `DockerSandbox` semantics on remote Modal GPUs,
   backing the workspace with an ephemeral Modal Volume that is synced at
   start and stop.

@@ -19,7 +19,6 @@ from __future__ import annotations
 import argparse
 import json
 import math
-import os
 import shlex
 import subprocess
 import sys
@@ -48,6 +47,7 @@ from vibesys.repository import (
     validate_experiment_name,
 )
 from vibesys.resource_paths import default_skill_roots
+from vibesys.run.git_tracker import GitTracker, GitTrackingMode
 from vibesys.sandbox.run_environment import (
     RunEnvironmentSpec,
     build_run_environment,
@@ -56,10 +56,13 @@ from vibesys.sandbox.run_environment import (
 from vibesys.skills import resolve_skill_source_dirs
 from vibesys.tui import KNOWN_TUI_THEMES, TuiTheme
 from vs_github import GitHubCLI, GitHubCLIError
+from vs_project_state import ProjectStateError, ProjectStore, RunConfiguration
 
 if TYPE_CHECKING:
     from vibesys.loops.evolve.population import Objective
     from vibesys.loops.evolve.search_policy import OpenEvolveSearchConfig
+
+__all__ = ["PROJECT_ROOT"]
 
 _OUTER_LOOPS = ("agent", "plain", "evolve")
 _MODALITIES = (
@@ -72,8 +75,7 @@ _MODALITIES = (
     "kv_store",
 )
 
-_STUB_AGENT_DEFAULT_INPUT = PROJECT_ROOT / "examples" / "data-structures" / "queue-spsc"
-_STUB_AGENT_DEFAULT_CONFIG_TEXT = '[model]\nname = "gpt-5.5"\n'
+_DEFAULT_CONFIG_TEXT = '[model]\nname = "gpt-5.4"\n'
 
 
 class _RunArgumentParser(argparse.ArgumentParser):
@@ -91,9 +93,24 @@ class _RunArgumentParser(argparse.ArgumentParser):
 
 
 @dataclass(frozen=True)
-class CliInvocation:  # noqa: D101  # tracked: #288
+class CliInvocation:  # tracked: #288
     loop_kind: str
     args: argparse.Namespace
+
+
+_PROJECT_RESUME_CLI_FIELDS: dict[str, str] = {
+    "inner_loop": "inner_loop",
+    "interface": "interface",
+    "agent_backend": "agent_backend",
+    "cli_provider": "cli_provider",
+    "backend": "compute_backend",
+    "profiler": "profiler",
+    "max_retries_per_round": "max_retries_per_round",
+    "judge_every": "judge_every",
+    "official_eval_every": "official_eval_every",
+    "memory_layout": "memory_layout",
+    "modality": "modality",
+}
 
 
 def _configuration_error(
@@ -210,7 +227,6 @@ _STANDALONE_INPUT_DESTS = (
     "input_evaluator_dir",
     "input_workspace_seed",
     "input_evaluator_source",
-    "input_hidden_evaluator_source",
 )
 
 
@@ -324,13 +340,6 @@ def _add_standalone_input_args(parser: argparse.ArgumentParser) -> None:
         metavar="DIR",
         help="Trusted evaluator source directory (manifest [evaluator].source).",
     )
-    group.add_argument(
-        "--input-hidden-evaluator-source",
-        type=Path,
-        default=None,
-        metavar="DIR",
-        help="Hidden evaluator source directory (manifest [hidden_evaluator].source).",
-    )
 
 
 def _add_common_args(parser: argparse.ArgumentParser) -> None:
@@ -340,8 +349,8 @@ def _add_common_args(parser: argparse.ArgumentParser) -> None:
         type=Path,
         default=None,
         help=(
-            "Path to a target input bundle containing OBJECTIVE.md and "
-            "vibesys.input.toml with accuracy and benchmark commands."
+            "Project directory containing OBJECTIVE.md, vibesys.input.toml, and the "
+            "candidate source. Defaults to the launch working directory."
         ),
     )
     parser.add_argument(
@@ -349,7 +358,10 @@ def _add_common_args(parser: argparse.ArgumentParser) -> None:
         type=_parse_runs_dir,
         default=None,
         metavar="PATH",
-        help="Directory that owns run directories, synthesized inputs, and shared caches.",
+        help=(
+            "Use the legacy copied-workspace layout under PATH. When omitted, VibeSys "
+            "optimizes the input project in place and stores run state under .vs/."
+        ),
     )
     _add_standalone_input_args(parser)
     parser.add_argument(
@@ -363,8 +375,8 @@ def _add_common_args(parser: argparse.ArgumentParser) -> None:
         type=Path,
         default=None,
         help=(
-            "Path to agent TOML config file (default: agent.toml in the launch working "
-            "directory; a missing file is an error)."
+            "Path to agent TOML config file. When omitted, VibeSys reads agent.toml "
+            "from the launch directory if present, otherwise uses built-in CLI defaults."
         ),
     )
     parser.add_argument(
@@ -551,19 +563,128 @@ def _add_common_args(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def _project_resume_mismatch(fields: list[str]) -> NoReturn:
+    _configuration_error(
+        "Resuming an in-place run cannot change its recorded configuration fields: "
+        + ", ".join(sorted(fields)),
+        code="project_resume_configuration_mismatch",
+        stage="resume_resolution",
+    )
+
+
+def _explicit_config_value(raw: object, path: tuple[str, ...]) -> tuple[bool, object]:
+    current = raw
+    for component in path:
+        if not isinstance(current, dict) or component not in current:
+            return False, None
+        current = current[component]
+    return True, current
+
+
+def _restore_project_config(
+    args: argparse.Namespace,
+    config: Config,
+    recorded: RunConfiguration,
+) -> Config:
+    """Restore persisted model settings, rejecting explicit config changes."""
+    raw: object = {}
+    if args.config is not None:
+        with args.config.open("rb") as config_file:
+            raw = tomllib.load(config_file)
+
+    explicit_cli = getattr(args, "explicit_cli_dests", frozenset())
+    specs = (
+        (("model", "name"), recorded.model, frozenset(), "model"),
+        (
+            ("backend", "name"),
+            recorded.compute_backend,
+            frozenset({"backend"}),
+            "compute_backend",
+        ),
+        (
+            ("agent", "backend"),
+            recorded.agent_backend,
+            frozenset({"agent_backend", "stub_agent"}),
+            "agent_backend",
+        ),
+        (
+            ("agent", "cli_provider"),
+            recorded.cli_provider,
+            frozenset({"cli_provider", "stub_agent"}),
+            "cli_provider",
+        ),
+        (("agent", "cli_timeout"), recorded.cli_timeout, frozenset(), "cli_timeout"),
+        (
+            ("thinking", "level"),
+            recorded.default_reasoning_effort,
+            frozenset(),
+            "default_reasoning_effort",
+        ),
+        (("agent", "outer", "model"), recorded.outer_model, frozenset(), "outer_model"),
+        (
+            ("agent", "outer", "reasoning_effort"),
+            recorded.outer_reasoning_effort,
+            frozenset(),
+            "outer_reasoning_effort",
+        ),
+        (("agent", "inner", "model"), recorded.inner_model, frozenset(), "inner_model"),
+        (
+            ("agent", "inner", "reasoning_effort"),
+            recorded.inner_reasoning_effort,
+            frozenset(),
+            "inner_reasoning_effort",
+        ),
+    )
+    changed: list[str] = []
+    for path, expected, cli_overrides, field in specs:
+        supplied, value = _explicit_config_value(raw, path)
+        if supplied and not cli_overrides.intersection(explicit_cli) and value != expected:
+            changed.append(field)
+    if changed:
+        _project_resume_mismatch(changed)
+
+    outer = config.agent.outer.model_copy(
+        update={
+            "model": recorded.outer_model,
+            "reasoning_effort": recorded.outer_reasoning_effort,
+        }
+    )
+    inner = config.agent.inner.model_copy(
+        update={
+            "model": recorded.inner_model,
+            "reasoning_effort": recorded.inner_reasoning_effort,
+        }
+    )
+    agent = config.agent.model_copy(
+        update={
+            "backend": None if recorded.agent_backend == "stub" else recorded.agent_backend,
+            "cli_provider": recorded.cli_provider,
+            "cli_timeout": recorded.cli_timeout,
+            "outer": outer,
+            "inner": inner,
+        }
+    )
+    return config.model_copy(
+        update={
+            "model": config.model.model_copy(update={"name": recorded.model or config.model.name}),
+            "thinking": config.thinking.model_copy(
+                update={"level": recorded.default_reasoning_effort, "budget": None}
+            ),
+            "backend": config.backend.model_copy(
+                update={"name": ComputeBackend(recorded.compute_backend)}
+            ),
+            "agent": agent,
+        }
+    )
+
+
 def load_config_and_skills(
     args: argparse.Namespace,
     *,
     domain: DomainName,
 ) -> tuple[Config, list[str] | None, ComputeBackend]:
     """Load config, resolve the backend, and select compatible skills."""
-    try:
-        config = _load_config_or_stub_default(
-            args.config,
-            stub_agent=getattr(args, "stub_agent", False),
-        )
-    except (ValueError, FileNotFoundError) as e:
-        _configuration_error(str(e), code="config_load_failed", stage="config_loading")
+    config = _load_effective_config(args)
 
     repository = getattr(args, "repo", None)
     if getattr(args, "local", False) and repository is not None:
@@ -590,7 +711,19 @@ def load_config_and_skills(
 
     backend: ComputeBackend = args.backend or config.backend.name
 
-    if getattr(args, "no_skills", False):
+    if getattr(args, "project_mode", False):
+        if not getattr(args, "no_skills", False) and (
+            getattr(args, "skills_dir", None) or getattr(args, "extra_skills", None)
+        ):
+            _configuration_error(
+                "In-place projects do not yet materialize skill bundles into the source "
+                "tree. Omit --skills-dir/--extra-skills, or pass --runs-dir for the "
+                "legacy copied workspace.",
+                code="in_place_skills_unsupported",
+                stage="input_validation",
+            )
+        skills = None
+    elif getattr(args, "no_skills", False):
         skills = None
     else:
         # --skills-dir overrides the presets; when omitted, the presets are the
@@ -599,6 +732,22 @@ def load_config_and_skills(
         extra = getattr(args, "extra_skills", None) or []
         skills = resolve_skill_source_dirs([*base, *extra], backend=backend, domain=domain)
     return config, skills, backend
+
+
+def _load_effective_config(args: argparse.Namespace) -> Config:
+    """Load configuration and restore persisted settings for project resumes."""
+    try:
+        config = _load_config_or_stub_default(
+            args.config,
+            stub_agent=getattr(args, "stub_agent", False),
+        )
+    except (ValueError, FileNotFoundError) as e:
+        _configuration_error(str(e), code="config_load_failed", stage="config_loading")
+
+    recorded = getattr(args, "project_run_configuration", None)
+    if recorded is not None:
+        config = _restore_project_config(args, config, recorded)
+    return config
 
 
 def _resolve_repository_owner(config: Config) -> str:
@@ -630,15 +779,14 @@ def _load_config_or_stub_default(
     *,
     stub_agent: bool,
 ) -> Config:
-    """Load an explicit or launch-directory config, with a stub-only fallback."""
+    """Load explicit or launch-directory config, then use safe built-in defaults."""
     if config_path is not None:
         return load_config(config_path)
     selected_path = Path.cwd() / "agent.toml"
     if selected_path.is_file():
         return load_config(selected_path)
-    if stub_agent:
-        return Config.model_validate(tomllib.loads(_STUB_AGENT_DEFAULT_CONFIG_TEXT))
-    return load_config(selected_path)
+    del stub_agent
+    return Config.model_validate(tomllib.loads(_DEFAULT_CONFIG_TEXT))
 
 
 def _prepare_experiment_repository(args: argparse.Namespace, config: Config) -> None:
@@ -649,6 +797,20 @@ def _prepare_experiment_repository(args: argparse.Namespace, config: Config) -> 
     if args.exp_name is None:
         args.exp_name = generate_experiment_name(args.input_bundle.root)
 
+    # In-place runs use a branch in the user's existing project repository.
+    # Publishing that branch is an explicit future workflow; never create or
+    # attach a GitHub repository merely because the project already has one.
+    if getattr(args, "project_mode", False):
+        if args.repo is not None:
+            _configuration_error(
+                "--repo is not supported for in-place project runs; omit it or pass "
+                "--runs-dir to use the legacy experiment-repository workflow.",
+                code="invalid_repository",
+                stage="repository_setup",
+            )
+        args.local = True
+        return
+
     if args.local:
         return
 
@@ -658,21 +820,11 @@ def _prepare_experiment_repository(args: argparse.Namespace, config: Config) -> 
 
 
 def _prepare_stub_agent_smoke_defaults(argv: list[str]) -> list[str]:
-    if "--stub-agent" not in argv or any(
-        token == "--input" or token.startswith("--input=")  # noqa: S105  # tracked: #288
-        for token in argv  # noqa: RUF100, S105  # tracked: #288
-    ):
-        return argv
-    return [
-        "--input",
-        str(_STUB_AGENT_DEFAULT_INPUT),
-        "--exp-name",
-        f"stub-smoke-{os.getpid()}",
-        *argv,
-    ]
+    """Keep stub invocations on the same cwd-input path as real users."""
+    return argv
 
 
-def run_environment_spec_from_args(args: argparse.Namespace) -> RunEnvironmentSpec:  # noqa: D103  # tracked: #288
+def run_environment_spec_from_args(args: argparse.Namespace) -> RunEnvironmentSpec:  # tracked: #288
     return make_run_environment_spec(
         use_docker=args.docker,
         docker_image=args.docker_image,
@@ -696,14 +848,30 @@ def _validate_run_environment_profiler(args: argparse.Namespace) -> None:
     )
 
 
-def _normalize_runs_dir(args: argparse.Namespace) -> None:
+def _normalize_runs_dir(args: argparse.Namespace, *, loop_kind: str) -> None:
     raw = getattr(args, "runs_dir", None)
     if raw is None:
-        _configuration_error(
-            "--runs-dir PATH is required for run commands.",
-            code="missing_runs_dir",
-            stage="argument_parsing",
-        )
+        if loop_kind != "agent":
+            _configuration_error(
+                f"--outer-loop {loop_kind} currently requires --runs-dir. In-place "
+                "project execution is initially supported by the default agent loop.",
+                code="missing_runs_dir",
+                stage="argument_parsing",
+            )
+        if _standalone_input_dests_set(args):
+            _configuration_error(
+                "Standalone --input-* flags require --runs-dir because they synthesize "
+                "a new input bundle. Use a self-contained project directory for in-place runs.",
+                code="missing_runs_dir",
+                stage="argument_parsing",
+            )
+        args.project_mode = True
+        input_root = (getattr(args, "input", None) or Path.cwd()).expanduser().resolve()
+        # Existing loop APIs still accept runs_dir for shared caches. Project
+        # mode never creates experiment/workspace children below this path.
+        args.runs_dir = input_root / ".vs" / "local"
+        return
+    args.project_mode = False
     runs_dir = raw.expanduser().resolve()
     prefix = Path(sys.prefix).resolve()
     if runs_dir.is_relative_to(prefix):
@@ -887,6 +1055,143 @@ def _infer_resume_input(exp_dir: Path) -> Path:
     )
 
 
+def _restore_resume_max_rounds(
+    args: argparse.Namespace,
+    recorded: RunConfiguration,
+    explicit: frozenset[str],
+) -> None:
+    if "max_rounds" not in explicit:
+        args.max_rounds = recorded.max_rounds
+        return
+    if args.max_rounds < recorded.max_rounds:
+        _configuration_error(
+            "--max-rounds is the run's total limit and cannot decrease when resuming "
+            f"(recorded {recorded.max_rounds}, requested {args.max_rounds})",
+            code="project_resume_configuration_mismatch",
+            stage="resume_resolution",
+        )
+
+
+def _restore_resume_agent_backend(
+    args: argparse.Namespace,
+    recorded: RunConfiguration,
+    explicit: frozenset[str],
+) -> bool:
+    """Restore the backend and return whether an explicit value mismatched."""
+    if not {"stub_agent", "agent_backend"}.intersection(explicit):
+        args.stub_agent = recorded.agent_backend == "stub"
+        args.agent_backend = None if args.stub_agent else recorded.agent_backend
+        return False
+    requested = "stub" if args.stub_agent else args.agent_backend
+    return requested != recorded.agent_backend
+
+
+def _restore_resume_constraints(
+    args: argparse.Namespace,
+    recorded: RunConfiguration,
+    explicit: frozenset[str],
+) -> bool:
+    """Restore constraints and return whether an explicit value mismatched."""
+    if "constraint" not in explicit:
+        args.constraint = list(recorded.operator_constraints)
+        return False
+    requested = tuple(constraint.strip() for constraint in args.constraint if constraint.strip())
+    return requested != recorded.operator_constraints
+
+
+def _normalized_resume_cli_value(destination: str, value: object) -> object:
+    if destination == "backend" and value is not None:
+        assert isinstance(value, ComputeBackend)  # noqa: S101  # argparse contract
+        return value.value
+    if destination == "profiler":
+        assert isinstance(value, ProfilerKind)  # noqa: S101  # argparse contract
+        return ProfilerKind.NONE.value if value is ProfilerKind.AUTO else value.value
+    return value
+
+
+def _set_resume_cli_value(
+    args: argparse.Namespace,
+    destination: str,
+    value: object,
+) -> None:
+    if destination == "backend":
+        try:
+            value = ComputeBackend(value)
+        except ValueError:
+            _configuration_error(
+                f"Run metadata records unknown compute backend {value!r}",
+                code="project_resume_configuration_invalid",
+                stage="resume_resolution",
+            )
+    elif destination == "profiler":
+        try:
+            value = coerce_profiler_kind(value or ProfilerKind.AUTO.value)  # type: ignore[arg-type]
+        except ValueError:
+            _configuration_error(
+                f"Run metadata records unknown profiler {value!r}",
+                code="project_resume_configuration_invalid",
+                stage="resume_resolution",
+            )
+    setattr(args, destination, value)
+
+
+def _restore_project_resume_cli_args(
+    args: argparse.Namespace,
+    recorded: RunConfiguration,
+) -> None:
+    """Restore omitted run flags and reject explicit changes on resume."""
+    if recorded.outer_loop != "agent":
+        _configuration_error(
+            f"Run metadata records unsupported outer loop {recorded.outer_loop!r}",
+            code="project_resume_configuration_mismatch",
+            stage="resume_resolution",
+        )
+
+    explicit = getattr(args, "explicit_cli_dests", frozenset())
+    _restore_resume_max_rounds(args, recorded, explicit)
+    changed: list[str] = []
+    if _restore_resume_agent_backend(args, recorded, explicit):
+        changed.append("agent_backend")
+    if _restore_resume_constraints(args, recorded, explicit):
+        changed.append("operator_constraints")
+
+    for destination, field in _PROJECT_RESUME_CLI_FIELDS.items():
+        if destination == "agent_backend":
+            continue
+        expected = getattr(recorded, field)
+        if destination in explicit:
+            requested = _normalized_resume_cli_value(destination, getattr(args, destination))
+            if requested != expected:
+                changed.append(field)
+            continue
+        _set_resume_cli_value(args, destination, expected)
+
+    if changed:
+        _project_resume_mismatch(changed)
+
+
+def _switch_project_resume_branch(project_root: Path, run_id: str) -> None:
+    """Select the run branch before callers read committed project files."""
+    # Store-only fixtures and corrupt partial initializations are diagnosed by
+    # context creation. Real in-place runs always have a repository here.
+    if not (project_root / ".git").exists():
+        return
+    tracker = GitTracker(
+        project_root,
+        log=lambda _message: None,
+        mode=GitTrackingMode.USER_PROJECT,
+        run_id=run_id,
+    )
+    try:
+        tracker.init(existing=True)
+    except (subprocess.SubprocessError, ValueError) as exc:
+        _configuration_error(
+            f"Cannot resume project run {run_id!r}: {exc}",
+            code="resume_not_found",
+            stage="resume_resolution",
+        )
+
+
 def _resolve_resume_args(args: argparse.Namespace) -> None:
     if args.resume is None:
         return
@@ -896,6 +1201,31 @@ def _resolve_resume_args(args: argparse.Namespace) -> None:
             code="invalid_arguments",
             stage="argument_parsing",
         )
+
+    if getattr(args, "project_mode", False):
+        project_root = (args.input or Path.cwd()).expanduser().resolve()
+        try:
+            store = ProjectStore(project_root)
+            if args.resume == "latest":
+                run_id = store.current_run_id()
+                if run_id is None:
+                    run_id = store.resolve_run().run_id
+            else:
+                run_id = args.resume
+            _switch_project_resume_branch(project_root, run_id)
+            run_manifest = store.load_run(run_id)
+        except ProjectStateError as exc:
+            _configuration_error(
+                f"Cannot resume project run: {exc}",
+                code="resume_not_found",
+                stage="resume_resolution",
+            )
+        args.resume = run_id
+        args.exp_name = run_id
+        args.input = project_root
+        args.project_run_configuration = run_manifest.configuration
+        _restore_project_resume_cli_args(args, run_manifest.configuration)
+        return
 
     run_dir_name = _resolve_run_dir(args.resume, args.runs_dir)
     args.resume = run_dir_name
@@ -1006,7 +1336,7 @@ def _run_validate(argv: list[str]) -> None:
     input_path = (args.input_bundle or Path.cwd()).expanduser().resolve()
 
     try:
-        bundle = load_input_bundle(input_path)
+        bundle = load_input_bundle(input_path, allow_bundle_local_sources=True)
     except (FileNotFoundError, ValueError) as exc:
         _configuration_error(
             f"Validation failed for input bundle {input_path}: {exc}",
@@ -1026,8 +1356,6 @@ def _run_validate(argv: list[str]) -> None:
         print(f"  workspace source: {source.name} -> {source.dest} @ {source.commit}")  # noqa: T201  # tracked: #288
     if bundle.evaluator_path is not None:
         print(f"  evaluator source: {bundle.evaluator_path}")  # noqa: T201  # tracked: #288
-    if bundle.hidden_evaluator_path is not None:
-        print(f"  hidden evaluator source: {bundle.hidden_evaluator_path}")  # noqa: T201  # tracked: #288
     if bundle.benchmark_result is not None:
         print(f"  benchmark metric: {bundle.benchmark_result.metric}")  # noqa: T201  # tracked: #288
 
@@ -1148,8 +1476,8 @@ def _build_agent_parser() -> argparse.ArgumentParser:
         default=None,
         metavar="REV",
         help=(
-            "operator-authorized commit containing refreshed evaluator-owned inputs "
-            "for a resumed run; later trusted-input changes still fail closed"
+            "operator-authorized trusted-input commit for a resumed legacy "
+            "--runs-dir workspace; unsupported for in-place project runs"
         ),
     )
     parser.add_argument("--modality", default=None, choices=_MODALITIES)
@@ -1272,7 +1600,6 @@ def _synthesize_standalone_input(args: argparse.Namespace) -> Path:
         evaluator_dir=args.input_evaluator_dir,
         workspace_seed_dir=args.input_workspace_seed,
         evaluator_source_dir=args.input_evaluator_source,
-        hidden_evaluator_source_dir=args.input_hidden_evaluator_source,
     )
 
     if args.exp_name is None:
@@ -1309,23 +1636,32 @@ def _validate_target_inputs(args: argparse.Namespace) -> None:
 
     if input_arg is None:
         if not standalone:
-            _configuration_error(
-                "Error: missing required target input. Pass --input with a bundle "
-                "containing OBJECTIVE.md and vibesys.input.toml, or provide "
-                "--input-objective/--input-objective-file, --input-domain, "
-                "--input-accuracy-command, and --input-benchmark-command to synthesize one.",
-                code="missing_input",
-                stage="input_loading",
-            )
-        input_arg = _synthesize_standalone_input(args)
-        args.input = input_arg
-        synthesized = True
+            current = Path.cwd().resolve()
+            markers = (current / "OBJECTIVE.md", current / "vibesys.input.toml")
+            if not all(marker.is_file() for marker in markers):
+                missing = ", ".join(marker.name for marker in markers if not marker.is_file())
+                _configuration_error(
+                    "Current directory is not a VibeSys project "
+                    f"({current}; missing {missing}). Launch VibeSys from the input "
+                    "project or pass --input PATH.",
+                    code="missing_input",
+                    stage="input_loading",
+                )
+            input_arg = current
+            args.input = current
+        else:
+            input_arg = _synthesize_standalone_input(args)
+            args.input = input_arg
+            synthesized = True
 
     try:
         args.input_bundle = load_input_bundle(
             input_arg,
-            allow_materialized_sources=getattr(args, "resume", None) is not None,
-            allow_bundle_local_sources=synthesized,
+            allow_materialized_sources=(
+                getattr(args, "resume", None) is not None
+                and not getattr(args, "project_mode", False)
+            ),
+            allow_bundle_local_sources=synthesized or getattr(args, "project_mode", False),
         )
     except (FileNotFoundError, ValueError) as exc:
         _configuration_error(str(exc), code="invalid_input", stage="input_loading")
@@ -1345,7 +1681,38 @@ def _validate_agent(args: argparse.Namespace) -> None:
             code="invalid_arguments",
             stage="argument_parsing",
         )
+    if args.trusted_input_baseline is not None and args.project_mode:
+        _configuration_error(
+            "--trusted-input-baseline cannot refresh the persisted baseline of an "
+            "in-place project run; omit it or use a legacy --runs-dir workspace.",
+            code="invalid_arguments",
+            stage="argument_parsing",
+        )
     _validate_target_inputs(args)
+    if getattr(args, "project_mode", False):
+        workspace = args.input_bundle.manifest.workspace
+        if workspace is not None and (workspace.seed is not None or workspace.sources):
+            _configuration_error(
+                "In-place projects must already contain their candidate source. Remove "
+                "[workspace].seed and [[workspace.sources]] after materializing those files "
+                "into the project directory, or pass --runs-dir for legacy materialization.",
+                code="in_place_materialization_unsupported",
+                stage="input_validation",
+            )
+        if args.docker or args.modal:
+            _configuration_error(
+                "In-place project execution currently requires the native agent sandbox; "
+                "--docker and --modal still require --runs-dir.",
+                code="in_place_environment_unsupported",
+                stage="argument_parsing",
+            )
+        if args.start_round is not None:
+            _configuration_error(
+                "--start-round does not destructively rewind an in-place project. Start a "
+                "new run from the desired Git checkpoint instead.",
+                code="invalid_arguments",
+                stage="argument_parsing",
+            )
 
 
 def _run_agent(args: argparse.Namespace) -> None:
@@ -1360,7 +1727,12 @@ def _run_agent(args: argparse.Namespace) -> None:
     exp_name = args.exp_name
     start_round = args.start_round or 1
 
-    if args.resume is not None:
+    if args.resume is not None and args.project_mode:
+        exp_name = args.resume
+        existing = True
+        start_round = None
+        print(f"Resuming VibeSys project run {exp_name} in {bundle.root}/")  # noqa: T201  # tracked: #288
+    elif args.resume is not None:
         run_dir_name = _resolve_run_dir(args.resume, args.runs_dir)
         exp_name = run_dir_name
         existing = True
@@ -1401,7 +1773,6 @@ def _run_agent(args: argparse.Namespace) -> None:
         workspace_seed=bundle.workspace_seed_path,
         workspace_sources=bundle.workspace_sources,
         evaluator_path=bundle.evaluator_path,
-        hidden_evaluator_path=bundle.hidden_evaluator_path,
         benchmark_result=bundle.benchmark_result,
         accuracy_timeout_seconds=bundle.manifest.accuracy.timeout_seconds,
         benchmark_timeout_seconds=bundle.manifest.benchmark.timeout_seconds,
@@ -1415,6 +1786,10 @@ def _run_agent(args: argparse.Namespace) -> None:
         memory_layout=args.memory_layout,
         start_round=start_round,
         existing=existing,
+        project_mode=args.project_mode,
+        operator_constraints=tuple(
+            constraint.strip() for constraint in args.constraint if constraint.strip()
+        ),
         trusted_input_baseline=args.trusted_input_baseline,
         debug=args.debug,
         profiler_kind=args.profiler,
@@ -1751,7 +2126,6 @@ def _run_evolve(args: argparse.Namespace) -> None:
         workspace_seed=bundle.workspace_seed_path,
         workspace_sources=bundle.workspace_sources,
         evaluator_path=bundle.evaluator_path,
-        hidden_evaluator_path=bundle.hidden_evaluator_path,
         accuracy_timeout_seconds=bundle.manifest.accuracy.timeout_seconds,
         objective=objective,
         max_generations=args.max_generations,
@@ -1872,7 +2246,6 @@ def _run_plain(args: argparse.Namespace) -> None:
         workspace_seed=bundle.workspace_seed_path,
         workspace_sources=bundle.workspace_sources,
         evaluator_path=bundle.evaluator_path,
-        hidden_evaluator_path=bundle.hidden_evaluator_path,
         max_rounds=args.max_rounds,
         max_attempts_per_issue=args.max_attempts_per_issue,
         max_issues_per_perf_eval=args.max_issues_per_perf_eval,
@@ -1917,13 +2290,32 @@ _LOOP_COMMANDS: dict[str, _LoopCommand] = {
 }
 
 
+def _explicit_cli_dests(
+    parser: argparse.ArgumentParser,
+    argv: list[str],
+) -> frozenset[str]:
+    """Return parser destinations whose option strings occur in *argv*."""
+    destinations = {
+        option: action.dest
+        for action in parser._actions  # noqa: SLF001  # argparse exposes no public lookup
+        for option in action.option_strings
+    }
+    return frozenset(
+        destinations[option]
+        for token in argv
+        if token.startswith("-") and (option := token.partition("=")[0]) in destinations
+    )
+
+
 def parse_cli_invocation(argv: list[str]) -> CliInvocation:
     """Parse and validate one invocation without printing or exiting."""
     argv = _prepare_stub_agent_smoke_defaults(argv)
     loop_kind, remaining = _extract_loop_selection(argv)
     command = _LOOP_COMMANDS[loop_kind]
-    args = command.build_parser().parse_args(remaining)
-    _normalize_runs_dir(args)
+    parser = command.build_parser()
+    args = parser.parse_args(remaining)
+    args.explicit_cli_dests = _explicit_cli_dests(parser, remaining)
+    _normalize_runs_dir(args, loop_kind=loop_kind)
     _resolve_resume_args(args)
     command.validate(args)
     return CliInvocation(loop_kind=loop_kind, args=args)
@@ -1981,7 +2373,7 @@ def _render_configuration_error(error: ConfigurationError) -> NoReturn:
     raise SystemExit(diagnostic.exit_code)
 
 
-def main() -> None:  # noqa: D103  # tracked: #288
+def main() -> None:  # tracked: #288
     argv = sys.argv[1:]
     control_socket = _control_socket_from_argv(argv)
     if control_socket is not None:

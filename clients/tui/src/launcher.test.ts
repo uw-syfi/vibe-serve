@@ -9,7 +9,6 @@ let tempDir: string | undefined;
 const savedPython = process.env['VIBESYS_PYTHON'];
 const savedRuntime = process.env['VIBESYS_TUI_RUNTIME'];
 const savedEntrypoint = process.env['VIBESYS_TUI_ENTRYPOINT'];
-const savedSetupEntrypoint = process.env['VIBESYS_SETUP_ENTRYPOINT'];
 const savedTermFile = process.env['VIBESYS_FAKE_BACKEND_TERM_FILE'];
 const savedArgsFile = process.env['VIBESYS_FAKE_BACKEND_ARGS_FILE'];
 const savedReleaseSmokeMarker = process.env['VIBESYS_RELEASE_SMOKE_MARKER'];
@@ -23,15 +22,12 @@ afterEach(async () => {
   else process.env['VIBESYS_TUI_RUNTIME'] = savedRuntime;
   if (savedEntrypoint === undefined) delete process.env['VIBESYS_TUI_ENTRYPOINT'];
   else process.env['VIBESYS_TUI_ENTRYPOINT'] = savedEntrypoint;
-  if (savedSetupEntrypoint === undefined) delete process.env['VIBESYS_SETUP_ENTRYPOINT'];
-  else process.env['VIBESYS_SETUP_ENTRYPOINT'] = savedSetupEntrypoint;
   if (savedTermFile === undefined) delete process.env['VIBESYS_FAKE_BACKEND_TERM_FILE'];
   else process.env['VIBESYS_FAKE_BACKEND_TERM_FILE'] = savedTermFile;
   if (savedArgsFile === undefined) delete process.env['VIBESYS_FAKE_BACKEND_ARGS_FILE'];
   else process.env['VIBESYS_FAKE_BACKEND_ARGS_FILE'] = savedArgsFile;
   if (savedReleaseSmokeMarker === undefined) delete process.env['VIBESYS_RELEASE_SMOKE_MARKER'];
   else process.env['VIBESYS_RELEASE_SMOKE_MARKER'] = savedReleaseSmokeMarker;
-  delete process.env['VIBESYS_FAKE_SETUP_THEME_FILE'];
   delete process.env['VIBESYS_FAKE_FRONTEND_THEME_FILE'];
   if (tempDir) await rm(tempDir, {recursive: true, force: true});
   tempDir = undefined;
@@ -176,30 +172,21 @@ process.exit(
     await expect(launch(['validate', 'examples/kv-store'])).resolves.toBe(0);
   });
 
-  it('runs configured repository setup before starting the backend', async () => {
+  it('launches in place without setup and preserves explicit launch arguments', async () => {
     tempDir = await mkdtemp(join(tmpdir(), 'vs-launcher-test-'));
     const backendTerminated = join(tempDir, 'backend-terminated');
     const backendArgs = join(tempDir, 'backend-args.json');
-    const defaultsCwd = join(tempDir, 'defaults-cwd');
+    const defaultsInvoked = join(tempDir, 'defaults-invoked');
     const backendCwd = join(tempDir, 'backend-cwd');
     const backend = await writeExecutable(
-      'setup-backend.mjs',
+      'in-place-backend.mjs',
       `
 import {writeFileSync} from 'node:fs';
 import {createServer} from 'node:net';
 
 if (process.argv.includes('tui-defaults')) {
-  writeFileSync(${JSON.stringify(defaultsCwd)}, process.cwd());
-  console.log(JSON.stringify({
-    runs_dir: '/repo/exp_env',
-    input_path: '/repo/examples/queue-spsc',
-    experiment_name: 'queue-spsc-generated',
-    repository_owner: 'vibesys-playground',
-    repository_name: 'queue-spsc-generated',
-    visibility: 'private',
-    theme: 'solarized-dark',
-  }));
-  process.exit(0);
+  writeFileSync(${JSON.stringify(defaultsInvoked)}, 'invoked');
+  process.exit(9);
 }
 writeFileSync(${JSON.stringify(backendCwd)}, process.cwd());
 writeFileSync(process.env.VIBESYS_FAKE_BACKEND_ARGS_FILE, JSON.stringify(process.argv.slice(2)));
@@ -223,25 +210,8 @@ process.on('SIGTERM', () => {
 });
 `,
     );
-    const setup = await writeExecutable(
-      'fake-setup.mjs',
-      `
-import {writeFileSync} from 'node:fs';
-const defaults = JSON.parse(process.env.VIBESYS_SETUP_DEFAULTS);
-writeFileSync(process.env.VIBESYS_FAKE_SETUP_THEME_FILE, process.env.VIBESYS_THEME ?? '');
-writeFileSync(process.env.VIBESYS_SETUP_RESULT, JSON.stringify({
-  kind: 'experiment',
-  runsDirectory: defaults.runs_dir,
-  inputPath: defaults.input_path,
-  experimentName: defaults.experiment_name,
-  repositoryOwner: defaults.repository_owner,
-  repositoryName: defaults.repository_name,
-  visibility: defaults.visibility,
-}));
-`,
-    );
     const frontend = await writeExecutable(
-      'setup-frontend.mjs',
+      'in-place-frontend.mjs',
       `
 import {writeFileSync} from 'node:fs';
 writeFileSync(process.env.VIBESYS_FAKE_FRONTEND_THEME_FILE, process.env.VIBESYS_THEME ?? '');
@@ -252,24 +222,35 @@ process.exit(0);
     process.env['VIBESYS_PYTHON'] = backend;
     process.env['VIBESYS_TUI_RUNTIME'] = process.execPath;
     process.env['VIBESYS_TUI_ENTRYPOINT'] = frontend;
-    process.env['VIBESYS_SETUP_ENTRYPOINT'] = setup;
     process.env['VIBESYS_FAKE_BACKEND_TERM_FILE'] = backendTerminated;
     process.env['VIBESYS_FAKE_BACKEND_ARGS_FILE'] = backendArgs;
-    const setupTheme = join(tempDir, 'setup-theme');
     const frontendTheme = join(tempDir, 'frontend-theme');
-    process.env['VIBESYS_FAKE_SETUP_THEME_FILE'] = setupTheme;
     process.env['VIBESYS_FAKE_FRONTEND_THEME_FILE'] = frontendTheme;
     process.chdir(tempDir);
 
-    await expect(launch(['--input', 'examples/queue-spsc'])).resolves.toBe(0);
-    const args = JSON.parse(await readFile(backendArgs, 'utf8')) as string[];
-    expect(args.filter(argument => argument === '--runs-dir')).toHaveLength(1);
-    expect(args[args.indexOf('--runs-dir') + 1]).toBe('/repo/exp_env');
-    expect(args).toContain('vibesys-playground/queue-spsc-generated');
-    expect(args).toContain('queue-spsc-generated');
-    expect(await readFile(defaultsCwd, 'utf8')).toBe(tempDir);
+    await expect(launch([])).resolves.toBe(0);
+    const implicitArgs = JSON.parse(await readFile(backendArgs, 'utf8')) as string[];
+    expect(implicitArgs).not.toContain('--runs-dir');
+    expect(implicitArgs).not.toContain('--input');
+    expect(implicitArgs).not.toContain('--repo');
+    expect(implicitArgs).not.toContain('--exp-name');
+    await expect(access(defaultsInvoked)).rejects.toThrow();
     expect(await readFile(backendCwd, 'utf8')).toBe(tempDir);
-    expect(await readFile(setupTheme, 'utf8')).toBe('solarized-dark');
+    expect(await readFile(frontendTheme, 'utf8')).toBe('dark');
+
+    await expect(
+      launch([
+        '--input',
+        'examples/queue-spsc',
+        '--runs-dir',
+        '/repo/legacy-runs',
+        '--theme',
+        'solarized-dark',
+      ]),
+    ).resolves.toBe(0);
+    const explicitArgs = JSON.parse(await readFile(backendArgs, 'utf8')) as string[];
+    expect(explicitArgs.filter(argument => argument === '--runs-dir')).toHaveLength(1);
+    expect(explicitArgs[explicitArgs.indexOf('--runs-dir') + 1]).toBe('/repo/legacy-runs');
     expect(await readFile(frontendTheme, 'utf8')).toBe('solarized-dark');
     await access(backendTerminated);
   });

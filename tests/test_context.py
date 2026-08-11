@@ -20,6 +20,8 @@ from vibesys.errors import ConfigurationError
 from vibesys.profilers import ACTIVE_PROFILER_KINDS, ProfilerKind, ProfilerPreflightResult
 from vibesys.run import GitTracker, RunLogger, RunPaths, Workspace
 from vibesys.sandbox.run_environment import RunEnvironmentSpec
+from vs_project_state import ProjectStore, RunConfiguration
+from vs_sandbox import ProjectPathPolicy
 
 
 def _minimal_copy_context(workspace):  # noqa: ANN001, ANN202  # tracked: #288
@@ -249,6 +251,132 @@ def _write_support_dirs(project_root):  # noqa: ANN001, ANN202  # tracked: #288
         source_dir.mkdir(parents=True)
         (source_dir / "server.py").write_text("pass\n")
     return {kind: str(project_root / "resources" / "profilers" / kind.value) for kind in dirs}
+
+
+def test_project_context_uses_input_tree_and_protects_framework_paths(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+    project = tmp_path / "queue"
+    project.mkdir()
+    (project / "OBJECTIVE.md").write_text("Optimize the queue.\n")
+    (project / "vibesys.input.toml").write_text("[domain]\nname = 'generic'\n")
+    (project / "queue.py").write_text("VALUE = 1\n")
+    (project / "agent.toml").write_text("[model]\nname = 'private'\n")
+    (project / ".env.local").write_text("TOKEN=secret\n")
+    (project / "reference").mkdir()
+    (project / "reference" / "queue.py").write_text("VALUE = 2\n")
+    evaluator = project / "evaluator"
+    evaluator.mkdir()
+    (evaluator / "check.py").write_text("print('ok')\n")
+    skills = tmp_path / "skills"
+    skills.mkdir()
+    (skills / "SKILL.md").write_text("# Framework skill\n")
+    configuration = RunConfiguration(
+        outer_loop="agent",
+        inner_loop="multi-agent",
+        interface="inprocess",
+        model="gpt-test",
+        agent_backend="cli",
+        cli_provider="codex",
+        compute_backend="cpu",
+        profiler="auto",
+        max_rounds=1,
+        max_retries_per_round=3,
+        judge_every=1,
+        official_eval_every=1,
+        memory_layout="files",
+    )
+
+    with (
+        patch("vibesys.context.build_agent_runner", return_value=MagicMock()) as build_runner,
+        patch("vibesys.context.backends.get", return_value=_FakeBackend()),
+        create_run_context(
+            config={"model": {"name": "gpt-test"}},  # pyright: ignore[reportArgumentType]  # tracked: #297
+            exp_name="queue-test",
+            runs_dir=project / ".vs" / "local",
+            input_path=str(project),
+            accuracy_command="python evaluator/check.py",
+            benchmark_command="python evaluator/check.py",
+            evaluator_path=evaluator,
+            profiler_kind=ProfilerKind.AUTO,
+            profiler_domain=DomainName.GENERIC,
+            skills_dirs=[str(skills)],
+            run_environment=RunEnvironmentSpec("local"),
+            environment_hooks=NoopEnvironmentHooks(),
+            git_tracking=True,
+            project_mode=True,
+            project_configuration=configuration,
+        ) as ctx,
+    ):
+        assert ctx.workspace == project
+        assert ctx.project_store is not None
+        assert ctx.run_id is not None
+        assert ctx.profiler_kind is ProfilerKind.NONE
+        assert ProjectStore(project).load_run(ctx.run_id).configuration.profiler == "none"
+
+        policy = build_runner.call_args.kwargs["project_path_policy"]
+        assert isinstance(policy, ProjectPathPolicy)
+        assert build_runner.call_args.kwargs["require_host_sandbox"] is True
+        assert set(policy.hidden_paths) == {
+            project.joinpath(".env.local").relative_to(project),
+            project.joinpath(".vs/local").relative_to(project),
+            project.joinpath("agent.toml").relative_to(project),
+        }
+        assert set(policy.read_only_paths) == {
+            project.joinpath(".git").relative_to(project),
+            project.joinpath(".vs").relative_to(project),
+            project.joinpath("OBJECTIVE.md").relative_to(project),
+            project.joinpath("evaluator").relative_to(project),
+            project.joinpath("reference").relative_to(project),
+            project.joinpath("vibesys.input.toml").relative_to(project),
+        }
+        assert not (project / skills.name).exists()
+        assert not any(path.name.endswith("_profiler") for path in project.iterdir())
+
+    branch = subprocess.run(
+        ["git", "branch", "--show-current"],  # noqa: S607  # tracked: #288
+        cwd=project,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    assert branch.startswith("vibesys/")
+    assert (project / ".vs" / "project.json").is_file()
+
+    increased_configuration = configuration.model_copy(update={"max_rounds": 2})
+    with (
+        patch("vibesys.context.build_agent_runner", return_value=MagicMock()),
+        patch("vibesys.context.backends.get", return_value=_FakeBackend()),
+        create_run_context(
+            config={"model": {"name": "gpt-test"}},  # pyright: ignore[reportArgumentType]  # tracked: #297
+            exp_name=ctx.run_id,
+            runs_dir=project / ".vs" / "local",
+            input_path=str(project),
+            accuracy_command="python evaluator/check.py",
+            benchmark_command="python evaluator/check.py",
+            evaluator_path=evaluator,
+            existing=True,
+            profiler_kind=ProfilerKind.AUTO,
+            profiler_domain=DomainName.GENERIC,
+            skills_dirs=[],
+            run_environment=RunEnvironmentSpec("local"),
+            environment_hooks=NoopEnvironmentHooks(),
+            git_tracking=True,
+            project_mode=True,
+            project_configuration=increased_configuration,
+        ),
+    ):
+        pass
+
+    assert ProjectStore(project).load_run(ctx.run_id).configuration.max_rounds == 2
+    assert (
+        "increase run limit to 2"
+        in subprocess.run(
+            ["git", "log", "-1", "--format=%s"],  # noqa: S607  # tracked: #288
+            cwd=project,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout
+    )
 
 
 @pytest.mark.parametrize(

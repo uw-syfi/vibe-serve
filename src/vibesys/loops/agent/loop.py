@@ -16,8 +16,8 @@ from pathlib import Path  # noqa: TC003  # tracked: #288
 from typing import Any
 
 from vibesys.agents.progress import RoundProgress
-from vibesys.config import Config  # noqa: TC001  # tracked: #288
-from vibesys.constants import DEFAULT_COMPUTE_BACKEND, ComputeBackend
+from vibesys.config import Config, as_config
+from vibesys.constants import DEFAULT_AGENT_BACKEND, DEFAULT_COMPUTE_BACKEND, ComputeBackend
 from vibesys.context import create_run_context
 from vibesys.domains.base import DomainDefinition, DomainName, DomainRole
 from vibesys.domains.registry import resolve_domain
@@ -67,6 +67,7 @@ from vibesys.skills import (
     resolve_skill_selections,
 )
 from vs_loop_state.agent import RoundHistory, RoundRecord
+from vs_project_state import RunConfiguration
 
 # Candidate process boundaries selected by ``--interface``. Language, tooling,
 # and artifact requirements belong to the selected domain and input bundle.
@@ -211,13 +212,21 @@ def _load_active_hypothesis(path: Path) -> _ActiveHypothesis | None:
     return _ActiveHypothesis.from_json(json.loads(path.read_text()))
 
 
-def _save_active_hypothesis(path: Path, state: _ActiveHypothesis | None) -> None:
+def _serialize_active_hypothesis(state: _ActiveHypothesis | None) -> bytes | None:
+    """Return the exact local active-state representation for a transition."""
     if state is None:
+        return None
+    return json.dumps(state.to_json(), indent=2).encode("utf-8")
+
+
+def _save_active_hypothesis(path: Path, state: _ActiveHypothesis | None) -> None:
+    contents = _serialize_active_hypothesis(state)
+    if contents is None:
         if path.exists():
             path.unlink()
         return
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(state.to_json(), indent=2))
+    path.write_bytes(contents)
 
 
 def _backfill_revert_commit(
@@ -1063,7 +1072,6 @@ def _domain_render_context(
         "reference_path": ctx.ref_name,
         "benchmark_command": ctx.judge_benchmark_command,
         "accuracy_command": ctx.judge_accuracy_command,
-        "hidden_evaluator_configured": bool(vars(ctx).get("hidden_evaluator_path")),
         "runtime_notes": ctx.run_environment_view.prompt_notes,
         "profile_execution": ctx.run_environment_view.profile_execution,
         "workspace_sources": ctx.workspace_sources,
@@ -1873,10 +1881,7 @@ def _run_framework_accuracy_gate(  # noqa: PLR0913  # tracked: #288
     release_deployment_after: bool = False,
 ) -> str | None:
     """Run the immutable manifest accuracy command after an agent reports PASS."""
-    hidden_evaluator = vars(ctx).get("hidden_evaluator_path") is not None
-    command = (
-        getattr(ctx, "accuracy_command", None) if hidden_evaluator else ctx.judge_accuracy_command
-    )
+    command = ctx.judge_accuracy_command
     execution_command = None
     if command:
         execution_command = _with_candidate_revision(
@@ -1939,10 +1944,7 @@ def _run_framework_benchmark(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracke
     if result_spec is None:
         return None, None
 
-    hidden_evaluator = vars(ctx).get("hidden_evaluator_path") is not None
-    base_command = (
-        getattr(ctx, "benchmark_command", None) if hidden_evaluator else ctx.judge_benchmark_command
-    )
+    base_command = ctx.judge_benchmark_command
     if not base_command:
         return "Benchmark result contract is configured without a benchmark command.", None
 
@@ -1966,13 +1968,11 @@ def _run_framework_benchmark(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracke
         passed = False
     else:
         try:
-            # ``framework_judge_backend`` is optional on legacy/test contexts.
-            backend = vars(ctx).get("framework_judge_backend") or ctx.judge_backend
             effective_timeout = _framework_command_timeout(ctx, timeout_seconds)
             if effective_timeout is None:
-                result = backend.execute(command)
+                result = ctx.judge_backend.execute(command)
             else:
-                result = backend.execute(command, timeout=effective_timeout)
+                result = ctx.judge_backend.execute(command, timeout=effective_timeout)
             output = result.output.strip()
             passed = result.exit_code == 0
             _publish_subprocess_output(
@@ -2127,7 +2127,6 @@ def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
     workspace_seed: Path | None = None,
     workspace_sources: tuple[WorkspaceSource, ...] = (),
     evaluator_path: Path | None = None,
-    hidden_evaluator_path: Path | None = None,
     benchmark_result: BenchmarkResult | None = None,
     accuracy_timeout_seconds: int | None = None,
     benchmark_timeout_seconds: int | None = None,
@@ -2136,8 +2135,10 @@ def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
     judge_every: int = 3,
     official_eval_every: int = 3,
     memory_layout: str = "files",
-    start_round: int = 1,
+    start_round: int | None = 1,
     existing: bool = False,
+    project_mode: bool = False,
+    operator_constraints: tuple[str, ...] = (),
     trusted_input_baseline: str | None = None,
     debug: bool = False,
     profiler_kind: ProfilerKind = ProfilerKind.AUTO,
@@ -2208,8 +2209,44 @@ def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
     if modality is None and domain_definition.name is DomainName.LLM_SERVING:
         modality = "text_generation"
     run_environment = run_environment or make_run_environment_spec()
+    normalized_config = as_config(config)
+    project_configuration = (
+        RunConfiguration(
+            outer_loop="agent",
+            inner_loop=inner_loop,
+            interface=interface,
+            model=normalized_config.model.name,
+            agent_backend=(
+                "stub"
+                if agent_backend == "stub"
+                else agent_backend or normalized_config.agent.backend or DEFAULT_AGENT_BACKEND
+            ),
+            cli_provider=(
+                cli_provider or normalized_config.agent.cli_provider or "codex"
+                if agent_backend != "stub"
+                else None
+            ),
+            compute_backend=backend.value,
+            profiler=profiler_kind.value,
+            max_rounds=max_rounds,
+            max_retries_per_round=max_retries_per_round,
+            judge_every=judge_every,
+            official_eval_every=official_eval_every,
+            memory_layout=memory_layout,
+            modality=modality,
+            cli_timeout=normalized_config.agent.cli_timeout,
+            default_reasoning_effort=normalized_config.thinking.level,
+            outer_model=normalized_config.agent.outer.model,
+            outer_reasoning_effort=normalized_config.agent.outer.reasoning_effort,
+            inner_model=normalized_config.agent.inner.model,
+            inner_reasoning_effort=normalized_config.agent.inner.reasoning_effort,
+            operator_constraints=operator_constraints,
+        )
+        if project_mode
+        else None
+    )
     ctx = create_run_context(
-        config=config,
+        config=normalized_config,
         exp_name=exp_name,
         runs_dir=runs_dir,
         input_path=input_path,
@@ -2218,9 +2255,10 @@ def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
         workspace_seed=workspace_seed,
         workspace_sources=workspace_sources,
         evaluator_path=evaluator_path,
-        hidden_evaluator_path=hidden_evaluator_path,
         objective=objective,
         existing=existing,
+        project_mode=project_mode,
+        project_configuration=project_configuration,
         trusted_input_baseline=trusted_input_baseline,
         debug=debug,
         profiler_kind=profiler_kind,
@@ -2248,16 +2286,23 @@ def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
     pareto_archive_path = issue_board.pareto_archive_path(progress_path)
     pareto_archive_location = issue_board.display_path(pareto_archive_path, ctx.workspace)
 
-    rounds_state_path = ctx.log_dir / "rounds.json"
+    rounds_state_path = ctx.rounds_state_path
     round_history = RoundHistory.load(rounds_state_path)
+    if ctx.project_store is not None and ctx.run_id is not None:
+        round_history.records[:] = ctx.project_store.load_rounds(ctx.run_id)
     records = round_history.records
-    active_hypothesis_path = ctx.log_dir / "active_hypothesis.json"
+    active_hypothesis_path = ctx.active_hypothesis_path
     active_hypothesis = _load_active_hypothesis(active_hypothesis_path)
     if _backfill_revert_commit(active_hypothesis, records):
         _save_active_hypothesis(active_hypothesis_path, active_hypothesis)
 
     carry = _CarryOver(regression_info=_terminal_workspace_notice(records))
-    round_number = start_round
+    round_number = start_round if start_round is not None else len(records) + 1
+    if round_number > max_rounds:
+        raise ValueError(  # noqa: TRY003  # tracked: #288
+            f"This run has completed {round_number - 1} rounds; max_rounds={max_rounds} "
+            "is a total limit. Increase --max-rounds to continue."
+        )
 
     # When inner_loop == "single-agent", we don't run a separate
     # pre-round decision or profiler invocation. We thread the previous
@@ -2965,61 +3010,91 @@ def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
                     candidate_retention_reason = (
                         active_hypothesis.gate_approved_candidate_retention_reason
                     )
-                records.append(
-                    RoundRecord(
-                        round_number=round_number,
-                        commit=commit,
-                        perf_metric=perf_metric,
-                        perf_unit=perf_unit,
-                        passed=passed,
-                        profile_skipped=profile_skipped,
-                        reviewed=reviewed,
-                        hypothesis_id=plan.hypothesis_id,
-                        hypothesis_outcome=hypothesis_outcome,
-                        hypothesis_parent_round=active_hypothesis.parent_round,
-                        hypothesis_parent_commit=active_hypothesis.parent_commit,
-                        metrics=accepted_metrics,
-                        evaluation_artifact=accepted_evaluation_artifact,
-                        official_evaluation=(
-                            passed
-                            and completed_official_evaluation_reason is not None
-                            and ctx.agent_runner.backend_name != "stub"
+                completed_record = RoundRecord(
+                    round_number=round_number,
+                    commit=commit,
+                    perf_metric=perf_metric,
+                    perf_unit=perf_unit,
+                    passed=passed,
+                    profile_skipped=profile_skipped,
+                    reviewed=reviewed,
+                    hypothesis_id=plan.hypothesis_id,
+                    hypothesis_outcome=hypothesis_outcome,
+                    hypothesis_parent_round=active_hypothesis.parent_round,
+                    hypothesis_parent_commit=active_hypothesis.parent_commit,
+                    metrics=accepted_metrics,
+                    evaluation_artifact=accepted_evaluation_artifact,
+                    official_evaluation=(
+                        passed
+                        and completed_official_evaluation_reason is not None
+                        and ctx.agent_runner.backend_name != "stub"
+                        and bool(ctx.judge_accuracy_command or benchmark_result)
+                    ),
+                    official_evaluation_reason=(
+                        completed_official_evaluation_reason
+                        if (
+                            ctx.agent_runner.backend_name != "stub"
                             and bool(ctx.judge_accuracy_command or benchmark_result)
-                        ),
-                        official_evaluation_reason=(
-                            completed_official_evaluation_reason
-                            if (
-                                ctx.agent_runner.backend_name != "stub"
-                                and bool(ctx.judge_accuracy_command or benchmark_result)
-                            )
-                            else None
-                        ),
-                        candidate_disposition=candidate_disposition,
-                        candidate_metrics=candidate_metrics,
-                        candidate_evaluation_artifact=candidate_evaluation_artifact,
-                        candidate_operating_point=candidate_operating_point,
-                        candidate_retention_reason=candidate_retention_reason,
+                        )
+                        else None
+                    ),
+                    candidate_disposition=candidate_disposition,
+                    candidate_metrics=candidate_metrics,
+                    candidate_evaluation_artifact=candidate_evaluation_artifact,
+                    candidate_operating_point=candidate_operating_point,
+                    candidate_retention_reason=candidate_retention_reason,
+                )
+                records.append(completed_record)
+
+                # Compute the completed lifecycle transition in memory so its
+                # exact representation can enter the write-ahead journal before
+                # rounds.json, progress notes, or active.json are mutated.
+                next_active_hypothesis = _ActiveHypothesis.from_json(active_hypothesis.to_json())
+                if inner_loop == "multi-agent" and _implementation_keeps_hypothesis_active(
+                    implementation,
+                    continuation_rounds=next_active_hypothesis.continuation_rounds,
+                ):
+                    next_active_hypothesis.feedback = feedback if reviewed and not passed else None
+                    assert implementation is not None  # noqa: S101  # tracked: #288
+                    next_active_hypothesis.next_step = implementation.next_step
+                    next_active_hypothesis.continuation_rounds += 1
+                elif passed:
+                    next_active_hypothesis = None
+                elif (
+                    reviewed
+                    and next_active_hypothesis.continuation_rounds
+                    < _MAX_CONTINUATION_ROUNDS_WITHOUT_DESIGN_REVIEW
+                ):
+                    # A rejected review may justify another scoped repair, but
+                    # it consumes the same bounded ownership lease as an
+                    # implementer-declared continuation. Otherwise repeated
+                    # judge failures can bypass the designer indefinitely.
+                    next_active_hypothesis.feedback = feedback
+                    next_active_hypothesis.next_step = (
+                        implementation.next_step
+                        if implementation is not None
+                        and _implementation_requests_continuation(implementation)
+                        else None
                     )
+                    next_active_hypothesis.continuation_rounds += 1
+                elif reviewed or (
+                    implementation is not None
+                    and not _implementation_keeps_hypothesis_active(
+                        implementation,
+                        continuation_rounds=next_active_hypothesis.continuation_rounds,
+                    )
+                ):
+                    next_active_hypothesis = None
+                else:
+                    next_active_hypothesis.feedback = None
+                    next_active_hypothesis.next_step = (
+                        implementation.next_step if implementation is not None else None
+                    )
+                ctx.begin_completed_round(
+                    completed_record,
+                    next_active_contents=_serialize_active_hypothesis(next_active_hypothesis),
                 )
                 round_history.save()
-                if ctx.supervisor is not None:
-                    ctx.supervisor.record(
-                        EventType.ROUND_FINISHED,
-                        status=(
-                            EventStatus.COMPLETED
-                            if passed or not records[-1].reviewed
-                            else EventStatus.FAILED
-                        ),
-                        round_label=f"round-{round_number}",
-                        data=RoundFinishedData(
-                            attempts=retry,
-                            judge_verdict=(
-                                "pass" if passed else "fail" if records[-1].reviewed else "skipped"
-                            ),
-                            perf_metric=perf_metric,
-                            perf_unit=perf_unit,
-                        ),
-                    )
 
                 if not passed and records[-1].reviewed:
                     issue_board.append_exhaustion_note(
@@ -3087,47 +3162,27 @@ def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
                 # unreviewed terminal result hands control back to the designer;
                 # a rejected review keeps the same claim plus reviewer feedback
                 # so the implementer can address it on the next round.
-                if inner_loop == "multi-agent" and _implementation_keeps_hypothesis_active(
-                    implementation,
-                    continuation_rounds=active_hypothesis.continuation_rounds,
-                ):
-                    active_hypothesis.feedback = feedback if reviewed and not passed else None
-                    assert implementation is not None  # noqa: S101  # tracked: #288
-                    active_hypothesis.next_step = implementation.next_step
-                    active_hypothesis.continuation_rounds += 1
-                elif passed:
-                    active_hypothesis = None
-                elif (
-                    reviewed
-                    and active_hypothesis.continuation_rounds
-                    < _MAX_CONTINUATION_ROUNDS_WITHOUT_DESIGN_REVIEW
-                ):
-                    # A rejected review may justify another scoped repair, but
-                    # it consumes the same bounded ownership lease as an
-                    # implementer-declared continuation. Otherwise repeated
-                    # judge failures can bypass the designer indefinitely.
-                    active_hypothesis.feedback = feedback
-                    active_hypothesis.next_step = (
-                        implementation.next_step
-                        if implementation is not None
-                        and _implementation_requests_continuation(implementation)
-                        else None
-                    )
-                    active_hypothesis.continuation_rounds += 1
-                elif reviewed or (
-                    implementation is not None
-                    and not _implementation_keeps_hypothesis_active(
-                        implementation,
-                        continuation_rounds=active_hypothesis.continuation_rounds,
-                    )
-                ):
-                    active_hypothesis = None
-                else:
-                    active_hypothesis.feedback = None
-                    active_hypothesis.next_step = (
-                        implementation.next_step if implementation is not None else None
-                    )
+                active_hypothesis = next_active_hypothesis
                 _save_active_hypothesis(active_hypothesis_path, active_hypothesis)
+                ctx.persist_completed_round()
+                if ctx.supervisor is not None:
+                    ctx.supervisor.record(
+                        EventType.ROUND_FINISHED,
+                        status=(
+                            EventStatus.COMPLETED
+                            if passed or not records[-1].reviewed
+                            else EventStatus.FAILED
+                        ),
+                        round_label=f"round-{round_number}",
+                        data=RoundFinishedData(
+                            attempts=retry,
+                            judge_verdict=(
+                                "pass" if passed else "fail" if records[-1].reviewed else "skipped"
+                            ),
+                            perf_metric=perf_metric,
+                            perf_unit=perf_unit,
+                        ),
+                    )
 
                 round_number += 1
 
