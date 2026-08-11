@@ -102,8 +102,9 @@ record = {
     "runs_share_smoke_root": runs_root.parent == input_root.parent,
     "input_files": sorted(path.name for path in input_root.iterdir()),
     "manifest_commands": [manifest["accuracy"]["command"], manifest["benchmark"]["command"]],
-    "ttys": [os.isatty(fd) for fd in (0, 1, 2)],
 }
+if not headless:
+    record["ttys"] = [os.isatty(fd) for fd in (0, 1, 2)]
 observed_path = Path(os.environ["VIBESYS_TEST_OBSERVED"])
 observed = json.loads(observed_path.read_text()) if observed_path.exists() else []
 observed.append(record)
@@ -156,7 +157,6 @@ observed_path.write_text(json.dumps(observed))
             "runs_share_smoke_root": True,
             "input_files": ["OBJECTIVE.md", "vibesys.input.toml"],
             "manifest_commands": valid_commands,
-            "ttys": [False, False, False],
         },
     ]
 
