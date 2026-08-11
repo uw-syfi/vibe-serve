@@ -359,8 +359,8 @@ def _add_common_args(parser: argparse.ArgumentParser) -> None:
         default=None,
         metavar="PATH",
         help=(
-            "Use the legacy copied-workspace layout under PATH. When omitted, VibeSys "
-            "optimizes the input project in place and stores run state under .vs/."
+            "Materialize each run in an experiment collection under PATH. When omitted, "
+            "VibeSys optimizes the input project in place and stores run state under .vs/."
         ),
     )
     _add_standalone_input_args(parser)
@@ -556,8 +556,8 @@ def _add_common_args(parser: argparse.ArgumentParser) -> None:
         default=None,
         metavar="NAME",
         help=(
-            "Theme for the interactive client. Overrides [tui].theme in "
-            f"agent.toml. Defaults to 'dark'. Supported: {', '.join(KNOWN_TUI_THEMES)}. "
+            "Theme for the interactive client. "
+            f"Defaults to 'dark'. Supported: {', '.join(KNOWN_TUI_THEMES)}. "
             "Ignored in headless mode."
         ),
     )
@@ -716,9 +716,9 @@ def load_config_and_skills(
             getattr(args, "skills_dir", None) or getattr(args, "extra_skills", None)
         ):
             _configuration_error(
-                "In-place projects do not yet materialize skill bundles into the source "
+                "In-place projects do not copy skill bundles into the source "
                 "tree. Omit --skills-dir/--extra-skills, or pass --runs-dir for the "
-                "legacy copied workspace.",
+                "materialized-workspace mode.",
                 code="in_place_skills_unsupported",
                 stage="input_validation",
             )
@@ -804,7 +804,7 @@ def _prepare_experiment_repository(args: argparse.Namespace, config: Config) -> 
         if args.repo is not None:
             _configuration_error(
                 "--repo is not supported for in-place project runs; omit it or pass "
-                "--runs-dir to use the legacy experiment-repository workflow.",
+                "--runs-dir to use an experiment repository.",
                 code="invalid_repository",
                 stage="repository_setup",
             )
@@ -853,8 +853,8 @@ def _normalize_runs_dir(args: argparse.Namespace, *, loop_kind: str) -> None:
     if raw is None:
         if loop_kind != "agent":
             _configuration_error(
-                f"--outer-loop {loop_kind} currently requires --runs-dir. In-place "
-                "project execution is initially supported by the default agent loop.",
+                f"--outer-loop {loop_kind} requires --runs-dir. In-place project "
+                "execution uses the default agent loop.",
                 code="missing_runs_dir",
                 stage="argument_parsing",
             )
@@ -1256,8 +1256,8 @@ def _apply_common_args(parser: argparse.ArgumentParser) -> None:
         nargs="?",
         const="latest",
         default=None,
-        metavar="RUN_DIR",
-        help="Resume a previous run (default: latest).",
+        metavar="RUN",
+        help="Resume a run; omit RUN to select the current or latest run.",
     )
 
 
@@ -1275,7 +1275,7 @@ def _make_parser(prog: str, description: str) -> argparse.ArgumentParser:
 def _build_tui_defaults_parser() -> argparse.ArgumentParser:
     parser = _RunArgumentParser(
         prog="vibesys tui-defaults",
-        description="Resolve configuration defaults for the pre-launch TUI.",
+        description="Resolve configuration defaults for a TUI launcher.",
     )
     parser.add_argument("--config", type=Path, default=None)
     parser.add_argument("--input", type=Path, default=None)
@@ -1465,10 +1465,7 @@ def _build_agent_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--stub-agent",
         action="store_true",
-        help=(
-            "Use deterministic local agent responses for fast TUI smoke tests. This mode "
-            "may run without agent.toml."
-        ),
+        help="Use deterministic local agent responses for fast TUI smoke tests.",
     )
     parser.add_argument("--start-round", type=int, default=None, metavar="N")
     parser.add_argument(
@@ -1476,7 +1473,7 @@ def _build_agent_parser() -> argparse.ArgumentParser:
         default=None,
         metavar="REV",
         help=(
-            "operator-authorized trusted-input commit for a resumed legacy "
+            "operator-authorized trusted-input commit for a resumed "
             "--runs-dir workspace; unsupported for in-place project runs"
         ),
     )
@@ -1684,7 +1681,7 @@ def _validate_agent(args: argparse.Namespace) -> None:
     if args.trusted_input_baseline is not None and args.project_mode:
         _configuration_error(
             "--trusted-input-baseline cannot refresh the persisted baseline of an "
-            "in-place project run; omit it or use a legacy --runs-dir workspace.",
+            "in-place project run; omit it or use a --runs-dir workspace.",
             code="invalid_arguments",
             stage="argument_parsing",
         )
@@ -1695,14 +1692,15 @@ def _validate_agent(args: argparse.Namespace) -> None:
             _configuration_error(
                 "In-place projects must already contain their candidate source. Remove "
                 "[workspace].seed and [[workspace.sources]] after materializing those files "
-                "into the project directory, or pass --runs-dir for legacy materialization.",
+                "into the project directory, or pass --runs-dir to materialize them for "
+                "each run.",
                 code="in_place_materialization_unsupported",
                 stage="input_validation",
             )
         if args.docker or args.modal:
             _configuration_error(
-                "In-place project execution currently requires the native agent sandbox; "
-                "--docker and --modal still require --runs-dir.",
+                "In-place project execution uses the native agent sandbox; pass "
+                "--runs-dir with --docker or --modal.",
                 code="in_place_environment_unsupported",
                 stage="argument_parsing",
             )

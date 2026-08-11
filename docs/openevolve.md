@@ -6,6 +6,7 @@ implementation:
 ```bash
 uv run vibesys --outer-loop evolve \
   --search-policy openevolve \
+  --runs-dir "$PWD/exp_env" --local \
   --input examples/data-structures/queue-spsc
 ```
 

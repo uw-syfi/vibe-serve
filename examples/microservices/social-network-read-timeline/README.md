@@ -5,7 +5,8 @@ Closes issues #48.
 VibeSys use:
 
 ```bash
-uv run vibesys --input examples/microservices/social-network-read-timeline
+uv run vibesys --runs-dir "$PWD/exp_env" --local \
+  --input examples/microservices/social-network-read-timeline
 ```
 
 **Target:** DeathStarBench socialNetwork: Go microservices stack deployed via Docker Compose. 

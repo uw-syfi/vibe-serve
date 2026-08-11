@@ -3,7 +3,8 @@ Olmo-Hybrid-7B prefix-caching input bundle.
 Use:
 
 ```bash
-uv run vibesys --input examples/model-serving/olmo-hybrid-prefix-caching-vllm
+uv run vibesys --runs-dir "$PWD/exp_env" --local \
+  --input examples/model-serving/olmo-hybrid-prefix-caching-vllm
 ```
 
 Workload: 20 concurrent requests, 32 768-token shared prefix + 128-token unique tail per request, 128 generated tokens. See `OBJECTIVE.md`.

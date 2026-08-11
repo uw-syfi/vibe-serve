@@ -150,7 +150,8 @@ The test job enforces two independent coverage floors:
 **Repo-wide floor — 75 %**  
 `uv run pytest` (with `--cov` already wired in via `pyproject.toml`) must
 reach 75 % combined statement + branch coverage across the tracked packages
-(`vibesys`, `vs_feature_flags`, `vs_github`, `vs_issue_board`, `vs_sandbox`).
+(`vibesys`, `vs_feature_flags`, `vs_github`, `vs_issue_board`, `vs_loop_state`,
+`vs_project_state`, `vs_sandbox`, and `vs_bench`).
 
 **Per-module floor — 40 %**  
 `scripts/check_coverage_floor.py` reads `coverage.json` and rejects any

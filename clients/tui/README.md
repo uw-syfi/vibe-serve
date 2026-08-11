@@ -10,9 +10,10 @@ vs --help
 The package installs `vs` and `vibesys` as aliases for the same launcher. The
 launcher starts the Python VibeSys backend with `python -m vibesys --headless`
 from the current directory and then attaches the OpenTUI client. The launcher
-passes run arguments through unchanged, including an explicit legacy
-`--runs-dir`; it does not open a separate setup form. Install the Python
-`vibesys` package in the Python environment you want to use, or set
+passes run arguments through unchanged. With no `--input`, the current
+directory is the in-place project; pass `--input PATH` to select another
+complete project, or `--runs-dir PATH` to use an experiment collection. Install
+the Python `vibesys` package in the Python environment you want to use, or set
 `VIBESYS_PYTHON` to that Python executable.
 
 ## Operator interface
@@ -34,8 +35,8 @@ available slash commands are:
 
 ### Experiment chat
 
-The chat is answered by a coding agent scoped to the run, using the backend,
-provider, and model from `[agent]` in `agent.toml`, with conversation state
+The chat is answered by a coding agent scoped to the run, using the effective
+backend, provider, and model configuration, with conversation state
 carried across turns through `_vibesys_chat/conversation.jsonl` in the
 workspace. The agent handler exists only while the run context does, so a
 question asked during startup or after the run finishes has no agent to reach;

@@ -8,10 +8,12 @@ model on a NeuronCore via the AWS Neuron SDK, BF16, `/dev/neuron0`).
 Use:
 
 ```bash
-uv run vibesys --input examples/model-serving/Llama-3-8B-trn2
+uv run vibesys --runs-dir "$PWD/exp_env" --local \
+  --input examples/model-serving/Llama-3-8B-trn2 \
+  --backend trainium --docker
 ```
-- `--backend trainium --docker` (Neuron DLC container; profiler is
-  `neuron-explorer`, selected automatically)
+
+The Neuron DLC container selects the `neuron-explorer` profiler automatically.
 
 The model weights (`meta-llama/Llama-3.1-8B-Instruct`) are downloaded from the
 `model_id` in `reference/meta.json` on first run.

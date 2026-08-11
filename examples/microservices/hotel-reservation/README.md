@@ -95,6 +95,7 @@ between runs to keep the raw capture small.
 uv run vibesys --outer-loop agent \
   --input examples/microservices/hotel-reservation \
   --runs-dir "$PWD/exp_env" \
+  --local \
   --exp-name hotel-reservation-opt \
   --backend cpu --interface service \
   --agent-backend cli --cli-provider codex \
