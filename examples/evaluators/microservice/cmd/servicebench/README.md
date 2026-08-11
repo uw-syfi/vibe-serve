@@ -44,7 +44,17 @@ servicebench trace \
 ```
 
 The graph includes only complete traces observed in benchmark measurement
-windows. `--trace-max-roots`, `--trace-max-nodes`, and
-`--trace-timeline-width` bound the text view; the JSON remains complete. The
-text reports every omission explicitly. This command does not calculate a
-critical path and is not wired into the VibeSys optimization loop in this PR.
+windows. The version 2 graph calculates a per-root critical path with the
+`wall_clock_active_leaf_v1` algorithm. Span boundaries partition root wall
+time, and each interval is attributed to the active synchronous leaf that
+finishes latest. Overlapping siblings are therefore not double-counted, and
+collapsed RPC client/server pairs retain their envelope time. Async and linked
+relationships are excluded from the synchronous path and counted in the
+graph's exclusion summary.
+
+The JSON contains aggregate critical-path duration and node-contribution
+distributions, plus a representative ordered path. `--trace-max-roots`,
+`--trace-max-nodes`, and `--trace-timeline-width` bound the text view; the JSON
+remains complete. The text reports every omission explicitly and marks the
+representative critical-path segments. This command does not yet feed the
+trace graph into the VibeSys optimization loop.

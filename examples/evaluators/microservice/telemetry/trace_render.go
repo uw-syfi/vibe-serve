@@ -60,7 +60,7 @@ func RenderTraceGraph(report TraceGraphReport, options TraceRenderOptions) (stri
 	if omitted := len(roots) - rootLimit; omitted > 0 {
 		fmt.Fprintf(&output, "... %d %s omitted\n", omitted, plural(omitted, "root group", "root groups"))
 	}
-	output.WriteString("Legend: inclusive is wall time; exclusive subtracts the union of direct-child intervals.\n")
+	output.WriteString("Legend: inclusive is wall time; exclusive subtracts the union of direct-child intervals; critical contribution attributes root wall time without overlap.\n")
 	return output.String(), nil
 }
 
@@ -81,9 +81,57 @@ func renderRoot(output *strings.Builder, root TraceRootGraph, options TraceRende
 	if omitted := len(nodes) - nodeLimit; omitted > 0 {
 		fmt.Fprintf(output, "... %d %s omitted\n", omitted, plural(omitted, "node", "nodes"))
 	}
+	renderCriticalPath(output, root, options.MaxNodesPerRoot)
 	fmt.Fprintf(output, "\nREPRESENTATIVE WATERFALL  trace=%s  duration=%.2fms\n", root.Representative.TraceID, root.Representative.DurationMS)
 	renderWaterfall(output, root.Representative, options.TimelineWidth)
 	output.WriteByte('\n')
+}
+
+func renderCriticalPath(output *strings.Builder, root TraceRootGraph, limit int) {
+	critical := root.CriticalPath
+	fmt.Fprintf(output, "\nCRITICAL PATH  algorithm=%s  scope=%s  traces=%d  async_excluded=%d\n", critical.Algorithm, critical.Scope, critical.TraceCount, critical.AsyncRelationshipsExcluded)
+	output.WriteString("CONTRIBUTORS\n")
+	contributorLimit := minInt(len(critical.Nodes), limit)
+	for index, node := range critical.Nodes[:contributorLimit] {
+		fmt.Fprintf(output, "%2d. %s: %s  mean=%.2fms p95=%.2fms selected=%d/%d\n", index+1, node.Service, node.Operation, node.Contribution.MeanMS, node.Contribution.P95MS, node.Contribution.Count, critical.TraceCount)
+	}
+	if omitted := len(critical.Nodes) - contributorLimit; omitted > 0 {
+		fmt.Fprintf(output, "... %d critical %s omitted\n", omitted, plural(omitted, "contributor", "contributors"))
+	}
+	fmt.Fprintf(output, "\nREPRESENTATIVE PATH  trace=%s  duration=%.2fms\n", critical.Representative.TraceID, critical.Representative.DurationMS)
+	nodesByID := make(map[string]TraceGraphNode, len(root.Nodes))
+	for _, node := range root.Nodes {
+		nodesByID[node.ID] = node
+	}
+	segmentLimit := minInt(len(critical.Representative.Segments), limit)
+	for index, segment := range critical.Representative.Segments[:segmentLimit] {
+		node := nodesByID[segment.NodeID]
+		box := renderCriticalSegmentBox(node, segment)
+		for _, line := range box {
+			output.WriteString(line)
+			output.WriteByte('\n')
+		}
+		if index+1 < segmentLimit {
+			center := runeWidth(box[0]) / 2
+			fmt.Fprintf(output, "%s│ then\n%s▼\n", strings.Repeat(" ", center), strings.Repeat(" ", center))
+		}
+	}
+	if omitted := len(critical.Representative.Segments) - segmentLimit; omitted > 0 {
+		fmt.Fprintf(output, "... %d critical path %s omitted\n", omitted, plural(omitted, "segment", "segments"))
+	}
+}
+
+func renderCriticalSegmentBox(node TraceGraphNode, segment CriticalPathSegment) []string {
+	label := node.Service + ": " + node.Operation
+	metrics := fmt.Sprintf("offset: %.2f ms   duration: %.2f ms", segment.OffsetMS, segment.DurationMS)
+	innerWidth := maxInt(minimumBoxInnerWidth, maxInt(runeWidth(label), runeWidth(metrics))+2)
+	contentWidth := innerWidth - 2
+	return []string{
+		"┌" + strings.Repeat("─", innerWidth) + "┐",
+		"│ " + padRight(label, contentWidth) + " │",
+		"│ " + padRight(metrics, contentWidth) + " │",
+		"└" + strings.Repeat("─", innerWidth) + "┘",
+	}
 }
 
 func buildCallTrees(nodes []TraceGraphNode) []*callTree {

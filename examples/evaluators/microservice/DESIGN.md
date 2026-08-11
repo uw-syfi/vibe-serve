@@ -169,8 +169,9 @@ send through its last protocol completion. When telemetry is configured,
 `servicebench` passes all trial windows and the canonical workload identity to
 a trusted external collector while the candidate is still running. The
 collector returns a strict, versioned summary of service, span, and datastore
-latency distributions. Spans outside the measured windows, including warmup,
-are excluded.
+latency distributions. The optional trace graph artifact is schema version 2
+and adds per-root critical-path evidence. Spans outside the measured windows,
+including warmup, are excluded.
 
 Telemetry is explanatory evidence, not a second scoring path. End-to-end
 latency and throughput from the load engine remain authoritative, and a run
@@ -179,12 +180,22 @@ fails closed on command errors, malformed reports, or zero in-window spans.
 Applications own their instrumentation and export pipeline; the evaluator owns
 measurement correlation, normalization, validation, and artifact attachment.
 
-The optional `servicebench trace` command adds a separate trace-graph
-artifact without changing the benchmark summary schema. It reconstructs only
-complete workload-window traces, groups repeated service-call paths, and emits
-a bounded visual rendering. It does not infer a critical path; that analysis
-requires an independently reviewed contract for synchronous, parallel, and
-asynchronous causality.
+The optional `servicebench trace` command adds a separate trace-graph artifact
+without changing the benchmark summary schema. It reconstructs only complete
+workload-window traces, groups repeated service-call paths, and emits a bounded
+visual rendering. For each eligible trace it computes a critical path with the
+`wall_clock_active_leaf_v1` contract: span boundaries partition root wall time,
+each interval is attributed to the active synchronous leaf that finishes
+latest, and overlapping siblings are not summed. An
+unambiguous RPC client/server pair retains its envelope interval, including
+transport time. Async producer/consumer relationships and span links are
+excluded from this synchronous path and counted as exclusions.
+
+The graph reports representative ordered path segments and aggregate duration
+and per-node contribution distributions with count, mean, p50, p95, p99, and
+maximum values. The graph and benchmark summary remain separate contracts, and
+critical-path evidence is diagnostic. Wiring this artifact into VibeSys loop
+consumption is explicitly deferred to follow-up work.
 
 Closed-loop workloads use the same engine, drivers, observations, and semantic
 validation, but each worker schedules its next logical operation after the

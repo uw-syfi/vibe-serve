@@ -31,7 +31,7 @@ of the evaluator.
 ## Trace graph artifact
 
 When a collector receives `--trace-graph-json`, `cmd/otelcapture` also
-reconstructs workload-observed traces into trace graph schema version 1. The
+reconstructs workload-observed traces into trace graph schema version 2. The
 artifact groups traces by root service and semantic operation, then records:
 
 - path-aware service/operation nodes and synchronous, asynchronous, and linked
@@ -42,7 +42,9 @@ artifact groups traces by root service and semantic operation, then records:
   and per-trial evidence;
 - unambiguous client/server pair collapsing with unmatched-span counters; and
 - one deterministic representative successful trace nearest the root p95 for
-  a waterfall view.
+  a waterfall view; and
+- a per-root critical-path summary using the
+  `wall_clock_active_leaf_v1` algorithm.
 
 Operation identity uses safe OTel semantic attributes such as `http.route`,
 `rpc.service`, `rpc.method`, `db.system.name`, and `db.operation.name`, then
@@ -55,11 +57,38 @@ time. Traces with missing parents, duplicate IDs, multiple roots, cycles,
 window crossings, or inconsistent parent/child clocks are excluded rather
 than partially graphed. A graph request fails when no eligible trace remains.
 
+### Critical-path contract
+
+Critical-path analysis is computed independently for each eligible trace before
+traces are grouped into root graphs. The result covers the root request's
+wall-clock interval exactly. Span boundaries partition that interval. Each
+partition is attributed to the active synchronous leaf that finishes latest,
+then by depth and stable span identity for deterministic ties. Parent-only
+partitions remain attributable to the parent. Sequential sibling calls
+therefore contribute their separate intervals, while overlapping siblings are
+not double-counted.
+
+Unambiguous client/server RPC pairs retain the client interval as the RPC
+envelope, so transport time remains represented when the pair is collapsed into
+one graph node. Asynchronous producer/consumer relationships and span links are
+not treated as ordinary synchronous children. They are excluded from the
+synchronous path and counted in `async_relationships_excluded`. Work outside
+the request root is consequently not attributed to that request's critical
+path.
+
+Each root contains the critical-path duration distribution, aggregate
+`nodes_by_contribution` distributions, and a representative path with ordered
+node segments and offsets. Aggregate distributions include count, mean, p50,
+p95, p99, and maximum values. The JSON artifact is the authoritative machine
+contract; the text renderer presents the representative path and marks its
+critical segments for inspection.
+
 `--trace-graph-text` optionally writes the deterministic human view: boxes and
 arrows show call structure, and a separate timeline shows span overlap.
 Rendering limits affect only this text view and report explicit omitted counts.
-The versioned JSON is the machine contract. Critical-path analysis and
-automatic VibeSys-loop consumption are intentionally deferred.
+The versioned JSON is the machine contract. Automatic consumption by the
+VibeSys optimization loop remains a follow-up integration; this evaluator
+currently produces and validates the diagnostic artifact only.
 
 ## Instrumentation boundary
 

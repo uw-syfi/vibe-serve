@@ -20,11 +20,13 @@ func TestRenderTraceGraphShowsArchitectureMetricsAndWaterfall(t *testing.T) {
 		t.Fatal("rendering is not deterministic")
 	}
 	for _, want := range []string{
-		"TRACE GRAPH v1", "eligible=3/4", "frontend: GET /hotels", "mean=100.00ms",
+		"TRACE GRAPH v2", "eligible=3/4", "frontend: GET /hotels", "mean=100.00ms",
 		"CALL GRAPH", "┌", "┐", "└", "┘", "│ calls", "▼",
 		"search: Search/Nearby", "exclusive: 35.00 ms",
+		"CRITICAL PATH", "scope=synchronous_request", "async_excluded=0",
+		"CONTRIBUTORS", "selected=3/3", "REPRESENTATIVE PATH", "│ then",
 		"REPRESENTATIVE WATERFALL", "TIME →", "[", "]", "trace-a",
-		"Legend: inclusive is wall time; exclusive subtracts the union of direct-child intervals.",
+		"Legend: inclusive is wall time; exclusive subtracts the union of direct-child intervals; critical contribution attributes root wall time without overlap.",
 	} {
 		if !strings.Contains(first, want) {
 			t.Fatalf("rendered graph missing %q:\n%s", want, first)
@@ -117,6 +119,8 @@ func TestRenderTraceGraphPlacesSiblingCallsSideBySide(t *testing.T) {
 
 func renderFixtureReport() TraceGraphReport {
 	distribution := LatencyDistribution{Count: 3, MeanMS: 100, P50MS: 90, P95MS: 120, P99MS: 124, MaxMS: 125}
+	rootContribution := LatencyDistribution{Count: 3, MeanMS: 45, P50MS: 40, P95MS: 55, P99MS: 59, MaxMS: 60}
+	searchContribution := LatencyDistribution{Count: 3, MeanMS: 55, P50MS: 50, P95MS: 65, P99MS: 69, MaxMS: 70}
 	return TraceGraphReport{
 		SchemaVersion: TraceGraphSchemaVersion,
 		WorkloadName:  "hotel",
@@ -132,6 +136,18 @@ func renderFixtureReport() TraceGraphReport {
 				{NodeID: "node-001", Service: "frontend", Operation: "GET /hotels", OffsetMS: 0, DurationMS: 100},
 				{NodeID: "node-002", Service: "search", Operation: "Search/Nearby", OffsetMS: 10, DurationMS: 55},
 			}},
+			CriticalPath: CriticalPathSummary{
+				Algorithm: CriticalPathAlgorithm, Scope: criticalPathScope, TraceCount: 3, Duration: distribution,
+				Nodes: []CriticalPathNodeContribution{
+					{NodeID: "node-002", Path: "frontend:GET /hotels > search:Search/Nearby", Service: "search", Operation: "Search/Nearby", Contribution: searchContribution},
+					{NodeID: "node-001", Path: "frontend:GET /hotels", Service: "frontend", Operation: "GET /hotels", Contribution: rootContribution},
+				},
+				Representative: RepresentativeCriticalPath{TraceID: "trace-a", DurationMS: 100, Segments: []CriticalPathSegment{
+					{NodeID: "node-001", OffsetMS: 0, DurationMS: 10},
+					{NodeID: "node-002", OffsetMS: 10, DurationMS: 55},
+					{NodeID: "node-001", OffsetMS: 65, DurationMS: 35},
+				}},
+			},
 		}},
 	}
 }

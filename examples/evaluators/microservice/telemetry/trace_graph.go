@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-const TraceGraphSchemaVersion = 1
+const TraceGraphSchemaVersion = 2
 
 type LatencyDistribution struct {
 	Count      int     `json:"count"`
@@ -68,6 +68,36 @@ type RepresentativeTrace struct {
 	Spans      []WaterfallSpan `json:"spans"`
 }
 
+type CriticalPathNodeContribution struct {
+	NodeID       string              `json:"node_id"`
+	Path         string              `json:"path"`
+	Service      string              `json:"service"`
+	Operation    string              `json:"operation"`
+	Contribution LatencyDistribution `json:"contribution_ms"`
+}
+
+type CriticalPathSegment struct {
+	NodeID     string  `json:"node_id"`
+	OffsetMS   float64 `json:"offset_ms"`
+	DurationMS float64 `json:"duration_ms"`
+}
+
+type RepresentativeCriticalPath struct {
+	TraceID    string                `json:"trace_id"`
+	DurationMS float64               `json:"duration_ms"`
+	Segments   []CriticalPathSegment `json:"segments"`
+}
+
+type CriticalPathSummary struct {
+	Algorithm                  string                         `json:"algorithm"`
+	Scope                      string                         `json:"scope"`
+	TraceCount                 int                            `json:"trace_count"`
+	AsyncRelationshipsExcluded int                            `json:"async_relationships_excluded"`
+	Duration                   LatencyDistribution            `json:"duration_ms"`
+	Nodes                      []CriticalPathNodeContribution `json:"nodes_by_contribution"`
+	Representative             RepresentativeCriticalPath     `json:"representative"`
+}
+
 type TraceRootGraph struct {
 	Service        string              `json:"service"`
 	Operation      string              `json:"operation"`
@@ -77,6 +107,7 @@ type TraceRootGraph struct {
 	Nodes          []TraceGraphNode    `json:"nodes"`
 	Edges          []TraceGraphEdge    `json:"edges"`
 	Representative RepresentativeTrace `json:"representative_trace"`
+	CriticalPath   CriticalPathSummary `json:"critical_path"`
 }
 
 type TraceGraphReport struct {
@@ -107,6 +138,11 @@ func ValidateTraceGraph(report TraceGraphReport) error {
 	if len(report.Trials) != len(report.Windows) || len(report.Roots) == 0 {
 		return fmt.Errorf("trace graph requires per-trial quality and root graphs")
 	}
+	for _, root := range report.Roots {
+		if err := validateCriticalPath(root); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -134,6 +170,7 @@ type graphNodeAggregate struct {
 type graphRootAggregate struct {
 	service, operation string
 	traces             []eligibleTrace
+	criticalPaths      []traceCriticalPath
 	nodes              map[string]*graphNodeAggregate
 	edges              map[string]int
 }
@@ -144,6 +181,7 @@ type eligibleTrace struct {
 	spans  []*graphSpan
 	paths  map[string]string
 	paired map[string]bool
+	pairs  map[string]string
 	window int
 }
 
@@ -211,7 +249,9 @@ func BuildTraceGraph(request CollectionRequest, paths []string) (TraceGraphRepor
 			aggregate = &graphRootAggregate{service: trace.root.service, operation: trace.root.operation, nodes: map[string]*graphNodeAggregate{}, edges: map[string]int{}}
 			aggregates[key] = aggregate
 		}
-		aggregate.addTrace(trace, &report.Quality)
+		if err := aggregate.addTrace(trace, &report.Quality); err != nil {
+			return TraceGraphReport{}, err
+		}
 	}
 	if report.Quality.EligibleTraces == 0 {
 		return TraceGraphReport{}, fmt.Errorf("trace graph contains no eligible traces")
@@ -300,7 +340,7 @@ func normalizeSpanKind(kind string) string {
 }
 
 func qualifyTrace(id string, spans []*graphSpan, windows []MeasurementWindow) (eligibleTrace, string) {
-	trace := eligibleTrace{id: id, spans: spans, paths: map[string]string{}, paired: map[string]bool{}, window: -1}
+	trace := eligibleTrace{id: id, spans: spans, paths: map[string]string{}, paired: map[string]bool{}, pairs: map[string]string{}, window: -1}
 	byID := make(map[string]*graphSpan, len(spans))
 	for _, span := range spans {
 		if _, exists := byID[span.spanID]; exists {
@@ -345,14 +385,19 @@ func qualifyTrace(id string, spans []*graphSpan, windows []MeasurementWindow) (e
 	children := childrenByParent(spans)
 	for _, span := range spans {
 		if span.kind == "client" {
-			matches := 0
+			var matched *graphSpan
 			for _, child := range children[span.spanID] {
 				if child.kind == "server" && child.service != span.service {
-					matches++
+					if matched != nil {
+						matched = nil
+						break
+					}
+					matched = child
 				}
 			}
-			if matches == 1 {
+			if matched != nil {
 				trace.paired[span.spanID] = true
+				trace.pairs[span.spanID] = matched.spanID
 			}
 		}
 	}
@@ -401,8 +446,13 @@ func tracePaths(trace *eligibleTrace, byID map[string]*graphSpan) bool {
 	return true
 }
 
-func (aggregate *graphRootAggregate) addTrace(trace eligibleTrace, quality *TraceQuality) {
+func (aggregate *graphRootAggregate) addTrace(trace eligibleTrace, quality *TraceQuality) error {
 	aggregate.traces = append(aggregate.traces, trace)
+	critical, err := analyzeCriticalPath(trace)
+	if err != nil {
+		return err
+	}
+	aggregate.criticalPaths = append(aggregate.criticalPaths, critical)
 	children := childrenByParent(trace.spans)
 	visibleByPath := make(map[string]*graphSpan)
 	for _, span := range trace.spans {
@@ -460,6 +510,7 @@ func (aggregate *graphRootAggregate) addTrace(trace eligibleTrace, quality *Trac
 			quality.AsyncRelationships++
 		}
 	}
+	return nil
 }
 
 func accountPairing(quality *TraceQuality, trace eligibleTrace) {
@@ -512,6 +563,7 @@ func materializeRoots(aggregates map[string]*graphRootAggregate) []TraceRootGrap
 		}
 		root := TraceRootGraph{Service: aggregate.service, Operation: aggregate.operation, TraceCount: len(aggregate.traces), ErrorCount: errorCount, Latency: distribution(rootSamples), Nodes: nodes, Edges: edges}
 		root.Representative = representativeTrace(aggregate.traces, ids, root.Latency.P95MS)
+		root.CriticalPath = materializeCriticalPath(aggregate, ids, root.Representative.TraceID)
 		roots = append(roots, root)
 	}
 	return roots

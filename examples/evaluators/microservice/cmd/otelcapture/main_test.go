@@ -27,11 +27,11 @@ func TestWriteTraceGraphArtifactsWritesJSONAndText(t *testing.T) {
 		t.Fatal(err)
 	}
 	graph, err := os.ReadFile(graphPath)
-	if err != nil || !strings.Contains(string(graph), `"schema_version": 1`) {
+	if err != nil || !strings.Contains(string(graph), `"schema_version": 2`) || !strings.Contains(string(graph), `"critical_path"`) {
 		t.Fatalf("graph JSON = %q, %v", graph, err)
 	}
 	rendered, err := os.ReadFile(textPath)
-	if err != nil || !strings.Contains(string(rendered), "REPRESENTATIVE WATERFALL") {
+	if err != nil || !strings.Contains(string(rendered), "CRITICAL PATH") || !strings.Contains(string(rendered), "REPRESENTATIVE WATERFALL") {
 		t.Fatalf("graph text = %q, %v", rendered, err)
 	}
 }
