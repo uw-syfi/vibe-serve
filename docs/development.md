@@ -35,6 +35,42 @@ The main framework boundaries are:
 
 ## Local development
 
+### Work from a source checkout
+
+Install Python 3.12+, Git, and [uv](https://docs.astral.sh/uv/), then clone the
+repository. Optional local credentials and configuration can be copied from the
+provided examples:
+
+```bash
+cp .env.example .env
+cp agent.toml.example agent.toml
+```
+
+`uv run` creates the Python environment automatically, so `uv sync` is not
+required before running commands. For example:
+
+```bash
+uv run vibesys --help
+uv run vibesys validate examples/data-structures/queue-spsc
+uv run pytest
+```
+
+To use the interactive TUI from a checkout, install Node.js 20+, Bun, and pnpm
+11 (or enable Corepack). The launcher installs frontend dependencies and builds
+the client when needed.
+
+For a headless installation directly from GitHub without a checkout:
+
+```bash
+python -m pip install "git+https://github.com/uw-syfi/vibesys.git"
+```
+
+GitHub source installs skip optional submodules and do not build the native TUI.
+Pass `--headless` to suppress the fallback notice. Use a supported PyPI wheel
+when you need the bundled TUI.
+
+### Tests and submodules
+
 Repository submodules are opt-in. Initialize them only when your work needs the
 vendored sources, using `--checkout` to override their default update policy:
 

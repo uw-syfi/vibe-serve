@@ -107,8 +107,8 @@ the system `sandbox-exec` command.
 The published wheel includes the interactive TUI for Linux x86-64, Linux ARM64,
 macOS Intel, and macOS Apple Silicon. No separate JavaScript runtime is needed.
 Use `--headless` to run without the TUI. Install the selected coding-agent CLI
-separately. Bring a complete project; examples and starter bundles live in the
-source repository rather than the installed package.
+separately. Bring a complete project; starter bundles are not included in the
+installed package.
 
 `agent.toml` is optional. When `--config` is omitted, VibeSys loads
 `./agent.toml` from the launch directory if present, otherwise it uses built-in
@@ -117,30 +117,6 @@ defaults. Pass `--config /path/to/agent.toml` to select another file.
 The [GitHub CLI](https://cli.github.com/) is only needed when an experiment
 collection created with `--runs-dir` should sync to GitHub. Use `--local` to
 keep that collection on the local machine.
-
-### Installing from GitHub source
-
-```bash
-python -m pip install "git+https://github.com/uw-syfi/vibesys.git"
-```
-
-Source installs skip the repository's optional submodules and do not build the
-bundled native TUI. They run VibeSys headless; pass `--headless` explicitly to
-suppress the fallback notice. Use a supported PyPI wheel for the one-command
-install with the bundled Bun and OpenTUI runtime.
-
-### Working from a source checkout
-
-```bash
-cp .env.example .env                    # optional API-provider keys
-cp agent.toml.example agent.toml        # optional configuration overrides
-uv run vibesys validate examples/data-structures/queue-spsc
-```
-
-`uv run` creates the Python environment automatically. You do not need to run
-`uv sync` first. To build and use the TUI from a checkout, install Node.js 20+,
-Bun, and pnpm 11 (or enable Corepack). The launcher installs frontend
-dependencies and builds the client when needed.
 
 The `vibesys` command accepts the same run flags described in
 [`docs/cli-flags.md`](docs/cli-flags.md). The default agent-loop workflow runs
@@ -151,15 +127,14 @@ directly in a complete project and stores its state under `.vs/`.
 cd <project>
 vibesys --agent-backend cli --cli-provider codex
 
-# Equivalent explicit input, headless (no TUI, no Bun)
+# Equivalent explicit input in headless mode
 vibesys --headless --input <project> --agent-backend cli --cli-provider codex
 
 vibesys --help                    # full flag list
 ```
 
 `vibesys` also runs headless automatically for `validate` and when stdin/stdout
-is not a TTY (pipes, CI). The engine is additionally available directly as
-`python -m vibesys ...`.
+is not a TTY (pipes, CI).
 
 In-place runs keep agent-authored source in the project root. Git records code
 evolution on a `vibesys/<run-id>` branch. Portable completed-run metadata lives
@@ -186,16 +161,8 @@ vibesys --input /path/to/my-project --backend cpu --max-rounds 4
 
 Input manifests used in-place must not declare `[workspace].seed` or
 `[[workspace.sources]]`; materialize the starter source into the project first.
-The checked-in queue example uses a separate starter, so run it in a local
-experiment collection:
 
-```bash
-uv run vibesys --runs-dir ~/vibesys-runs \
-  --input examples/data-structures/queue-spsc \
-  --backend cpu --max-rounds 4 --local
-```
-
-`--outer-loop` defaults to `agent`. Pass `--outer-loop plain` or `--outer-loop evolve` to switch. See `uv run vibesys --outer-loop <kind> --help` for loop-specific flags, and [`docs/cli-flags.md`](docs/cli-flags.md) for the supported flag combinations.
+`--outer-loop` defaults to `agent`. Pass `--outer-loop plain` or `--outer-loop evolve` to switch. See `vibesys --outer-loop <kind> --help` for loop-specific flags, and [`docs/cli-flags.md`](docs/cli-flags.md) for the supported flag combinations.
 
 ## Search strategies
 
@@ -233,8 +200,7 @@ project/
 Launch from the root of a complete project or pass that root with `--input`.
 For default in-place execution, the project root also contains the candidate
 source and must be the Git repository root (or outside any existing Git
-repository so VibeSys can initialize one). Checked-in examples live below this
-repository's root, so run them with `--runs-dir` as shown above.
+repository so VibeSys can initialize one).
 The manifest declares the
 agent domain, correctness command, benchmark command, optional starter
 workspace, optional evaluator source, and optional benchmark result
@@ -252,9 +218,9 @@ For external usage without a bundle on disk, supply the same pieces as separate
 for the full flag list.
 
 `OBJECTIVE.md` is read at the start of every run and must live next to the
-`reference/` directory (sibling, not inside). See `examples/model-serving/Llama-3-8B/`, `examples/model-serving/moonshine-streaming/`, `examples/model-serving/qwen3-32b-code-edit/`, `examples/model-serving/olmo-hybrid-prefix-caching/`, `examples/model-serving/Llama-3.1-8B-Instruct-MLX-8bit/`, `examples/model-serving/show-o2-1.5B-HQ-h100/`, and `examples/model-serving/show-o2-1.5B-HQ-macbook/` for the paper scenarios.
+`reference/` directory (sibling, not inside).
 
-For multi-objective evolutionary runs, drop an `objectives.toml` next to `OBJECTIVE.md` (or pass `--objective name:max|min` flags) — see `uv run vibesys --outer-loop evolve --help`.
+For multi-objective evolutionary runs, drop an `objectives.toml` next to `OBJECTIVE.md` (or pass `--objective name:max|min` flags) — see `vibesys --outer-loop evolve --help`.
 
 ## Optional configuration (`agent.toml`)
 
@@ -293,9 +259,8 @@ visibility = "private"        # private, public, or internal
 # max_tokens = 128
 ```
 
-Provider credentials can be exported or placed in a root `.env`; source
-checkouts include `.env.example`. The CLI flags `--agent-backend`,
-`--cli-provider`, and `--backend` override these settings.
+Provider credentials can be exported or placed in a root `.env`. The CLI flags
+`--agent-backend`, `--cli-provider`, and `--backend` override these settings.
 
 The interactive client ships four light/dark theme pairs: `dark` (default) /
 `light`, `solarized-dark` / `solarized-light`, `catppuccin-mocha` /
