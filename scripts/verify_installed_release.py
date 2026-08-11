@@ -5,7 +5,6 @@ from __future__ import annotations
 import errno
 import importlib
 import importlib.metadata
-import json
 import os
 import pty
 import select
@@ -225,6 +224,57 @@ def _verify_tui() -> None:
         runtime_root=_RUNTIME_ROOT,
         timeout=60,
     )
+    run_headless_stub_smoke(
+        [executable],
+        env=environment,
+        runtime_root=_RUNTIME_ROOT,
+        timeout=60,
+    )
+
+
+def _write_stub_input(input_root: Path) -> None:
+    input_root.mkdir()
+    (input_root / "OBJECTIVE.md").write_text("Verify the installed release.\n")
+    (input_root / "vibesys.input.toml").write_text(
+        "version = 1\n"
+        "\n"
+        "[agent]\n"
+        'domain = "generic"\n'
+        "\n"
+        "[accuracy]\n"
+        'command = ["python", "-c", "raise SystemExit(0)"]\n'
+        "\n"
+        "[benchmark]\n"
+        'command = ["python", "-c", "raise SystemExit(0)"]\n'
+    )
+
+
+def _stub_smoke_command(
+    command_prefix: list[str],
+    *,
+    input_root: Path,
+    runs_root: Path,
+    headless: bool,
+) -> list[str]:
+    return [
+        *command_prefix,
+        *(["--headless"] if headless else []),
+        "--stub-agent",
+        "--input",
+        str(input_root),
+        "--exp-name",
+        "installed-release-smoke",
+        "--max-rounds",
+        "1",
+        "--local",
+        "--no-skills",
+        "--backend",
+        "cpu",
+        "--profiler",
+        "none",
+        "--runs-dir",
+        str(runs_root),
+    ]
 
 
 def run_interactive_tui_smoke(
@@ -235,60 +285,58 @@ def run_interactive_tui_smoke(
     timeout: int,
 ) -> None:
     """Run the installed interactive CLI through a PTY until controller startup."""
-    mutable_prefix_paths_before = _mutable_install_paths(Path(sys.prefix))
     with tempfile.TemporaryDirectory(prefix="vibesys-tui-smoke-", dir=runtime_root) as temporary:
         smoke_root = Path(temporary)
         input_root = smoke_root / "input"
-        input_root.mkdir()
-        (input_root / "OBJECTIVE.md").write_text("Verify installed interactive startup.\n")
-        python_literal = json.dumps(sys.executable)
-        (input_root / "vibesys.input.toml").write_text(
-            "version = 1\n"
-            "\n"
-            "[agent]\n"
-            'domain = "generic"\n'
-            "\n"
-            "[accuracy]\n"
-            f'command = [{python_literal}, "-c", "raise SystemExit(0)"]\n'
-            "\n"
-            "[benchmark]\n"
-            f'command = [{python_literal}, "-c", "raise SystemExit(0)"]\n'
-        )
+        _write_stub_input(input_root)
         marker = smoke_root / "controller-started"
         runs_root = smoke_root / "runs"
         smoke_environment = {**env, TUI_SMOKE_MARKER_ENV: str(marker)}
-        command = [
-            *command_prefix,
-            "--stub-agent",
-            "--input",
-            str(input_root),
-            "--exp-name",
-            "installed-release-smoke",
-            "--max-rounds",
-            "1",
-            "--local",
-            "--no-skills",
-            "--backend",
-            "cpu",
-            "--profiler",
-            "none",
-            "--runs-dir",
-            str(runs_root),
-        ]
+        command = _stub_smoke_command(
+            command_prefix,
+            input_root=input_root,
+            runs_root=runs_root,
+            headless=False,
+        )
         _run_in_pty(command, env=smoke_environment, timeout=timeout)
         if not marker.is_file() or marker.read_text() != TUI_SMOKE_MARKER_CONTENT:
             _fail("Interactive TUI did not write its control-protocol marker")
+
+
+def run_headless_stub_smoke(
+    command_prefix: list[str],
+    *,
+    env: dict[str, str],
+    runtime_root: Path,
+    timeout: int,
+) -> None:
+    """Run the installed headless stub loop to completion in an explicit collection."""
+    mutable_prefix_paths_before = _mutable_install_paths(Path(sys.prefix))
+    with tempfile.TemporaryDirectory(
+        prefix="vibesys-headless-smoke-", dir=runtime_root
+    ) as temporary:
+        smoke_root = Path(temporary)
+        input_root = smoke_root / "input"
+        _write_stub_input(input_root)
+        runs_root = smoke_root / "runs"
+        command = _stub_smoke_command(
+            command_prefix,
+            input_root=input_root,
+            runs_root=runs_root,
+            headless=True,
+        )
+        _run(command, env=env, timeout=timeout)
         runs = [
             path
-            for path in runs_root.iterdir()
+            for path in (runs_root.iterdir() if runs_root.is_dir() else ())
             if path.is_dir() and not path.name.startswith((".", "_"))
         ]
         if len(runs) != 1 or not runs[0].name.endswith("-installed-release-smoke"):
-            _fail(f"Interactive TUI did not create its run under {runs_root}: {runs}")
+            _fail(f"Headless smoke did not create exactly one run under {runs_root}: {runs}")
     added_prefix_paths = _mutable_install_paths(Path(sys.prefix)) - mutable_prefix_paths_before
     if added_prefix_paths:
         _fail(
-            "Interactive TUI created a mutable run tree or cache beneath the Python "
+            "Headless smoke created a mutable run tree or cache beneath the Python "
             f"installation prefix: {sorted(added_prefix_paths)}"
         )
 
