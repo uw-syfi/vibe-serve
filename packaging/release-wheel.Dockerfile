@@ -6,6 +6,10 @@ COPY --from=uv /uv /usr/local/bin/uv
 COPY vibesys-*.whl /tmp/
 COPY verify_installed_release.py /verify_installed_release.py
 
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends git \
+    && rm -rf /var/lib/apt/lists/*
+
 ENV HOME=/tmp/verify-home \
     INSTALL_HOME=/tmp/install-home \
     PATH=/tmp/vibesys-bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \

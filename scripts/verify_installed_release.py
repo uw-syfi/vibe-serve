@@ -35,6 +35,7 @@ FRAMEWORK_PACKAGES = (
     "vs_loop_state",
     "vs_sandbox",
 )
+REQUIRED_SYSTEM_TOOLS = ("git",)
 SYSTEM_JAVASCRIPT_TOOLS = ("bun", "node", "npm", "pnpm")
 TUI_SMOKE_MARKER_ENV = "VIBESYS_RELEASE_SMOKE_MARKER"
 TUI_SMOKE_MARKER_CONTENT = "renderer initialized; control protocol exchanged\n"
@@ -84,6 +85,7 @@ def _verify_isolated_interpreter() -> None:
         _fail("User-site packages are not disabled")
     if os.environ.get("PYTHONPATH"):
         _fail("PYTHONPATH must be empty")
+    _verify_required_system_tools()
     for executable in SYSTEM_JAVASCRIPT_TOOLS:
         if shutil.which(executable) is not None:
             _fail(f"System JavaScript runtime is present on PATH: {executable}")
@@ -92,6 +94,12 @@ def _verify_isolated_interpreter() -> None:
         _fail(f"HOME must be an empty isolated directory: {home}")
     if Path.cwd().resolve() != _RUNTIME_ROOT:
         _fail(f"Installed verification must run from {_RUNTIME_ROOT}, not {Path.cwd().resolve()}")
+
+
+def _verify_required_system_tools() -> None:
+    for executable in REQUIRED_SYSTEM_TOOLS:
+        if shutil.which(executable) is None:
+            _fail(f"Required system executable is absent from PATH: {executable}")
 
 
 def _verify_framework_imports() -> None:

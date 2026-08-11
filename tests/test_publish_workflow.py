@@ -77,3 +77,10 @@ def test_docker_check_keeps_runtime_home_clean_during_installation() -> None:
     assert dockerfile.index('find "$INSTALL_HOME"') < dockerfile.index(
         'HOME="$INSTALL_HOME" uv tool install'
     )
+
+
+def test_docker_check_provides_the_git_runtime_prerequisite() -> None:
+    dockerfile = (REPO_ROOT / "packaging" / "release-wheel.Dockerfile").read_text()
+
+    assert "apt-get install --yes --no-install-recommends git" in dockerfile
+    assert "rm -rf /var/lib/apt/lists/*" in dockerfile

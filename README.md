@@ -64,7 +64,7 @@ accuracy and performance results.
 
 ## Installation
 
-1. Install Python 3.12+ and [uv](https://docs.astral.sh/uv/).
+1. Install Python 3.12+, Git, and [uv](https://docs.astral.sh/uv/).
 2. For the default GitHub-synced runs, install the [GitHub CLI](https://cli.github.com/)
    and sign in with `gh auth login`. You do not need `gh` when every run uses
    `--local`.

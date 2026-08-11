@@ -57,8 +57,9 @@ vibesys --headless validate /path/to/input
 ```
 
 Exercise the interactive TUI on each supported platform when promoting a
-release candidate. Coding-agent CLIs and provider credentials remain external
-user prerequisites and must be configured separately.
+release candidate. Git must be installed separately. Coding-agent CLIs and
+provider credentials remain external user prerequisites and must be configured
+separately.
 
 ## Recovery
 

@@ -59,6 +59,15 @@ def test_sdk_sync_uses_the_running_isolated_interpreter(tmp_path: Path) -> None:
     ]
 
 
+def test_required_system_tools_reject_missing_git(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(verifier.shutil, "which", lambda _executable: None)
+
+    with pytest.raises(verifier.InstalledReleaseError, match="git"):
+        verifier._verify_required_system_tools()  # noqa: SLF001
+
+
 def test_tui_verification_checks_controller_startup_and_completed_headless_run(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
