@@ -4567,6 +4567,7 @@ source = { editable = "." }
 dependencies = [
     { name = "agentshim" },
     { name = "cbor2" },
+    { name = "cryptography" },
     { name = "deepagents" },
     { name = "huggingface-hub" },
     { name = "jinja2" },
@@ -4614,6 +4615,7 @@ test = [
 requires-dist = [
     { name = "agentshim", specifier = ">=0.5.0" },
     { name = "cbor2", specifier = "<6" },
+    { name = "cryptography", specifier = "<50" },
     { name = "deepagents" },
     { name = "huggingface-hub" },
     { name = "jinja2", specifier = ">=3.1" },

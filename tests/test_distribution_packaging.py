@@ -91,8 +91,10 @@ def test_root_metadata_declares_internal_runtime_dependencies_directly():  # noq
     assert pyproject["tool"]["uv"]["workspace"]["members"] == ["sdk/*"]
 
 
-def test_built_distribution_caps_cbor2_below_version_6(tmp_path: Path) -> None:
-    """Published metadata must preserve the macOS-compatible cbor2 constraint."""
+def test_built_distribution_caps_dependencies_without_current_intel_macos_wheels(
+    tmp_path: Path,
+) -> None:
+    """Published metadata must preserve constraints needed by Intel macOS installs."""
     subprocess.run(  # noqa: S603
         ["uv", "build", "--wheel", "--out-dir", str(tmp_path)],  # noqa: S607
         cwd=PROJECT_ROOT,
@@ -114,3 +116,4 @@ def test_built_distribution_caps_cbor2_below_version_6(tmp_path: Path) -> None:
     }
 
     assert str(requirements["cbor2"].specifier) == "<6"
+    assert str(requirements["cryptography"].specifier) == "<50"

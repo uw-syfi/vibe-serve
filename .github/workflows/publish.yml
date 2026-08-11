@@ -138,8 +138,11 @@ jobs:
           bootstrap_bin="$runtime_root/bootstrap-bin"
           tool_bin="$runtime_root/tool-bin"
           tool_root="$runtime_root/tools"
-          empty_home="$runtime_root/home"
-          mkdir -p "$bootstrap_bin" "$tool_bin" "$tool_root" "$empty_home"
+          install_home="$runtime_root/install-home"
+          verify_home="$runtime_root/verify-home"
+          mkdir -p "$bootstrap_bin" "$tool_bin" "$tool_root" "$install_home" "$verify_home"
+          test -z "$(find "$install_home" -mindepth 1 -print -quit)"
+          test -z "$(find "$verify_home" -mindepth 1 -print -quit)"
           cp "$(command -v uv)" "$bootstrap_bin/uv"
           cp "$GITHUB_WORKSPACE/scripts/verify_installed_release.py" \
             "$runtime_root/verify_installed_release.py"
@@ -147,14 +150,14 @@ jobs:
           cp "$wheel" "$install_wheel"
           python_path="$(uv python find 3.12)"
           clean_path="$tool_bin:$bootstrap_bin:/usr/bin:/bin"
-          HOME="$empty_home" PATH="$clean_path" PYTHONNOUSERSITE=1 PYTHONPATH="" \
+          HOME="$install_home" PATH="$clean_path" PYTHONNOUSERSITE=1 PYTHONPATH="" \
             UV_CACHE_DIR="$runtime_root/uv-cache" UV_PYTHON_DOWNLOADS=never \
             UV_TOOL_BIN_DIR="$tool_bin" UV_TOOL_DIR="$tool_root" \
             "$bootstrap_bin/uv" tool install --no-cache --no-config \
               --python "$python_path" "$install_wheel"
           rm "$install_wheel"
           cd "$runtime_root"
-          HOME="$empty_home" PATH="$clean_path" PYTHONNOUSERSITE=1 PYTHONPATH="" \
+          HOME="$verify_home" PATH="$clean_path" PYTHONNOUSERSITE=1 PYTHONPATH="" \
             UV_CACHE_DIR="$runtime_root/uv-cache" UV_PYTHON_DOWNLOADS=never \
             UV_TOOL_BIN_DIR="$tool_bin" UV_TOOL_DIR="$tool_root" \
             VIBESYS_RELEASE_RUNTIME_ROOT="$runtime_root" \
