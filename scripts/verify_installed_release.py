@@ -235,6 +235,7 @@ def run_interactive_tui_smoke(
     timeout: int,
 ) -> None:
     """Run the installed interactive CLI through a PTY until controller startup."""
+    mutable_prefix_paths_before = _mutable_install_paths(Path(sys.prefix))
     with tempfile.TemporaryDirectory(prefix="vibesys-tui-smoke-", dir=runtime_root) as temporary:
         smoke_root = Path(temporary)
         input_root = smoke_root / "input"
@@ -254,6 +255,7 @@ def run_interactive_tui_smoke(
             f'command = [{python_literal}, "-c", "raise SystemExit(0)"]\n'
         )
         marker = smoke_root / "controller-started"
+        runs_root = smoke_root / "runs"
         smoke_environment = {**env, TUI_SMOKE_MARKER_ENV: str(marker)}
         command = [
             *command_prefix,
@@ -270,10 +272,40 @@ def run_interactive_tui_smoke(
             "cpu",
             "--profiler",
             "none",
+            "--runs-dir",
+            str(runs_root),
         ]
         _run_in_pty(command, env=smoke_environment, timeout=timeout)
         if not marker.is_file() or marker.read_text() != TUI_SMOKE_MARKER_CONTENT:
             _fail("Interactive TUI did not write its control-protocol marker")
+        runs = [
+            path
+            for path in runs_root.iterdir()
+            if path.is_dir() and not path.name.startswith((".", "_"))
+        ]
+        if len(runs) != 1 or not runs[0].name.endswith("-installed-release-smoke"):
+            _fail(f"Interactive TUI did not create its run under {runs_root}: {runs}")
+    added_prefix_paths = _mutable_install_paths(Path(sys.prefix)) - mutable_prefix_paths_before
+    if added_prefix_paths:
+        _fail(
+            "Interactive TUI created a mutable run tree or cache beneath the Python "
+            f"installation prefix: {sorted(added_prefix_paths)}"
+        )
+
+
+def _mutable_install_paths(prefix: Path) -> set[Path]:
+    if not prefix.is_dir():
+        return set()
+    mutable_paths: set[Path] = set()
+    for path in prefix.rglob("*"):
+        parts = path.relative_to(prefix).parts
+        if (
+            "exp_env" in parts
+            or ".hf_cache" in parts
+            or any(parts[index : index + 2] == (".cache", "huggingface") for index in range(len(parts) - 1))
+        ):
+            mutable_paths.add(path.resolve())
+    return mutable_paths
 
 
 def _run_in_pty(command: list[str], *, env: dict[str, str], timeout: int) -> None:

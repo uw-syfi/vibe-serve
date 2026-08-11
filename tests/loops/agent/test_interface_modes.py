@@ -8,6 +8,8 @@ artifact requirements.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from vibesys.domains.base import DomainName, DomainRole
@@ -77,6 +79,7 @@ def test_loop_constants_and_rejects_unknown_interface():  # noqa: ANN201  # trac
             accuracy_command="accuracy-checker",
             benchmark_command="benchmark",
             objective="o",
+            runs_dir=Path("/tmp/vibesys-test-runs"),  # noqa: S108
             interface="native",
         )
 

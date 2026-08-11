@@ -139,6 +139,7 @@ def test_bootstrap_creates_initial_feature_issue_on_first_run(  # noqa: ANN201  
         result = run_plain_loop(
             config={"model": {"name": "claude-sonnet-4-6"}},  # pyright: ignore[reportArgumentType]  # tracked: #297
             exp_name="test",
+            runs_dir=tmp_path / "exp_env",
             input_path=str(Path(ref_file).parent),
             accuracy_command="uv run python accuracy_checker/checker.py",
             benchmark_command="uv run python benchmark/benchmark.py",
@@ -184,6 +185,7 @@ def test_bootstrap_idempotent_on_resume(  # noqa: ANN201  # tracked: #288
         run_plain_loop(
             config={"model": {"name": "claude-sonnet-4-6"}},  # pyright: ignore[reportArgumentType]  # tracked: #297
             exp_name="test",
+            runs_dir=tmp_path / "exp_env",
             input_path=str(Path(ref_file).parent),
             accuracy_command="uv run python accuracy_checker/checker.py",
             benchmark_command="uv run python benchmark/benchmark.py",
@@ -205,6 +207,7 @@ def test_bootstrap_idempotent_on_resume(  # noqa: ANN201  # tracked: #288
         run_plain_loop(
             config={"model": {"name": "claude-sonnet-4-6"}},  # pyright: ignore[reportArgumentType]  # tracked: #297
             exp_name=exp_dir.name,
+            runs_dir=tmp_path / "exp_env",
             input_path=str(Path(ref_file).parent),
             accuracy_command="uv run python accuracy_checker/checker.py",
             benchmark_command="uv run python benchmark/benchmark.py",
@@ -242,6 +245,7 @@ def test_judge_pass_closes_issue(mock_build_runner, mock_backend, mock_build, re
         run_plain_loop(
             config={"model": {"name": "claude-sonnet-4-6"}},  # pyright: ignore[reportArgumentType]  # tracked: #297
             exp_name="test",
+            runs_dir=tmp_path / "exp_env",
             input_path=str(Path(ref_file).parent),
             accuracy_command="uv run python accuracy_checker/checker.py",
             benchmark_command="uv run python benchmark/benchmark.py",
@@ -282,6 +286,7 @@ def test_judge_fail_increments_attempts_and_keeps_open(  # noqa: ANN201  # track
         result = run_plain_loop(
             config={"model": {"name": "claude-sonnet-4-6"}},  # pyright: ignore[reportArgumentType]  # tracked: #297
             exp_name="test",
+            runs_dir=tmp_path / "exp_env",
             input_path=str(Path(ref_file).parent),
             accuracy_command="uv run python accuracy_checker/checker.py",
             benchmark_command="uv run python benchmark/benchmark.py",
@@ -323,6 +328,7 @@ def test_issue_blocks_after_max_attempts_exhausted(  # noqa: ANN201  # tracked: 
         result = run_plain_loop(
             config={"model": {"name": "claude-sonnet-4-6"}},  # pyright: ignore[reportArgumentType]  # tracked: #297
             exp_name="test",
+            runs_dir=tmp_path / "exp_env",
             input_path=str(Path(ref_file).parent),
             accuracy_command="uv run python accuracy_checker/checker.py",
             benchmark_command="uv run python benchmark/benchmark.py",
@@ -409,6 +415,7 @@ def test_judge_invoke_receives_tracker_kwargs(  # noqa: ANN201, PLR0913  # track
         run_plain_loop(
             config={"model": {"name": "claude-sonnet-4-6"}},  # pyright: ignore[reportArgumentType]  # tracked: #297
             exp_name="test",
+            runs_dir=tmp_path / "exp_env",
             input_path=str(Path(ref_file).parent),
             accuracy_command="uv run python accuracy_checker/checker.py",
             benchmark_command="uv run python benchmark/benchmark.py",
@@ -473,6 +480,7 @@ def test_perf_eval_invoke_receives_tracker_kwargs(  # noqa: ANN201, PLR0913  # t
         run_plain_loop(
             config={"model": {"name": "claude-sonnet-4-6"}},  # pyright: ignore[reportArgumentType]  # tracked: #297
             exp_name="test",
+            runs_dir=tmp_path / "exp_env",
             input_path=str(Path(ref_file).parent),
             accuracy_command="uv run python accuracy_checker/checker.py",
             benchmark_command="uv run python benchmark/benchmark.py",
@@ -558,6 +566,7 @@ def test_judge_phase_calls_store_reload_after_invoke(  # noqa: ANN201  # tracked
         run_plain_loop(
             config={"model": {"name": "claude-sonnet-4-6"}},  # pyright: ignore[reportArgumentType]  # tracked: #297
             exp_name="test",
+            runs_dir=tmp_path / "exp_env",
             input_path=str(Path(ref_file).parent),
             accuracy_command="uv run python accuracy_checker/checker.py",
             benchmark_command="uv run python benchmark/benchmark.py",
@@ -604,6 +613,7 @@ def test_implementer_invoke_has_no_tracker_kwargs(  # noqa: ANN201, PLR0913  # t
         run_plain_loop(
             config={"model": {"name": "claude-sonnet-4-6"}},  # pyright: ignore[reportArgumentType]  # tracked: #297
             exp_name="test",
+            runs_dir=tmp_path / "exp_env",
             input_path=str(Path(ref_file).parent),
             accuracy_command="uv run python accuracy_checker/checker.py",
             benchmark_command="uv run python benchmark/benchmark.py",
@@ -661,6 +671,7 @@ def test_perf_eval_runs_after_drain_complete(  # noqa: ANN201  # tracked: #288
         run_plain_loop(
             config={"model": {"name": "claude-sonnet-4-6"}},  # pyright: ignore[reportArgumentType]  # tracked: #297
             exp_name="test",
+            runs_dir=tmp_path / "exp_env",
             input_path=str(Path(ref_file).parent),
             accuracy_command="uv run python accuracy_checker/checker.py",
             benchmark_command="uv run python benchmark/benchmark.py",
@@ -714,6 +725,7 @@ def test_resume_with_bootstrap_done_skips_bootstrap_creation(  # noqa: ANN201  #
         run_plain_loop(
             config={"model": {"name": "claude-sonnet-4-6"}},  # pyright: ignore[reportArgumentType]  # tracked: #297
             exp_name="test",
+            runs_dir=tmp_path / "exp_env",
             input_path=str(Path(ref_file).parent),
             accuracy_command="uv run python accuracy_checker/checker.py",
             benchmark_command="uv run python benchmark/benchmark.py",
@@ -733,6 +745,7 @@ def test_resume_with_bootstrap_done_skips_bootstrap_creation(  # noqa: ANN201  #
         result = run_plain_loop(
             config={"model": {"name": "claude-sonnet-4-6"}},  # pyright: ignore[reportArgumentType]  # tracked: #297
             exp_name=exp_dir.name,
+            runs_dir=tmp_path / "exp_env",
             input_path=str(Path(ref_file).parent),
             accuracy_command="uv run python accuracy_checker/checker.py",
             benchmark_command="uv run python benchmark/benchmark.py",
@@ -780,6 +793,7 @@ def test_resume_retries_previously_blocked_issue(  # noqa: ANN201  # tracked: #2
         result1 = run_plain_loop(
             config={"model": {"name": "claude-sonnet-4-6"}},  # pyright: ignore[reportArgumentType]  # tracked: #297
             exp_name="test",
+            runs_dir=tmp_path / "exp_env",
             input_path=str(Path(ref_file).parent),
             accuracy_command="uv run python accuracy_checker/checker.py",
             benchmark_command="uv run python benchmark/benchmark.py",
@@ -807,6 +821,7 @@ def test_resume_retries_previously_blocked_issue(  # noqa: ANN201  # tracked: #2
         result2 = run_plain_loop(
             config={"model": {"name": "claude-sonnet-4-6"}},  # pyright: ignore[reportArgumentType]  # tracked: #297
             exp_name=exp_dir.name,
+            runs_dir=tmp_path / "exp_env",
             input_path=str(Path(ref_file).parent),
             accuracy_command="uv run python accuracy_checker/checker.py",
             benchmark_command="uv run python benchmark/benchmark.py",
@@ -856,6 +871,7 @@ def test_run_returns_true_when_perf_eval_files_no_issues_after_clean_drain(  # n
         result = run_plain_loop(
             config={"model": {"name": "claude-sonnet-4-6"}},  # pyright: ignore[reportArgumentType]  # tracked: #297
             exp_name="test",
+            runs_dir=tmp_path / "exp_env",
             input_path=str(Path(ref_file).parent),
             accuracy_command="uv run python accuracy_checker/checker.py",
             benchmark_command="uv run python benchmark/benchmark.py",
@@ -895,6 +911,7 @@ def test_state_json_written_with_bootstrap_done_after_run(  # noqa: ANN201  # tr
         run_plain_loop(
             config={"model": {"name": "claude-sonnet-4-6"}},  # pyright: ignore[reportArgumentType]  # tracked: #297
             exp_name="test",
+            runs_dir=tmp_path / "exp_env",
             input_path=str(Path(ref_file).parent),
             accuracy_command="uv run python accuracy_checker/checker.py",
             benchmark_command="uv run python benchmark/benchmark.py",
@@ -943,6 +960,7 @@ def test_issue_loop_writes_per_issue_markdown_via_callback(  # noqa: ANN201  # t
         run_plain_loop(
             config={"model": {"name": "claude-sonnet-4-6"}},  # pyright: ignore[reportArgumentType]  # tracked: #297
             exp_name="test",
+            runs_dir=tmp_path / "exp_env",
             input_path=str(Path(ref_file).parent),
             accuracy_command="uv run python accuracy_checker/checker.py",
             benchmark_command="uv run python benchmark/benchmark.py",
@@ -1016,6 +1034,7 @@ def test_implementer_retry_user_prompt_includes_prior_judge_feedback(  # noqa: A
         run_plain_loop(
             config={"model": {"name": "claude-sonnet-4-6"}},  # pyright: ignore[reportArgumentType]  # tracked: #297
             exp_name="test",
+            runs_dir=tmp_path / "exp_env",
             input_path=str(Path(ref_file).parent),
             accuracy_command="uv run python accuracy_checker/checker.py",
             benchmark_command="uv run python benchmark/benchmark.py",

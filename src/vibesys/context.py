@@ -100,15 +100,17 @@ exchange, and investigate the refreshed trajectory evidence before making claims
 
 def setup_exp_dir(
     exp_name: str,
-    project_root: Path = PROJECT_ROOT,
-    existing: bool = False,  # noqa: FBT001, FBT002  # tracked: #288
+    *,
+    runs_dir: Path,
+    existing: bool = False,
 ) -> Path:
-    """Create or validate exp_env/<timestamp>-<exp_name>/ directory with git init."""
+    """Create or validate a run directory in the selected collection."""
+    runs_dir = runs_dir.expanduser().resolve()
     if existing:
-        exp_dir = project_root / "exp_env" / exp_name
+        exp_dir = runs_dir / exp_name
     else:
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")  # noqa: DTZ005  # tracked: #288
-        exp_dir = project_root / "exp_env" / f"{timestamp}-{uuid.uuid4().hex[:8]}-{exp_name}"
+        exp_dir = runs_dir / f"{timestamp}-{uuid.uuid4().hex[:8]}-{exp_name}"
     if existing:
         if not exp_dir.is_dir():
             raise FileNotFoundError(f"Experiment directory not found: {exp_dir}")  # noqa: TRY003  # tracked: #288
@@ -238,19 +240,21 @@ def create_run_context(  # noqa: PLR0913  # tracked: #288
     input_path: str,
     accuracy_command: str,
     benchmark_command: str,
+    *,
+    runs_dir: Path,
     workspace_seed: Path | None = None,
     workspace_sources: tuple[WorkspaceSource, ...] = (),
     evaluator_path: Path | None = None,
     hidden_evaluator_path: Path | None = None,
     objective: str | None = None,
-    existing: bool = False,  # noqa: FBT001, FBT002  # tracked: #288
+    existing: bool = False,
     trusted_input_baseline: str | None = None,
-    debug: bool = False,  # noqa: FBT001, FBT002  # tracked: #288
+    debug: bool = False,
     profiler_kind: ProfilerKind = ProfilerKind.AUTO,
     profiler_domain: DomainName = DomainName.LLM_SERVING,
     skills_dirs: list[str] | None = None,
     run_environment: RunEnvironmentSpec | None = None,
-    git_tracking: bool = False,  # noqa: FBT001, FBT002  # tracked: #288
+    git_tracking: bool = False,
     agent_backend: str | None = None,
     cli_provider: str | None = None,
     backend: ComputeBackend = DEFAULT_COMPUTE_BACKEND,
@@ -275,6 +279,7 @@ def create_run_context(  # noqa: PLR0913  # tracked: #288
             input_path=input_path,
             accuracy_command=accuracy_command,
             benchmark_command=benchmark_command,
+            runs_dir=runs_dir,
             workspace_seed=workspace_seed,
             workspace_sources=workspace_sources,
             evaluator_path=evaluator_path,
@@ -321,6 +326,7 @@ def _assemble_run_context(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: 
     input_path: str,
     accuracy_command: str,
     benchmark_command: str,
+    runs_dir: Path,
     workspace_seed: Path | None,
     workspace_sources: tuple[WorkspaceSource, ...],
     evaluator_path: Path | None,
@@ -366,7 +372,8 @@ def _assemble_run_context(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: 
     run_environment_spec = run_environment or make_run_environment_spec()
     environment = build_run_environment(run_environment_spec)
 
-    exp_dir = setup_exp_dir(exp_name, PROJECT_ROOT, existing)
+    runs_dir = runs_dir.expanduser().resolve()
+    exp_dir = setup_exp_dir(exp_name, runs_dir=runs_dir, existing=existing)
 
     log_dir = exp_dir / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -525,6 +532,7 @@ def _assemble_run_context(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: 
         workspace=workspace_files.root,
         run_environment=environment,
         project_root=PROJECT_ROOT,
+        model_cache_dir=runs_dir / ".cache" / "huggingface",
         log=logger.lprint,
     )
     environment_patch = hooks.prepare(environment_context)

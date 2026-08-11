@@ -19,6 +19,7 @@ class EnvironmentContext:  # noqa: D101  # tracked: #288
     workspace: Path
     run_environment: RunEnvironmentCapabilities
     project_root: Path
+    model_cache_dir: Path
     log: Callable[[str], None]
 
 

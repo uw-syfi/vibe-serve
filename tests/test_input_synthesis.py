@@ -150,13 +150,17 @@ def test_standalone_flags_synthesize_bundle(tmp_path, monkeypatch):  # noqa: ANN
             "--input-benchmark-command",
             "python benchmark.py",
             "--no-skills",
+            "--runs-dir",
+            str(tmp_path / "selected-runs"),
         ]
     )
+
+    args.runs_dir = args.runs_dir.resolve()
 
     cli._validate_target_inputs(args)  # noqa: SLF001  # tracked: #288
 
     assert args.exp_name.startswith("llm-serving-")
-    assert args.input == tmp_path / "exp_env" / "_inputs" / args.exp_name
+    assert args.input == tmp_path / "selected-runs" / "_inputs" / args.exp_name
     assert args.input_bundle.domain == DomainName.LLM_SERVING
     assert args.input_bundle.accuracy_command == ("python", "checker.py")
 
@@ -177,6 +181,8 @@ def test_objective_file_is_read(tmp_path, monkeypatch):  # noqa: ANN001, ANN201 
             "checker",
             "--input-benchmark-command",
             "bench",
+            "--runs-dir",
+            str(tmp_path / "runs"),
         ]
     )
 

@@ -16,7 +16,7 @@ from vibesys.domains.environment import (
 def _ensure_model_weights(
     ref_dir: Path,
     *,
-    project_root: Path,
+    cache_dir: Path,
     log: Callable[[str], None],
 ) -> None:
     """Ensure model weights exist in ref_dir/model, downloading if needed."""
@@ -41,7 +41,6 @@ def _ensure_model_weights(
         raise ValueError(f"meta.json at {meta_path} missing required 'model_id' field")  # noqa: TRY003  # tracked: #288
 
     revision = meta.get("revision")
-    cache_dir = project_root / ".hf_cache"
     log(f"[model] Weights not found at {model_path}. Downloading {model_id} to {cache_dir}...")
     from huggingface_hub import snapshot_download  # noqa: PLC0415  # tracked: #288
 
@@ -61,7 +60,7 @@ class LLMServingEnvironmentHooks:  # noqa: D101  # tracked: #288
         model_path = ref_path / "model"
         meta_path = ref_path / "meta.json"
         if ctx.run_environment.materialize_local_model_weights or not meta_path.exists():
-            _ensure_model_weights(ref_path, project_root=ctx.project_root, log=ctx.log)
+            _ensure_model_weights(ref_path, cache_dir=ctx.model_cache_dir, log=ctx.log)
 
         bind_mounts: list[EnvironmentBindMount] = []
         if model_path.is_dir() or model_path.is_symlink():

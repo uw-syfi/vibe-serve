@@ -163,6 +163,7 @@ def _invoke_loop(tmp_path, ref_file, runner, **kwargs):  # noqa: ANN001, ANN003,
     defaults = dict(  # noqa: C408  # tracked: #288
         config={"model": {"name": "claude-sonnet-4-6"}},
         exp_name="test-evolve",
+        runs_dir=tmp_path / "exp_env",
         input_path=str(Path(ref_file).parent),
         accuracy_command="uv run python accuracy_checker/checker.py",
         benchmark_command="uv run python benchmark/benchmark.py",
@@ -762,6 +763,7 @@ def test_search_policy_initialization_failure_closes_context(tmp_path):  # noqa:
             "check",
             "benchmark",
             "objective",
+            runs_dir=tmp_path / "exp_env",
             domain=DomainName.GENERIC,
             search_policy="openevolve",
         )
@@ -1145,6 +1147,7 @@ def test_evaluate_in_subcontext_builds_worktree_and_evaluates(tmp_path, ref_file
         create_run_context(
             config={"model": {"name": "claude-sonnet-4-6"}},  # pyright: ignore[reportArgumentType]  # tracked: #297
             exp_name="test-parallel-subctx",
+            runs_dir=tmp_path / "exp_env",
             input_path=str(Path(ref_file).parent),
             accuracy_command="uv run python accuracy_checker/checker.py",
             benchmark_command="uv run python benchmark/benchmark.py",

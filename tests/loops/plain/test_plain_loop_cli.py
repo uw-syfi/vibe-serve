@@ -1,5 +1,6 @@
 """Tests for the issue outer-loop CLI parser and main()."""
 
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -11,6 +12,8 @@ from vibesys.main import main
 TARGET_ARGS = [
     "--input",
     "examples/model-serving/Llama-3-8B",
+    "--runs-dir",
+    "/tmp/vibesys-test-runs",  # noqa: S108
 ]
 
 
@@ -128,6 +131,7 @@ class TestMain:
             assert kwargs["max_rounds"] == 7
             assert kwargs["max_attempts_per_issue"] == 4
             assert kwargs["max_issues_per_perf_eval"] == 2
+            assert kwargs["runs_dir"] == Path("/tmp/vibesys-test-runs")  # noqa: S108
 
     def test_main_start_round_overrides_loaded_state(self, tmp_path):  # noqa: ANN001, ANN201, ARG002  # tracked: #288
         with (

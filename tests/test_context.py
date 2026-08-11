@@ -41,11 +41,15 @@ def _minimal_copy_context(workspace):  # noqa: ANN001, ANN202  # tracked: #288
     return ctx
 
 
-def test_setup_exp_dir_uses_unique_names_for_concurrent_default_runs(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
-    first = setup_exp_dir("test", project_root=tmp_path)
-    second = setup_exp_dir("test", project_root=tmp_path)
+def test_setup_exp_dir_uses_selected_collection_and_unique_names(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+    runs_dir = tmp_path / "selected-runs"
+
+    first = setup_exp_dir("test", runs_dir=runs_dir)
+    second = setup_exp_dir("test", runs_dir=runs_dir)
 
     assert first != second
+    assert first.parent == runs_dir
+    assert second.parent == runs_dir
     assert first.name.endswith("-test")
     assert second.name.endswith("-test")
     assert (first / ".git").is_dir()
@@ -262,6 +266,7 @@ def test_run_context_defaults_profiler_support_paths(  # noqa: ANN201  # tracked
         create_run_context(
             config={"model": {"name": "claude-sonnet-4-6"}},  # pyright: ignore[reportArgumentType]  # tracked: #297
             exp_name=f"{profiler_kind}-defaults",
+            runs_dir=project_root / "exp_env",
             input_path=str(ref.parent),
             accuracy_command="uv run python accuracy_checker/checker.py",
             benchmark_command="uv run python benchmark/benchmark.py",
@@ -292,6 +297,7 @@ def test_cli_context_skips_unused_langchain_model_construction(tmp_path):  # noq
                 "agent": {"backend": "cli", "cli_provider": "codex"},
             },
             exp_name="cli-reasoning",
+            runs_dir=project_root / "exp_env",
             input_path=str(ref.parent),
             accuracy_command="uv run python accuracy_checker/checker.py",
             benchmark_command="uv run python benchmark/benchmark.py",
@@ -329,6 +335,7 @@ def test_run_context_copies_only_selected_profiler_support(tmp_path, selected): 
         create_run_context(
             config={"model": {"name": "claude-sonnet-4-6"}},  # pyright: ignore[reportArgumentType]  # tracked: #297
             exp_name=f"{selected.value}-support",
+            runs_dir=project_root / "exp_env",
             input_path=str(ref.parent),
             accuracy_command="uv run python accuracy_checker/checker.py",
             benchmark_command="uv run python benchmark/benchmark.py",
@@ -370,6 +377,7 @@ def test_run_context_generic_auto_resolves_to_macos_profiler(tmp_path):  # noqa:
         create_run_context(
             config={"model": {"name": "claude-sonnet-4-6"}},  # pyright: ignore[reportArgumentType]  # tracked: #297
             exp_name="generic-auto-none",
+            runs_dir=project_root / "exp_env",
             input_path=str(ref.parent),
             accuracy_command="uv run python accuracy_checker/checker.py",
             benchmark_command="uv run python benchmark/benchmark.py",
@@ -404,6 +412,7 @@ def test_run_context_generic_auto_resolves_to_linux_profiler(tmp_path):  # noqa:
         create_run_context(
             config={"model": {"name": "claude-sonnet-4-6"}},  # pyright: ignore[reportArgumentType]  # tracked: #297
             exp_name="generic-auto-linux",
+            runs_dir=project_root / "exp_env",
             input_path=str(ref.parent),
             accuracy_command="uv run python accuracy_checker/checker.py",
             benchmark_command="uv run python benchmark/benchmark.py",
@@ -449,6 +458,7 @@ def test_run_context_fails_fast_when_resolved_profiler_is_unusable(tmp_path):  #
         create_run_context(
             config={"model": {"name": "claude-sonnet-4-6"}},  # pyright: ignore[reportArgumentType]  # tracked: #297
             exp_name="generic-auto-linux-unusable",
+            runs_dir=project_root / "exp_env",
             input_path=str(ref.parent),
             accuracy_command="uv run python accuracy_checker/checker.py",
             benchmark_command="uv run python benchmark/benchmark.py",
@@ -479,6 +489,7 @@ def test_run_context_rejects_generic_explicit_active_profilers(tmp_path, profile
         create_run_context(
             config={"model": {"name": "claude-sonnet-4-6"}},  # pyright: ignore[reportArgumentType]  # tracked: #297
             exp_name=f"generic-{profiler_kind.value}",
+            runs_dir=tmp_path / "exp_env",
             input_path=str(ref.parent),
             accuracy_command="uv run python accuracy_checker/checker.py",
             benchmark_command="uv run python benchmark/benchmark.py",
@@ -504,6 +515,7 @@ def test_run_context_llm_auto_uses_backend_profiler_and_defaults_support_dir(tmp
         create_run_context(
             config={"model": {"name": "claude-sonnet-4-6"}},  # pyright: ignore[reportArgumentType]  # tracked: #297
             exp_name="llm-auto-nsys",
+            runs_dir=project_root / "exp_env",
             input_path=str(ref.parent),
             accuracy_command="uv run python accuracy_checker/checker.py",
             benchmark_command="uv run python benchmark/benchmark.py",
@@ -535,6 +547,7 @@ def test_run_context_noop_environment_hooks_do_not_require_model_artifacts(tmp_p
         create_run_context(
             config={"model": {"name": "claude-sonnet-4-6"}},  # pyright: ignore[reportArgumentType]  # tracked: #297
             exp_name="generic-reference-dir",
+            runs_dir=project_root / "exp_env",
             input_path=str(ref_dir.parent),
             accuracy_command="uv run python accuracy_checker/checker.py",
             benchmark_command="uv run python benchmark/benchmark.py",
@@ -636,6 +649,7 @@ def test_run_context_cleans_up_when_agent_runner_construction_fails(tmp_path):  
         create_run_context(
             config={"model": {"name": "claude-sonnet-4-6"}},  # pyright: ignore[reportArgumentType]  # tracked: #297
             exp_name="failed-construction",
+            runs_dir=project_root / "exp_env",
             input_path=str(ref.parent),
             accuracy_command="check-accuracy",
             benchmark_command="run-benchmark",
@@ -665,6 +679,7 @@ def test_run_context_tears_down_prepared_hooks_when_workspace_setup_fails(tmp_pa
         create_run_context(
             config={"model": {"name": "claude-sonnet-4-6"}},  # pyright: ignore[reportArgumentType]  # tracked: #297
             exp_name="failed-workspace-setup",
+            runs_dir=project_root / "exp_env",
             input_path=str(ref.parent),
             accuracy_command="check-accuracy",
             benchmark_command="run-benchmark",
@@ -730,6 +745,7 @@ def test_run_context_materializes_input_project_path_dependencies(tmp_path):  # 
         create_run_context(
             config={"model": {"name": "claude-sonnet-4-6"}},  # pyright: ignore[reportArgumentType]  # tracked: #297
             exp_name="input-local-package",
+            runs_dir=project_root / "exp_env",
             input_path=str(ref_dir.parent),
             accuracy_command="uv run python accuracy_checker/checker.py",
             benchmark_command="uv run python benchmark/benchmark.py",
@@ -788,6 +804,7 @@ def test_run_context_materializes_sdk_deps_from_workspace_seed(tmp_path):  # noq
         create_run_context(
             config={"model": {"name": "claude-sonnet-4-6"}},  # pyright: ignore[reportArgumentType]  # tracked: #297
             exp_name="seed-sdk-dep",
+            runs_dir=project_root / "exp_env",
             input_path=str(input_dir),
             accuracy_command="echo ok",
             benchmark_command="uv run python benchmark/benchmark.py",

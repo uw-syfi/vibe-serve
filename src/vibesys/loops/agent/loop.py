@@ -2121,6 +2121,7 @@ def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
     benchmark_command: str,
     objective: str,
     *,
+    runs_dir: Path,
     objectives: list[Objective] | None = None,
     pareto_relative_noise: float = _DEFAULT_PARETO_RELATIVE_NOISE,
     workspace_seed: Path | None = None,
@@ -2210,6 +2211,7 @@ def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
     ctx = create_run_context(
         config=config,
         exp_name=exp_name,
+        runs_dir=runs_dir,
         input_path=input_path,
         accuracy_command=accuracy_command,
         benchmark_command=benchmark_command,

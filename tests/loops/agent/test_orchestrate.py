@@ -239,6 +239,7 @@ def _invoke_orchestrate(tmp_path, ref_file, runner, **kwargs):  # noqa: ANN001, 
     defaults = dict(  # noqa: C408  # tracked: #288
         config={"model": {"name": "claude-sonnet-4-6"}},
         exp_name="test-orch",
+        runs_dir=tmp_path / "exp_env",
         input_path=str(Path(ref_file).parent),
         accuracy_command="uv run python accuracy_checker/checker.py",
         benchmark_command="uv run python benchmark/benchmark.py",

@@ -337,6 +337,13 @@ def _add_common_args(parser: argparse.ArgumentParser) -> None:
             "vibesys.input.toml with accuracy and benchmark commands."
         ),
     )
+    parser.add_argument(
+        "--runs-dir",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help="Directory that owns run directories, synthesized inputs, and shared caches.",
+    )
     _add_standalone_input_args(parser)
     parser.add_argument(
         "--exp-name",
@@ -480,7 +487,7 @@ def _add_common_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--local",
         action="store_true",
-        help="Keep this experiment local under exp_env; do not create or sync GitHub.",
+        help="Keep this experiment local under --runs-dir; do not create or sync GitHub.",
     )
     parser.add_argument(
         "--repo-visibility",
@@ -653,41 +660,65 @@ def _validate_run_environment_profiler(args: argparse.Namespace) -> None:
     )
 
 
-def _resolve_run_dir(run_dir_arg: str) -> str:  # noqa: PLR0911  # tracked: #288
+def _normalize_runs_dir(args: argparse.Namespace) -> None:
+    raw = getattr(args, "runs_dir", None)
+    if raw is None:
+        _configuration_error(
+            "--runs-dir PATH is required for run commands.",
+            code="missing_runs_dir",
+            stage="argument_parsing",
+        )
+    runs_dir = raw.expanduser().resolve()
+    prefix = Path(sys.prefix).resolve()
+    if runs_dir.is_relative_to(prefix):
+        _configuration_error(
+            f"--runs-dir cannot be inside the Python installation prefix {prefix}: {runs_dir}",
+            code="invalid_runs_dir",
+            stage="argument_parsing",
+        )
+    if runs_dir.exists() and not runs_dir.is_dir():
+        _configuration_error(
+            f"--runs-dir is not a directory: {runs_dir}",
+            code="invalid_runs_dir",
+            stage="argument_parsing",
+        )
+    args.runs_dir = runs_dir
+
+
+def _resolve_run_dir(run_dir_arg: str, runs_dir: Path) -> str:
     """Resolve a run directory name.
 
     If *run_dir_arg* is ``"latest"``, find the most recent experiment
-    directory in ``exp_env/``. Otherwise accept either a bare run directory
-    name or a path whose final parent is ``exp_env``.
+    directory in *runs_dir*. Otherwise accept either a bare run directory
+    name or an existing run directory path.
     """
     if run_dir_arg != "latest":
         run_dir_path = Path(run_dir_arg).expanduser()
-        if run_dir_path.parent.name == "exp_env":
-            project_relative = PROJECT_ROOT / run_dir_path
-            if project_relative.is_dir():
-                return run_dir_path.name
         if run_dir_path.is_dir():
             resolved = run_dir_path.resolve()
-            if resolved.parent == (PROJECT_ROOT / "exp_env").resolve():
+            if resolved.parent == runs_dir:
                 return resolved.name
             return str(resolved)
 
-        legacy_path = PROJECT_ROOT / "exp_env" / run_dir_arg
-        if legacy_path.is_dir():
+        collection_path = runs_dir / run_dir_arg
+        if collection_path.is_dir():
             return run_dir_arg
 
         if _is_remote_experiment(run_dir_arg):
-            return _clone_experiment(run_dir_arg)
+            return _clone_experiment(run_dir_arg, runs_dir)
         return run_dir_arg
-    exp_env = PROJECT_ROOT / "exp_env"
-    if not exp_env.is_dir():
+    if not runs_dir.is_dir():
         _configuration_error(
-            "exp_env/ directory does not exist.", code="resume_not_found", stage="resume_resolution"
+            f"Runs directory does not exist: {runs_dir}",
+            code="resume_not_found",
+            stage="resume_resolution",
         )
-    dirs = sorted([d.name for d in exp_env.iterdir() if d.is_dir()])
+    dirs = sorted(
+        d.name for d in runs_dir.iterdir() if d.is_dir() and not d.name.startswith((".", "_"))
+    )
     if not dirs:
         _configuration_error(
-            "No experiment directories found in exp_env/.",
+            f"No experiment directories found in {runs_dir}.",
             code="resume_not_found",
             stage="resume_resolution",
         )
@@ -700,8 +731,8 @@ def _is_remote_experiment(value: str) -> bool:
     )
 
 
-def _clone_experiment(remote: str) -> str:
-    """Clone a remote experiment into ``exp_env/`` and return its run key."""
+def _clone_experiment(remote: str, runs_dir: Path) -> str:
+    """Clone a remote experiment into *runs_dir* and return its run key."""
     repository_name = remote.rstrip("/").rsplit("/", 1)[-1]
     if ":" in repository_name:
         repository_name = repository_name.rsplit(":", 1)[-1]
@@ -713,7 +744,7 @@ def _clone_experiment(remote: str) -> str:
             stage="resume_resolution",
         )
 
-    destination = PROJECT_ROOT / "exp_env" / repository_name
+    destination = runs_dir / repository_name
     destination.parent.mkdir(parents=True, exist_ok=True)
     if destination.exists():
         if not destination.is_dir():
@@ -773,8 +804,8 @@ def _clone_experiment(remote: str) -> str:
     return destination.name
 
 
-def _resume_exp_dir(run_dir_name: str) -> Path:
-    return PROJECT_ROOT / "exp_env" / run_dir_name
+def _resume_exp_dir(run_dir_name: str, runs_dir: Path) -> Path:
+    return runs_dir / run_dir_name
 
 
 def _infer_resume_input(exp_dir: Path) -> Path:
@@ -830,15 +861,15 @@ def _resolve_resume_args(args: argparse.Namespace) -> None:
             stage="argument_parsing",
         )
 
-    run_dir_name = _resolve_run_dir(args.resume)
+    run_dir_name = _resolve_run_dir(args.resume, args.runs_dir)
     args.resume = run_dir_name
     if args.input is not None:
         return
 
-    exp_dir = _resume_exp_dir(run_dir_name)
+    exp_dir = _resume_exp_dir(run_dir_name, args.runs_dir)
     if not exp_dir.is_dir():
         _configuration_error(
-            f"Run directory does not exist: exp_env/{run_dir_name}",
+            f"Run directory does not exist: {exp_dir}",
             code="resume_not_found",
             stage="resume_resolution",
         )
@@ -1202,7 +1233,7 @@ def _synthesize_standalone_input(args: argparse.Namespace) -> Path:
 
     if args.exp_name is None:
         args.exp_name = generate_experiment_name(Path(str(args.input_domain)))
-    destination = PROJECT_ROOT / "exp_env" / "_inputs" / args.exp_name
+    destination = args.runs_dir / "_inputs" / args.exp_name
     try:
         return synthesize_input_bundle(spec, destination)
     except InputSynthesisError as exc:
@@ -1276,14 +1307,14 @@ def _run_agent(args: argparse.Namespace) -> None:
     start_round = args.start_round or 1
 
     if args.resume is not None:
-        run_dir_name = _resolve_run_dir(args.resume)
+        run_dir_name = _resolve_run_dir(args.resume, args.runs_dir)
         exp_name = run_dir_name
         existing = True
-        print(f"Resuming agent run: exp_env/{run_dir_name}/")  # noqa: T201  # tracked: #288
-        exp_dir = PROJECT_ROOT / "exp_env" / run_dir_name
+        exp_dir = _resume_exp_dir(run_dir_name, args.runs_dir)
+        print(f"Resuming agent run: {exp_dir}/")  # noqa: T201  # tracked: #288
         if not exp_dir.is_dir():
             _configuration_error(
-                f"Run directory does not exist: exp_env/{run_dir_name}",
+                f"Run directory does not exist: {exp_dir}",
                 code="resume_not_found",
                 stage="resume_resolution",
             )
@@ -1309,6 +1340,7 @@ def _run_agent(args: argparse.Namespace) -> None:
     success = run_agent_loop(
         config=config,
         exp_name=exp_name,
+        runs_dir=args.runs_dir,
         input_path=str(bundle.root),
         accuracy_command=bundle.accuracy_command_display,
         benchmark_command=bundle.benchmark_command_display,
@@ -1558,6 +1590,7 @@ def _resolve_openevolve_options(
     *,
     existing: bool,
     exp_name: str,
+    runs_dir: Path,
 ) -> tuple[str | None, OpenEvolveSearchConfig | None]:
     from vibesys.loops.evolve.search_policy import (  # noqa: PLC0415  # tracked: #288
         OpenEvolveSearchConfig,
@@ -1568,7 +1601,7 @@ def _resolve_openevolve_options(
     if existing:
         openevolve_defaults = (
             OpenEvolveSearchPolicy.persisted_config(
-                _resume_exp_dir(exp_name) / "logs" / "openevolve"
+                _resume_exp_dir(exp_name, runs_dir) / "logs" / "openevolve"
             )
             or openevolve_defaults
         )
@@ -1604,6 +1637,7 @@ def _restore_openevolve_objectives(
     *,
     existing: bool,
     exp_name: str,
+    runs_dir: Path,
 ) -> list[Objective]:
     if not existing or objectives:
         return objectives
@@ -1612,7 +1646,7 @@ def _restore_openevolve_objectives(
     )
 
     persisted = OpenEvolveSearchPolicy.persisted_objectives(
-        _resume_exp_dir(exp_name) / "logs" / "openevolve"
+        _resume_exp_dir(exp_name, runs_dir) / "logs" / "openevolve"
     )
     return objectives if persisted is None else persisted
 
@@ -1629,15 +1663,18 @@ def _run_evolve(args: argparse.Namespace) -> None:
     existing = False
     exp_name = args.exp_name
     if args.resume is not None:
-        run_dir_name = _resolve_run_dir(args.resume)
+        run_dir_name = _resolve_run_dir(args.resume, args.runs_dir)
         exp_name = run_dir_name
         existing = True
-        print(f"Resuming evolve run: exp_env/{run_dir_name}/")  # noqa: T201  # tracked: #288
+        print(  # noqa: T201  # tracked: #288
+            f"Resuming evolve run: {_resume_exp_dir(run_dir_name, args.runs_dir)}/"
+        )
 
     objectives = _restore_openevolve_objectives(
         objectives,
         existing=existing,
         exp_name=exp_name,
+        runs_dir=args.runs_dir,
     )
     if objectives:
         spec = ", ".join(f"{o.name}({o.direction})" for o in objectives)
@@ -1647,11 +1684,13 @@ def _run_evolve(args: argparse.Namespace) -> None:
         args,
         existing=existing,
         exp_name=exp_name,
+        runs_dir=args.runs_dir,
     )
 
     success = run_evolve_loop(
         config=config,
         exp_name=exp_name,
+        runs_dir=args.runs_dir,
         input_path=str(bundle.root),
         accuracy_command=bundle.accuracy_command_display,
         benchmark_command=bundle.benchmark_command_display,
@@ -1738,12 +1777,11 @@ def _run_plain(args: argparse.Namespace) -> None:
     resume_state: PlainLoopState | None = None
 
     if args.resume is not None:
-        run_dir_name = _resolve_run_dir(args.resume)
+        run_dir_name = _resolve_run_dir(args.resume, args.runs_dir)
         exp_name = run_dir_name
         existing = True
-        print(f"Resuming from: exp_env/{run_dir_name}/")  # noqa: T201  # tracked: #288
-
-        exp_dir = PROJECT_ROOT / "exp_env" / run_dir_name
+        exp_dir = _resume_exp_dir(run_dir_name, args.runs_dir)
+        print(f"Resuming from: {exp_dir}/")  # noqa: T201  # tracked: #288
         log_dir = exp_dir / "logs"
 
         if args.start_round is not None:
@@ -1773,6 +1811,7 @@ def _run_plain(args: argparse.Namespace) -> None:
     success = run_plain_loop(
         config=config,
         exp_name=exp_name,
+        runs_dir=args.runs_dir,
         input_path=str(bundle.root),
         accuracy_command=bundle.accuracy_command_display,
         benchmark_command=bundle.benchmark_command_display,
@@ -1830,6 +1869,7 @@ def parse_cli_invocation(argv: list[str]) -> CliInvocation:
     loop_kind, remaining = _extract_loop_selection(argv)
     command = _LOOP_COMMANDS[loop_kind]
     args = command.build_parser().parse_args(remaining)
+    _normalize_runs_dir(args)
     _resolve_resume_args(args)
     command.validate(args)
     return CliInvocation(loop_kind=loop_kind, args=args)

@@ -1230,6 +1230,7 @@ def run_evolve_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
     benchmark_command: str,
     objective: str,
     *,
+    runs_dir: Path,
     workspace_seed: Path | None = None,
     workspace_sources: tuple[WorkspaceSource, ...] = (),
     evaluator_path: Path | None = None,
@@ -1288,6 +1289,7 @@ def run_evolve_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
     ctx = create_run_context(
         config=config,
         exp_name=exp_name,
+        runs_dir=runs_dir,
         input_path=input_path,
         accuracy_command=accuracy_command,
         benchmark_command=benchmark_command,

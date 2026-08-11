@@ -1,4 +1,5 @@
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -36,6 +37,7 @@ def _ctx(
             materialize_local_model_weights=materialize_local_model_weights,
         ),
         project_root=tmp_path / "project",
+        model_cache_dir=tmp_path / "runs" / ".cache" / "huggingface",
         log=lambda _msg: None,
     )
 
@@ -88,3 +90,24 @@ def test_llm_serving_hooks_keep_model_in_local_workspace_copy(tmp_path):  # noqa
     )
 
     assert patch.copy_excludes == frozenset()
+
+
+def test_llm_serving_model_download_uses_shared_runs_cache(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+    ref_dir = tmp_path / "reference"
+    ref_dir.mkdir()
+    (ref_dir / "meta.json").write_text('{"model_id": "org/model", "revision": "abc"}')
+    downloaded = tmp_path / "downloaded"
+    downloaded.mkdir()
+
+    with patch(
+        "huggingface_hub.snapshot_download",
+        return_value=str(downloaded),
+    ) as snapshot_download:
+        LLMServingEnvironmentHooks().prepare(_ctx(ref_dir, tmp_path))
+
+    snapshot_download.assert_called_once_with(
+        "org/model",
+        revision="abc",
+        cache_dir=str(tmp_path / "runs" / ".cache" / "huggingface"),
+    )
+    assert (ref_dir / "model").resolve() == downloaded

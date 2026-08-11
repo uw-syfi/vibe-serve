@@ -84,12 +84,15 @@ from pathlib import Path
 arguments = sys.argv[1:]
 input_index = arguments.index("--input")
 input_root = Path(arguments[input_index + 1])
+runs_index = arguments.index("--runs-dir")
+runs_root = Path(arguments[runs_index + 1])
+(runs_root / "20260811-120000-installed-release-smoke").mkdir(parents=True)
+normalized_arguments = list(arguments)
+normalized_arguments[input_index + 1] = "<temporary-input>"
+normalized_arguments[runs_index + 1] = "<temporary-runs>"
 Path(os.environ["VIBESYS_TEST_OBSERVED"]).write_text(json.dumps({
-    "argv_without_input_path": [
-        *arguments[:input_index + 1],
-        "<temporary-input>",
-        *arguments[input_index + 2:],
-    ],
+    "normalized_argv": normalized_arguments,
+    "runs_share_smoke_root": runs_root.parent == input_root.parent,
     "input_files": sorted(path.name for path in input_root.iterdir()),
     "ttys": [os.isatty(fd) for fd in (0, 1, 2)],
 }))
@@ -110,7 +113,7 @@ marker.write_text("renderer initialized; control protocol exchanged\\n")
     verifier._verify_tui()  # noqa: SLF001
 
     assert json.loads(observed.read_text()) == {
-        "argv_without_input_path": [
+        "normalized_argv": [
             "--stub-agent",
             "--input",
             "<temporary-input>",
@@ -124,7 +127,10 @@ marker.write_text("renderer initialized; control protocol exchanged\\n")
             "cpu",
             "--profiler",
             "none",
+            "--runs-dir",
+            "<temporary-runs>",
         ],
+        "runs_share_smoke_root": True,
         "input_files": ["OBJECTIVE.md", "vibesys.input.toml"],
         "ttys": [True, True, True],
     }
@@ -138,6 +144,40 @@ def test_interactive_smoke_rejects_clean_exit_before_protocol_exchange(tmp_path:
         verifier.run_interactive_tui_smoke(
             [sys.executable, str(fake_cli)],
             env=os.environ.copy(),
+            runtime_root=tmp_path,
+            timeout=5,
+        )
+
+
+def test_interactive_smoke_rejects_mutable_run_tree_under_sys_prefix(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    prefix = tmp_path / "isolated-prefix"
+    prefix.mkdir()
+    fake_cli = tmp_path / "fake_installed_cli.py"
+    fake_cli.write_text(
+        """\
+import os
+from pathlib import Path
+
+prefix = Path(os.environ["VIBESYS_TEST_PREFIX"])
+(prefix / "lib" / "exp_env" / "unexpected-run").mkdir(parents=True)
+arguments = os.sys.argv[1:]
+runs_root = Path(arguments[arguments.index("--runs-dir") + 1])
+(runs_root / "20260811-120000-installed-release-smoke").mkdir(parents=True)
+Path(os.environ["VIBESYS_RELEASE_SMOKE_MARKER"]).write_text(
+    "renderer initialized; control protocol exchanged\\n"
+)
+"""
+    )
+    monkeypatch.setattr(verifier.sys, "prefix", str(prefix))
+    environment = {**os.environ, "VIBESYS_TEST_PREFIX": str(prefix)}
+
+    with pytest.raises(verifier.InstalledReleaseError, match="installation prefix"):
+        verifier.run_interactive_tui_smoke(
+            [sys.executable, str(fake_cli)],
+            env=environment,
             runtime_root=tmp_path,
             timeout=5,
         )

@@ -102,6 +102,7 @@ def _make_context(input_dir: Path, seed: Path | None = None, **kwargs) -> _RunCo
     return create_run_context(
         config={"model": {"name": "claude-sonnet-4-6"}},  # pyright: ignore[reportArgumentType]  # tracked: #297
         exp_name=kwargs.pop("exp_name", "workspace-seed"),
+        runs_dir=input_dir.parents[2] / "exp_env",
         input_path=str(input_dir),
         accuracy_command="accuracy-checker",
         benchmark_command="benchmark",
@@ -797,7 +798,17 @@ def test_cli_forwards_workspace_sources_to_every_outer_loop(tmp_path, outer_loop
         'dest = "vllm"\n\n'
         '[evaluator]\nsource = "../../evaluators/queue"',
     )
-    argv = ["vibesys", "--outer-loop", outer_loop, "--local", "--input", str(bundle)]
+    runs_dir = tmp_path / "runs"
+    argv = [
+        "vibesys",
+        "--outer-loop",
+        outer_loop,
+        "--local",
+        "--input",
+        str(bundle),
+        "--runs-dir",
+        str(runs_dir),
+    ]
 
     with (
         patch("sys.argv", argv),
@@ -815,6 +826,7 @@ def test_cli_forwards_workspace_sources_to_every_outer_loop(tmp_path, outer_loop
         main()
 
     assert runner.call_args.kwargs["workspace_seed"] == seed.resolve()
+    assert runner.call_args.kwargs["runs_dir"] == runs_dir.resolve()
     assert runner.call_args.kwargs["workspace_sources"] == (
         WorkspaceSource(
             name="vllm",
