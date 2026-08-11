@@ -94,7 +94,11 @@ export async function launch(argv: string[]): Promise<number> {
       env: {...process.env, VIBESYS_CONTROL_SOCKET: socketPath, VIBESYS_THEME: theme},
       stdio: 'inherit',
     });
-    return await monitor(frontend, backendProcess);
+    return await monitor(
+      frontend,
+      backendProcess,
+      Boolean(process.env['VIBESYS_RELEASE_SMOKE_MARKER']),
+    );
   } finally {
     disposeSignalCleanup();
     await runCleanup();
@@ -331,11 +335,16 @@ function querySnapshot(socketPath: string): Promise<Record<string, unknown>> {
   });
 }
 
-async function monitor(frontend: ChildProcess, backend: ChildProcess): Promise<number> {
+async function monitor(
+  frontend: ChildProcess,
+  backend: ChildProcess,
+  releaseSmokeMode: boolean,
+): Promise<number> {
   while (true) {
     const frontendCode = exitStatus(frontend);
     const backendCode = exitStatus(backend);
     if (frontendCode !== undefined) {
+      if (releaseSmokeMode && frontendCode === 0) return 0;
       if (backendCode === undefined) {
         const gracefulBackendCode = await waitForExit(backend, BACKEND_EXIT_GRACE_MS);
         if (gracefulBackendCode === undefined) {

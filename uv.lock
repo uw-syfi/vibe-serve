@@ -4566,6 +4566,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "agentshim" },
+    { name = "cbor2" },
     { name = "deepagents" },
     { name = "huggingface-hub" },
     { name = "jinja2" },
@@ -4612,6 +4613,7 @@ test = [
 [package.metadata]
 requires-dist = [
     { name = "agentshim", specifier = ">=0.5.0" },
+    { name = "cbor2", specifier = "<6" },
     { name = "deepagents" },
     { name = "huggingface-hub" },
     { name = "jinja2", specifier = ">=3.1" },

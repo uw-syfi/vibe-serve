@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import importlib.util
+import subprocess
 import tomllib
+import zipfile
+from email.parser import Parser
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -86,3 +89,28 @@ def test_root_metadata_declares_internal_runtime_dependencies_directly():  # noq
     assert requirements.isdisjoint(INTERNAL_DISTRIBUTIONS)
     assert {"mcp", "modal"} <= requirements
     assert pyproject["tool"]["uv"]["workspace"]["members"] == ["sdk/*"]
+
+
+def test_built_distribution_caps_cbor2_below_version_6(tmp_path: Path) -> None:
+    """Published metadata must preserve the macOS-compatible cbor2 constraint."""
+    subprocess.run(  # noqa: S603
+        ["uv", "build", "--wheel", "--out-dir", str(tmp_path)],  # noqa: S607
+        cwd=PROJECT_ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    wheel = next(tmp_path.glob("vibesys-*.whl"))
+    with zipfile.ZipFile(wheel) as archive:
+        metadata_path = next(
+            name for name in archive.namelist() if name.endswith(".dist-info/METADATA")
+        )
+        metadata = Parser().parsestr(archive.read(metadata_path).decode())
+
+    requirements = {
+        requirement.name: requirement
+        for raw in metadata.get_all("Requires-Dist", [])
+        if (requirement := Requirement(raw))
+    }
+
+    assert str(requirements["cbor2"].specifier) == "<6"

@@ -18,6 +18,7 @@ classifiers = [
 ]
 dependencies = [
     "agentshim>=0.5.0",
+    "cbor2<6",
     "deepagents",
     "jinja2>=3.1",
     "langchain-google-vertexai>=3.2.2",

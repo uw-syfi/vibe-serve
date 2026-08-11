@@ -12,6 +12,7 @@ const savedEntrypoint = process.env['VIBESYS_TUI_ENTRYPOINT'];
 const savedSetupEntrypoint = process.env['VIBESYS_SETUP_ENTRYPOINT'];
 const savedTermFile = process.env['VIBESYS_FAKE_BACKEND_TERM_FILE'];
 const savedArgsFile = process.env['VIBESYS_FAKE_BACKEND_ARGS_FILE'];
+const savedReleaseSmokeMarker = process.env['VIBESYS_RELEASE_SMOKE_MARKER'];
 
 afterEach(async () => {
   if (savedPython === undefined) delete process.env['VIBESYS_PYTHON'];
@@ -26,6 +27,8 @@ afterEach(async () => {
   else process.env['VIBESYS_FAKE_BACKEND_TERM_FILE'] = savedTermFile;
   if (savedArgsFile === undefined) delete process.env['VIBESYS_FAKE_BACKEND_ARGS_FILE'];
   else process.env['VIBESYS_FAKE_BACKEND_ARGS_FILE'] = savedArgsFile;
+  if (savedReleaseSmokeMarker === undefined) delete process.env['VIBESYS_RELEASE_SMOKE_MARKER'];
+  else process.env['VIBESYS_RELEASE_SMOKE_MARKER'] = savedReleaseSmokeMarker;
   delete process.env['VIBESYS_FAKE_SETUP_THEME_FILE'];
   delete process.env['VIBESYS_FAKE_FRONTEND_THEME_FILE'];
   if (tempDir) await rm(tempDir, {recursive: true, force: true});
@@ -93,6 +96,65 @@ process.exit(0);
 
     await expect(launch(['--stub-agent'])).resolves.toBe(0);
     await access(backendTerminated);
+  });
+
+  it('makes a successful frontend authoritative only in release smoke mode', async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'vs-launcher-test-'));
+    const backendTerminated = join(tempDir, 'backend-terminated');
+    const smokeMarker = join(tempDir, 'frontend-started');
+    const backend = await writeExecutable(
+      'race-backend.mjs',
+      `
+import {writeFileSync} from 'node:fs';
+import {createServer} from 'node:net';
+
+const socketPath = process.argv[process.argv.indexOf('--control-socket') + 1];
+const server = createServer(socket => {
+  socket.once('data', data => {
+    const request = JSON.parse(data.toString().split('\\n')[0]);
+    socket.end(JSON.stringify({
+      protocol_version: 1,
+      request_id: request.request_id,
+      timestamp: new Date().toISOString(),
+      ok: true,
+      events: [],
+    }) + '\\n');
+    setTimeout(() => process.exit(2), 1000);
+  });
+});
+server.listen(socketPath);
+process.on('SIGTERM', () => {
+  writeFileSync(process.env.VIBESYS_FAKE_BACKEND_TERM_FILE, 'terminated');
+  server.close(() => process.exit(0));
+});
+`,
+    );
+    const frontend = await writeExecutable(
+      'smoke-frontend.mjs',
+      `
+import {writeFileSync} from 'node:fs';
+
+if (!process.env.VIBESYS_CONTROL_SOCKET) process.exit(7);
+if (process.env.VIBESYS_RELEASE_SMOKE_MARKER) {
+  writeFileSync(process.env.VIBESYS_RELEASE_SMOKE_MARKER, 'started');
+}
+process.exit(0);
+`,
+    );
+
+    process.env['VIBESYS_PYTHON'] = backend;
+    process.env['VIBESYS_TUI_RUNTIME'] = process.execPath;
+    process.env['VIBESYS_TUI_ENTRYPOINT'] = frontend;
+
+    delete process.env['VIBESYS_RELEASE_SMOKE_MARKER'];
+    process.env['VIBESYS_FAKE_BACKEND_TERM_FILE'] = join(tempDir, 'normal-backend-terminated');
+    await expect(launch(['--stub-agent'])).resolves.toBe(2);
+
+    process.env['VIBESYS_RELEASE_SMOKE_MARKER'] = smokeMarker;
+    process.env['VIBESYS_FAKE_BACKEND_TERM_FILE'] = backendTerminated;
+    await expect(launch(['--stub-agent'])).resolves.toBe(0);
+    expect(await readFile(smokeMarker, 'utf8')).toBe('started');
+    expect(await readFile(backendTerminated, 'utf8')).toBe('terminated');
   });
 
   it('runs validation directly without starting the interactive client', async () => {
