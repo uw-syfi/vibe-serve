@@ -1,9 +1,24 @@
 # vs-loop-state
 
-Typed round records and stable JSON codecs for VibeSys loop state.
+Typed persisted-state models, stable JSON-compatible codecs, and in-memory
+agent-loop history behavior.
 
-The library owns `RoundRecord`, `RoundHistory`, round serialization and parsing,
-atomic history persistence, and rollback-base resolution. Its public API is
-exported from `vs_loop_state`. It does not own Git operations, `.vs` project
-layout, agent orchestration, or the application-specific vocabularies stored in
-round fields. Those concerns remain in VibeSys and `vs-project-state`.
+The public API exported from `vs_loop_state` has three groups:
+
+- `RoundRecord` defines one validated completed-round record.
+- `serialize_round_record` and `parse_round_record` define its portable JSON
+  representation.
+- `RoundHistory` collects records in memory and resolves rollback bases.
+- `PlainLoopCursor`, `PlainPerformanceRecord`, and
+  `PlainPerformanceSnapshot` define versioned plain-loop state.
+- `IndividualRecord` and `PopulationSnapshot` define a versioned evolve archive
+  with validated IDs, lineage references, and finite fitness metrics.
+
+Plain and evolve persisted models reject unknown fields and type coercion.
+Performance timestamps require timezone information. The `serialize_*`
+functions return JSON-compatible dictionaries, and matching `parse_*`
+functions validate those dictionaries without reading files.
+
+The library does not read or write files. `vs-project-state` owns `.vs` project
+layout and persistence. VibeSys owns Git operations, orchestration, and the
+application-specific vocabularies stored in string fields.

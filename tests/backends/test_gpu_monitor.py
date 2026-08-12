@@ -276,9 +276,8 @@ class TestReselectGpu:
         ctx = object.__new__(_RunContext)
         ctx.selected_gpu = selected_gpu
         ctx._paths = RunPaths(  # noqa: SLF001  # tracked: #288
-            exp_dir=tmp_path,
+            project_root=tmp_path / "workspace",
             log_dir=tmp_path / "logs",
-            workspace=tmp_path / "workspace",
             run_log_path=tmp_path / "run.log",
         )
         ctx.log_dir.mkdir(parents=True, exist_ok=True)

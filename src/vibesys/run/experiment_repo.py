@@ -1,4 +1,4 @@
-"""Remote Git tracking for a complete experiment directory."""
+"""Remote publication for a canonical VibeSys project repository."""
 
 from __future__ import annotations
 
@@ -6,41 +6,32 @@ import os
 import subprocess
 from collections.abc import Callable  # noqa: TC003  # tracked: #288
 from dataclasses import dataclass, field
-from pathlib import Path  # noqa: TC003  # tracked: #288
+from pathlib import Path
 
 from vibesys.repository import REPOSITORY_SLUG, RepositoryVisibility
 from vs_github import GitHubCLI
 
-_EXPERIMENT_GITIGNORE = """\
-# Runtime logs are useful locally but are noisy and may contain provider output.
-logs/*.log
-logs/snapshots/
-"""
-
 
 @dataclass(frozen=True)
 class ExperimentRepository:
-    """Create and synchronize the Git repository containing one experiment."""
+    """Attach and publish the already-authored branch for one project run.
+
+    This boundary never stages files or creates commits. ``GitTracker`` is the
+    sole owner of project history.
+    """
 
     root: Path
     log: Callable[[str], None]
     github: GitHubCLI = field(default_factory=GitHubCLI)
 
-    _GIT_IDENTITY = {  # noqa: RUF012  # tracked: #288
-        "GIT_AUTHOR_NAME": "vibesys",
-        "GIT_AUTHOR_EMAIL": "vibesys@local",
-        "GIT_COMMITTER_NAME": "vibesys",
-        "GIT_COMMITTER_EMAIL": "vibesys@local",
-    }
-
     def create_remote(self, slug: str, visibility: RepositoryVisibility) -> None:
         """Create a GitHub repository and attach it as ``origin``."""
+        self._require_project_root()
         if not REPOSITORY_SLUG.fullmatch(slug):
             raise ValueError(f"--repo must be a GitHub OWNER/NAME pair, got {slug!r}")  # noqa: TRY003  # tracked: #288
         if self.has_origin():
-            raise ValueError(f"experiment repository already has an origin remote: {self.root}")  # noqa: TRY003  # tracked: #288
+            raise ValueError(f"project repository already has an origin remote: {self.root}")  # noqa: TRY003  # tracked: #288
 
-        self._ensure_gitignore()
         self.github.create_repository(
             slug,
             visibility=visibility.value,
@@ -48,8 +39,18 @@ class ExperimentRepository:
         )
         self.log(f"[repo] created GitHub repository {slug}")
 
+    def attach_remote(self, url: str) -> None:
+        """Attach an existing remote repository as ``origin``."""
+        self._require_project_root()
+        if not url.strip():
+            raise ValueError("origin URL must not be empty")  # noqa: TRY003  # tracked: #288
+        if self.has_origin():
+            raise ValueError(f"project repository already has an origin remote: {self.root}")  # noqa: TRY003  # tracked: #288
+        self._run(["git", "remote", "add", "origin", url], tool="git")
+        self.log("[repo] attached origin remote")
+
     def has_origin(self) -> bool:
-        """Return whether the experiment repository has an ``origin`` remote."""
+        """Return whether the project repository has an ``origin`` remote."""
         result = self._run(
             ["git", "remote", "get-url", "origin"],
             check=False,
@@ -57,34 +58,53 @@ class ExperimentRepository:
         )
         return result.returncode == 0
 
-    def sync(self) -> None:
-        """Commit durable experiment state and push the current branch."""
+    def push(self) -> None:
+        """Push the already-committed current VibeSys run branch."""
         if not self.has_origin():
             return
+        self._require_project_root()
+        branch = self._current_run_branch()
+        ref = f"refs/heads/{branch}"
+        run_id = branch.removeprefix("vibesys/")
+        candidate_prefix = f"refs/vibesys/{run_id}/candidates/"
+        candidate_refs = self._run(
+            ["git", "for-each-ref", "--format=%(refname)", candidate_prefix],
+            tool="git",
+        ).stdout.splitlines()
+        refspecs = [f"{ref}:{ref}", *(f"{candidate}:{candidate}" for candidate in candidate_refs)]
+        self._run(["git", "push", "-u", "origin", *refspecs], tool="git")
+        self.log(f"[repo] pushed {branch} to origin")
 
-        self._ensure_gitignore()
-        self._run(["git", "add", "-A"], tool="git")
-        changed = self._run(
-            ["git", "diff", "--cached", "--quiet"],
+    def sync(self) -> None:
+        """Compatibility name for :meth:`push`, without staging or committing."""
+        self.push()
+
+    def _current_run_branch(self) -> str:
+        result = self._run(
+            ["git", "symbolic-ref", "--quiet", "--short", "HEAD"],
             check=False,
             tool="git",
-        ).returncode
-        if changed:
-            self._run(
-                ["git", "commit", "-m", "chore: sync experiment state"],
-                tool="git",
+        )
+        branch = result.stdout.strip() if result.returncode == 0 else ""
+        if not branch.startswith("vibesys/") or not branch.removeprefix("vibesys/"):
+            raise ValueError(  # noqa: TRY003  # tracked: #288
+                "remote publication requires the current VibeSys run branch"
             )
-        self._run(["git", "push", "-u", "origin", "HEAD"], tool="git")
-        self.log("[repo] pushed experiment state to origin")
+        return branch
 
-    def _ensure_gitignore(self) -> None:
-        path = self.root / ".gitignore"
-        existing = path.read_text() if path.is_file() else ""
-        if "logs/*.log" in existing and "logs/snapshots/" in existing:
-            return
-        if existing and not existing.endswith("\n"):
-            existing += "\n"
-        path.write_text(existing + _EXPERIMENT_GITIGNORE)
+    def _require_project_root(self) -> None:
+        result = self._run(
+            ["git", "rev-parse", "--show-toplevel"],
+            check=False,
+            tool="git",
+        )
+        if result.returncode != 0:
+            raise ValueError(f"project directory is not a Git repository: {self.root}")  # noqa: TRY003  # tracked: #288
+        repository_root = Path(result.stdout.strip()).resolve()
+        if repository_root != self.root.resolve():
+            raise ValueError(  # noqa: TRY003  # tracked: #288
+                f"project directory must be the Git repository root: {self.root}"
+            )
 
     def _run(
         self,
@@ -93,7 +113,16 @@ class ExperimentRepository:
         check: bool = True,
         tool: str,
     ) -> subprocess.CompletedProcess[str]:
-        env = {**os.environ, **self._GIT_IDENTITY}
+        env = os.environ.copy()
+        for variable in ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"):
+            env.pop(variable, None)
+        env.update(
+            {
+                "GIT_CONFIG_COUNT": "1",
+                "GIT_CONFIG_KEY_0": "safe.directory",
+                "GIT_CONFIG_VALUE_0": str(self.root.resolve()),
+            }
+        )
         try:
             result = subprocess.run(  # noqa: PLW1510, S603  # tracked: #288
                 command,
@@ -103,7 +132,7 @@ class ExperimentRepository:
                 env=env,
             )
         except FileNotFoundError as exc:
-            raise RuntimeError(f"{tool} is required for experiment repository tracking") from exc  # noqa: TRY003  # tracked: #288
+            raise RuntimeError(f"{tool} is required for project repository publication") from exc  # noqa: TRY003  # tracked: #288
         if check and result.returncode != 0:
             detail = result.stderr.strip() or result.stdout.strip() or "unknown error"
             raise RuntimeError(f"{tool} command failed ({' '.join(command)}): {detail}")  # noqa: TRY003  # tracked: #288

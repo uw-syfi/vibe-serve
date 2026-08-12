@@ -4,23 +4,15 @@ This document is the canonical map for VibeSys's CLI flag axes. Update it in
 the same PR whenever a flag, backend, domain, loop, runtime environment, or
 profiler behavior changes.
 
-Start with [Running VibeSys](running-vibesys.md) to choose between an in-place
-project and a materialized experiment. This document is the exhaustive flag
-reference for those workflows.
+Start with [Running VibeSys](running-vibesys.md) for the project layout and the
+choice between editing the input project or provisioning a copy. This document
+is the exhaustive flag reference.
 
-## Entry Points
+## Entry Point
 
-`vibesys` is the single launcher; the same flags below apply no matter how you
-start it:
-
-| Entry point | Use |
-| --- | --- |
-| `vibesys` | The unified launcher (installed). Forwards all flags to the engine. Launches the interactive TUI by default and runs headless with `--headless`, `--help`, `validate`, or when not attached to a TTY. The TUI comes from a prebuilt platform wheel, or is built from source when run inside a checkout (needs Bun + Node 20+ + pnpm). |
-| `uv run vibesys` | The same launcher from a source checkout with no install; `uv` provisions the environment. |
-| `python -m vibesys` | The headless engine directly. No JavaScript runtime required. |
-
-Examples in this document use `uv run vibesys`; drop the `uv run` prefix when the
-`vibesys` command is installed (add `--headless` to skip the TUI).
+Use the installed `vibesys` command. It launches the interactive TUI by default
+and runs headless with `--headless`, `--help`, `validate`, or when not attached
+to a TTY. Examples below use this command.
 
 ### Agent configuration
 
@@ -44,8 +36,8 @@ Several flags look independent, but they combine into one execution contract:
 | Modality | `--modality` | Per-task I/O contract, such as `text_generation` or `speech_to_text`. |
 | Skills | `--skills-dir`, `--extra-skills`, `--no-skills` | Override the preset skill roots, stack extra skills on top of the presets, or disable skill loading. |
 | Target inputs | `--input` | Complete target project. Defaults to the current directory. |
-| State layout | omitted `--runs-dir` or `--runs-dir PATH` | Omit it for an in-place agent run with `.vs/` state. Pass it to create a materialized workspace in an experiment collection. |
-| Experiment repository | `--repo`, `--repo-visibility`, `--local`, `--resume` | In-place runs use local branches. Materialized fresh runs use GitHub by default; their resume forms also accept local paths or GitHub repositories. |
+| Project provisioning | omitted `--runs-dir` or `--runs-dir PATH` | Omit it to edit the selected project. Pass it to provision a self-contained project copy in a collection. Both use the same `.vs/` layout. |
+| Project repository | `--repo`, `--repo-visibility`, `--local`, `--resume` | Fresh copied projects use GitHub by default. Resume also accepts local project paths or GitHub repositories. |
 | Client theme | `--theme` | Presentation only. Which semantic theme the interactive client renders with. |
 
 Do not treat these as simple toggles. Some combinations imply a startup
@@ -60,15 +52,13 @@ come from the domain and input bundle, not the interface mode.
 | `plain` | Issue-board loop with deterministic issue draining and perf evaluation. | Uses backend prompt fragments from `src/vibesys/prompts/backend/`. |
 | `evolve` | Evolutionary search over candidate implementations. | Uses domain-aware mutator, judge, and profiler roles. |
 
-Run the commands below with `uv run vibesys` (from a checkout) or `vibesys`
-(installed). Both forward every argument to the engine and prepare the
-interactive client when needed.
+Run the commands below with `vibesys`.
 Use `vibesys --outer-loop <kind> --help` for loop-specific flags.
 
-## Default In-Place Project Runs
+## Canonical Projects
 
-The default agent-loop launch treats the input directory as the working
-project. `--input` defaults to the current directory:
+The input directory is the working project when `--runs-dir` is omitted.
+`--input` defaults to the current directory:
 
 ```bash
 cd /path/to/project
@@ -79,19 +69,19 @@ vibesys --input /path/to/project
 ```
 
 The project must contain `OBJECTIVE.md`, `vibesys.input.toml`, and the candidate
-source the agent will edit. Its manifest must not declare `[workspace].seed` or
-`[[workspace.sources]]`; materialize those starter files into the project first.
+source the agent will edit. For a direct run, its manifest must not declare
+`[workspace].seed` or `[[workspace.sources]]`; use `--runs-dir` to provision
+those inputs into a copied project.
 It must be the root of its Git repository, or outside any Git repository so
 VibeSys can initialize one. A subdirectory of a containing Git repository is
-not a valid in-place project root. An existing repository must have a baseline
+not a valid project root. An existing repository must have a baseline
 commit and a clean worktree. A directory outside Git is initialized with a
 baseline commit automatically.
 
-In-place execution supports the `agent` outer loop on the local host with a CLI
-coding-agent backend and profiler `none` (`auto` resolves to `none`). It does not
-copy skill bundles into the project; `--skills-dir` and `--extra-skills` require
-`--runs-dir`. Docker, Modal, `plain`, `evolve`, DeepAgents, standalone
-`--input-*` synthesis, and active profilers also require `--runs-dir`.
+The `agent`, `plain`, and `evolve` loops, runtime environments, profilers, and
+agent backends all use the same project layout. `--runs-dir` changes only how
+the project is provisioned. Standalone `--input-*` synthesis requires it because
+there is no existing input directory.
 
 The native sandbox requires `bwrap` on Linux or `sandbox-exec` on macOS. A
 missing confinement tool or an unsupported operating system stops the run
@@ -103,8 +93,8 @@ integrity checks. The agent also cannot write `.git`, `.vs`, `OBJECTIVE.md`,
 root `.env*` file or `agent.toml` is recoverable from Git refs or reflogs.
 
 VibeSys initializes Git when needed and creates one `vibesys/<run-id>` branch
-per run. Agent-authored source stays at its normal project paths. State is split
-under `.vs/`:
+per run. Agent-authored source stays at its normal project paths. Portable and
+machine-local state are separated under `.vs/`:
 
 ```text
 .vs/
@@ -112,13 +102,17 @@ under `.vs/`:
 ├── project.json                       # committed project identity
 ├── runs/<run-id>/
 │   ├── run.json                       # committed sanitized run configuration
-│   └── rounds/NNNN.json               # committed completed-round records
+│   ├── agent/rounds/NNNN.json         # agent-loop completed rounds
+│   ├── plain/                          # plain-loop portable cursor
+│   ├── evolve/                         # evolve population and policy state
+│   └── runtime/effective-objective.md  # objective plus run constraints
 └── local/                             # ignored operational state
     ├── current-run
     └── runs/<run-id>/
-        ├── active.json
+        ├── agent/active.json
         ├── round-transaction.json      # present only during round commit/recovery
-        └── logs/
+        ├── logs/
+        └── worktrees/                  # temporary evolve candidate worktrees
 ```
 
 The committed files contain portable configuration, fingerprints, metrics, and
@@ -148,7 +142,7 @@ worktree must be clean before VibeSys switches to the saved
 | `--judge-every N` | `3` | Run an independent judge every Nth round. A candidate explicitly nominated by the implementer and the final round are always reviewed immediately. Canonical accuracy and benchmark commands run only after a judge PASS. |
 | `--official-eval-every N` | `3` | Run configured framework-owned accuracy and benchmark gates every N accepted candidate checkpoints. Intermediate checkpoints remain provisional; orchestrator requests and the final round force immediate official evaluation. Retries, continuing hypotheses, and profiler-only rounds do not advance this cadence. Modal gates reuse one healthy deployment for the exact candidate commit, explicitly stop it after the final gate, and rely on zero minimum-warm replicas plus a short finite scaledown window as the crash backstop. Unchanged retries reuse a prior accuracy PASS when only a later gate failed. |
 | `--memory-layout` | `files` | `files` keeps `roadmap.md` and `progress.md`. `directories` uses `roadmap/index.md` and one `progress/round-NNNN.md` audit file per round; fresh orchestrators receive a bounded recent window and can inspect older files on demand. Existing runs retain their current layout when resumed. |
-| `--constraint TEXT` | none | Add an operator-supplied workload invariant to every agent's objective without changing the input bundle. The framework materializes the effective objective outside candidate Git history and mounts it read-only in isolated environments, so rollback cannot erase it. Repeat for multiple constraints and repeat the same flags when resuming. |
+| `--constraint TEXT` | none | Add an operator-supplied workload invariant to every agent's objective without changing the input bundle. The framework commits the effective objective under the run's portable `.vs/` state and mounts it read-only in isolated environments, so candidate edits cannot erase it. Repeat for multiple constraints and repeat the same flags when resuming. |
 
 Designer and judge invocations start with clean model sessions. The implementer
 session is keyed by the designer's stable `hypothesis_id`, so targeted
@@ -166,7 +160,7 @@ frontier selection. `--search-policy openevolve` imports pinned OpenEvolve 0.3.1
 and delegates MAP-Elites archiving, island selection, population limits, and
 migration to its `ProgramDatabase`. It does not use OpenEvolve's one-shot LLM
 mutation path; VibeSys's coding agent continues to mutate the checked-out
-multi-file workspace.
+multi-file project.
 
 | Flag | Default | Meaning under `--search-policy openevolve` |
 | --- | ---: | --- |
@@ -176,7 +170,8 @@ multi-file workspace.
 | `--openevolve-migration-interval` | `50` | Per-island admitted generations between migrations. |
 | `--openevolve-migration-rate` | `0.1` | Fraction of island elites copied during migration. |
 
-OpenEvolve state is stored under `logs/openevolve/` and loaded on resume. See
+OpenEvolve state is stored under `.vs/runs/<run-id>/evolve/openevolve/` and
+loaded on resume. See
 [`docs/openevolve.md`](openevolve.md) for the adapter boundary and metric
 semantics. On resume the policy and saved settings are restored when these
 flags are omitted; partial explicit settings are merged with the saved values,
@@ -184,7 +179,7 @@ flag-defined objectives are restored, and incompatible changes are rejected.
 On a new run, supplying any
 `--openevolve-*` setting also selects the OpenEvolve policy.
 
-## Materialized Experiment Collections and Remote Repositories
+## Copied Project Collections and Remote Repositories
 
 Configure interactive defaults in `agent.toml`:
 
@@ -203,28 +198,26 @@ explicitly. Names default to `<input-name>-<UTC timestamp>`.
 
 For headless use, the generated repository name is used automatically. Pass
 `--repo NAME` to override the name, or `--repo OWNER/NAME` to override the owner
-explicitly. This workflow requires `--runs-dir PATH`. Pass `--local` to keep the
-experiment in that collection without a GitHub repository. Repositories use
+explicitly. Pass `--local` to keep a copied project in its collection without a
+GitHub repository. A direct project stays local unless `--repo` is explicit. Repositories use
 `[repository].visibility` unless `--repo-visibility` overrides it. Creation goes
 through the authenticated `gh` CLI.
 
-The experiment repository records the materialized workspace and durable state
-needed to continue the loop. Provider/agent `logs/*.log` files and directory
-snapshots are excluded. VibeSys commits and pushes after each workspace
-checkpoint, then performs a final sync on context shutdown, including normal
-loop failures and keyboard interruption. A failed checkpoint push is logged and
-retried at the next checkpoint so a transient remote failure does not stop the
-optimization run. A final non-fast-forward or authentication failure is reported
-rather than force-pushing.
+The project repository records candidate history and portable `.vs/runs/`
+state. Provider and agent logs under `.vs/local/` are excluded. On context
+shutdown, VibeSys pushes the already-authored run branch and retained evolve
+candidate refs. Publication never stages files or creates a synchronization
+commit. A non-fast-forward or authentication failure is reported rather than
+force-pushing.
 
-`--resume` accepts collection run identifiers, local experiment directories,
+With `--runs-dir`, `--resume` accepts collection project names, local project directories,
 GitHub `OWNER/NAME` pairs, and cloneable HTTPS/SSH URLs:
 
 ```bash
-uv run vibesys --runs-dir /work/vibesys-runs --resume 20260720-120000-example
-uv run vibesys --runs-dir /work/vibesys-runs --resume /work/experiments/example
-uv run vibesys --runs-dir /work/vibesys-runs --resume vibesys-playground/example
-uv run vibesys --runs-dir /work/vibesys-runs --resume https://github.com/my-org/example.git
+vibesys --runs-dir /work/vibesys-runs --resume 20260720-120000-example
+vibesys --runs-dir /work/vibesys-runs --resume /work/experiments/example
+vibesys --runs-dir /work/vibesys-runs --resume vibesys-playground/example
+vibesys --runs-dir /work/vibesys-runs --resume https://github.com/my-org/example.git
 ```
 
 Remote repositories are cloned into the selected collection. A local clone can
@@ -237,7 +230,7 @@ combined with `--resume`.
 
 Run `vibesys validate [INPUT_BUNDLE]` to check an input bundle's static harness
 contract without starting the interactive client, an optimization loop, or an
-agent. From a source checkout, use the equivalent `uv run vibesys validate` command.
+agent.
 
 The input bundle is the positional argument. When omitted, it defaults to the
 current directory:
@@ -292,8 +285,8 @@ starts with an actionable error.
 
 | Flags | Environment | Notes |
 | --- | --- | --- |
-| neither `--docker` nor `--modal` | Local host. | In-place runs require bubblewrap on Linux or Seatbelt on macOS and enforce the project path policy. Materialized workspaces use the host backend without that in-place policy. |
-| `--docker` | Docker container. | Mounts the workspace. Backend controls GPU/device passthrough. |
+| neither `--docker` nor `--modal` | Local host. | Requires bubblewrap on Linux or Seatbelt on macOS. Enforces the project path policy. |
+| `--docker` | Docker container. | Mounts the project with the same hidden and read-only overlays. Backend controls GPU/device passthrough. |
 | `--modal` | Modal workflow. | Mutually exclusive with `--docker`. Intended for remote GPU dispatch. |
 
 `--docker-image` overrides the backend's default container image when Docker or
@@ -353,7 +346,7 @@ direct-call or service boundary.
 ## Client Theme
 
 `--theme` selects the semantic theme the interactive client renders with. It is
-presentation only: it never reaches the agents, the workspace, or the recorded
+presentation only: it never reaches the agents, the project, or the recorded
 run state, and it is ignored in headless mode.
 
 | Theme | Appearance | Use for |
@@ -386,7 +379,7 @@ per-status marker, and the running round is the only one with an elapsed-time
 suffix.
 
 ```bash
-uv run vibesys --runs-dir /work/vibesys-runs --local \
+vibesys --runs-dir /work/vibesys-runs --local \
   --input examples/model-serving/Llama-3-8B --theme solarized-light
 ```
 
@@ -405,12 +398,12 @@ skills, or a single `SKILL.md` file:
 
 ```bash
 # presets + your own skill directory and a single SKILL.md file
-uv run vibesys --runs-dir /work/vibesys-runs --local --input <bundle> \
+vibesys --runs-dir /work/vibesys-runs --local --input <bundle> \
   --extra-skills ./my-skills \
   --extra-skills ./one-off-skill/SKILL.md
 
 # use ONLY your skills, ignoring the presets
-uv run vibesys --runs-dir /work/vibesys-runs --local \
+vibesys --runs-dir /work/vibesys-runs --local \
   --input <bundle> --skills-dir ./my-skills
 ```
 
@@ -459,7 +452,7 @@ to it from `OBJECTIVE.md`. A shared evaluator may own this file when several
 input bundles use exactly the same contract. Keep evaluator internals and trust
 assumptions in a separate design document.
 
-For a complete in-place project, launch from its root or pass the root once:
+For a complete project, launch from its root or pass the root once:
 
 ```bash
 cd /path/to/project
@@ -468,14 +461,14 @@ vibesys ...
 vibesys --input /path/to/project ...
 ```
 
-Checked-in examples are nested below the VibeSys repository root, so run them
-in a materialized local experiment collection:
+Checked-in examples are nested below another Git repository or declare separate
+starter sources, so provision copied projects for them:
 
 ```bash
-uv run vibesys --runs-dir /work/vibesys-runs --local --input examples/<target> ...
+vibesys --runs-dir /work/vibesys-runs --local --input examples/<target> ...
 ```
 
-The same mode materializes separate starter sources declared through
+Provisioning also resolves starter sources declared through
 `[workspace].seed` or `[[workspace.sources]]`.
 
 The manifest declares the evaluator entrypoints and does not define a candidate
@@ -507,7 +500,7 @@ metric = "requests_per_second"
 Those command arrays are bundle-specific. They may point at Python, shell, Go,
 Rust, C++, or any other evaluator entrypoint, and VibeSys does not require
 standard wrapper filenames. VibeSys copies the input bundle into the
-experiment workspace and tells agents to run the manifest commands. The
+copied project and tells agents to run the manifest commands. The
 optional `benchmark.result` block opts a single-metric benchmark into trusted
 framework scoring: VibeSys appends `json_argument`, reads the resulting JSON,
 and requires a finite numeric field named by `metric`. For a JSON object, that
@@ -522,32 +515,14 @@ The optional `workspace.seed` path is relative to the input manifest and must
 resolve inside the repository's `examples/starters/` directory. On a fresh run,
 VibeSys copies non-ignored seed files first and then copies the input bundle.
 Any top-level path supplied by both sources is rejected instead of being
-overwritten. The resulting files are ordinary candidate workspace files: agents
+overwritten. The resulting files are ordinary candidate project files: agents
 may edit or delete them, and resumed runs never refresh them from the seed.
 
 The optional `evaluator.source` path is relative to the input manifest and must
 resolve inside `examples/evaluators/`. On a fresh run, VibeSys copies it to
 `_evaluator/<source-name>`. This is a separate, evaluator-owned input: Git-backed
 integrity checks reject accuracy and benchmark gates after it is modified.
-Resumed runs keep the evaluator snapshot from the original run instead of
-refreshing it from repository source.
-
-To intentionally upgrade evaluator-owned inputs in an existing experiment,
-commit the authorized refresh before resuming and pass that immutable revision.
-This applies only to materialized workspaces created with `--runs-dir`;
-in-place project runs persist their original baseline and reject this flag.
-
-```bash
-uv run vibesys --outer-loop agent \
-  --runs-dir /work/vibesys-runs \
-  --resume /path/to/experiment \
-  --trusted-input-baseline <refresh-commit>
-```
-
-The revision must be an ancestor of the current experiment `HEAD`. The guard
-continues to reject pending trusted-input edits and every trusted-input change
-committed after that baseline. Omitting the flag retains the original initial
-workspace baseline, so ordinary resumes cannot silently bless agent tampering.
+Resumed runs use the evaluator snapshot committed in the canonical project.
 
 ### Providing inputs without a bundle (`--input-*`)
 
@@ -585,7 +560,7 @@ accepted. Git-pinned `[[workspace.sources]]` entries are not exposed as flags;
 use `--input` for those.
 
 ```bash
-uv run vibesys \
+vibesys \
   --runs-dir /work/vibesys-runs \
   --input-objective-file ./OBJECTIVE.md \
   --input-domain llm-serving \
@@ -602,7 +577,7 @@ uv run vibesys \
 Default agent loop on local CUDA-compatible host:
 
 ```bash
-uv run vibesys \
+vibesys \
   --runs-dir /work/vibesys-runs \
   --local \
   --outer-loop agent \
@@ -614,28 +589,28 @@ uv run vibesys \
 Docker CUDA run:
 
 ```bash
-uv run vibesys --runs-dir /work/vibesys-runs --local \
+vibesys --runs-dir /work/vibesys-runs --local \
   --outer-loop agent --backend cuda --docker ...
 ```
 
 Modal GPU run:
 
 ```bash
-uv run vibesys --runs-dir /work/vibesys-runs --local \
+vibesys --runs-dir /work/vibesys-runs --local \
   --outer-loop agent --backend cuda --modal --profiler torch ...
 ```
 
 Trainium run:
 
 ```bash
-uv run vibesys --runs-dir /work/vibesys-runs --local \
+vibesys --runs-dir /work/vibesys-runs --local \
   --outer-loop agent --backend trainium --profiler auto ...
 ```
 
 Over-the-wire service target:
 
 ```bash
-uv run vibesys \
+vibesys \
   --runs-dir /work/vibesys-runs \
   --local \
   --outer-loop agent \
@@ -646,7 +621,7 @@ uv run vibesys \
 CPU-only target:
 
 ```bash
-uv run vibesys --runs-dir /work/vibesys-runs --local \
+vibesys --runs-dir /work/vibesys-runs --local \
   --outer-loop agent --backend cpu --interface service ...
 ```
 

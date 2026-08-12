@@ -3,7 +3,7 @@
 Use:
 
 - `--input examples/model-serving/llama-3-8b-h100-long-prompts`
-- `--runs-dir "$PWD/exp_env"`
+- `--runs-dir /work/vibesys-runs`
 - `--local`
 - `--interface service`
 - `--modal` for H100-backed runs

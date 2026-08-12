@@ -15,7 +15,9 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from vibesys.agents import AgentRunner
-from vibesys.loops.plain.loop import PlainLoopState, run_plain_loop
+from vibesys.domains.base import DomainName
+from vibesys.loops.plain.loop import PlainLoopState
+from vibesys.loops.plain.loop import run_plain_loop as _run_plain_loop
 from vibesys.schemas import (
     IssueImplementerResponse,
     IssueJudgeResponse,
@@ -29,6 +31,11 @@ from vs_issue_board import IssueBoard, IssueStatus
 # ---------------------------------------------------------------------------
 # Helpers — factories and fixtures shared across tests
 # ---------------------------------------------------------------------------
+
+
+def run_plain_loop(**kwargs):  # noqa: ANN003, ANN201  # tracked: #288
+    """Run the plain loop with this module's LLM-serving fixture domain."""
+    return _run_plain_loop(domain=DomainName.LLM_SERVING, **kwargs)
 
 
 def _make_impl_resp(issue_id: int, summary: str = "Done.") -> IssueImplementerResponse:
@@ -92,22 +99,53 @@ def _make_issue_runner(responses: list, *, backend_name: str = "deepagents") -> 
 
 
 def _run_exp_dir(tmp_path: Path) -> Path:
-    """Return the single exp_env/<timestamp>-test directory produced by a run."""
-    exp_dirs = sorted((tmp_path / "exp_env").glob("*-test"))
-    assert len(exp_dirs) == 1, f"expected one exp dir, got {exp_dirs}"
-    return exp_dirs[0]
+    """Return the single canonical project provisioned by the run."""
+    projects = sorted(path for path in (tmp_path / "exp_env").iterdir() if path.is_dir())
+    assert len(projects) == 1, f"expected one project, got {projects}"
+    return projects[0]
 
 
 def _store_path(exp_dir: Path) -> Path:
-    """The canonical issues.json lives inside the unified workspace."""
-    return exp_dir / "workspace" / "issues.json"
+    """The agent-visible issue board is project-root workflow memory."""
+    return exp_dir / "issues.json"
+
+
+def _run_id(project_dir: Path) -> str:
+    manifests = list(project_dir.glob(".vs/runs/*/run.json"))
+    assert len(manifests) == 1, manifests
+    return manifests[0].parent.name
+
+
+def _plain_state_dir(project_dir: Path) -> Path:
+    return project_dir / ".vs" / "runs" / _run_id(project_dir) / "plain"
+
+
+def _plain_local_dir(project_dir: Path) -> Path:
+    return project_dir / ".vs" / "local" / "runs" / _run_id(project_dir) / "plain"
 
 
 @pytest.fixture
 def ref_file(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     """Create a temporary reference file for run_plain_loop tests."""
-    f = tmp_path / "ref.py"
+    project = tmp_path / "input"
+    project.mkdir()
+    f = project / "ref.py"
     f.write_text("def predict(x): return x * 2\n")
+    (project / "OBJECTIVE.md").write_text("Make the implementation faster.\n")
+    (project / "vibesys.input.toml").write_text(
+        """version = 1
+
+[agent]
+domain = "llm-serving"
+
+[accuracy]
+command = ["python", "-c", "print('ok')"]
+
+[benchmark]
+command = ["python", "-c", "print('ok')"]
+""",
+        encoding="utf-8",
+    )
     return str(f)
 
 
@@ -137,7 +175,7 @@ def test_bootstrap_creates_initial_feature_issue_on_first_run(  # noqa: ANN201  
 
     with patch("vibesys.context.PROJECT_ROOT", tmp_path):
         result = run_plain_loop(
-            config={"model": {"name": "claude-sonnet-4-6"}},  # pyright: ignore[reportArgumentType]  # tracked: #297
+            config={"model": {"name": "claude-sonnet-4-6"}},
             exp_name="test",
             runs_dir=tmp_path / "exp_env",
             input_path=str(Path(ref_file).parent),
@@ -183,7 +221,7 @@ def test_bootstrap_idempotent_on_resume(  # noqa: ANN201  # tracked: #288
     )
     with patch("vibesys.context.PROJECT_ROOT", tmp_path):
         run_plain_loop(
-            config={"model": {"name": "claude-sonnet-4-6"}},  # pyright: ignore[reportArgumentType]  # tracked: #297
+            config={"model": {"name": "claude-sonnet-4-6"}},
             exp_name="test",
             runs_dir=tmp_path / "exp_env",
             input_path=str(Path(ref_file).parent),
@@ -205,10 +243,10 @@ def test_bootstrap_idempotent_on_resume(  # noqa: ANN201  # tracked: #288
     )
     with patch("vibesys.context.PROJECT_ROOT", tmp_path):
         run_plain_loop(
-            config={"model": {"name": "claude-sonnet-4-6"}},  # pyright: ignore[reportArgumentType]  # tracked: #297
+            config={"model": {"name": "claude-sonnet-4-6"}},
             exp_name=exp_dir.name,
             runs_dir=tmp_path / "exp_env",
-            input_path=str(Path(ref_file).parent),
+            input_path=str(exp_dir),
             accuracy_command="uv run python accuracy_checker/checker.py",
             benchmark_command="uv run python benchmark/benchmark.py",
             max_rounds=1,
@@ -243,7 +281,7 @@ def test_judge_pass_closes_issue(mock_build_runner, mock_backend, mock_build, re
 
     with patch("vibesys.context.PROJECT_ROOT", tmp_path):
         run_plain_loop(
-            config={"model": {"name": "claude-sonnet-4-6"}},  # pyright: ignore[reportArgumentType]  # tracked: #297
+            config={"model": {"name": "claude-sonnet-4-6"}},
             exp_name="test",
             runs_dir=tmp_path / "exp_env",
             input_path=str(Path(ref_file).parent),
@@ -284,7 +322,7 @@ def test_judge_fail_increments_attempts_and_keeps_open(  # noqa: ANN201  # track
 
     with patch("vibesys.context.PROJECT_ROOT", tmp_path):
         result = run_plain_loop(
-            config={"model": {"name": "claude-sonnet-4-6"}},  # pyright: ignore[reportArgumentType]  # tracked: #297
+            config={"model": {"name": "claude-sonnet-4-6"}},
             exp_name="test",
             runs_dir=tmp_path / "exp_env",
             input_path=str(Path(ref_file).parent),
@@ -326,7 +364,7 @@ def test_issue_blocks_after_max_attempts_exhausted(  # noqa: ANN201  # tracked: 
 
     with patch("vibesys.context.PROJECT_ROOT", tmp_path):
         result = run_plain_loop(
-            config={"model": {"name": "claude-sonnet-4-6"}},  # pyright: ignore[reportArgumentType]  # tracked: #297
+            config={"model": {"name": "claude-sonnet-4-6"}},
             exp_name="test",
             runs_dir=tmp_path / "exp_env",
             input_path=str(Path(ref_file).parent),
@@ -413,7 +451,7 @@ def test_judge_invoke_receives_tracker_kwargs(  # noqa: ANN201, PLR0913  # track
 
     with patch("vibesys.context.PROJECT_ROOT", tmp_path):
         run_plain_loop(
-            config={"model": {"name": "claude-sonnet-4-6"}},  # pyright: ignore[reportArgumentType]  # tracked: #297
+            config={"model": {"name": "claude-sonnet-4-6"}},
             exp_name="test",
             runs_dir=tmp_path / "exp_env",
             input_path=str(Path(ref_file).parent),
@@ -478,7 +516,7 @@ def test_perf_eval_invoke_receives_tracker_kwargs(  # noqa: ANN201, PLR0913  # t
 
     with patch("vibesys.context.PROJECT_ROOT", tmp_path):
         run_plain_loop(
-            config={"model": {"name": "claude-sonnet-4-6"}},  # pyright: ignore[reportArgumentType]  # tracked: #297
+            config={"model": {"name": "claude-sonnet-4-6"}},
             exp_name="test",
             runs_dir=tmp_path / "exp_env",
             input_path=str(Path(ref_file).parent),
@@ -564,7 +602,7 @@ def test_judge_phase_calls_store_reload_after_invoke(  # noqa: ANN201  # tracked
         ),
     ):
         run_plain_loop(
-            config={"model": {"name": "claude-sonnet-4-6"}},  # pyright: ignore[reportArgumentType]  # tracked: #297
+            config={"model": {"name": "claude-sonnet-4-6"}},
             exp_name="test",
             runs_dir=tmp_path / "exp_env",
             input_path=str(Path(ref_file).parent),
@@ -611,7 +649,7 @@ def test_implementer_invoke_has_no_tracker_kwargs(  # noqa: ANN201, PLR0913  # t
 
     with patch("vibesys.context.PROJECT_ROOT", tmp_path):
         run_plain_loop(
-            config={"model": {"name": "claude-sonnet-4-6"}},  # pyright: ignore[reportArgumentType]  # tracked: #297
+            config={"model": {"name": "claude-sonnet-4-6"}},
             exp_name="test",
             runs_dir=tmp_path / "exp_env",
             input_path=str(Path(ref_file).parent),
@@ -669,7 +707,7 @@ def test_perf_eval_runs_after_drain_complete(  # noqa: ANN201  # tracked: #288
 
     with patch("vibesys.context.PROJECT_ROOT", tmp_path):
         run_plain_loop(
-            config={"model": {"name": "claude-sonnet-4-6"}},  # pyright: ignore[reportArgumentType]  # tracked: #297
+            config={"model": {"name": "claude-sonnet-4-6"}},
             exp_name="test",
             runs_dir=tmp_path / "exp_env",
             input_path=str(Path(ref_file).parent),
@@ -723,7 +761,7 @@ def test_resume_with_bootstrap_done_skips_bootstrap_creation(  # noqa: ANN201  #
     )
     with patch("vibesys.context.PROJECT_ROOT", tmp_path):
         run_plain_loop(
-            config={"model": {"name": "claude-sonnet-4-6"}},  # pyright: ignore[reportArgumentType]  # tracked: #297
+            config={"model": {"name": "claude-sonnet-4-6"}},
             exp_name="test",
             runs_dir=tmp_path / "exp_env",
             input_path=str(Path(ref_file).parent),
@@ -743,10 +781,10 @@ def test_resume_with_bootstrap_done_skips_bootstrap_creation(  # noqa: ANN201  #
     mock_build_runner.return_value = runner2
     with patch("vibesys.context.PROJECT_ROOT", tmp_path):
         result = run_plain_loop(
-            config={"model": {"name": "claude-sonnet-4-6"}},  # pyright: ignore[reportArgumentType]  # tracked: #297
+            config={"model": {"name": "claude-sonnet-4-6"}},
             exp_name=exp_dir.name,
             runs_dir=tmp_path / "exp_env",
-            input_path=str(Path(ref_file).parent),
+            input_path=str(exp_dir),
             accuracy_command="uv run python accuracy_checker/checker.py",
             benchmark_command="uv run python benchmark/benchmark.py",
             max_rounds=1,
@@ -791,7 +829,7 @@ def test_resume_retries_previously_blocked_issue(  # noqa: ANN201  # tracked: #2
     )
     with patch("vibesys.context.PROJECT_ROOT", tmp_path):
         result1 = run_plain_loop(
-            config={"model": {"name": "claude-sonnet-4-6"}},  # pyright: ignore[reportArgumentType]  # tracked: #297
+            config={"model": {"name": "claude-sonnet-4-6"}},
             exp_name="test",
             runs_dir=tmp_path / "exp_env",
             input_path=str(Path(ref_file).parent),
@@ -819,10 +857,10 @@ def test_resume_retries_previously_blocked_issue(  # noqa: ANN201  # tracked: #2
     )
     with patch("vibesys.context.PROJECT_ROOT", tmp_path):
         result2 = run_plain_loop(
-            config={"model": {"name": "claude-sonnet-4-6"}},  # pyright: ignore[reportArgumentType]  # tracked: #297
+            config={"model": {"name": "claude-sonnet-4-6"}},
             exp_name=exp_dir.name,
             runs_dir=tmp_path / "exp_env",
-            input_path=str(Path(ref_file).parent),
+            input_path=str(exp_dir),
             accuracy_command="uv run python accuracy_checker/checker.py",
             benchmark_command="uv run python benchmark/benchmark.py",
             max_rounds=1,
@@ -869,7 +907,7 @@ def test_run_returns_true_when_perf_eval_files_no_issues_after_clean_drain(  # n
 
     with patch("vibesys.context.PROJECT_ROOT", tmp_path):
         result = run_plain_loop(
-            config={"model": {"name": "claude-sonnet-4-6"}},  # pyright: ignore[reportArgumentType]  # tracked: #297
+            config={"model": {"name": "claude-sonnet-4-6"}},
             exp_name="test",
             runs_dir=tmp_path / "exp_env",
             input_path=str(Path(ref_file).parent),
@@ -909,7 +947,7 @@ def test_state_json_written_with_bootstrap_done_after_run(  # noqa: ANN201  # tr
 
     with patch("vibesys.context.PROJECT_ROOT", tmp_path):
         run_plain_loop(
-            config={"model": {"name": "claude-sonnet-4-6"}},  # pyright: ignore[reportArgumentType]  # tracked: #297
+            config={"model": {"name": "claude-sonnet-4-6"}},
             exp_name="test",
             runs_dir=tmp_path / "exp_env",
             input_path=str(Path(ref_file).parent),
@@ -919,13 +957,16 @@ def test_state_json_written_with_bootstrap_done_after_run(  # noqa: ANN201  # tr
         )
 
     exp_dir = _run_exp_dir(tmp_path)
-    state_path = exp_dir / "logs" / "state.json"
+    state_path = _plain_state_dir(exp_dir) / "state.json"
     assert state_path.is_file()
     data = json.loads(state_path.read_text())
     assert data["bootstrap_done"] is True
     assert "phase" in data
     assert "round_idx" in data
     assert data["version"] == 1
+    assert (_plain_state_dir(exp_dir) / "perf" / "metrics.json").is_file()
+    assert not (exp_dir / "logs").exists()
+    assert not (_plain_local_dir(exp_dir) / "issues.json").exists()
 
 
 # ---------------------------------------------------------------------------
@@ -944,7 +985,7 @@ def test_issue_loop_writes_per_issue_markdown_via_callback(  # noqa: ANN201  # t
     tmp_path,  # noqa: ANN001, ARG001, RUF100  # tracked: #288
 ):
     """End-to-end: drive a one-iteration drain cycle and assert that
-    ``logs/issues/INDEX.md`` plus a per-issue MD file are written by the
+    local ``plain/issues/INDEX.md`` plus a per-issue MD file are written by the
     store's on_change → render_all callback, with the implementer summary
     and judge analysis surfacing in the per-issue markdown."""
     mock_build.return_value = "anthropic:claude-sonnet-4-6"
@@ -958,7 +999,7 @@ def test_issue_loop_writes_per_issue_markdown_via_callback(  # noqa: ANN201  # t
 
     with patch("vibesys.context.PROJECT_ROOT", tmp_path):
         run_plain_loop(
-            config={"model": {"name": "claude-sonnet-4-6"}},  # pyright: ignore[reportArgumentType]  # tracked: #297
+            config={"model": {"name": "claude-sonnet-4-6"}},
             exp_name="test",
             runs_dir=tmp_path / "exp_env",
             input_path=str(Path(ref_file).parent),
@@ -968,7 +1009,7 @@ def test_issue_loop_writes_per_issue_markdown_via_callback(  # noqa: ANN201  # t
         )
 
     exp_dir = _run_exp_dir(tmp_path)
-    issues_dir = exp_dir / "logs" / "issues"
+    issues_dir = _plain_local_dir(exp_dir) / "issues"
     assert issues_dir.is_dir(), f"{issues_dir} was not created"
 
     index_path = issues_dir / "INDEX.md"
@@ -988,11 +1029,7 @@ def test_issue_loop_writes_per_issue_markdown_via_callback(  # noqa: ANN201  # t
     # The per-issue file links back to the issue id
     assert "#0001" in issue_md
 
-    # Workspace mirror copy exists too
-    workspace_issues = exp_dir / "workspace" / "issues"
-    assert workspace_issues.is_dir()
-    assert (workspace_issues / "INDEX.md").is_file()
-    assert (workspace_issues / issue_files[0].name).is_file()
+    assert not (exp_dir / "issues").exists()
 
 
 # ---------------------------------------------------------------------------
@@ -1032,7 +1069,7 @@ def test_implementer_retry_user_prompt_includes_prior_judge_feedback(  # noqa: A
 
     with patch("vibesys.context.PROJECT_ROOT", tmp_path):
         run_plain_loop(
-            config={"model": {"name": "claude-sonnet-4-6"}},  # pyright: ignore[reportArgumentType]  # tracked: #297
+            config={"model": {"name": "claude-sonnet-4-6"}},
             exp_name="test",
             runs_dir=tmp_path / "exp_env",
             input_path=str(Path(ref_file).parent),

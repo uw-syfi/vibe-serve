@@ -1,4 +1,4 @@
-"""Round-record state for the agent loop: typed model, history, rollback resolution.
+"""Typed round records and in-memory history for the agent loop.
 
 ``hypothesis_outcome`` and ``candidate_disposition`` are plain strings rather
 than enums: this library intentionally does not depend on ``vibesys``, which
@@ -17,9 +17,9 @@ aliased first field without a plain default conflicts with dataclass
 field-ordering rules (a later required field would "follow a default
 argument").
 
-``RoundHistory`` is the public entry point for reading, mutating, and
-persisting a run's round history. How it's stored (JSON, atomic writes) is
-deliberately not part of its API.
+``RoundHistory`` owns only in-memory collection behavior and rollback-base
+resolution. The application-level project-state library owns persistence and
+the on-disk layout.
 """
 
 from __future__ import annotations
@@ -29,11 +29,8 @@ from typing import TYPE_CHECKING, Any
 from pydantic import ConfigDict, Field, TypeAdapter
 from pydantic.dataclasses import dataclass
 
-from vs_loop_state.core import atomic_write_json, read_json
-
 if TYPE_CHECKING:
     from collections.abc import Container
-    from pathlib import Path
 
 
 @dataclass(config=ConfigDict(extra="forbid"))
@@ -95,47 +92,19 @@ def serialize_round_record(record: RoundRecord) -> dict[str, Any]:
 
 
 def parse_round_record(data: dict[str, Any]) -> RoundRecord:
-    """Parse one JSON-compatible round record, including legacy records."""
+    """Parse one JSON-compatible round record from the portable schema."""
     if "round_number" not in data and "round" in data:
         data = dict(data)
         data["round_number"] = data.pop("round")
-    if "official_evaluation" not in data:
-        # Runs written before sparse official evaluation executed global
-        # gates for every proven candidate. Preserve that history when
-        # resuming rather than relabeling old checkpoints provisional.
-        data = dict(data)
-        data["official_evaluation"] = (
-            bool(data.get("passed", False)) and data.get("hypothesis_outcome") == "proven"
-        )
     return _ROUND_RECORD_ADAPTER.validate_python(data)
 
 
 class RoundHistory:
-    """The round-by-round history of an agent-loop run.
+    """The in-memory round-by-round history of an agent-loop run."""
 
-    Wraps the list of round records produced by a run together with where
-    (if anywhere) it's persisted. Construct with ``records=`` for a purely
-    in-memory history (e.g. in tests); use `RoundHistory.load` to read one
-    back from wherever it was previously saved.
-    """
-
-    def __init__(self, path: Path | None = None, records: list[RoundRecord] | None = None) -> None:
-        """Wrap *records* (empty by default) together with the *path* to persist to."""
-        self.path = path
+    def __init__(self, records: list[RoundRecord] | None = None) -> None:
+        """Wrap *records*, starting with an empty history by default."""
         self.records: list[RoundRecord] = records if records is not None else []
-
-    @classmethod
-    def load(cls, path: Path) -> RoundHistory:
-        """Load the round history from *path*, or start empty if it doesn't exist yet."""
-        data = read_json(path)
-        records = [] if data is None else [parse_round_record(entry) for entry in data]
-        return cls(path, records)
-
-    def save(self) -> None:
-        """Persist the current history, atomically, to the path it was loaded/created with."""
-        if self.path is None:
-            raise ValueError("RoundHistory has no path to save to")  # noqa: TRY003  # tracked: #288
-        atomic_write_json(self.path, [serialize_round_record(record) for record in self.records])
 
     def append(self, record: RoundRecord) -> None:
         """Add *record* to the end of the history."""

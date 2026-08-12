@@ -36,10 +36,59 @@ from vibesys.server.runtime import run_server
 from vibesys.server.schema import ProtocolDocument
 from vibesys.server.service import SupervisionService
 from vibesys.server.transport import SupervisionSocketServer
+from vs_loop_state import RoundRecord
+from vs_project_state import AgentRunConfiguration, ProjectStore
 
 
 def _events(path):  # noqa: ANN001, ANN202  # tracked: #288
     return [json.loads(line) for line in path.read_text().splitlines()]
+
+
+def _project_run(project: Path) -> tuple[ProjectStore, str]:
+    project.mkdir()
+    (project / "OBJECTIVE.md").write_text("Make the queue fast.\n", encoding="utf-8")
+    store = ProjectStore(project)
+    store.create_project("queue")
+    manifest = store.new_run_manifest(
+        "queue",
+        run_id="queue-run",
+        branch="vibesys/queue-run",
+        vibesys_version="0.2.0-test",
+        configuration=AgentRunConfiguration(
+            outer_loop="agent",
+            inner_loop="single-agent",
+            interface="inprocess",
+            agent_backend="stub",
+            compute_backend="cpu",
+            profiler="none",
+            max_rounds=3,
+            max_retries_per_round=1,
+            judge_every=1,
+            official_eval_every=1,
+            memory_layout="files",
+        ),
+        trusted_input_baseline="0" * 40,
+    )
+    store.create_run(manifest)
+    return store, manifest.run_id
+
+
+def _round(
+    number: int,
+    *,
+    metric: float | None,
+    passed: bool,
+    reason: str | None = None,
+) -> RoundRecord:
+    return RoundRecord(
+        round_number=number,
+        commit=f"{number:x}" * 40,
+        perf_metric=metric,
+        perf_unit="total_ops_per_sec" if metric is not None else None,
+        passed=passed,
+        profile_skipped=metric is None,
+        official_evaluation_reason=reason,
+    )
 
 
 def test_chat_is_audited_but_not_injected(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
@@ -147,14 +196,16 @@ def test_invocation_audit_contains_prompts_and_result(tmp_path):  # noqa: ANN001
 
 
 def test_inspector_answers_round_and_failure_queries(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
-    supervisor = RunSupervisor()
-    (tmp_path / "logs").mkdir()
-    supervisor.attach(tmp_path / "logs")
-    (supervisor.log_dir / "progress.md").write_text(  # pyright: ignore[reportOptionalOperand]  # tracked: #297
-        "## Round 1 — Judge\nPASS\n\n## Round 2 — Judge\nFAIL: latency regressed\n"
+    store, run_id = _project_run(tmp_path / "project")
+    store.save_round(run_id, _round(1, metric=1200.0, passed=True))
+    store.save_round(
+        run_id,
+        _round(2, metric=1100.0, passed=False, reason="Judge FAIL: latency regressed"),
     )
+    supervisor = RunSupervisor()
+    supervisor.attach(store.logs_dir(run_id), project_store=store, run_id=run_id)
     inspector = RunInspector(supervisor)
-    assert "Round 2" in inspector.round_detail(2)
+    assert '"round": 2' in inspector.round_detail(2)
     assert "latency regressed" in inspector.answer("why did the judge fail?")
 
 
@@ -187,16 +238,17 @@ def test_side_channel_chat_output_is_tagged_without_changing_active_agent(tmp_pa
 
 
 def test_bootstrap_events_migrate_to_run_audit_without_replacing_history(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
-    logs = tmp_path / "run" / "logs"
+    store, run_id = _project_run(tmp_path / "project")
+    logs = store.logs_dir(run_id)
     historical = RunSupervisor()
-    historical.attach(logs)
+    historical.attach(logs, project_store=store, run_id=run_id)
     historical.record(EventType.RUN_FINISHED, "previous invocation", status="completed")
 
     bootstrap = tmp_path / "session"
     supervisor = RunSupervisor()
     supervisor.attach(bootstrap)
     supervisor.record(EventType.SERVER_READY, status="active")
-    supervisor.attach(logs)
+    supervisor.attach(logs, project_store=store, run_id=run_id)
     supervisor.record(EventType.RUN_STARTED, status="active")
 
     audited = _events(logs / "run-events.jsonl")
@@ -219,17 +271,23 @@ def test_bootstrap_events_migrate_to_run_audit_without_replacing_history(tmp_pat
         "server_ready",
         "run_started",
     ]
+    assert supervisor.project_run is not None
+    assert supervisor.project_run.store is store
+    assert supervisor.project_run.run_id == run_id
+    assert supervisor.snapshot().run_id == run_id
+    assert supervisor.read_events()[-1].run_id == run_id
 
 
 def test_history_query_reads_prior_and_current_session_events(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
-    logs = tmp_path / "run" / "logs"
+    store, run_id = _project_run(tmp_path / "project")
+    logs = store.logs_dir(run_id)
     historical = RunSupervisor()
-    historical.attach(logs)
+    historical.attach(logs, project_store=store, run_id=run_id)
     historical.record(EventType.ROUND_FINISHED, status="completed", round_label="round-1")
 
     supervisor = RunSupervisor()
     supervisor.attach(tmp_path / "session")
-    supervisor.attach(logs)
+    supervisor.attach(logs, project_store=store, run_id=run_id)
     supervisor.record(EventType.ROUND_FINISHED, status="completed", round_label="round-2")
 
     response = SupervisionService(supervisor).execute(HistoryQuery())
@@ -241,44 +299,82 @@ def test_history_query_reads_prior_and_current_session_events(tmp_path):  # noqa
     assert {event.round_label for event in supervisor.read_events()} == {None, "round-2"}
 
 
-def test_performance_query_reads_rounds_json(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
-    logs = tmp_path / "run" / "logs"
-    logs.mkdir(parents=True)
-    (logs / "rounds.json").write_text(
-        json.dumps(
-            [
-                {
-                    "round": 1,
-                    "perf_metric": 1200.0,
-                    "perf_unit": "total_ops_per_sec",
-                    "passed": True,
-                    "profile_skipped": False,
-                },
-                {
-                    "round": 2,
-                    "perf_metric": None,
-                    "perf_unit": None,
-                    "passed": False,
-                    "profile_skipped": True,
-                },
-                {
-                    "round": 3,
-                    "perf_metric": 2400.0,
-                    "perf_unit": "total_ops_per_sec",
-                    "passed": True,
-                    "profile_skipped": False,
-                },
-            ]
-        )
-    )
+def test_performance_query_reads_canonical_completed_rounds(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+    store, run_id = _project_run(tmp_path / "project")
+    store.save_round(run_id, _round(1, metric=1200.0, passed=True))
+    store.save_round(run_id, _round(2, metric=None, passed=False))
+    store.save_round(run_id, _round(3, metric=2400.0, passed=True))
     supervisor = RunSupervisor()
-    supervisor.attach(logs)
+    supervisor.attach(store.logs_dir(run_id))
+    assert SupervisionService(supervisor).execute(PerformanceQuery()).performance == []
+
+    supervisor.attach(store.logs_dir(run_id), project_store=store, run_id=run_id)
 
     response = SupervisionService(supervisor).execute(PerformanceQuery())
 
     assert [round.round for round in response.performance] == [1, 3]  # noqa: A001  # tracked: #288
     assert response.performance[1].perf_metric == 2400.0
     assert response.performance[1].perf_unit == "total_ops_per_sec"
+
+
+def test_bootstrap_performance_query_has_no_project_state(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+    supervisor = RunSupervisor()
+    supervisor.attach(tmp_path)
+
+    response = SupervisionService(supervisor).execute(PerformanceQuery())
+
+    assert response.performance == []
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        (
+            "plain",
+            "perf/metrics.json",
+            '{"iteration": 2, "throughput_trend": "improved"}',
+            "what is the latest performance result?",
+            "throughput_trend",
+        ),
+        (
+            "evolve",
+            "population.json",
+            '{"generation": 3, "feedback": "judge FAIL: latency regressed"}',
+            "why did the judge fail?",
+            "latency regressed",
+        ),
+    ],
+)
+def test_inspector_searches_portable_loop_state(
+    tmp_path: Path, case: tuple[str, str, str, str, str]
+) -> None:
+    namespace, relative_path, contents, question, expected = case
+    store, run_id = _project_run(tmp_path / "project")
+    relative = Path(relative_path)
+    parent = None if relative.parent == Path() else relative.parent.as_posix()
+    state_path = (
+        store.portable_namespace(run_id, namespace).external_directory(parent) / relative.name
+    )
+    state_path.write_text(contents, encoding="utf-8")
+    supervisor = RunSupervisor()
+    supervisor.attach(store.logs_dir(run_id), project_store=store, run_id=run_id)
+
+    answer = RunInspector(supervisor).answer(question)
+
+    assert expected in answer
+
+
+def test_inspector_searches_canonical_local_run_log(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+    store, run_id = _project_run(tmp_path / "project")
+    (store.logs_dir(run_id) / "run-20260812-120000.log").write_text(
+        "Benchmark throughput reached 2400 ops/s.", encoding="utf-8"
+    )
+    supervisor = RunSupervisor()
+    supervisor.attach(store.logs_dir(run_id), project_store=store, run_id=run_id)
+
+    answer = RunInspector(supervisor).answer("what is the latest benchmark result?")
+
+    assert "2400 ops/s" in answer
 
 
 def test_chat_reports_structured_failed_invocation(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
@@ -392,19 +488,28 @@ def test_chat_explains_configuration_failure_without_a_run_context(tmp_path):  #
 
 
 def test_run_context_chat_exposes_trajectory_without_inlining_it_in_prompt(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+    store, run_id = _project_run(tmp_path / "project")
+    portable_metrics = (
+        store.portable_namespace(run_id, "plain").external_directory("perf") / "metrics.json"
+    )
+    portable_metrics.write_text(
+        '{"iteration": 2, "throughput_trend": "improved"}', encoding="utf-8"
+    )
+    run_log = store.logs_dir(run_id) / "run-20260812-120000.log"
+    run_log.write_text("Round 2 improved throughput.", encoding="utf-8")
     supervisor = RunSupervisor()
-    supervisor.attach(tmp_path / "logs")
-    (tmp_path / "logs" / "progress.md").write_text("Round 2 improved throughput.")
+    supervisor.attach(store.logs_dir(run_id), project_store=store, run_id=run_id)
     ctx = _RunContext.__new__(_RunContext)
     ctx.supervisor = supervisor
     ctx.agent_runner = Mock()
     ctx.agent_runner.invoke_text.return_value = "It improved in round 2."
     ctx._paths = RunPaths(  # noqa: SLF001  # tracked: #288
-        exp_dir=tmp_path,
-        log_dir=tmp_path / "logs",
-        workspace=tmp_path / "workspace",
-        run_log_path=tmp_path / "run.log",
+        project_root=store.project_root,
+        log_dir=store.logs_dir(run_id),
+        run_log_path=run_log,
     )
+    ctx.project_store = store
+    ctx.run_id = run_id
     ctx.gpu_env = dict
     ctx._progress_stack = []  # noqa: SLF001  # tracked: #288
     ctx._chat_lock = threading.Lock()  # noqa: SLF001  # tracked: #288
@@ -422,9 +527,13 @@ def test_run_context_chat_exposes_trajectory_without_inlining_it_in_prompt(tmp_p
     assert "Round 2 improved throughput." not in invocation["user_prompt"]
     assert "_vibesys_chat/trajectory/" in invocation["system_prompt"]
     assert "read-only investigation agent" in invocation["system_prompt"]
-    trajectory = tmp_path / "workspace" / "_vibesys_chat" / "trajectory"
-    assert (trajectory / "progress.md").read_text() == "Round 2 improved throughput."
-    transcript = tmp_path / "workspace" / "_vibesys_chat" / "conversation.jsonl"
+    trajectory = store.project_root / "_vibesys_chat" / "trajectory"
+    assert json.loads((trajectory / "state/plain/perf/metrics.json").read_text()) == {
+        "iteration": 2,
+        "throughput_trend": "improved",
+    }
+    assert (trajectory / "logs" / run_log.name).read_text() == "Round 2 improved throughput."
+    transcript = store.project_root / "_vibesys_chat" / "conversation.jsonl"
     assert json.loads(transcript.read_text()) == {
         "question": "what improved?",
         "answer": "It improved in round 2.",
@@ -664,9 +773,8 @@ def test_run_context_records_invocation_boundary(tmp_path):  # noqa: ANN001, ANN
     ctx.agent_runner = Mock()
     ctx.agent_runner.invoke.return_value = {"summary": "measured"}
     ctx._paths = RunPaths(  # noqa: SLF001  # tracked: #288
-        exp_dir=tmp_path,
+        project_root=tmp_path,
         log_dir=tmp_path / "logs",
-        workspace=tmp_path,
         run_log_path=tmp_path / "run.log",
     )
     ctx.gpu_env = dict

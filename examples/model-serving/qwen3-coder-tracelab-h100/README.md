@@ -16,9 +16,9 @@ TraceLab replay implementation is an ordinary evaluator source, materialized at
 Start an optimization run with:
 
 ```bash
-uv run vibesys \
+vibesys \
   --input examples/model-serving/qwen3-coder-tracelab-h100 \
-  --runs-dir "$PWD/exp_env" \
+  --runs-dir /work/vibesys-runs \
   --local \
   --exp-name qwen3-coder-tracelab-h100 \
   --modal \

@@ -55,8 +55,8 @@ _DEFAULT_SHM_SIZE = "16g"
 
 # Persistent neuronx-cc compile cache, bind-mounted from the host so
 # compiles (minutes each) survive container restarts and carry across
-# rounds.  Kept *outside* /workspace so the git-tracked workspace doesn't
-# balloon with multi-MB NEFFs.
+# rounds. Kept outside the container's /workspace project mount so the
+# Git-tracked project does not balloon with multi-MB NEFFs.
 _CACHE_CONTAINER_PATH = "/opt/neuron-compile-cache"
 # neuronx-cc temp/workdir (TMPDIR), host-mounted so intermediates stay off the
 # container overlay.
@@ -144,8 +144,8 @@ class TrainiumBackend:
 
         if kind is SandboxKind.DOCKER:
             # Persistent host-side compile cache → container, kept out of
-            # /workspace (and registered as passthrough so virtual-path
-            # translation leaves its absolute path alone).
+            # the container's /workspace project mount (and registered as a
+            # passthrough so virtual-path translation leaves it unchanged).
             host_cache = self.log_dir / "neuron-compile-cache"
             host_cache.mkdir(parents=True, exist_ok=True)
             bind_mounts.append((str(host_cache), _CACHE_CONTAINER_PATH, False))

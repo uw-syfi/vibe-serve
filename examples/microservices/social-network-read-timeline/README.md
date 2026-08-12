@@ -5,7 +5,7 @@ Closes issues #48.
 VibeSys use:
 
 ```bash
-uv run vibesys --runs-dir "$PWD/exp_env" --local \
+vibesys --runs-dir /work/vibesys-runs --local \
   --input examples/microservices/social-network-read-timeline
 ```
 
@@ -38,7 +38,7 @@ The following 11 checks are used for this service.
 | C8    | Unfollow stops future fan-out                                                      |
 | C9    | Failed reads do not mutate application state                                       |
 | C10   | Pagination: disjoint non-overlapping pages                                         |
-| C11   | Held-out sequences: burst-read consistency + cross-user visibility + page boundary |
+| C11   | Compound sequences: burst-read consistency + cross-user visibility + page boundary |
 
 
 ---
@@ -148,7 +148,7 @@ All 11 checks must pass before running the benchmark. Expected output should loo
   PASS  C8 Unfollow stops future fan-out to home-timeline
   PASS  C9 Failed reads do not mutate application state
   PASS  C10 Pagination: start/stop bounds return disjoint non-overlapping pages
-  PASS  C11 Held-out sequences: burst-read consistency and cross-user visibility
+  PASS  C11 Compound sequences: burst-read consistency and cross-user visibility
 
 Results: 11 passed, 0 failed out of 11 checks.
 ```

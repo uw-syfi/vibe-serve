@@ -106,11 +106,11 @@ class IssueBoard:
         self.path = Path(path)
         self._lock = RLock()
         self._on_change: Callable[[], None] | None = None
-        self._data: dict[str, Any] = {
-            "version": _STORE_VERSION,
-            "next_id": 1,
-            "issues": [],
-        }
+        self._data = _IssueBoardData(
+            version=_STORE_VERSION,
+            next_id=1,
+            issues=[],
+        )
         self.path.parent.mkdir(parents=True, exist_ok=True)
         if self.path.is_file():
             self._data = self._load_from_disk()
@@ -118,7 +118,7 @@ class IssueBoard:
             self._save_locked()
         self._on_change = on_change
 
-    def _load_from_disk(self) -> dict[str, Any]:
+    def _load_from_disk(self) -> _IssueBoardData:
         try:
             loaded = json.loads(self.path.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, UnicodeDecodeError) as exc:
@@ -133,11 +133,15 @@ class IssueBoard:
             raise IssueBoardLoadError(  # noqa: TRY003  # tracked: #288
                 f"cannot load issue board {self.path}: expected a JSON object"
             )
-        version = loaded.get("version")
-        if version != _STORE_VERSION:
+        if "version" not in loaded:
             raise IssueBoardLoadError(  # noqa: TRY003  # tracked: #288
                 f"cannot load issue board {self.path}: unsupported version "
-                f"{version!r}; expected {_STORE_VERSION}"
+                f"None; expected {_STORE_VERSION}"
+            )
+        if loaded["version"] != _STORE_VERSION:
+            raise IssueBoardLoadError(  # noqa: TRY003  # tracked: #288
+                f"cannot load issue board {self.path}: unsupported version "
+                f"{loaded['version']!r}; expected {_STORE_VERSION}"
             )
         try:
             data = _IssueBoardData.model_validate(loaded)
@@ -145,11 +149,11 @@ class IssueBoard:
             raise IssueBoardLoadError(  # noqa: TRY003  # tracked: #288
                 f"cannot load issue board {self.path}: invalid store structure: {exc}"
             ) from exc
-        return data.model_dump(mode="json")
+        return data
 
     def _save_locked(self) -> None:
         tmp = self.path.with_suffix(self.path.suffix + ".tmp")
-        tmp.write_text(json.dumps(self._data, indent=2), encoding="utf-8")
+        tmp.write_text(self._data.model_dump_json(indent=2), encoding="utf-8")
         os.replace(tmp, self.path)  # noqa: PTH105  # tracked: #288
         if self._on_change is not None:
             try:
@@ -166,13 +170,10 @@ class IssueBoard:
         with self._lock:
             self._data = self._load_from_disk()
 
-    def _issue_from_dict(self, raw: dict[str, Any]) -> Issue:
-        return Issue.model_validate(raw)
-
     def _replace_issue(self, issue: Issue) -> None:
-        for idx, raw in enumerate(self._data["issues"]):
-            if raw.get("id") == issue.id:
-                self._data["issues"][idx] = issue.model_dump(mode="json")
+        for idx, stored in enumerate(self._data.issues):
+            if stored.id == issue.id:
+                self._data.issues[idx] = issue.model_copy(deep=True)
                 return
         raise KeyError(f"issue #{issue.id} not found")  # noqa: TRY003  # tracked: #288
 
@@ -190,7 +191,7 @@ class IssueBoard:
         with self._lock:
             now = datetime.now().isoformat()  # noqa: DTZ005  # tracked: #288
             issue = Issue(
-                id=self._data["next_id"],
+                id=self._data.next_id,
                 type=type,
                 title=title.strip(),
                 description=description.strip(),
@@ -209,16 +210,16 @@ class IssueBoard:
                     )
                 ],
             )
-            self._data["next_id"] += 1
-            self._data["issues"].append(issue.model_dump(mode="json"))
+            self._data.next_id += 1
+            self._data.issues.append(issue.model_copy(deep=True))
             self._save_locked()
             return issue
 
     def get(self, issue_id: int) -> Issue | None:  # noqa: D102  # tracked: #288
         with self._lock:
-            for raw in self._data["issues"]:
-                if raw.get("id") == issue_id:
-                    return self._issue_from_dict(raw)
+            for issue in self._data.issues:
+                if issue.id == issue_id:
+                    return issue.model_copy(deep=True)
         return None
 
     def update_status(  # noqa: D102, PLR0913  # tracked: #288
@@ -267,10 +268,9 @@ class IssueBoard:
         """Reopen every blocked issue, resetting its attempt budget."""
         reopened: list[int] = []
         with self._lock:
-            for raw in self._data["issues"]:
-                if raw.get("status") != IssueStatus.BLOCKED.value:
+            for issue in self._data.issues:
+                if issue.status is not IssueStatus.BLOCKED:
                     continue
-                issue = self._issue_from_dict(raw)
                 now = datetime.now().isoformat()  # noqa: DTZ005  # tracked: #288
                 issue.status = IssueStatus.OPEN
                 issue.attempts = 0
@@ -285,7 +285,6 @@ class IssueBoard:
                         note=note,
                     )
                 )
-                self._replace_issue(issue)
                 reopened.append(issue.id)
             if reopened:
                 self._save_locked()
@@ -333,13 +332,12 @@ class IssueBoard:
             type = IssueType(type)  # noqa: A001  # tracked: #288
         with self._lock:
             out: list[Issue] = []
-            for raw in self._data["issues"]:
-                issue = self._issue_from_dict(raw)
+            for issue in self._data.issues:
                 if status is not None and issue.status != status:
                     continue
                 if type is not None and issue.type != type:
                     continue
-                out.append(issue)
+                out.append(issue.model_copy(deep=True))
         return out
 
     def search(self, query: str) -> list[Issue]:
@@ -354,11 +352,10 @@ class IssueBoard:
             return []
         with self._lock:
             out: list[Issue] = []
-            for raw in self._data["issues"]:
-                issue = self._issue_from_dict(raw)
+            for issue in self._data.issues:
                 hay = (issue.title + "\n" + issue.description).lower()
                 if all(kw in hay for kw in keywords):
-                    out.append(issue)
+                    out.append(issue.model_copy(deep=True))
         return out
 
     def open_count_by_creator_in_iter(self, creator: str, iteration: int) -> int:
@@ -366,8 +363,8 @@ class IssueBoard:
         with self._lock:
             return sum(
                 1
-                for raw in self._data["issues"]
-                if raw.get("created_by") == creator and raw.get("created_iter") == iteration
+                for issue in self._data.issues
+                if issue.created_by == creator and issue.created_iter == iteration
             )
 
     def next_open(self) -> Issue | None:

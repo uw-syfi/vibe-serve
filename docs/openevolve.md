@@ -4,9 +4,9 @@ VibeSys can use the search policy from OpenEvolve 0.3.1 without copying its
 implementation:
 
 ```bash
-uv run vibesys --outer-loop evolve \
+vibesys --outer-loop evolve \
   --search-policy openevolve \
-  --runs-dir "$PWD/exp_env" --local \
+  --runs-dir /work/vibesys-runs --local \
   --input examples/data-structures/queue-spsc
 ```
 
@@ -21,7 +21,7 @@ tests; no vendored or submodule source needs to be synchronized.
 flowchart LR
     OE["OpenEvolve ProgramDatabase"] -->|"parent + inspirations + island"| VS["VibeSys evolve controller"]
     VS --> A["multi-shot coding agent"]
-    A --> W["multi-file git workspace"]
+    A --> W["multi-file Git project"]
     W --> J["domain judge"]
     J --> P["profiler / trusted benchmark"]
     P -->|"passing individual + metrics + canonical patch"| OE
@@ -35,14 +35,14 @@ OpenEvolve owns:
 - inspiration sampling;
 - bounded population and elite archive maintenance;
 - island assignment and migration; and
-- persistence in `logs/openevolve/`.
+- persistence in `.vs/runs/<run-id>/evolve/openevolve/`.
 
 VibeSys owns:
 
 - bootstrap, generations, and candidate concurrency;
 - the coding-agent mutation (including its multiple tool/LLM turns);
 - domain/modality prompts and environment hooks;
-- multi-file checkout, edits, snapshots, and commits;
+- multi-file project checkout, edits, snapshots, and commits;
 - correctness judging and trusted profiling; and
 - the complete `population.json` audit, including failed candidates.
 
@@ -66,16 +66,16 @@ coherent database version without rewriting every stored patch per mutation.
 ## Multi-file representation
 
 OpenEvolve's `Program` contract has one `code` string. The adapter supplies a
-canonical git patch from the experiment's initial workspace commit to the
+canonical Git patch from the project's initial commit to the
 candidate commit. This gives OpenEvolve meaningful complexity, edit-distance,
 and duplicate signals across a multi-file candidate without flattening the
-workspace into a fake source file. Program metadata stores the durable VibeSys
+project into a fake source file. Program metadata stores the durable VibeSys
 individual ID and commit. Migrated OpenEvolve programs retain that metadata, so
 selection always resolves back to the correct VibeSys tree.
 
-Runtime output under the workspace's `logs/` directory is excluded from this
-patch. Profiler counters, benchmark JSON, timestamps, and `perf.data` therefore
-cannot distort OpenEvolve's code-complexity and diversity features.
+Framework state under `.vs/` is excluded from this patch. Profiler counters,
+benchmark JSON, timestamps, and other runtime output therefore cannot distort
+OpenEvolve's code-complexity and diversity features.
 
 ## Metrics and multi-objective runs
 

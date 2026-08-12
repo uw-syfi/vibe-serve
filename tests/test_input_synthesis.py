@@ -34,7 +34,7 @@ def _minimal_spec(**overrides: object) -> SynthesizedInputSpec:
 def test_synthesize_minimal_bundle_round_trips(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     root = synthesize_input_bundle(_minimal_spec(), tmp_path / "bundle")
 
-    bundle = load_input_bundle(root, allow_bundle_local_sources=True)
+    bundle = load_input_bundle(root)
 
     assert bundle.domain == DomainName.LLM_SERVING
     assert bundle.objective == "Serve the model quickly.\n"
@@ -63,7 +63,7 @@ def test_synthesize_populates_optional_fields(tmp_path):  # noqa: ANN001, ANN201
     )
     root = synthesize_input_bundle(spec, tmp_path / "bundle")
 
-    bundle = load_input_bundle(root, allow_bundle_local_sources=True)
+    bundle = load_input_bundle(root)
 
     assert bundle.manifest.accuracy.timeout_seconds == 120
     assert bundle.manifest.benchmark.timeout_seconds == 300
@@ -87,7 +87,7 @@ def test_synthesize_copies_evaluator_dir_contents_into_root(tmp_path):  # noqa: 
     assert (root / "checker.py").read_text() == "print('ok')\n"
     assert (root / "pkg" / "helper.py").read_text() == "X = 1\n"
     # The manifest and objective the synthesizer owns are still intact.
-    load_input_bundle(root, allow_bundle_local_sources=True)
+    load_input_bundle(root)
 
 
 def test_synthesize_rejects_evaluator_dir_reserved_name_collision(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
@@ -123,7 +123,7 @@ def test_synthesize_escapes_special_characters_in_commands(tmp_path):  # noqa: A
     )
     root = synthesize_input_bundle(spec, tmp_path / "bundle")
 
-    bundle = load_input_bundle(root, allow_bundle_local_sources=True)
+    bundle = load_input_bundle(root)
     assert bundle.accuracy_command == ("python", "-c", 'print("hi")')
     assert bundle.objective == 'Handle "quotes" and\nnewlines.\n'
 

@@ -8,7 +8,7 @@ model on a NeuronCore via the AWS Neuron SDK, BF16, `/dev/neuron0`).
 Use:
 
 ```bash
-uv run vibesys --runs-dir "$PWD/exp_env" --local \
+vibesys --runs-dir /work/vibesys-runs --local \
   --input examples/model-serving/Llama-3-8B-trn2 \
   --backend trainium --docker
 ```

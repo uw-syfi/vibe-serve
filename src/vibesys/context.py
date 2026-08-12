@@ -1,14 +1,12 @@
-"""Shared run context: ``_RunContext``, ``create_run_context``, and ``setup_exp_dir``."""
+"""Shared lifecycle context for one canonical VibeSys project run."""
 
 import json
 import shutil
-import subprocess
 import threading
 import uuid
 from collections.abc import Callable, Generator
 from contextlib import ExitStack, contextmanager
 from dataclasses import replace
-from datetime import datetime
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as distribution_version
 from pathlib import Path
@@ -46,19 +44,21 @@ from vibesys.profilers import (
     resolve_profiler_kind,
 )
 from vibesys.render import HeadlessRenderer, output_sink
-from vibesys.repository import validate_experiment_name
 from vibesys.resource_paths import profiler_support_dir
 from vibesys.run import (
     DeviceLease,
     ExperimentRepository,
     GitTracker,
+    ProjectProvisioningSpec,
     RepositoryVisibility,
     RunCommands,
     RunLogger,
     RunPaths,
+    RunState,
+    RunStateNamespace,
     Workspace,
+    provision_project,
 )
-from vibesys.run.git_tracker import GitTrackingMode
 from vibesys.run.project_policy import (
     build_project_path_policy,
     trusted_project_input_paths,
@@ -76,7 +76,7 @@ from vibesys.sandbox.run_environment import (
     build_run_environment,
     make_run_environment_spec,
 )
-from vs_project_state import ProjectStore, RunConfiguration, generate_run_id
+from vs_project_state import ProjectStore, RunConfiguration, StateTransition, generate_run_id
 
 if TYPE_CHECKING:
     from vibesys.server.supervisor import RunSupervisor
@@ -91,8 +91,8 @@ You are the read-only investigation agent for a live VibeSys experiment. Answer 
 user's question by examining evidence instead of relying on a precomputed summary.
 
 Your working directory is the current experiment workspace. Relevant evidence is:
-- `_vibesys_chat/trajectory/`: refreshed snapshots of the experiment event stream,
-  agent run logs, round state, progress, performance metrics, and other textual logs.
+- `_vibesys_chat/trajectory/state/`: the canonical portable `.vs` state for this run.
+- `_vibesys_chat/trajectory/logs/`: machine-local event and run logs for this run.
 - `_vibesys_chat/conversation.jsonl`: successful earlier exchanges in this chat.
 - the rest of the workspace: the current implementation, evaluator inputs, and git
   history/diffs when available.
@@ -110,35 +110,6 @@ Continue the read-only experiment chat. Follow `_vibesys_chat/instructions.md`,
 consult `_vibesys_chat/conversation.jsonl` when the question depends on an earlier
 exchange, and investigate the refreshed trajectory evidence before making claims.
 """
-
-
-def setup_exp_dir(
-    exp_name: str,
-    *,
-    runs_dir: Path,
-    existing: bool = False,
-) -> Path:
-    """Create or validate a run directory in the selected collection."""
-    runs_dir = runs_dir.expanduser().resolve()
-    if existing:
-        exp_dir = runs_dir / exp_name
-    else:
-        validate_experiment_name(exp_name)
-        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")  # noqa: DTZ005  # tracked: #288
-        exp_dir = runs_dir / f"{timestamp}-{uuid.uuid4().hex[:8]}-{exp_name}"
-    if existing:
-        if not exp_dir.is_dir():
-            raise FileNotFoundError(f"Experiment directory not found: {exp_dir}")  # noqa: TRY003  # tracked: #288
-        return exp_dir
-    exp_dir.mkdir(parents=True, exist_ok=False)
-    if not (exp_dir / ".git").is_dir():
-        subprocess.run(
-            ["git", "init", "-b", "main"],  # noqa: S607  # tracked: #288
-            cwd=exp_dir,
-            capture_output=True,
-            check=True,
-        )
-    return exp_dir
 
 
 def _coerce_dir(raw: str | Path | None, label: str) -> Path | None:
@@ -164,9 +135,20 @@ def _resume_configuration_update(
     recorded: RunConfiguration,
     requested: RunConfiguration,
 ) -> RunConfiguration | None:
-    """Validate resume settings and return an increased total round limit, if any."""
-    recorded_core = recorded.model_dump(exclude={"max_rounds"})
-    requested_core = requested.model_dump(exclude={"max_rounds"})
+    """Validate resume settings and return an increased total run limit, if any."""
+    if recorded.outer_loop != requested.outer_loop:
+        raise ConfigurationError(
+            ConfigurationDiagnostic(
+                code="project_resume_configuration_mismatch",
+                stage="resume_resolution",
+                message=(
+                    f"run uses outer loop {recorded.outer_loop!r}, not {requested.outer_loop!r}"
+                ),
+            )
+        )
+    limit_field = "max_generations" if recorded.outer_loop == "evolve" else "max_rounds"
+    recorded_core = recorded.model_dump(exclude={limit_field})
+    requested_core = requested.model_dump(exclude={limit_field})
     changed = sorted(
         field for field, value in requested_core.items() if recorded_core.get(field) != value
     )
@@ -176,24 +158,25 @@ def _resume_configuration_update(
                 code="project_resume_configuration_mismatch",
                 stage="resume_resolution",
                 message=(
-                    "resuming an in-place run cannot change its recorded configuration "
+                    "resuming a run cannot change its recorded configuration "
                     f"fields: {', '.join(changed)}"
                 ),
             )
         )
-    if requested.max_rounds < recorded.max_rounds:
+    recorded_limit = getattr(recorded, limit_field)
+    requested_limit = getattr(requested, limit_field)
+    if requested_limit < recorded_limit:
         raise ConfigurationError(
             ConfigurationDiagnostic(
                 code="project_resume_configuration_mismatch",
                 stage="resume_resolution",
                 message=(
-                    "--max-rounds is the run's total limit and cannot decrease when "
-                    f"resuming (recorded {recorded.max_rounds}, requested "
-                    f"{requested.max_rounds})"
+                    f"{limit_field} is the run's total limit and cannot decrease when "
+                    f"resuming (recorded {recorded_limit}, requested {requested_limit})"
                 ),
             )
         )
-    return requested if requested.max_rounds > recorded.max_rounds else None
+    return requested if requested_limit > recorded_limit else None
 
 
 @overload
@@ -233,27 +216,26 @@ def create_run_context(  # noqa: PLR0913  # tracked: #288
     accuracy_command: str,
     benchmark_command: str,
     *,
-    runs_dir: Path,
+    runs_dir: Path | None,
     workspace_seed: Path | None = None,
     workspace_sources: tuple[WorkspaceSource, ...] = (),
     evaluator_path: Path | None = None,
     objective: str | None = None,
     existing: bool = False,
-    project_mode: bool = False,
-    project_configuration: RunConfiguration | None = None,
+    project_configuration: RunConfiguration,
     trusted_input_baseline: str | None = None,
     debug: bool = False,
     profiler_kind: ProfilerKind = ProfilerKind.AUTO,
     profiler_domain: DomainName = DomainName.LLM_SERVING,
     skills_dirs: list[str] | None = None,
     run_environment: RunEnvironmentSpec | None = None,
-    git_tracking: bool = False,
     agent_backend: str | None = None,
     cli_provider: str | None = None,
     backend: ComputeBackend = DEFAULT_COMPUTE_BACKEND,
     environment_hooks: EnvironmentHooks | None = None,
     remote_repo: str | None = None,
     repo_visibility: RepositoryVisibility = RepositoryVisibility.PRIVATE,
+    active_state_model_type: type[BaseModel] | None = None,
 ) -> "_RunContext":
     """Build a fully wired :class:`_RunContext`.
 
@@ -278,7 +260,6 @@ def create_run_context(  # noqa: PLR0913  # tracked: #288
             evaluator_path=evaluator_path,
             objective=objective,
             existing=existing,
-            project_mode=project_mode,
             project_configuration=project_configuration,
             trusted_input_baseline=trusted_input_baseline,
             debug=debug,
@@ -286,13 +267,13 @@ def create_run_context(  # noqa: PLR0913  # tracked: #288
             profiler_domain=profiler_domain,
             skills_dirs=skills_dirs,
             run_environment=run_environment,
-            git_tracking=git_tracking,
             agent_backend=agent_backend,
             cli_provider=cli_provider,
             backend=backend,
             environment_hooks=environment_hooks,
             remote_repo=remote_repo,
             repo_visibility=repo_visibility,
+            active_state_model_type=active_state_model_type,
         )
     except BaseException as construction_error:
         _close_after_construction_failure(teardown_stack, construction_error)
@@ -320,173 +301,96 @@ def _assemble_run_context(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: 
     input_path: str,
     accuracy_command: str,
     benchmark_command: str,
-    runs_dir: Path,
+    runs_dir: Path | None,
     workspace_seed: Path | None,
     workspace_sources: tuple[WorkspaceSource, ...],
     evaluator_path: Path | None,
     objective: str | None,
     existing: bool,
-    project_mode: bool,
-    project_configuration: RunConfiguration | None,
+    project_configuration: RunConfiguration,
     trusted_input_baseline: str | None,
     debug: bool,
     profiler_kind: ProfilerKind,
     profiler_domain: DomainName,
     skills_dirs: list[str] | None,
     run_environment: RunEnvironmentSpec | None,
-    git_tracking: bool,
     agent_backend: str | None,
     cli_provider: str | None,
     backend: ComputeBackend,
     environment_hooks: EnvironmentHooks | None,
     remote_repo: str | None,
     repo_visibility: RepositoryVisibility,
+    active_state_model_type: type[BaseModel] | None,
 ) -> "_RunContext":
     config = as_config(config)
-    if project_mode and not git_tracking:
-        raise ConfigurationError(
-            ConfigurationDiagnostic(
-                code="in_place_git_required",
-                stage="workspace_setup",
-                message="in-place project runs require Git tracking",
-            )
-        )
-    if git_tracking:
-        # A non-stripped nested ``.git`` makes ``git add -A`` record the
-        # checkout as a bare gitlink: round snapshots stop seeing edits inside
-        # it and deliverable repos end up with a broken pointer instead of the
-        # seeded code. Provenance is preserved in ``_vibesys_sources.json``.
-        for source in workspace_sources:
-            if not source.strip_git:
-                raise ConfigurationError(
-                    ConfigurationDiagnostic(
-                        code="workspace_source_untrackable",
-                        stage="workspace_setup",
-                        message=(
-                            f"workspace source {source.name!r} sets strip_git=false, but "
-                            "this run tracks the workspace with git: the nested .git at "
-                            f"{source.dest!r} would be recorded as an empty gitlink, so "
-                            "round snapshots and deliverable repos would silently lose "
-                            "the checkout's contents. Remove strip_git=false (upstream "
-                            "repo and commit stay recorded in _vibesys_sources.json)."
-                        ),
-                    )
-                )
-    run_environment_spec = run_environment or make_run_environment_spec()
-    environment = build_run_environment(run_environment_spec)
-
-    runs_dir = runs_dir.expanduser().resolve()
-    input_path_str = _coerce_dir_path(input_path, "--input")
-    input_dir = Path(input_path_str)
-    project_store: ProjectStore | None = None
-    run_id: str | None = None
-    round_transaction_coordinator: RoundTransactionCoordinator | None = None
-    if project_mode:
-        project_store = ProjectStore(input_dir)
-        run_id = exp_name if existing else generate_run_id(exp_name)
-        exp_dir = input_dir
-        log_dir = project_store.logs_dir(run_id)
-        workspace_root = input_dir
-    else:
-        exp_dir = setup_exp_dir(exp_name, runs_dir=runs_dir, existing=existing)
-        log_dir = exp_dir / "logs"
-        workspace_root = exp_dir / "workspace"
-
-    log_dir.mkdir(parents=True, exist_ok=True)
-    from vibesys.server.registry import active_supervisor  # noqa: PLC0415  # tracked: #288
-
-    supervisor = active_supervisor()
-    if supervisor is not None:
-        supervisor.attach(log_dir)
-    # The stderr tee captures diagnostics into the run log; it never renders,
-    # so it is safe under both the TUI and the headless renderer.
-    logger = RunLogger(log_dir)
-
-    # One teardown stack for the whole context: every component with
-    # cleanup registers here, and close() unwinds it in reverse
-    # construction order (device → environment hooks → session → logs).
-    teardown_stack.callback(logger.close)
-    experiment_repository = ExperimentRepository(exp_dir, logger.lprint)
-    if project_mode and remote_repo is not None:
-        raise ConfigurationError(
-            ConfigurationDiagnostic(
-                code="repository_setup_failed",
-                stage="repository_setup",
-                message="in-place project runs do not create or replace Git remotes",
-            )
-        )
-    if not project_mode and remote_repo is not None:
-        try:
-            experiment_repository.create_remote(remote_repo, repo_visibility)
-        except Exception as exc:
+    for source in workspace_sources:
+        if not source.strip_git:
             raise ConfigurationError(
                 ConfigurationDiagnostic(
-                    code="repository_setup_failed",
-                    stage="repository_setup",
-                    message=f"Could not create experiment repository {remote_repo!r}: {exc}",
+                    code="workspace_source_untrackable",
+                    stage="workspace_setup",
+                    message=(
+                        f"workspace source {source.name!r} sets strip_git=false; canonical "
+                        "projects require source repositories to be materialized without "
+                        "nested Git metadata"
+                    ),
                 )
-            ) from exc
-    tracked_experiment_repository: ExperimentRepository | None = None
-    if not project_mode and experiment_repository.has_origin():
-        tracked_experiment_repository = experiment_repository
+            )
 
-        def _sync_experiment_repository() -> None:
-            try:
-                experiment_repository.sync()
-            except Exception as exc:
-                raise ConfigurationError(
-                    ConfigurationDiagnostic(
-                        code="repository_sync_failed",
-                        stage="repository_sync",
-                        message=f"Could not push experiment repository: {exc}",
-                    )
-                ) from exc
-
-        teardown_stack.callback(_sync_experiment_repository)
-
-    # Presentation is selected exactly once, here: with a TUI supervisor
-    # attached, events flow to the supervision client; otherwise the
-    # headless renderer subscribes to the same event stream and owns the
-    # terminal for the lifetime of the run.
-    if supervisor is None:
-        renderer = HeadlessRenderer()
-        teardown_stack.callback(output_sink().subscribe(renderer.handle))
-
-    paths = RunPaths(
-        exp_dir=exp_dir,
-        log_dir=log_dir,
-        workspace=workspace_root,
-        run_log_path=logger.path,
-        project_root=input_dir if project_mode else None,
-        committed_state_dir=project_store.metadata_dir if project_store is not None else None,
-        local_state_dir=project_store.local_dir if project_store is not None else None,
-    )
-
-    # Construct the platform backend (image + GPU spec come from it).
-    backend_impl = backends.get(
-        backend,
-        log_dir=log_dir,
-        log=logger.lprint,
-        image=environment.backend_image,
-    )
-    # Resolve agent backend + cli provider early so Docker setup can
-    # add provider-specific bind mounts and init commands.
-    resolved_backend = agent_backend or config.agent.backend or DEFAULT_AGENT_BACKEND
-    resolved_cli_provider = cli_provider or config.agent.cli_provider or "codex"
-
-    # CLI providers construct and configure their own agent process. Building
-    # the LangChain model here is both unused and incorrect for CLI-only knobs
-    # such as Codex reasoning effort, which the generic OpenAI adapter rejects.
-    model = None if resolved_backend == "cli" else build_model(config)
-    model_name = config.model.name
-
+    run_environment_spec = run_environment or make_run_environment_spec()
+    environment = build_run_environment(run_environment_spec)
+    input_path_str = _coerce_dir_path(input_path, "--input")
+    input_dir = Path(input_path_str)
+    run_id = exp_name if existing else generate_run_id(exp_name)
+    collection_root = runs_dir.expanduser().resolve() if runs_dir is not None else None
+    copied_project = not existing and collection_root is not None
+    if copied_project:
+        assert collection_root is not None  # noqa: S101  # tracked: #288
+        project_root = collection_root / run_id
+    else:
+        project_root = input_dir
     workspace_seed_path = _coerce_dir(workspace_seed, "workspace.seed")
     evaluator_source = _coerce_dir(evaluator_path, "evaluator.source")
-    effective_profiler_kind = (
-        ProfilerKind.NONE if project_mode and profiler_kind is ProfilerKind.AUTO else profiler_kind
+
+    if not copied_project and (workspace_seed_path is not None or workspace_sources):
+        raise ConfigurationError(
+            ConfigurationDiagnostic(
+                code="project_materialization_required",
+                stage="workspace_setup",
+                message=(
+                    "the input project declares starter source that must be materialized; "
+                    "pass --runs-dir to provision a self-contained project"
+                ),
+            )
+        )
+    if not copied_project and evaluator_source is not None:
+        try:
+            evaluator_source.relative_to(project_root)
+        except ValueError as exc:
+            raise ConfigurationError(
+                ConfigurationDiagnostic(
+                    code="project_evaluator_not_self_contained",
+                    stage="workspace_setup",
+                    message=(
+                        "a directly launched project must contain its evaluator source; "
+                        "pass --runs-dir to copy external evaluator inputs"
+                    ),
+                )
+            ) from exc
+
+    buffered_logs: list[str] = []
+    backend_impl = backends.get(
+        backend,
+        log_dir=project_root / ".vs" / "local" / "runs" / run_id / "logs",
+        log=buffered_logs.append,
+        image=environment.backend_image,
     )
+    resolved_backend = agent_backend or config.agent.backend or DEFAULT_AGENT_BACKEND
+    resolved_cli_provider = cli_provider or config.agent.cli_provider or "codex"
+    model = None if resolved_backend == "cli" else build_model(config)
+    model_name = config.model.name
     resolved_profiler_kind = resolve_profiler_kind(
-        effective_profiler_kind,
+        profiler_kind,
         domain=profiler_domain,
         backend_profiler_kind=getattr(backend_impl, "profiler_kind", None),
         environment_default_profiler_kind=environment.default_profiler_kind,
@@ -501,17 +405,6 @@ def _assemble_run_context(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: 
                 message=profiler_preflight.error_message(),
             )
         )
-    if project_mode and resolved_profiler_kind in ACTIVE_PROFILER_KINDS:
-        raise ConfigurationError(
-            ConfigurationDiagnostic(
-                code="in_place_profiler_unsupported",
-                stage="profiler_preflight",
-                message=(
-                    "in-place projects currently support --profiler none only because "
-                    "profiler harnesses must not be copied into the user's source tree"
-                ),
-            )
-        )
 
     profiler_support_path: str | None = None
     profiler_support_name: str | None = None
@@ -523,24 +416,6 @@ def _assemble_run_context(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: 
             profiler_support_path = str(default_support)
 
     skill_source_paths = _coerce_skills_dirs(skills_dirs)
-    if project_mode and skill_source_paths:
-        logger.lprint(
-            "[project] packaged skills are not materialized into in-place source trees; "
-            "continuing without copied skill bundles"
-        )
-        skill_source_paths = []
-
-    ref_dir: Path | None = input_dir / "reference"
-    if ref_dir.exists():
-        if not ref_dir.is_dir():
-            raise ValueError(f"reference path is not a directory: {ref_dir}")  # noqa: TRY003  # tracked: #288
-        reference_py = sorted(ref_dir.glob("*.py"))
-        ref_name = f"reference/{reference_py[0].name}" if len(reference_py) == 1 else "reference"
-    else:
-        ref_dir = None
-        ref_name = "."
-
-    environment_reference = ref_dir or (input_dir / "reference")
     input_project_dir = input_dir if (input_dir / "pyproject.toml").is_file() else None
     if (
         input_project_dir is None
@@ -549,208 +424,297 @@ def _assemble_run_context(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: 
     ):
         input_project_dir = workspace_seed_path
 
+    hooks = environment_hooks or NoopEnvironmentHooks()
+    hook_log: list[Callable[[str], None]] = [buffered_logs.append]
+    environment_context: EnvironmentContext | None = None
+    environment_patch: EnvironmentPatch | None = None
+
+    def _teardown_environment_hooks() -> None:
+        assert environment_context is not None  # noqa: S101  # tracked: #288
+        try:
+            hooks.teardown(environment_context)
+        except Exception as exc:  # noqa: BLE001  # tracked: #288
+            hook_log[0](f"[warn] environment hook teardown failed: {exc}")
+
     workspace_files = Workspace(
-        paths.workspace,
+        project_root,
         run_environment=environment,
         backend=backend_impl,
-        log=logger.lprint,
+        log=buffered_logs.append,
         project_root=PROJECT_ROOT,
         compute_backend=backend,
     )
-    workspace_files.create()
+    construction_complete = False
+    if copied_project:
+        assert collection_root is not None  # noqa: S101  # tracked: #288
 
-    # Fix ownership of workspace files that may have been created as root
-    # by a previous Docker run, so the agent can write to them.
-    if existing and not project_mode:
+        def _remove_incomplete_project() -> None:
+            if not construction_complete and project_root.exists():
+                shutil.rmtree(project_root)
+
+        teardown_stack.callback(_remove_incomplete_project)
+        source_reference = input_dir / "reference"
+        environment_context = EnvironmentContext(
+            reference_path=source_reference,
+            workspace=project_root,
+            run_environment=environment,
+            project_root=PROJECT_ROOT,
+            model_cache_dir=collection_root / ".cache" / "huggingface",
+            log=buffered_logs.append,
+        )
+        environment_patch = hooks.prepare(environment_context)
+        teardown_stack.callback(_teardown_environment_hooks)
+        provision_project(
+            input_dir,
+            project_root,
+            spec=ProjectProvisioningSpec(
+                workspace=workspace_files,
+                seed=workspace_seed_path,
+                workspace_sources=workspace_sources,
+                evaluator_source=evaluator_source,
+                input_project_dir=input_project_dir,
+                input_excludes=environment_patch.copy_excludes,
+            ),
+        )
+        if evaluator_source is not None:
+            evaluator_source = project_root / "_evaluator" / evaluator_source.name
+    else:
+        workspace_files.create()
+
+    project_store = ProjectStore(project_root)
+    log_dir = project_store.logs_dir(run_id)
+    log_dir.mkdir(parents=True, exist_ok=True)
+    from vibesys.server.registry import active_supervisor  # noqa: PLC0415  # tracked: #288
+
+    supervisor = active_supervisor()
+    if supervisor is not None:
+        supervisor.attach(log_dir)
+    logger = RunLogger(log_dir)
+    teardown_stack.callback(logger.close)
+    hook_log[0] = logger.lprint
+    for message in buffered_logs:
+        logger.lprint(message)
+
+    if supervisor is None:
+        renderer = HeadlessRenderer()
+        teardown_stack.callback(output_sink().subscribe(renderer.handle))
+
+    paths = RunPaths(
+        project_root=project_root,
+        log_dir=log_dir,
+        run_log_path=logger.path,
+    )
+    if existing:
         workspace_files.repair()
 
     project_excluded_dirs = set(workspace_files.excluded_dirs)
     if profiler_support_name is not None:
         project_excluded_dirs.add(profiler_support_name)
     git = GitTracker(
-        workspace_files.root,
+        project_root,
+        run_id=run_id,
         log=logger.lprint,
         excluded_dirs=project_excluded_dirs,
-        mode=(GitTrackingMode.USER_PROJECT if project_mode else GitTrackingMode.LEGACY_WORKSPACE),
-        run_id=run_id,
-        trusted_input_paths=(
-            trusted_project_input_paths(input_dir, evaluator_source=evaluator_source)
-            if project_mode
-            else ()
+        trusted_input_paths=trusted_project_input_paths(
+            project_root,
+            evaluator_source=evaluator_source,
         ),
     )
-    if git_tracking and project_mode:
-        git.init(existing, trusted_input_baseline=trusted_input_baseline)
-        assert project_store is not None  # noqa: S101  # tracked: #288
-        assert run_id is not None  # noqa: S101  # tracked: #288
-        if project_configuration is None:
+    git.init(existing, trusted_input_baseline=trusted_input_baseline)
+    effective_configuration = project_configuration.model_copy(
+        update={"profiler": resolved_profiler_kind.value}
+    )
+    round_transaction_coordinator: RoundTransactionCoordinator | None = None
+    if existing:
+        project_store.load_project()
+        run_manifest = project_store.load_run(run_id)
+        if git.trusted_input_baseline is None:
+            git.configure_trusted_input_baseline(run_manifest.trusted_input_baseline)
+        elif git.trusted_input_baseline != run_manifest.trusted_input_baseline:
             raise ConfigurationError(
                 ConfigurationDiagnostic(
-                    code="project_state_missing_configuration",
-                    stage="workspace_setup",
-                    message="in-place project runs require sanitized run configuration",
+                    code="project_trusted_baseline_mismatch",
+                    stage="resume_resolution",
+                    message=(
+                        f"run {run_id!r} records trusted input baseline "
+                        f"{run_manifest.trusted_input_baseline!r}, but the requested "
+                        f"baseline resolves to {git.trusted_input_baseline!r}"
+                    ),
                 )
             )
-        effective_configuration = project_configuration.model_copy(
-            update={"profiler": resolved_profiler_kind.value}
+        if run_manifest.branch != git.project_branch:
+            raise ConfigurationError(
+                ConfigurationDiagnostic(
+                    code="project_state_mismatch",
+                    stage="resume_resolution",
+                    message=(
+                        f"run {run_id!r} records branch {run_manifest.branch!r}, "
+                        f"but Git selected {git.project_branch!r}"
+                    ),
+                )
+            )
+        configuration_update = _resume_configuration_update(
+            run_manifest.configuration,
+            effective_configuration,
+        )
+        if configuration_update is not None:
+            pending = git.pending_changes()
+            if pending:
+                raise ConfigurationError(
+                    ConfigurationDiagnostic(
+                        code="project_resume_configuration_dirty",
+                        stage="resume_resolution",
+                        message=(
+                            "commit or discard pending project changes before increasing "
+                            f"the run limit: {', '.join(pending)}"
+                        ),
+                    )
+                )
+            project_store.update_run_configuration(run_id, configuration_update)
+            git.snapshot_with_framework_metadata(
+                "vibesys: increase run limit",
+                project_store.run_manifest_snapshot(run_id),
+            )
+        project_store.set_current_run(run_id)
+    else:
+        project_store.create_project(project_root.name)
+        if git.trusted_input_baseline is None:
+            raise ConfigurationError(
+                ConfigurationDiagnostic(
+                    code="project_trusted_baseline_missing",
+                    stage="workspace_setup",
+                    message="Git did not provide the project run branch-point commit",
+                )
+            )
+        run_manifest = project_store.new_run_manifest(
+            exp_name,
+            run_id=run_id,
+            branch=git.project_branch,
+            vibesys_version=_installed_vibesys_version(),
+            configuration=effective_configuration,
+            trusted_input_baseline=git.trusted_input_baseline,
+        )
+        project_store.create_run(run_manifest)
+        git.snapshot_with_framework_metadata(
+            f"vibesys: initialize run {run_id}",
+            project_store.initialization_snapshot(run_id),
+        )
+
+    if supervisor is not None:
+        supervisor.attach(log_dir, project_store=project_store, run_id=run_id)
+
+    if project_configuration.outer_loop == "agent":
+        if active_state_model_type is None:
+            raise ValueError("agent runs require an active state model type")  # noqa: TRY003  # tracked: #288
+        round_transaction_coordinator = RoundTransactionCoordinator(
+            project_store,
+            git,
+            run_id,
+            active_state_model_type=active_state_model_type,
         )
         if existing:
-            project_store.load_project()
-            run_manifest = project_store.load_run(run_id)
-            if git.trusted_input_baseline is None:
-                git.configure_trusted_input_baseline(run_manifest.trusted_input_baseline)
-            elif git.trusted_input_baseline != run_manifest.trusted_input_baseline:
-                raise ConfigurationError(
-                    ConfigurationDiagnostic(
-                        code="project_trusted_baseline_mismatch",
-                        stage="resume_resolution",
-                        message=(
-                            f"run {run_id!r} records trusted input baseline "
-                            f"{run_manifest.trusted_input_baseline!r}, but "
-                            f"--trusted-input-baseline resolved to "
-                            f"{git.trusted_input_baseline!r}"
-                        ),
-                    )
-                )
-            if run_manifest.branch != git.project_branch:
-                raise ConfigurationError(
-                    ConfigurationDiagnostic(
-                        code="project_state_mismatch",
-                        stage="resume_resolution",
-                        message=(
-                            f"run {run_id!r} records branch {run_manifest.branch!r}, "
-                            f"but Git selected {git.project_branch!r}"
-                        ),
-                    )
-                )
-            round_transaction_coordinator = RoundTransactionCoordinator(
-                project_store,
-                git,
-                run_id,
-            )
             recovery = round_transaction_coordinator.recover()
             if recovery is not RoundRecoveryOutcome.NO_TRANSACTION:
                 logger.lprint(f"[project] recovered round transaction: {recovery.value}")
-            configuration_update = _resume_configuration_update(
-                run_manifest.configuration,
-                effective_configuration,
-            )
-            if configuration_update is not None:
-                pending = git.pending_changes()
-                if pending:
-                    raise ConfigurationError(
-                        ConfigurationDiagnostic(
-                            code="project_resume_configuration_dirty",
-                            stage="resume_resolution",
-                            message=(
-                                "commit or discard pending project changes before increasing "
-                                f"--max-rounds: {', '.join(pending)}"
-                            ),
-                        )
-                    )
-                path = project_store.update_run_configuration(run_id, configuration_update)
-                git.snapshot_with_framework_metadata(
-                    f"vibesys: increase run limit to {configuration_update.max_rounds}",
-                    {path.relative_to(project_store.project_root): path.read_bytes()},
-                )
-            project_store.set_current_run(run_id)
-        else:
-            project_store.create_project(input_dir.name)
-            if git.trusted_input_baseline is None:
-                raise ConfigurationError(
-                    ConfigurationDiagnostic(
-                        code="project_trusted_baseline_missing",
-                        stage="workspace_setup",
-                        message="Git did not provide the in-place run branch-point commit",
-                    )
-                )
-            run_manifest = project_store.new_run_manifest(
-                exp_name,
-                run_id=run_id,
-                branch=git.project_branch or f"vibesys/{run_id}",
-                vibesys_version=_installed_vibesys_version(),
-                configuration=effective_configuration,
-                trusted_input_baseline=git.trusted_input_baseline,
-            )
-            project_store.create_run(run_manifest)
-            metadata_paths = (
-                project_store.metadata_gitignore_path,
-                project_store.project_manifest_path,
-                project_store.run_manifest_path(run_id),
-            )
-            git.snapshot_with_framework_metadata(
-                f"vibesys: initialize run {run_id}",
-                {
-                    path.relative_to(project_store.project_root): path.read_bytes()
-                    for path in metadata_paths
-                },
-            )
-            round_transaction_coordinator = RoundTransactionCoordinator(
-                project_store,
-                git,
-                run_id,
-            )
 
-    project_path_policy = (
-        build_project_path_policy(
-            input_dir,
-            evaluator_source=evaluator_source,
+    project_ref_dir = project_root / "reference"
+    ref_dir = project_ref_dir if project_ref_dir.is_dir() else None
+    if ref_dir is not None:
+        reference_py = sorted(ref_dir.glob("*.py"))
+        ref_name = f"reference/{reference_py[0].name}" if len(reference_py) == 1 else "reference"
+    else:
+        ref_name = "."
+
+    if environment_context is None:
+        environment_context = EnvironmentContext(
+            reference_path=project_ref_dir,
+            workspace=project_root,
+            run_environment=environment,
+            project_root=PROJECT_ROOT,
+            model_cache_dir=project_store.local_dir / "cache" / "huggingface",
+            log=logger.lprint,
         )
-        if project_mode
-        else None
-    )
+        environment_patch = hooks.prepare(environment_context)
+        teardown_stack.callback(_teardown_environment_hooks)
+    assert environment_patch is not None  # noqa: S101  # tracked: #288
 
-    hooks = environment_hooks or NoopEnvironmentHooks()
-    environment_context = EnvironmentContext(
-        reference_path=environment_reference,
-        workspace=workspace_files.root,
-        run_environment=environment,
-        project_root=PROJECT_ROOT,
-        model_cache_dir=runs_dir / ".cache" / "huggingface",
-        log=logger.lprint,
-    )
-    environment_patch = hooks.prepare(environment_context)
-
-    def _teardown_environment_hooks() -> None:
-        try:
-            hooks.teardown(environment_context)
-        except Exception as exc:  # noqa: BLE001  # tracked: #288
-            logger.lprint(f"[warn] environment hook teardown failed: {exc}")
-
-    teardown_stack.callback(_teardown_environment_hooks)
-
-    # When resuming an existing run, the plan skips full workspace file
-    # setup — the workspace already contains reference files, skills, etc.
-    # from the previous run.  Only skills are refreshed and profiler
-    # harnesses ensured; see Workspace.plan_setup.
     plan = workspace_files.plan_setup(
-        existing=existing or project_mode,
-        seed=None if project_mode else workspace_seed_path,
-        input_dir=input_dir,
-        evaluator_source=None if project_mode else evaluator_source,
+        existing=True,
+        seed=None,
+        input_dir=project_root,
+        evaluator_source=None,
         skill_sources=skill_source_paths,
-        input_project_dir=None if project_mode else input_project_dir,
+        input_project_dir=None,
         profiler_support_path=profiler_support_path,
         profiler_support_name=profiler_support_name,
-        workspace_sources=() if project_mode else workspace_sources,
+        workspace_sources=(),
         extra_input_excludes=environment_patch.copy_excludes,
     )
-    workspace_files.setup(plan, existing=existing or project_mode)
+    workspace_files.setup(plan, existing=True)
 
-    if git_tracking and not project_mode:
-        git.init(existing, trusted_input_baseline=trusted_input_baseline)
+    runtime_state = project_store.portable_namespace(run_id, "runtime")
+    objective_document: Path | None = None
+    if objective is not None:
+        objective_document = runtime_state.external_directory() / "effective-objective.md"
+        objective_document.parent.mkdir(parents=True, exist_ok=True)
+        objective_document.write_text(objective)
+        git.snapshot_framework_state(
+            "vibesys: record effective objective",
+            runtime_state.snapshot(),
+        )
+
+    project_path_policy = build_project_path_policy(
+        project_root,
+        evaluator_source=evaluator_source,
+    )
+
+    tracked_experiment_repository: ExperimentRepository | None = None
+    experiment_repository = ExperimentRepository(project_root, logger.lprint)
+    origin_exists = experiment_repository.has_origin()
+    should_publish = remote_repo is not None or (
+        existing and collection_root is not None and origin_exists
+    )
+    if should_publish:
+        try:
+            if remote_repo is not None and not origin_exists:
+                experiment_repository.create_remote(remote_repo, repo_visibility)
+        except Exception as exc:
+            raise ConfigurationError(
+                ConfigurationDiagnostic(
+                    code="repository_setup_failed",
+                    stage="repository_setup",
+                    message=f"Could not configure project repository {remote_repo!r}: {exc}",
+                )
+            ) from exc
+        tracked_experiment_repository = experiment_repository
+
+        def _push_experiment_repository() -> None:
+            try:
+                experiment_repository.push()
+            except Exception as exc:
+                raise ConfigurationError(
+                    ConfigurationDiagnostic(
+                        code="repository_sync_failed",
+                        stage="repository_sync",
+                        message=f"Could not push project repository: {exc}",
+                    )
+                ) from exc
+
+        teardown_stack.callback(_push_experiment_repository)
 
     session = teardown_stack.enter_context(
         environment.open(
             RunEnvironmentRequest(
                 log_dir=log_dir,
-                workspace=workspace_files.root,
-                workspace_sources=workspace_sources,
+                workspace=project_root,
+                workspace_sources=(),
                 ref_dir=ref_dir,
                 backend=backend_impl,
                 agent_backend=resolved_backend,
                 cli_provider=resolved_cli_provider,
+                run_id=run_id,
                 objective=objective,
+                objective_document=objective_document,
                 accuracy_command=accuracy_command,
                 benchmark_command=benchmark_command,
                 profiler_support_path=profiler_support_path,
@@ -758,7 +722,8 @@ def _assemble_run_context(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: 
                 git_history_root=git.history_root,
                 environment_bind_mounts=environment_patch.bind_mounts,
                 log=logger.lprint,
-                project_root=PROJECT_ROOT,
+                framework_root=PROJECT_ROOT,
+                project_path_policy=project_path_policy,
             )
         )
     )
@@ -809,23 +774,22 @@ def _assemble_run_context(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: 
         use_docker=session.view.cli_sandboxed,
         log_dir=log_dir,
         project_path_policy=project_path_policy,
-        require_host_sandbox=project_mode,
+        require_host_sandbox=not session.view.cli_sandboxed,
     )
 
-    return _RunContext(
+    result = _RunContext(
         backend=backend,
         run_environment=environment,
         supervisor=supervisor,
         logger=logger,
         paths=paths,
         debug=debug,
-        git_tracking=git_tracking,
         backend_impl=backend_impl,
         model=model,
         model_name=model_name,
         input_path=input_path_str,
         workspace_seed_path=workspace_seed_path,
-        workspace_sources=workspace_sources,
+        workspace_sources=(),
         evaluator_path=evaluator_source,
         effective_objective=objective,
         accuracy_command=accuracy_command,
@@ -847,9 +811,12 @@ def _assemble_run_context(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: 
         device=device,
         agent_runner=agent_runner,
         project_store=project_store,
+        state=RunState(project_store, git, run_id),
         run_id=run_id,
         round_transaction_coordinator=round_transaction_coordinator,
     )
+    construction_complete = True
+    return result
 
 
 def create_candidate_context(  # noqa: PLR0913  # tracked: #288
@@ -909,10 +876,11 @@ def _assemble_candidate_context(  # noqa: PLR0913  # tracked: #288
     cli_provider: str | None,
 ) -> "_RunContext":
     config = as_config(config)
-    cand_root = parent.exp_dir / "candidates" / f"{parent.exp_dir.name}-g{generation}c{child_idx}"
-    workspace = cand_root / "workspace"
-    log_dir = cand_root / "logs"
-    log_dir.mkdir(parents=True, exist_ok=True)
+    candidate_id = f"g{generation}c{child_idx}"
+    workspace = parent.project_store.worktrees_dir(parent.run_id) / candidate_id / "workspace"
+    log_dir = parent.state.local(RunStateNamespace.EVOLVE).external_directory(
+        f"candidates/{candidate_id}/logs"
+    )
 
     # Materialize the parent's tree in an isolated worktree (shared object
     # store). `git worktree add` touches the main repo's admin area, so the
@@ -931,6 +899,7 @@ def _assemble_candidate_context(  # noqa: PLR0913  # tracked: #288
 
     git = GitTracker(
         workspace,
+        run_id=parent.run_id,
         log=logger.lprint,
         excluded_dirs=parent.EXCLUDED_WORKSPACE_DIRS,
     )
@@ -942,6 +911,13 @@ def _assemble_candidate_context(  # noqa: PLR0913  # tracked: #288
         project_root=PROJECT_ROOT,
         compute_backend=parent.backend,
     )
+    project_path_policy = build_project_path_policy(workspace, evaluator_source=None)
+    objective_document = None
+    if effective_objective is not None:
+        parent_objective = parent.state.portable(RunStateNamespace.RUNTIME).project_relative_path(
+            "effective-objective.md"
+        )
+        objective_document = workspace.joinpath(*parent_objective.parts)
 
     # Reuse adapter-owned resources provisioned when the parent environment was
     # opened. Candidate sessions do not need to rematerialize reference inputs.
@@ -955,7 +931,9 @@ def _assemble_candidate_context(  # noqa: PLR0913  # tracked: #288
                 backend=parent.backend_impl,
                 agent_backend=resolved_backend,
                 cli_provider=resolved_cli_provider,
+                run_id=parent.run_id,
                 objective=effective_objective,
+                objective_document=objective_document,
                 accuracy_command=parent.accuracy_command,
                 benchmark_command=parent.benchmark_command,
                 profiler_support_path=parent.profiler_support_path,
@@ -963,7 +941,8 @@ def _assemble_candidate_context(  # noqa: PLR0913  # tracked: #288
                 git_history_root=parent.git.history_root,
                 environment_bind_mounts=parent.environment_patch.bind_mounts,
                 log=logger.lprint,
-                project_root=PROJECT_ROOT,
+                framework_root=PROJECT_ROOT,
+                project_path_policy=project_path_policy,
             )
         )
     )
@@ -994,12 +973,13 @@ def _assemble_candidate_context(  # noqa: PLR0913  # tracked: #288
         run_log_file=logger.writer,
         use_docker=session.view.cli_sandboxed,
         log_dir=log_dir,
+        project_path_policy=project_path_policy,
+        require_host_sandbox=not session.view.cli_sandboxed,
     )
 
     paths = RunPaths(
-        exp_dir=parent.exp_dir,
+        project_root=workspace,
         log_dir=log_dir,
-        workspace=workspace,
         run_log_path=logger.path,
     )
 
@@ -1010,7 +990,6 @@ def _assemble_candidate_context(  # noqa: PLR0913  # tracked: #288
         logger=logger,
         paths=paths,
         debug=parent.debug,
-        git_tracking=True,
         backend_impl=parent.backend_impl,
         model=parent.model,
         model_name=parent.model_name,
@@ -1039,6 +1018,9 @@ def _assemble_candidate_context(  # noqa: PLR0913  # tracked: #288
         commands=commands,
         device=parent.device,  # shared under the environment's parallel contract
         agent_runner=agent_runner,
+        project_store=parent.project_store,
+        state=parent.state,
+        run_id=parent.run_id,
     )
 
 
@@ -1050,8 +1032,8 @@ class _RunContext:
         loop -> _RunContext -> RunEnvironment -> ComputeBackendImpl.make_sandbox -> Sandbox
 
     Instances are assembled by :func:`create_run_context`, which owns every
-    construction side effect (run directory, log files, unified workspace,
-    model, compute backend, copied helper inputs, git/snapshot tracking,
+    construction side effect (project state, log files, candidate worktree,
+    model, compute backend, copied helper inputs, Git snapshot tracking,
     run-environment session, agent runner, GPU monitor).  Environment-specific
     setup should stay in ``vibesys.sandbox.run_environment``; this class only
     asks the selected run environment for policy decisions and the opened
@@ -1067,7 +1049,6 @@ class _RunContext:
         logger: RunLogger,
         paths: RunPaths,
         debug: bool,
-        git_tracking: bool,
         backend_impl: ComputeBackendImpl,
         model: Any,  # noqa: ANN401  # tracked: #288
         model_name: str,
@@ -1094,8 +1075,9 @@ class _RunContext:
         commands: RunCommands,
         device: DeviceLease,
         agent_runner: AgentRunner,
-        project_store: ProjectStore | None = None,
-        run_id: str | None = None,
+        project_store: ProjectStore,
+        state: RunState,
+        run_id: str,
         round_transaction_coordinator: RoundTransactionCoordinator | None = None,
     ):
         self.backend = backend
@@ -1104,7 +1086,6 @@ class _RunContext:
         self.logger = logger
         self._paths = paths
         self.debug = debug
-        self.git_tracking = git_tracking
         self.backend_impl = backend_impl
         self.model = model
         self.model_name = model_name
@@ -1128,6 +1109,7 @@ class _RunContext:
         self.EXCLUDED_WORKSPACE_DIRS = workspace_files.excluded_dirs
         self.git = git
         self.project_store = project_store
+        self.state = state
         self.run_id = run_id
         self._round_transaction_coordinator = round_transaction_coordinator
         self._pending_round_transaction: RoundTransaction | None = None
@@ -1150,12 +1132,11 @@ class _RunContext:
             self.supervisor.set_chat_handler(self.chat)
 
     # -- path passthroughs ----------------------------------------------------
-    # Canonical values live in the frozen ``RunPaths`` record; these
-    # properties keep existing ``ctx.exp_dir``-style call sites working.
+    # Canonical values live in the frozen ``RunPaths`` record.
 
     @property
-    def exp_dir(self) -> Path:
-        return self._paths.exp_dir
+    def project_root(self) -> Path:
+        return self._paths.project_root
 
     @property
     def log_dir(self) -> Path:
@@ -1165,23 +1146,11 @@ class _RunContext:
     def workspace(self) -> Path:
         return self._paths.workspace
 
-    @property
-    def rounds_state_path(self) -> Path:
-        """Return the machine-local compatibility ledger for completed rounds."""
-        return self.log_dir / "rounds.json"
-
-    @property
-    def active_hypothesis_path(self) -> Path:
-        """Return the machine-local in-progress hypothesis path."""
-        if self.project_store is not None and self.run_id is not None:
-            return self.project_store.active_state_path(self.run_id)
-        return self.log_dir / "active_hypothesis.json"
-
     def begin_completed_round(
         self,
         record: "RoundRecord",
         *,
-        next_active_contents: bytes | None,
+        active_transition: StateTransition,
     ) -> None:
         """Journal a completed project round before mutating local state."""
         if self._round_transaction_coordinator is None:
@@ -1190,7 +1159,7 @@ class _RunContext:
             raise RuntimeError("a completed-round transaction is already active")  # noqa: TRY003  # tracked: #288
         self._pending_round_transaction = self._round_transaction_coordinator.begin(
             record,
-            next_active_contents=next_active_contents,
+            active_transition=active_transition,
         )
 
     def persist_completed_round(self) -> None:
@@ -1371,60 +1340,55 @@ class _RunContext:
             self.logger.lprint(f"[warn] could not persist experiment chat: {exc}")
 
     def _sync_chat_trajectory(self) -> None:
-        """Refresh textual run evidence that the workspace-confined chat can inspect."""
+        """Refresh canonical portable state and local logs for experiment chat."""
         trajectory_dir = self._chat_state_dir / "trajectory"
+        if self._chat_state_dir.is_symlink():
+            self.logger.lprint(f"[warn] experiment chat state is a symlink: {self._chat_state_dir}")
+            return
         try:
+            self._chat_state_dir.mkdir(parents=True, exist_ok=True)
+            if trajectory_dir.is_symlink():
+                trajectory_dir.unlink()
+            elif trajectory_dir.exists():
+                shutil.rmtree(trajectory_dir)
             trajectory_dir.mkdir(parents=True, exist_ok=True)
             (self._chat_state_dir / "instructions.md").write_text(
                 _EXPERIMENT_CHAT_SYSTEM_PROMPT, encoding="utf-8"
             )
             self.run_log_file.flush()
-            for source in self.log_dir.iterdir():
-                if not source.is_file() or source.suffix not in _CHAT_TRAJECTORY_SUFFIXES:
-                    continue
-                destination = trajectory_dir / source.name
-                temporary = trajectory_dir / f".{source.name}.tmp"
-                shutil.copyfile(source, temporary)
-                temporary.replace(destination)
+            portable_run_dir = self.project_store.run_manifest_path(self.run_id).parent
+            self._copy_chat_trajectory_files(portable_run_dir, trajectory_dir / "state")
+            self._copy_chat_trajectory_files(self.log_dir, trajectory_dir / "logs")
         except OSError as exc:
             self.logger.lprint(f"[warn] could not refresh experiment chat trajectory: {exc}")
+
+    @staticmethod
+    def _copy_chat_trajectory_files(source_root: Path, destination_root: Path) -> None:
+        """Copy textual regular files from one canonical state tree."""
+        if not source_root.is_dir():
+            return
+        for source in sorted(source_root.rglob("*")):
+            if (
+                not source.is_file()
+                or source.is_symlink()
+                or source.suffix not in _CHAT_TRAJECTORY_SUFFIXES
+            ):
+                continue
+            destination = destination_root / source.relative_to(source_root)
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            temporary = destination.with_name(f".{destination.name}.tmp")
+            shutil.copyfile(source, temporary)
+            temporary.replace(destination)
 
     def wait_for_debug(self, step: str) -> None:
         if self.debug:
             input(f"\n[debug] {step}. Press Enter to continue...")
 
     def snapshot_workspace(self, label: str) -> None:
-        if self.git_tracking:
-            self.git.snapshot(label)
-        else:
-            dst = self.log_dir / "snapshots" / label
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            if dst.exists():
-                shutil.rmtree(dst)
-            shutil.copytree(
-                self.workspace,
-                dst,
-                symlinks=True,
-                ignore=lambda _, names: [n for n in names if n in self.EXCLUDED_WORKSPACE_DIRS],
-            )
-            self.workspace_files.replace_external_symlinks(dst)
-
-        # Remote experiment repositories are durability boundaries, not just
-        # publication targets. Push after each existing loop checkpoint so a
-        # long-running agent does not keep all completed phases only on the
-        # host until context shutdown. A transient remote failure must not
-        # discard subsequent optimization work; the next checkpoint and the
-        # final strict teardown sync will retry every local commit.
-        if self._experiment_repository is not None:
-            try:
-                self._experiment_repository.sync()
-            except Exception as exc:  # noqa: BLE001  # tracked: #288
-                self.lprint(f"[warn] experiment repository checkpoint push failed: {exc}")
+        self.git.snapshot(label)
 
     def trusted_input_changes(self) -> list[str]:
         """Return evaluator-owned paths changed since the trusted baseline."""
-        if not self.git_tracking:
-            return []
         return self.git.trusted_input_changes()
 
     # -- command passthroughs -------------------------------------------------

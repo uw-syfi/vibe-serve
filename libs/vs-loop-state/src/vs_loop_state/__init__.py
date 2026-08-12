@@ -1,8 +1,8 @@
 """Public API of the ``vs_loop_state`` library.
 
-``RoundRecord``, ``RoundHistory``, and the stable record codec are the deliberate
-surface consumers depend on. Atomic file persistence and per-field legacy
-migrations remain implementation details.
+The public surface contains strict persisted-state records and pure codecs for
+all three loops. Project layout and filesystem persistence belong to
+``vs-project-state``.
 """
 
 from vs_loop_state.agent import (
@@ -11,10 +11,36 @@ from vs_loop_state.agent import (
     parse_round_record,
     serialize_round_record,
 )
+from vs_loop_state.evolve import (
+    IndividualRecord,
+    PopulationSnapshot,
+    parse_population_snapshot,
+    serialize_population_snapshot,
+)
+from vs_loop_state.plain import (
+    PlainLoopCursor,
+    PlainPerformanceRecord,
+    PlainPerformanceSnapshot,
+    parse_plain_loop_cursor,
+    parse_plain_performance_snapshot,
+    serialize_plain_loop_cursor,
+    serialize_plain_performance_snapshot,
+)
 
 __all__ = [
+    "IndividualRecord",
+    "PlainLoopCursor",
+    "PlainPerformanceRecord",
+    "PlainPerformanceSnapshot",
+    "PopulationSnapshot",
     "RoundHistory",
     "RoundRecord",
+    "parse_plain_loop_cursor",
+    "parse_plain_performance_snapshot",
+    "parse_population_snapshot",
     "parse_round_record",
+    "serialize_plain_loop_cursor",
+    "serialize_plain_performance_snapshot",
+    "serialize_population_snapshot",
     "serialize_round_record",
 ]

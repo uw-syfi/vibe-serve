@@ -326,7 +326,7 @@ def _write_stub_input(input_root: Path) -> None:
     )
 
 
-def _legacy_stub_smoke_command(
+def _copied_project_stub_smoke_command(
     command_prefix: list[str],
     *,
     input_root: Path,
@@ -354,7 +354,7 @@ def _legacy_stub_smoke_command(
     ]
 
 
-def _in_place_stub_smoke_command(command_prefix: list[str]) -> list[str]:
+def _direct_project_stub_smoke_command(command_prefix: list[str]) -> list[str]:
     return [
         *command_prefix,
         "--headless",
@@ -388,7 +388,7 @@ def run_interactive_tui_smoke(
         marker = smoke_root / "controller-started"
         runs_root = smoke_root / "runs"
         smoke_environment = {**env, TUI_SMOKE_MARKER_ENV: str(marker)}
-        command = _legacy_stub_smoke_command(
+        command = _copied_project_stub_smoke_command(
             command_prefix,
             input_root=input_root,
             runs_root=runs_root,
@@ -414,9 +414,9 @@ def run_headless_stub_smoke(
         smoke_root = Path(temporary)
         project_root = smoke_root / "project"
         _write_stub_input(project_root)
-        command = _in_place_stub_smoke_command(command_prefix)
+        command = _direct_project_stub_smoke_command(command_prefix)
         _run(command, env=env, cwd=project_root, timeout=timeout)
-        _verify_in_place_project_state(project_root)
+        _verify_project_state(project_root)
     added_prefix_paths = _mutable_install_paths(Path(sys.prefix)) - mutable_prefix_paths_before
     if added_prefix_paths:
         _fail(
@@ -425,15 +425,15 @@ def run_headless_stub_smoke(
         )
 
 
-def _verify_in_place_project_state(project_root: Path) -> None:
+def _verify_project_state(project_root: Path) -> None:
     if (project_root / "agent.toml").exists():
         _fail("Configless headless smoke unexpectedly created agent.toml")
     metadata_dir = project_root / ".vs"
     if not (metadata_dir / "project.json").is_file():
-        _fail(f"In-place smoke did not create {metadata_dir / 'project.json'}")
+        _fail(f"Project smoke did not create {metadata_dir / 'project.json'}")
     gitignore = metadata_dir / ".gitignore"
     if not gitignore.is_file() or "/local/" not in gitignore.read_text().splitlines():
-        _fail(f"In-place smoke did not preserve the local-state ignore rule: {gitignore}")
+        _fail(f"Project smoke did not preserve the local-state ignore rule: {gitignore}")
     runs_dir = metadata_dir / "runs"
     runs = list(runs_dir.iterdir()) if runs_dir.is_dir() else []
     if (
@@ -441,18 +441,18 @@ def _verify_in_place_project_state(project_root: Path) -> None:
         or not runs[0].is_dir()
         or not runs[0].name.endswith("-installed-release-smoke")
     ):
-        _fail(f"In-place smoke did not create exactly one run under {runs_dir}: {runs}")
+        _fail(f"Project smoke did not create exactly one run under {runs_dir}: {runs}")
     run_dir = runs[0]
-    committed = (run_dir / "run.json", run_dir / "rounds" / "0001.json")
+    committed = (run_dir / "run.json", run_dir / "agent" / "rounds" / "0001.json")
     if not all(path.is_file() for path in committed):
-        _fail(f"In-place smoke did not persist committed run metadata: {committed}")
+        _fail(f"Project smoke did not persist committed run metadata: {committed}")
     current_run = metadata_dir / "local" / "current-run"
     if not current_run.is_file() or current_run.read_text().strip() != run_dir.name:
-        _fail(f"In-place smoke did not persist its local current-run pointer: {current_run}")
+        _fail(f"Project smoke did not persist its local current-run pointer: {current_run}")
     if not (metadata_dir / "local" / "runs" / run_dir.name / "logs").is_dir():
-        _fail("In-place smoke did not keep logs under .vs/local")
+        _fail("Project smoke did not keep logs under .vs/local")
     if not (project_root / ".git").is_dir():
-        _fail("In-place smoke did not initialize Git in the project directory")
+        _fail("Project smoke did not initialize Git in the project directory")
 
 
 def _mutable_install_paths(prefix: Path) -> set[Path]:

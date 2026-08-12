@@ -17,7 +17,6 @@ Python-side argument parsing, validation, server supervision, and loop dispatch.
 from __future__ import annotations
 
 import argparse
-import json
 import math
 import shlex
 import subprocess
@@ -47,7 +46,7 @@ from vibesys.repository import (
     validate_experiment_name,
 )
 from vibesys.resource_paths import default_skill_roots
-from vibesys.run.git_tracker import GitTracker, GitTrackingMode
+from vibesys.run.git_tracker import GitTracker
 from vibesys.sandbox.run_environment import (
     RunEnvironmentSpec,
     build_run_environment,
@@ -56,7 +55,13 @@ from vibesys.sandbox.run_environment import (
 from vibesys.skills import resolve_skill_source_dirs
 from vibesys.tui import KNOWN_TUI_THEMES, TuiTheme
 from vs_github import GitHubCLI, GitHubCLIError
-from vs_project_state import ProjectStateError, ProjectStore, RunConfiguration
+from vs_project_state import (
+    AgentRunConfiguration,
+    PlainRunConfiguration,
+    ProjectStateError,
+    ProjectStore,
+    RunConfiguration,
+)
 
 if TYPE_CHECKING:
     from vibesys.loops.evolve.population import Objective
@@ -98,18 +103,44 @@ class CliInvocation:  # tracked: #288
     args: argparse.Namespace
 
 
-_PROJECT_RESUME_CLI_FIELDS: dict[str, str] = {
-    "inner_loop": "inner_loop",
-    "interface": "interface",
+_COMMON_RESUME_CLI_FIELDS: dict[str, str] = {
     "agent_backend": "agent_backend",
     "cli_provider": "cli_provider",
     "backend": "compute_backend",
     "profiler": "profiler",
+    "modality": "modality",
+}
+
+_AGENT_RESUME_CLI_FIELDS: dict[str, str] = {
+    "inner_loop": "inner_loop",
+    "interface": "interface",
     "max_retries_per_round": "max_retries_per_round",
     "judge_every": "judge_every",
     "official_eval_every": "official_eval_every",
     "memory_layout": "memory_layout",
-    "modality": "modality",
+}
+
+_PLAIN_RESUME_CLI_FIELDS: dict[str, str] = {
+    "max_attempts_per_issue": "max_attempts_per_issue",
+    "max_issues_per_perf_eval": "max_issues_per_perf_eval",
+}
+
+_EVOLVE_RESUME_CLI_FIELDS: dict[str, str] = {
+    "children_per_generation": "children_per_generation",
+    "k_top_inspirations": "k_top_inspirations",
+    "k_random_inspirations": "k_random_inspirations",
+    "selection_temperature": "selection_temperature",
+    "seed": "seed",
+    "search_policy": "search_policy",
+    "openevolve_population_size": "openevolve_population_size",
+    "openevolve_archive_size": "openevolve_archive_size",
+    "openevolve_num_islands": "openevolve_num_islands",
+    "openevolve_migration_interval": "openevolve_migration_interval",
+    "openevolve_migration_rate": "openevolve_migration_rate",
+    "frontier_bias": "frontier_bias",
+    "bootstrap_max_attempts": "bootstrap_max_attempts",
+    "keep_deployments": "keep_deployments",
+    "max_parallelism": "max_parallelism",
 }
 
 
@@ -492,11 +523,6 @@ def _add_common_args(parser: argparse.ArgumentParser) -> None:
         help="Pause for Enter at each step in loop mode.",
     )
     parser.add_argument(
-        "--git-tracking",
-        action="store_true",
-        help="Track workspace versions via git commits instead of directory snapshots.",
-    )
-    parser.add_argument(
         "--repo",
         default=None,
         metavar="[OWNER/]NAME",
@@ -565,7 +591,7 @@ def _add_common_args(parser: argparse.ArgumentParser) -> None:
 
 def _project_resume_mismatch(fields: list[str]) -> NoReturn:
     _configuration_error(
-        "Resuming an in-place run cannot change its recorded configuration fields: "
+        "Resuming a run cannot change its recorded configuration fields: "
         + ", ".join(sorted(fields)),
         code="project_resume_configuration_mismatch",
         stage="resume_resolution",
@@ -711,19 +737,7 @@ def load_config_and_skills(
 
     backend: ComputeBackend = args.backend or config.backend.name
 
-    if getattr(args, "project_mode", False):
-        if not getattr(args, "no_skills", False) and (
-            getattr(args, "skills_dir", None) or getattr(args, "extra_skills", None)
-        ):
-            _configuration_error(
-                "In-place projects do not copy skill bundles into the source "
-                "tree. Omit --skills-dir/--extra-skills, or pass --runs-dir for the "
-                "materialized-workspace mode.",
-                code="in_place_skills_unsupported",
-                stage="input_validation",
-            )
-        skills = None
-    elif getattr(args, "no_skills", False):
+    if getattr(args, "no_skills", False):
         skills = None
     else:
         # --skills-dir overrides the presets; when omitted, the presets are the
@@ -797,17 +811,9 @@ def _prepare_experiment_repository(args: argparse.Namespace, config: Config) -> 
     if args.exp_name is None:
         args.exp_name = generate_experiment_name(args.input_bundle.root)
 
-    # In-place runs use a branch in the user's existing project repository.
-    # Publishing that branch is an explicit future workflow; never create or
-    # attach a GitHub repository merely because the project already has one.
-    if getattr(args, "project_mode", False):
-        if args.repo is not None:
-            _configuration_error(
-                "--repo is not supported for in-place project runs; omit it or pass "
-                "--runs-dir to use an experiment repository.",
-                code="invalid_repository",
-                stage="repository_setup",
-            )
+    # A direct project run stays local unless publication was requested
+    # explicitly. Copied projects retain the convenient generated remote.
+    if args.runs_dir is None and args.repo is None:
         args.local = True
         return
 
@@ -848,30 +854,18 @@ def _validate_run_environment_profiler(args: argparse.Namespace) -> None:
     )
 
 
-def _normalize_runs_dir(args: argparse.Namespace, *, loop_kind: str) -> None:
+def _normalize_runs_dir(args: argparse.Namespace) -> None:
     raw = getattr(args, "runs_dir", None)
     if raw is None:
-        if loop_kind != "agent":
-            _configuration_error(
-                f"--outer-loop {loop_kind} requires --runs-dir. In-place project "
-                "execution uses the default agent loop.",
-                code="missing_runs_dir",
-                stage="argument_parsing",
-            )
         if _standalone_input_dests_set(args):
             _configuration_error(
                 "Standalone --input-* flags require --runs-dir because they synthesize "
-                "a new input bundle. Use a self-contained project directory for in-place runs.",
+                "a new input bundle. Use a self-contained project directory for a direct run.",
                 code="missing_runs_dir",
                 stage="argument_parsing",
             )
-        args.project_mode = True
-        input_root = (getattr(args, "input", None) or Path.cwd()).expanduser().resolve()
-        # Existing loop APIs still accept runs_dir for shared caches. Project
-        # mode never creates experiment/workspace children below this path.
-        args.runs_dir = input_root / ".vs" / "local"
+        args.runs_dir = None
         return
-    args.project_mode = False
     runs_dir = raw.expanduser().resolve()
     prefix = Path(sys.prefix).resolve()
     if runs_dir.is_relative_to(prefix):
@@ -889,54 +883,55 @@ def _normalize_runs_dir(args: argparse.Namespace, *, loop_kind: str) -> None:
     args.runs_dir = runs_dir
 
 
-def _resolve_run_dir(run_dir_arg: str, runs_dir: Path) -> str:
-    """Resolve a run directory name.
+def _resolve_project_root(project_arg: str, runs_dir: Path) -> Path:
+    """Resolve one canonical project from a local collection or remote URL."""
+    if project_arg != "latest":
+        explicit = Path(project_arg).expanduser()
+        if explicit.is_dir():
+            return explicit.resolve()
 
-    If *run_dir_arg* is ``"latest"``, find the most recent experiment
-    directory in *runs_dir*. Otherwise accept either a bare run directory
-    name or an existing run directory path.
-    """
-    if run_dir_arg != "latest":
-        run_dir_path = Path(run_dir_arg).expanduser()
-        if run_dir_path.is_dir():
-            resolved = run_dir_path.resolve()
-            if resolved.parent == runs_dir:
-                return resolved.name
-            return str(resolved)
-
-        collection_path = runs_dir / run_dir_arg
+        collection_path = runs_dir / project_arg
         if collection_path.is_dir():
-            return run_dir_arg
+            return collection_path.resolve()
 
-        if _is_remote_experiment(run_dir_arg):
-            return _clone_experiment(run_dir_arg, runs_dir)
-        return run_dir_arg
+        if _is_remote_project(project_arg):
+            return _clone_project(project_arg, runs_dir)
+        _configuration_error(
+            f"Project directory does not exist: {collection_path}",
+            code="resume_not_found",
+            stage="resume_resolution",
+        )
+
     if not runs_dir.is_dir():
         _configuration_error(
             f"Runs directory does not exist: {runs_dir}",
             code="resume_not_found",
             stage="resume_resolution",
         )
-    dirs = sorted(
-        d.name for d in runs_dir.iterdir() if d.is_dir() and not d.name.startswith((".", "_"))
+    projects = sorted(
+        child
+        for child in runs_dir.iterdir()
+        if child.is_dir()
+        and not child.name.startswith((".", "_"))
+        and (child / ".vs" / "project.json").is_file()
     )
-    if not dirs:
+    if not projects:
         _configuration_error(
-            f"No experiment directories found in {runs_dir}.",
+            f"No VibeSys projects found in {runs_dir}.",
             code="resume_not_found",
             stage="resume_resolution",
         )
-    return dirs[-1]
+    return projects[-1].resolve()
 
 
-def _is_remote_experiment(value: str) -> bool:
+def _is_remote_project(value: str) -> bool:
     return bool(
         REPOSITORY_SLUG.fullmatch(value) or value.startswith(("https://", "ssh://", "git@"))
     )
 
 
-def _clone_experiment(remote: str, runs_dir: Path) -> str:
-    """Clone a remote experiment into *runs_dir* and return its run key."""
+def _clone_project(remote: str, runs_dir: Path) -> Path:
+    """Clone a remote project into *runs_dir* and return its root."""
     repository_name = remote.rstrip("/").rsplit("/", 1)[-1]
     if ":" in repository_name:
         repository_name = repository_name.rsplit(":", 1)[-1]
@@ -953,7 +948,7 @@ def _clone_experiment(remote: str, runs_dir: Path) -> str:
     if destination.exists():
         if not destination.is_dir():
             _configuration_error(
-                f"Cannot clone experiment: destination is not a directory: {destination}",
+                f"Cannot clone project: destination is not a directory: {destination}",
                 code="resume_clone_failed",
                 stage="resume_resolution",
             )
@@ -970,7 +965,7 @@ def _clone_experiment(remote: str, runs_dir: Path) -> str:
             or origin.endswith(f"/{expected_suffix}")
             or origin.endswith(f":{expected_suffix}")
         ):
-            return destination.name
+            return destination.resolve()
         _configuration_error(
             f"Cannot clone {remote!r}: destination already exists with a different origin: "
             f"{destination}",
@@ -982,11 +977,11 @@ def _clone_experiment(remote: str, runs_dir: Path) -> str:
             GitHubCLI().clone_repository(remote, destination)
         except GitHubCLIError as exc:
             _configuration_error(
-                f"Cannot clone experiment repository {remote!r}: {exc}",
+                f"Cannot clone project repository {remote!r}: {exc}",
                 code="resume_clone_failed",
                 stage="resume_resolution",
             )
-        return destination.name
+        return destination.resolve()
 
     command = ["git", "clone", remote, str(destination)]
     try:
@@ -1001,72 +996,29 @@ def _clone_experiment(remote: str, runs_dir: Path) -> str:
     if result.returncode != 0:
         detail = result.stderr.strip() or result.stdout.strip() or "unknown error"
         _configuration_error(
-            f"Cannot clone experiment repository {remote!r}: {detail}",
+            f"Cannot clone project repository {remote!r}: {detail}",
             code="resume_clone_failed",
             stage="resume_resolution",
         )
-    return destination.name
+    return destination.resolve()
 
 
-def _resume_exp_dir(run_dir_name: str, runs_dir: Path) -> Path:
-    return runs_dir / run_dir_name
-
-
-def _infer_resume_input(exp_dir: Path) -> Path:
-    materialized_input = exp_dir / "workspace"
-    if (materialized_input / "vibesys.input.toml").is_file() and (
-        materialized_input / "OBJECTIVE.md"
-    ).is_file():
-        return materialized_input
-
-    events_path = exp_dir / "logs" / "run-events.jsonl"
-    if not events_path.is_file():
-        _configuration_error(
-            f"Cannot infer --input because resume metadata is missing: {events_path}",
-            code="resume_input_not_found",
-            stage="resume_resolution",
-        )
-
-    for line_number, line in enumerate(events_path.read_text().splitlines(), start=1):
-        if not line.strip():
-            continue
-        try:
-            event = json.loads(line)
-        except json.JSONDecodeError as exc:
-            _configuration_error(
-                f"Cannot infer --input because {events_path}:{line_number} is invalid JSON: {exc}",
-                code="resume_input_invalid",
-                stage="resume_resolution",
-            )
-        if event.get("type") != "run_started":
-            continue
-        data = event.get("data")
-        if not isinstance(data, dict):
-            break
-        input_path = data.get("input")
-        if isinstance(input_path, str) and input_path:
-            return Path(input_path)
-        break
-
-    _configuration_error(
-        f"Cannot infer --input because no run_started input was found in {events_path}",
-        code="resume_input_not_found",
-        stage="resume_resolution",
-    )
-
-
-def _restore_resume_max_rounds(
+def _restore_resume_budget(
     args: argparse.Namespace,
-    recorded: RunConfiguration,
+    *,
+    destination: str,
+    recorded_value: int,
     explicit: frozenset[str],
 ) -> None:
-    if "max_rounds" not in explicit:
-        args.max_rounds = recorded.max_rounds
+    if destination not in explicit:
+        setattr(args, destination, recorded_value)
         return
-    if args.max_rounds < recorded.max_rounds:
+    requested = getattr(args, destination)
+    if requested < recorded_value:
+        option = "--" + destination.replace("_", "-")
         _configuration_error(
-            "--max-rounds is the run's total limit and cannot decrease when resuming "
-            f"(recorded {recorded.max_rounds}, requested {args.max_rounds})",
+            f"{option} is the run's total limit and cannot decrease when resuming "
+            f"(recorded {recorded_value}, requested {requested})",
             code="project_resume_configuration_mismatch",
             stage="resume_resolution",
         )
@@ -1074,7 +1026,7 @@ def _restore_resume_max_rounds(
 
 def _restore_resume_agent_backend(
     args: argparse.Namespace,
-    recorded: RunConfiguration,
+    recorded: AgentRunConfiguration,
     explicit: frozenset[str],
 ) -> bool:
     """Restore the backend and return whether an explicit value mismatched."""
@@ -1088,7 +1040,7 @@ def _restore_resume_agent_backend(
 
 def _restore_resume_constraints(
     args: argparse.Namespace,
-    recorded: RunConfiguration,
+    recorded: AgentRunConfiguration,
     explicit: frozenset[str],
 ) -> bool:
     """Restore constraints and return whether an explicit value mismatched."""
@@ -1138,25 +1090,22 @@ def _set_resume_cli_value(
 def _restore_project_resume_cli_args(
     args: argparse.Namespace,
     recorded: RunConfiguration,
+    *,
+    loop_kind: str,
 ) -> None:
     """Restore omitted run flags and reject explicit changes on resume."""
-    if recorded.outer_loop != "agent":
+    if recorded.outer_loop != loop_kind:
         _configuration_error(
-            f"Run metadata records unsupported outer loop {recorded.outer_loop!r}",
+            f"Run uses --outer-loop {recorded.outer_loop}, not {loop_kind}",
             code="project_resume_configuration_mismatch",
             stage="resume_resolution",
         )
 
     explicit = getattr(args, "explicit_cli_dests", frozenset())
-    _restore_resume_max_rounds(args, recorded, explicit)
-    changed: list[str] = []
-    if _restore_resume_agent_backend(args, recorded, explicit):
-        changed.append("agent_backend")
-    if _restore_resume_constraints(args, recorded, explicit):
-        changed.append("operator_constraints")
+    fields, changed = _restore_loop_resume_fields(args, recorded, explicit)
 
-    for destination, field in _PROJECT_RESUME_CLI_FIELDS.items():
-        if destination == "agent_backend":
+    for destination, field in fields.items():
+        if not hasattr(args, destination):
             continue
         expected = getattr(recorded, field)
         if destination in explicit:
@@ -1170,16 +1119,61 @@ def _restore_project_resume_cli_args(
         _project_resume_mismatch(changed)
 
 
+def _restore_loop_resume_fields(
+    args: argparse.Namespace,
+    recorded: RunConfiguration,
+    explicit: frozenset[str],
+) -> tuple[dict[str, str], list[str]]:
+    """Restore a loop's budget and return its immutable CLI field map."""
+    fields = dict(_COMMON_RESUME_CLI_FIELDS)
+    changed: list[str] = []
+    if isinstance(recorded, AgentRunConfiguration):
+        _restore_resume_budget(
+            args,
+            destination="max_rounds",
+            recorded_value=recorded.max_rounds,
+            explicit=explicit,
+        )
+        fields.update(_AGENT_RESUME_CLI_FIELDS)
+        if _restore_resume_agent_backend(args, recorded, explicit):
+            changed.append("agent_backend")
+        if _restore_resume_constraints(args, recorded, explicit):
+            changed.append("operator_constraints")
+        fields.pop("agent_backend", None)
+    elif isinstance(recorded, PlainRunConfiguration):
+        _restore_resume_budget(
+            args,
+            destination="max_rounds",
+            recorded_value=recorded.max_rounds,
+            explicit=explicit,
+        )
+        fields.update(_PLAIN_RESUME_CLI_FIELDS)
+    else:
+        _restore_resume_budget(
+            args,
+            destination="max_generations",
+            recorded_value=recorded.max_generations,
+            explicit=explicit,
+        )
+        fields.update(_EVOLVE_RESUME_CLI_FIELDS)
+        if "objective" in explicit:
+            requested = tuple(f"{item.name}:{item.direction}" for item in args.objective)
+            if requested != recorded.objectives:
+                changed.append("objectives")
+        else:
+            args.objective = [_parse_cli_objective(item) for item in recorded.objectives]
+    return fields, changed
+
+
 def _switch_project_resume_branch(project_root: Path, run_id: str) -> None:
     """Select the run branch before callers read committed project files."""
     # Store-only fixtures and corrupt partial initializations are diagnosed by
-    # context creation. Real in-place runs always have a repository here.
+    # context creation. Real runs always have a repository here.
     if not (project_root / ".git").exists():
         return
     tracker = GitTracker(
         project_root,
         log=lambda _message: None,
-        mode=GitTrackingMode.USER_PROJECT,
         run_id=run_id,
     )
     try:
@@ -1192,7 +1186,7 @@ def _switch_project_resume_branch(project_root: Path, run_id: str) -> None:
         )
 
 
-def _resolve_resume_args(args: argparse.Namespace) -> None:
+def _resolve_resume_args(args: argparse.Namespace, *, loop_kind: str) -> None:
     if args.resume is None:
         return
     if args.repo is not None:
@@ -1202,44 +1196,33 @@ def _resolve_resume_args(args: argparse.Namespace) -> None:
             stage="argument_parsing",
         )
 
-    if getattr(args, "project_mode", False):
-        project_root = (args.input or Path.cwd()).expanduser().resolve()
-        try:
-            store = ProjectStore(project_root)
-            if args.resume == "latest":
-                run_id = store.current_run_id()
-                if run_id is None:
-                    run_id = store.resolve_run().run_id
-            else:
-                run_id = args.resume
-            _switch_project_resume_branch(project_root, run_id)
-            run_manifest = store.load_run(run_id)
-        except ProjectStateError as exc:
-            _configuration_error(
-                f"Cannot resume project run: {exc}",
-                code="resume_not_found",
-                stage="resume_resolution",
-            )
-        args.resume = run_id
-        args.exp_name = run_id
-        args.input = project_root
-        args.project_run_configuration = run_manifest.configuration
-        _restore_project_resume_cli_args(args, run_manifest.configuration)
-        return
-
-    run_dir_name = _resolve_run_dir(args.resume, args.runs_dir)
-    args.resume = run_dir_name
-    if args.input is not None:
-        return
-
-    exp_dir = _resume_exp_dir(run_dir_name, args.runs_dir)
-    if not exp_dir.is_dir():
+    direct = args.runs_dir is None
+    project_root = (
+        (args.input or Path.cwd()).expanduser().resolve()
+        if direct
+        else _resolve_project_root(args.resume, args.runs_dir)
+    )
+    try:
+        store = ProjectStore(project_root)
+        if direct and args.resume != "latest":
+            run_id = args.resume
+        else:
+            run_id = store.current_run_id()
+            if run_id is None:
+                run_id = store.resolve_run().run_id
+        _switch_project_resume_branch(project_root, run_id)
+        run_manifest = store.load_run(run_id)
+    except ProjectStateError as exc:
         _configuration_error(
-            f"Run directory does not exist: {exp_dir}",
+            f"Cannot resume project run: {exc}",
             code="resume_not_found",
             stage="resume_resolution",
         )
-    args.input = _infer_resume_input(exp_dir)
+    args.resume = run_id
+    args.exp_name = run_id
+    args.input = project_root
+    args.project_run_configuration = run_manifest.configuration
+    _restore_project_resume_cli_args(args, run_manifest.configuration, loop_kind=loop_kind)
 
 
 def _apply_common_args(parser: argparse.ArgumentParser) -> None:
@@ -1336,7 +1319,7 @@ def _run_validate(argv: list[str]) -> None:
     input_path = (args.input_bundle or Path.cwd()).expanduser().resolve()
 
     try:
-        bundle = load_input_bundle(input_path, allow_bundle_local_sources=True)
+        bundle = load_input_bundle(input_path)
     except (FileNotFoundError, ValueError) as exc:
         _configuration_error(
             f"Validation failed for input bundle {input_path}: {exc}",
@@ -1382,37 +1365,6 @@ def _with_operator_constraints(objective: str, constraints: list[str]) -> str:
 # ===========================================================================
 # agent loop  (--outer-loop agent)
 # ===========================================================================
-
-
-def _detect_resume_round(exp_dir: Path) -> int:
-    """Infer the next round to run from ``logs/rounds.json`` (1-based)."""
-    rounds_json = exp_dir / "logs" / "rounds.json"
-    if not rounds_json.exists():
-        return 1
-    try:
-        data = json.loads(rounds_json.read_text())
-        return len(data) + 1
-    except Exception:  # noqa: BLE001  # tracked: #288
-        return 1
-
-
-def _prune_rounds_state(exp_dir: Path, keep_up_to: int) -> None:
-    """Trim rounds.json to entries with round < ``keep_up_to``."""
-    # An explicit rewind invalidates continuation state from the discarded
-    # rounds. The next run must ask the designer for a fresh hypothesis.
-    active_hypothesis = exp_dir / "logs" / "active_hypothesis.json"
-    if active_hypothesis.exists():
-        active_hypothesis.unlink()
-
-    rounds_json = exp_dir / "logs" / "rounds.json"
-    if not rounds_json.exists():
-        return
-    try:
-        data = json.loads(rounds_json.read_text())
-    except Exception:  # noqa: BLE001  # tracked: #288
-        return
-    kept = [d for d in data if int(d.get("round", 0)) < keep_up_to]
-    rounds_json.write_text(json.dumps(kept, indent=2))
 
 
 def _build_agent_parser() -> argparse.ArgumentParser:
@@ -1466,16 +1418,6 @@ def _build_agent_parser() -> argparse.ArgumentParser:
         "--stub-agent",
         action="store_true",
         help="Use deterministic local agent responses for fast TUI smoke tests.",
-    )
-    parser.add_argument("--start-round", type=int, default=None, metavar="N")
-    parser.add_argument(
-        "--trusted-input-baseline",
-        default=None,
-        metavar="REV",
-        help=(
-            "operator-authorized trusted-input commit for a resumed "
-            "--runs-dir workspace; unsupported for in-place project runs"
-        ),
     )
     parser.add_argument("--modality", default=None, choices=_MODALITIES)
     parser.add_argument(
@@ -1621,7 +1563,6 @@ def _validate_target_inputs(args: argparse.Namespace) -> None:
 
     input_arg = getattr(args, "input", None)
     standalone = _standalone_input_dests_set(args)
-    synthesized = False
 
     if input_arg is not None and standalone:
         _configuration_error(
@@ -1649,19 +1590,21 @@ def _validate_target_inputs(args: argparse.Namespace) -> None:
         else:
             input_arg = _synthesize_standalone_input(args)
             args.input = input_arg
-            synthesized = True
 
     try:
-        args.input_bundle = load_input_bundle(
-            input_arg,
-            allow_materialized_sources=(
-                getattr(args, "resume", None) is not None
-                and not getattr(args, "project_mode", False)
-            ),
-            allow_bundle_local_sources=synthesized or getattr(args, "project_mode", False),
-        )
+        args.input_bundle = load_input_bundle(input_arg)
     except (FileNotFoundError, ValueError) as exc:
         _configuration_error(str(exc), code="invalid_input", stage="input_loading")
+
+    if args.resume is None and args.runs_dir is None:
+        workspace = args.input_bundle.manifest.workspace
+        if workspace is not None and (workspace.seed is not None or workspace.sources):
+            _configuration_error(
+                "A direct project run requires candidate source at the project root. "
+                "Use --runs-dir to provision [workspace] inputs into a copied project.",
+                code="direct_project_materialization_unsupported",
+                stage="input_validation",
+            )
 
 
 def _validate_agent(args: argparse.Namespace) -> None:
@@ -1672,45 +1615,7 @@ def _validate_agent(args: argparse.Namespace) -> None:
         _configuration_error("Error: --judge-every must be >= 1.")
     if args.official_eval_every < 1:
         _configuration_error("Error: --official-eval-every must be >= 1.")
-    if args.trusted_input_baseline is not None and args.resume is None:
-        _configuration_error(
-            "Error: --trusted-input-baseline requires --resume.",
-            code="invalid_arguments",
-            stage="argument_parsing",
-        )
-    if args.trusted_input_baseline is not None and args.project_mode:
-        _configuration_error(
-            "--trusted-input-baseline cannot refresh the persisted baseline of an "
-            "in-place project run; omit it or use a --runs-dir workspace.",
-            code="invalid_arguments",
-            stage="argument_parsing",
-        )
     _validate_target_inputs(args)
-    if getattr(args, "project_mode", False):
-        workspace = args.input_bundle.manifest.workspace
-        if workspace is not None and (workspace.seed is not None or workspace.sources):
-            _configuration_error(
-                "In-place projects must already contain their candidate source. Remove "
-                "[workspace].seed and [[workspace.sources]] after materializing those files "
-                "into the project directory, or pass --runs-dir to materialize them for "
-                "each run.",
-                code="in_place_materialization_unsupported",
-                stage="input_validation",
-            )
-        if args.docker or args.modal:
-            _configuration_error(
-                "In-place project execution uses the native agent sandbox; pass "
-                "--runs-dir with --docker or --modal.",
-                code="in_place_environment_unsupported",
-                stage="argument_parsing",
-            )
-        if args.start_round is not None:
-            _configuration_error(
-                "--start-round does not destructively rewind an in-place project. Start a "
-                "new run from the desired Git checkpoint instead.",
-                code="invalid_arguments",
-                stage="argument_parsing",
-            )
 
 
 def _run_agent(args: argparse.Namespace) -> None:
@@ -1723,43 +1628,13 @@ def _run_agent(args: argparse.Namespace) -> None:
 
     existing = False
     exp_name = args.exp_name
-    start_round = args.start_round or 1
+    start_round = 1
 
-    if args.resume is not None and args.project_mode:
+    if args.resume is not None:
         exp_name = args.resume
         existing = True
         start_round = None
-        print(f"Resuming VibeSys project run {exp_name} in {bundle.root}/")  # noqa: T201  # tracked: #288
-    elif args.resume is not None:
-        run_dir_name = _resolve_run_dir(args.resume, args.runs_dir)
-        exp_name = run_dir_name
-        existing = True
-        exp_dir = _resume_exp_dir(run_dir_name, args.runs_dir)
-        print(f"Resuming agent run: {exp_dir}/")  # noqa: T201  # tracked: #288
-        if not exp_dir.is_dir():
-            _configuration_error(
-                f"Run directory does not exist: {exp_dir}",
-                code="resume_not_found",
-                stage="resume_resolution",
-            )
-        from vibesys.server.registry import active_supervisor  # noqa: PLC0415  # tracked: #288
-
-        supervisor = active_supervisor()
-        if supervisor is not None:
-            supervisor.attach(exp_dir / "logs")
-        if args.start_round is None:
-            start_round = _detect_resume_round(exp_dir)
-            print(f"Auto-detected next round: {start_round}")  # noqa: T201  # tracked: #288
-        else:
-            print(f"Resetting to round {start_round} (discarding later rounds).")  # noqa: T201  # tracked: #288
-            _prune_rounds_state(exp_dir, keep_up_to=start_round)
-        if start_round > args.max_rounds:
-            _configuration_error(
-                f"This run has completed {start_round - 1} rounds; --max-rounds is a total "
-                f"limit. Choose --max-rounds {start_round} or greater to continue.",
-                code="resume_limit_exhausted",
-                stage="resume_resolution",
-            )
+        print(f"Resuming VibeSys run {exp_name} in {bundle.root}/")  # noqa: T201  # tracked: #288
 
     success = run_agent_loop(
         config=config,
@@ -1784,11 +1659,9 @@ def _run_agent(args: argparse.Namespace) -> None:
         memory_layout=args.memory_layout,
         start_round=start_round,
         existing=existing,
-        project_mode=args.project_mode,
         operator_constraints=tuple(
             constraint.strip() for constraint in args.constraint if constraint.strip()
         ),
-        trusted_input_baseline=args.trusted_input_baseline,
         debug=args.debug,
         profiler_kind=args.profiler,
         skills_dirs=skills,
@@ -2014,24 +1887,12 @@ def _validate_evolve(args: argparse.Namespace) -> None:  # noqa: C901  # tracked
 
 def _resolve_openevolve_options(
     args: argparse.Namespace,
-    *,
-    existing: bool,
-    exp_name: str,
-    runs_dir: Path,
 ) -> tuple[str | None, OpenEvolveSearchConfig | None]:
     from vibesys.loops.evolve.search_policy import (  # noqa: PLC0415  # tracked: #288
-        OpenEvolveSearchConfig,
-        OpenEvolveSearchPolicy,
+        OpenEvolveSearchConfig,  # tracked: #288
     )
 
     openevolve_defaults = OpenEvolveSearchConfig()
-    if existing:
-        openevolve_defaults = (
-            OpenEvolveSearchPolicy.persisted_config(
-                _resume_exp_dir(exp_name, runs_dir) / "logs" / "openevolve"
-            )
-            or openevolve_defaults
-        )
     openevolve_values = (
         args.openevolve_population_size,
         args.openevolve_archive_size,
@@ -2059,25 +1920,6 @@ def _resolve_openevolve_options(
     return search_policy, openevolve_config
 
 
-def _restore_openevolve_objectives(
-    objectives: list[Objective],
-    *,
-    existing: bool,
-    exp_name: str,
-    runs_dir: Path,
-) -> list[Objective]:
-    if not existing or objectives:
-        return objectives
-    from vibesys.loops.evolve.search_policy import (  # noqa: PLC0415  # tracked: #288
-        OpenEvolveSearchPolicy,
-    )
-
-    persisted = OpenEvolveSearchPolicy.persisted_objectives(
-        _resume_exp_dir(exp_name, runs_dir) / "logs" / "openevolve"
-    )
-    return objectives if persisted is None else persisted
-
-
 def _run_evolve(args: argparse.Namespace) -> None:
     bundle: InputBundle = args.input_bundle
     config, skills, backend = load_config_and_skills(args, domain=bundle.domain)
@@ -2090,29 +1932,14 @@ def _run_evolve(args: argparse.Namespace) -> None:
     existing = False
     exp_name = args.exp_name
     if args.resume is not None:
-        run_dir_name = _resolve_run_dir(args.resume, args.runs_dir)
-        exp_name = run_dir_name
+        exp_name = args.resume
         existing = True
-        print(  # noqa: T201  # tracked: #288
-            f"Resuming evolve run: {_resume_exp_dir(run_dir_name, args.runs_dir)}/"
-        )
-
-    objectives = _restore_openevolve_objectives(
-        objectives,
-        existing=existing,
-        exp_name=exp_name,
-        runs_dir=args.runs_dir,
-    )
+        print(f"Resuming evolve run {exp_name} in {bundle.root}/")  # noqa: T201  # tracked: #288
     if objectives:
         spec = ", ".join(f"{o.name}({o.direction})" for o in objectives)
         print(f"Pareto mode active: [{spec}]; frontier_bias={args.frontier_bias}")  # noqa: T201  # tracked: #288
 
-    search_policy, openevolve_config = _resolve_openevolve_options(
-        args,
-        existing=existing,
-        exp_name=exp_name,
-        runs_dir=args.runs_dir,
-    )
+    search_policy, openevolve_config = _resolve_openevolve_options(args)
 
     success = run_evolve_loop(
         config=config,
@@ -2179,7 +2006,6 @@ def _build_plain_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-rounds", type=int, default=5)
     parser.add_argument("--max-attempts-per-issue", type=int, default=3)
     parser.add_argument("--max-issues-per-perf-eval", type=int, default=3)
-    parser.add_argument("--start-round", type=int, default=None, metavar="N")
     return parser
 
 
@@ -2192,47 +2018,14 @@ def _run_plain(args: argparse.Namespace) -> None:
     bundle: InputBundle = args.input_bundle
     config, skills, backend = load_config_and_skills(args, domain=bundle.domain)
     _prepare_experiment_repository(args, config)
-    from vibesys.loops.plain.loop import (  # noqa: PLC0415  # tracked: #288
-        PlainLoopState,
-        load_state,
-        run_plain_loop,
-    )
+    from vibesys.loops.plain.loop import run_plain_loop  # noqa: PLC0415  # tracked: #288
 
     existing = False
     exp_name = args.exp_name
-    resume_state: PlainLoopState | None = None
-
     if args.resume is not None:
-        run_dir_name = _resolve_run_dir(args.resume, args.runs_dir)
-        exp_name = run_dir_name
+        exp_name = args.resume
         existing = True
-        exp_dir = _resume_exp_dir(run_dir_name, args.runs_dir)
-        print(f"Resuming from: {exp_dir}/")  # noqa: T201  # tracked: #288
-        log_dir = exp_dir / "logs"
-
-        if args.start_round is not None:
-            resume_state = PlainLoopState(
-                round_idx=args.start_round - 1,
-                bootstrap_done=True,
-            )
-        else:
-            resume_state = load_state(log_dir)
-            if resume_state is not None:
-                print(  # noqa: T201  # tracked: #288
-                    f"Auto-detected state: round {resume_state.round_idx + 1}, "
-                    f"phase '{resume_state.phase}'"
-                    + (
-                        f", current issue #{resume_state.current_issue_id}"
-                        if resume_state.current_issue_id
-                        else ""
-                    )
-                )
-            else:
-                resume_state = PlainLoopState(bootstrap_done=True)
-                print(  # noqa: T201  # tracked: #288
-                    "Warning: state.json not found. Starting fresh "
-                    "(bootstrap will be skipped because existing run)."
-                )
+        print(f"Resuming plain run {exp_name} in {bundle.root}/")  # noqa: T201  # tracked: #288
 
     success = run_plain_loop(
         config=config,
@@ -2248,7 +2041,6 @@ def _run_plain(args: argparse.Namespace) -> None:
         max_attempts_per_issue=args.max_attempts_per_issue,
         max_issues_per_perf_eval=args.max_issues_per_perf_eval,
         existing=existing,
-        resume_state=resume_state,
         debug=args.debug,
         profiler_kind=args.profiler,
         skills_dirs=skills,
@@ -2256,6 +2048,7 @@ def _run_plain(args: argparse.Namespace) -> None:
         agent_backend=args.agent_backend,
         cli_provider=args.cli_provider,
         backend=backend,
+        domain=bundle.domain,
         remote_repo=args.repo,
         repo_visibility=args.repo_visibility,
     )
@@ -2313,8 +2106,8 @@ def parse_cli_invocation(argv: list[str]) -> CliInvocation:
     parser = command.build_parser()
     args = parser.parse_args(remaining)
     args.explicit_cli_dests = _explicit_cli_dests(parser, remaining)
-    _normalize_runs_dir(args, loop_kind=loop_kind)
-    _resolve_resume_args(args)
+    _normalize_runs_dir(args)
+    _resolve_resume_args(args, loop_kind=loop_kind)
     command.validate(args)
     return CliInvocation(loop_kind=loop_kind, args=args)
 

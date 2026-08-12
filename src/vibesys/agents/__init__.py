@@ -120,7 +120,7 @@ def build_agent_runner(  # noqa: C901, D417, PLR0913  # tracked: #288
 
     if require_host_sandbox and backend not in {"cli", "stub"}:
         raise SystemExit(  # noqa: TRY003  # tracked: #288
-            "in-place project execution requires the CLI agent backend so VibeSys can "
+            "local project execution requires the CLI agent backend so VibeSys can "
             "enforce nested read-only and hidden paths"
         )
 
@@ -152,7 +152,7 @@ def build_agent_runner(  # noqa: C901, D417, PLR0913  # tracked: #288
         if is_feature_enabled(FeatureFlag.OMNIGENT_AGENT_BACKEND, config):
             if require_host_sandbox:
                 raise SystemExit(  # noqa: TRY003  # tracked: #288
-                    "in-place project execution does not yet support the Omnigent "
+                    "local project execution does not yet support the Omnigent "
                     "backend; disable feature_flags.omnigent_agent_backend"
                 )
             # Opt-in alternative to agentshim. Validated and constructed here

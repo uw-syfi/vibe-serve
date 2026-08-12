@@ -19,7 +19,7 @@ examples/microservices/hotel-reservation/scripts/materialize-reference.sh
 ```
 
 The materialized source is intentionally ignored by this repository. VibeSys
-copies it into the separate experiment workspace, where optimization commits
+copies it into a self-contained project, where optimization commits
 belong; the pull request for this scenario contains only evaluator and bundle
 code.
 
@@ -92,14 +92,14 @@ between runs to keep the raw capture small.
 ## Optimize
 
 ```bash
-uv run vibesys --outer-loop agent \
+vibesys --outer-loop agent \
   --input examples/microservices/hotel-reservation \
-  --runs-dir "$PWD/exp_env" \
+  --runs-dir /work/vibesys-runs \
   --local \
   --exp-name hotel-reservation-opt \
   --backend cpu --interface service \
   --agent-backend cli --cli-provider codex \
-  --max-rounds 10 --git-tracking --headless
+  --max-rounds 10 --headless
 ```
 
 The benchmark reports closed-loop logical operations per second. One logical

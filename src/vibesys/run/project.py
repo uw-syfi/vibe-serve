@@ -1,0 +1,278 @@
+"""Provision a self-contained VibeSys project from an input directory."""
+
+from __future__ import annotations
+
+import shutil
+import subprocess
+import tomllib
+from dataclasses import dataclass
+from pathlib import Path
+
+from pydantic import ValidationError
+
+from vibesys.input_manifest import (
+    MANIFEST_NAME,
+    EvaluatorInput,
+    InputManifest,
+    WorkspaceSource,
+    render_input_manifest,
+)
+from vibesys.run.workspace import CopySpec, GitSourceSpec, InputProjectSpec, Workspace
+
+_PRIVATE_SOURCE_NAMES = frozenset({".git", ".vs", "agent.toml"})
+
+
+class ProjectProvisioningError(ValueError):
+    """Raised when an input directory cannot be provisioned as a project."""
+
+
+@dataclass(frozen=True)
+class ProjectProvisioningSpec:
+    """Materialization dependencies for one copied project.
+
+    ``workspace`` owns the copy and source-materialization mechanisms and must
+    be rooted at the requested destination. The other paths are resolved input
+    dependencies, normally taken from :class:`~vibesys.input_manifest.InputBundle`.
+    """
+
+    workspace: Workspace
+    seed: Path | None = None
+    workspace_sources: tuple[WorkspaceSource, ...] = ()
+    evaluator_source: Path | None = None
+    input_project_dir: Path | None = None
+    input_excludes: frozenset[str] = frozenset()
+
+
+def provision_project(
+    input_root: Path,
+    destination_root: Path,
+    *,
+    spec: ProjectProvisioningSpec,
+) -> Path:
+    """Copy and normalize ``input_root`` into one self-contained project root.
+
+    The destination must not exist and must be outside the input tree. The
+    function does not initialize Git or ``.vs``. If any copy, source checkout,
+    or manifest rewrite fails, the newly created destination is removed.
+    """
+    source = _require_input_root(input_root)
+    destination = destination_root.expanduser().resolve()
+    _validate_destination(source, destination, workspace=spec.workspace)
+    manifest = _load_manifest(source)
+    _validate_materialization_contract(manifest, spec)
+
+    private_names = _private_source_names(source)
+    primary_steps = _primary_steps(source, destination, spec, private_names)
+
+    try:
+        spec.workspace.create()
+        spec.workspace.setup(primary_steps, existing=False)
+        evaluator_relative = _materialize_evaluator(
+            source,
+            destination,
+            manifest,
+            spec,
+        )
+        _remove_private_entries(destination)
+        normalized = manifest.model_copy(
+            update={
+                "workspace": None,
+                "evaluator": (
+                    EvaluatorInput(source=evaluator_relative)
+                    if evaluator_relative is not None
+                    else None
+                ),
+            }
+        )
+        (destination / MANIFEST_NAME).write_text(render_input_manifest(normalized))
+    except BaseException as exc:
+        try:
+            _remove_path(destination)
+        except OSError as cleanup_error:
+            exc.add_note(
+                f"Failed to remove partial provisioned project {destination}: {cleanup_error}"
+            )
+        raise
+
+    return destination
+
+
+def _require_input_root(path: Path) -> Path:
+    root = path.expanduser().resolve()
+    if not root.exists():
+        raise ProjectProvisioningError(f"input project does not exist: {root}")  # noqa: TRY003
+    if not root.is_dir():
+        raise ProjectProvisioningError(f"input project is not a directory: {root}")  # noqa: TRY003
+    if not (root / "OBJECTIVE.md").is_file():
+        raise ProjectProvisioningError(  # noqa: TRY003
+            f"OBJECTIVE.md not found: {root / 'OBJECTIVE.md'}"
+        )
+    return root
+
+
+def _validate_destination(source: Path, destination: Path, *, workspace: Workspace) -> None:
+    if destination == source or destination.is_relative_to(source):
+        raise ProjectProvisioningError(  # noqa: TRY003
+            f"project destination must be outside the input project: {destination}"
+        )
+    if destination.exists() or destination.is_symlink():
+        raise ProjectProvisioningError(  # noqa: TRY003
+            f"project destination already exists: {destination}"
+        )
+    if workspace.root.expanduser().resolve() != destination:
+        raise ProjectProvisioningError(  # noqa: TRY003
+            "project workspace root does not match destination: "
+            f"{workspace.root.expanduser().resolve()} != {destination}"
+        )
+
+
+def _load_manifest(source: Path) -> InputManifest:
+    path = source / MANIFEST_NAME
+    if not path.is_file():
+        raise ProjectProvisioningError(f"input manifest not found: {path}")  # noqa: TRY003
+    try:
+        return InputManifest.model_validate(tomllib.loads(path.read_text()))
+    except (tomllib.TOMLDecodeError, ValidationError) as exc:
+        raise ProjectProvisioningError(  # noqa: TRY003
+            f"invalid input manifest {path}: {exc}"
+        ) from exc
+
+
+def _validate_materialization_contract(
+    manifest: InputManifest,
+    spec: ProjectProvisioningSpec,
+) -> None:
+    declared_seed = manifest.workspace is not None and manifest.workspace.seed is not None
+    if declared_seed != (spec.seed is not None):
+        raise ProjectProvisioningError(  # noqa: TRY003
+            "workspace seed declaration and resolved provisioning seed do not match"
+        )
+    declared_sources = manifest.workspace.sources if manifest.workspace is not None else ()
+    if declared_sources != spec.workspace_sources:
+        raise ProjectProvisioningError(  # noqa: TRY003
+            "workspace source declarations and resolved provisioning sources do not match"
+        )
+    if any(not source.strip_git for source in spec.workspace_sources):
+        raise ProjectProvisioningError(  # noqa: TRY003
+            "copied projects require workspace sources with strip_git = true"
+        )
+    declared_evaluator = manifest.evaluator is not None
+    if declared_evaluator != (spec.evaluator_source is not None):
+        raise ProjectProvisioningError(  # noqa: TRY003
+            "evaluator declaration and resolved provisioning source do not match"
+        )
+
+
+def _private_source_names(source: Path) -> frozenset[str]:
+    root_environment_files = {
+        child.name for child in source.iterdir() if child.name.startswith(".env")
+    }
+    return _PRIVATE_SOURCE_NAMES | root_environment_files
+
+
+def _primary_steps(
+    source: Path,
+    destination: Path,
+    spec: ProjectProvisioningSpec,
+    private_names: frozenset[str],
+) -> tuple[CopySpec | GitSourceSpec | InputProjectSpec, ...]:
+    steps: list[CopySpec | GitSourceSpec | InputProjectSpec] = []
+    if spec.seed is not None:
+        steps.append(
+            CopySpec(
+                src=spec.seed,
+                dest=destination,
+                respect_gitignore=_is_git_worktree(spec.seed),
+                extra_excludes=_private_source_names(spec.seed),
+            )
+        )
+    steps.extend(GitSourceSpec(source=item) for item in spec.workspace_sources)
+    steps.append(
+        CopySpec(
+            src=source,
+            dest=destination,
+            reject_collisions=spec.seed is not None or bool(spec.workspace_sources),
+            extra_excludes=private_names | spec.input_excludes,
+        )
+    )
+    if spec.input_project_dir is not None:
+        steps.append(InputProjectSpec(project_dir=spec.input_project_dir))
+    return tuple(steps)
+
+
+def _materialize_evaluator(
+    source: Path,
+    destination: Path,
+    manifest: InputManifest,
+    spec: ProjectProvisioningSpec,
+) -> str | None:
+    if manifest.evaluator is None or spec.evaluator_source is None:
+        return None
+
+    evaluator_source = spec.evaluator_source.expanduser().resolve()
+    if not evaluator_source.is_dir():
+        raise ProjectProvisioningError(  # noqa: TRY003
+            f"evaluator source is not a directory: {evaluator_source}"
+        )
+    relative = Path("_evaluator") / evaluator_source.name
+    evaluator_destination = destination / relative
+
+    try:
+        source_relative = evaluator_source.relative_to(source)
+    except ValueError:
+        source_relative = None
+
+    if source_relative == relative:
+        return relative.as_posix()
+
+    if source_relative is not None:
+        _remove_path(destination / source_relative)
+
+    spec.workspace.setup(
+        (
+            CopySpec(
+                src=evaluator_source,
+                dest=evaluator_destination,
+                respect_gitignore=_is_git_worktree(evaluator_source),
+                extra_excludes=_private_source_names(evaluator_source),
+                require_absent=evaluator_destination,
+                require_absent_message=(
+                    "evaluator destination already exists in provisioned project: "
+                    f"{relative.as_posix()}"
+                ),
+            ),
+        ),
+        existing=True,
+    )
+    return relative.as_posix()
+
+
+def _remove_private_entries(root: Path) -> None:
+    private_paths = sorted(
+        (
+            path
+            for path in root.rglob("*")
+            if path.name in _PRIVATE_SOURCE_NAMES or path.name.startswith(".env")
+        ),
+        key=lambda path: len(path.parts),
+        reverse=True,
+    )
+    for path in private_paths:
+        _remove_path(path)
+
+
+def _is_git_worktree(path: Path) -> bool:
+    result = subprocess.run(  # noqa: S603
+        ["git", "-C", str(path), "rev-parse", "--is-inside-work-tree"],  # noqa: S607
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    return result.returncode == 0 and result.stdout.strip() == "true"
+
+
+def _remove_path(path: Path) -> None:
+    if path.is_dir() and not path.is_symlink():
+        shutil.rmtree(path)
+    elif path.exists() or path.is_symlink():
+        path.unlink()

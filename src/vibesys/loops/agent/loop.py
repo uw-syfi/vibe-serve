@@ -11,7 +11,7 @@ import hashlib
 import json
 import math
 import shlex
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path  # noqa: TC003  # tracked: #288
 from typing import Any
 
@@ -24,6 +24,8 @@ from vibesys.domains.registry import resolve_domain
 from vibesys.domains.rendering import render_domain_section
 from vibesys.input_manifest import BenchmarkResult, WorkspaceSource  # noqa: TC001  # tracked: #288
 from vibesys.loops.agent import issue_board
+from vibesys.loops.agent.model import ActiveHypothesis as _ActiveHypothesis
+from vibesys.loops.agent.state import AgentStateStore
 from vibesys.loops.evolve.population import Objective  # noqa: TC001  # tracked: #288
 from vibesys.loops.gates import run_accuracy_gate
 from vibesys.loops.profiler import mcp_spec as profiler_mcp_spec
@@ -33,7 +35,7 @@ from vibesys.profilers import (
     require_profiler_kind,
 )
 from vibesys.prompts import PROMPTS_DIR, render_template
-from vibesys.run import LoopContext, RepositoryVisibility
+from vibesys.run import LoopContext, RepositoryVisibility, RunStateNamespace
 from vibesys.sandbox.run_environment import (
     RunEnvironmentSpec,
     make_run_environment_spec,
@@ -67,7 +69,7 @@ from vibesys.skills import (
     resolve_skill_selections,
 )
 from vs_loop_state.agent import RoundHistory, RoundRecord
-from vs_project_state import RunConfiguration
+from vs_project_state import AgentRunConfiguration
 
 # Candidate process boundaries selected by ``--interface``. Language, tooling,
 # and artifact requirements belong to the selected domain and input bundle.
@@ -79,156 +81,6 @@ _INNER_LOOPS = ("multi-agent", "single-agent")
 _TEMPLATE_DIR = PROMPTS_DIR / "loops" / "agent"
 
 
-# ---------------------------------------------------------------------------
-# Active hypothesis state (persisted to log_dir/active_hypothesis.json)
-#
-# ``RoundRecord`` (persisted to log_dir/rounds.json) and its load/save/
-# rollback-resolution helpers live in the vs-loop-state library
-# (vs_loop_state.agent) — see its module docstring. ``_ActiveHypothesis``
-# stays here: it embeds ``OrchestratorPlan`` from ``vibesys.schemas``, which
-# that dependency-free library cannot import.
-# ---------------------------------------------------------------------------
-
-
-@dataclass
-class _ActiveHypothesis:
-    """Framework-owned continuation state for one implementer goal."""
-
-    plan: OrchestratorPlan
-    started_round: int
-    parent_round: int | None = None
-    # Exact pre-hypothesis tree. Unlike ``parent_round``, this preserves
-    # validated between-round repairs that belong to the real parent.
-    parent_commit: str | None = None
-    feedback: str | None = None
-    next_step: str | None = None
-    # Consecutive rounds retained under the same plan after its initial turn.
-    # Bound every continuation outcome, including an implementer-reported
-    # ``continue``: otherwise an agent can renew its own lease indefinitely and
-    # prevent the designer from comparing the work with higher-value options.
-    continuation_rounds: int = 0
-    # A plan-level rollback establishes the hypothesis parent exactly once.
-    # Persist the fact separately from round state so a continuation or
-    # process resume cannot reapply it and erase in-hypothesis work.
-    revert_applied: bool = False
-    # Framework-owned provenance for the tree materialized by the rollback.
-    # Agent sandboxes may intentionally receive stripped ``.git`` metadata,
-    # so this commit must travel through loop state rather than be rediscovered
-    # by the implementer or judge.
-    revert_commit: str | None = None
-    # A nominated candidate may pass independent review and then fail only a
-    # framework-owned gate. Preserve the judge-approved canonical evidence so
-    # a wrapper repair or transient gate retry does not force a duplicate
-    # benchmark or erase the metric when the implementer correctly reports the
-    # resubmission as reused evidence.
-    gate_revalidation_pending: bool = False
-    gate_approved_perf_metric: float | None = None
-    gate_approved_perf_unit: str | None = None
-    gate_approved_metrics: dict[str, float] = field(default_factory=dict)
-    gate_approved_evaluation_artifact: str | None = None
-    gate_approved_candidate_disposition: str = CandidateDisposition.UNASSESSED.value
-    gate_approved_candidate_metrics: dict[str, float] = field(default_factory=dict)
-    gate_approved_candidate_evaluation_artifact: str | None = None
-    gate_approved_candidate_operating_point: str = ""
-    gate_approved_candidate_retention_reason: str = ""
-    gate_candidate_commit: str | None = None
-    gate_accuracy_passed: bool = False
-
-    def to_json(self) -> dict[str, Any]:
-        return {
-            "plan": self.plan.model_dump(mode="json"),
-            "started_round": self.started_round,
-            "parent_round": self.parent_round,
-            "parent_commit": self.parent_commit,
-            "feedback": self.feedback,
-            "next_step": self.next_step,
-            "continuation_rounds": self.continuation_rounds,
-            "revert_applied": self.revert_applied,
-            "revert_commit": self.revert_commit,
-            "gate_revalidation_pending": self.gate_revalidation_pending,
-            "gate_approved_perf_metric": self.gate_approved_perf_metric,
-            "gate_approved_perf_unit": self.gate_approved_perf_unit,
-            "gate_approved_metrics": self.gate_approved_metrics,
-            "gate_approved_evaluation_artifact": self.gate_approved_evaluation_artifact,
-            "gate_approved_candidate_disposition": self.gate_approved_candidate_disposition,
-            "gate_approved_candidate_metrics": self.gate_approved_candidate_metrics,
-            "gate_approved_candidate_evaluation_artifact": (
-                self.gate_approved_candidate_evaluation_artifact
-            ),
-            "gate_approved_candidate_operating_point": (
-                self.gate_approved_candidate_operating_point
-            ),
-            "gate_approved_candidate_retention_reason": (
-                self.gate_approved_candidate_retention_reason
-            ),
-            "gate_candidate_commit": self.gate_candidate_commit,
-            "gate_accuracy_passed": self.gate_accuracy_passed,
-        }
-
-    @classmethod
-    def from_json(cls, data: dict[str, Any]) -> _ActiveHypothesis:
-        return cls(
-            plan=OrchestratorPlan.model_validate(data["plan"]),
-            started_round=int(data["started_round"]),
-            parent_round=data.get(
-                "parent_round",
-                data["plan"].get("revert_to_round")
-                or (int(data["started_round"]) - 1 if int(data["started_round"]) > 1 else None),
-            ),
-            parent_commit=data.get("parent_commit") or data.get("revert_commit"),
-            feedback=data.get("feedback"),
-            next_step=data.get("next_step"),
-            continuation_rounds=int(
-                data.get("continuation_rounds", data.get("repair_continuations", 0))
-            ),
-            revert_applied=bool(data.get("revert_applied", False)),
-            revert_commit=data.get("revert_commit"),
-            gate_revalidation_pending=bool(data.get("gate_revalidation_pending", False)),
-            gate_approved_perf_metric=data.get("gate_approved_perf_metric"),
-            gate_approved_perf_unit=data.get("gate_approved_perf_unit"),
-            gate_approved_metrics=data.get("gate_approved_metrics", {}),
-            gate_approved_evaluation_artifact=data.get("gate_approved_evaluation_artifact"),
-            gate_approved_candidate_disposition=data.get(
-                "gate_approved_candidate_disposition", CandidateDisposition.UNASSESSED.value
-            ),
-            gate_approved_candidate_metrics=data.get("gate_approved_candidate_metrics", {}),
-            gate_approved_candidate_evaluation_artifact=data.get(
-                "gate_approved_candidate_evaluation_artifact"
-            ),
-            gate_approved_candidate_operating_point=data.get(
-                "gate_approved_candidate_operating_point", ""
-            ),
-            gate_approved_candidate_retention_reason=data.get(
-                "gate_approved_candidate_retention_reason", ""
-            ),
-            gate_candidate_commit=data.get("gate_candidate_commit"),
-            gate_accuracy_passed=bool(data.get("gate_accuracy_passed", False)),
-        )
-
-
-def _load_active_hypothesis(path: Path) -> _ActiveHypothesis | None:
-    if not path.exists():
-        return None
-    return _ActiveHypothesis.from_json(json.loads(path.read_text()))
-
-
-def _serialize_active_hypothesis(state: _ActiveHypothesis | None) -> bytes | None:
-    """Return the exact local active-state representation for a transition."""
-    if state is None:
-        return None
-    return json.dumps(state.to_json(), indent=2).encode("utf-8")
-
-
-def _save_active_hypothesis(path: Path, state: _ActiveHypothesis | None) -> None:
-    contents = _serialize_active_hypothesis(state)
-    if contents is None:
-        if path.exists():
-            path.unlink()
-        return
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(contents)
-
-
 def _backfill_revert_commit(
     state: _ActiveHypothesis | None,
     records: list[RoundRecord],
@@ -238,7 +90,7 @@ def _backfill_revert_commit(
     ``revert_applied`` was historically set only after the framework attempted
     the configured round checkout.  Older active state therefore identifies
     the parent round but not its commit.  Resolve that immutable commit from
-    ``rounds.json`` once on resume so agent sandboxes do not need repository
+    completed-round records once on resume so agent sandboxes do not need repository
     metadata to re-prove framework-owned setup.
     """
     if (
@@ -2121,7 +1973,7 @@ def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
     benchmark_command: str,
     objective: str,
     *,
-    runs_dir: Path,
+    runs_dir: Path | None,
     objectives: list[Objective] | None = None,
     pareto_relative_noise: float = _DEFAULT_PARETO_RELATIVE_NOISE,
     workspace_seed: Path | None = None,
@@ -2137,7 +1989,6 @@ def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
     memory_layout: str = "files",
     start_round: int | None = 1,
     existing: bool = False,
-    project_mode: bool = False,
     operator_constraints: tuple[str, ...] = (),
     trusted_input_baseline: str | None = None,
     debug: bool = False,
@@ -2210,40 +2061,36 @@ def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
         modality = "text_generation"
     run_environment = run_environment or make_run_environment_spec()
     normalized_config = as_config(config)
-    project_configuration = (
-        RunConfiguration(
-            outer_loop="agent",
-            inner_loop=inner_loop,
-            interface=interface,
-            model=normalized_config.model.name,
-            agent_backend=(
-                "stub"
-                if agent_backend == "stub"
-                else agent_backend or normalized_config.agent.backend or DEFAULT_AGENT_BACKEND
-            ),
-            cli_provider=(
-                cli_provider or normalized_config.agent.cli_provider or "codex"
-                if agent_backend != "stub"
-                else None
-            ),
-            compute_backend=backend.value,
-            profiler=profiler_kind.value,
-            max_rounds=max_rounds,
-            max_retries_per_round=max_retries_per_round,
-            judge_every=judge_every,
-            official_eval_every=official_eval_every,
-            memory_layout=memory_layout,
-            modality=modality,
-            cli_timeout=normalized_config.agent.cli_timeout,
-            default_reasoning_effort=normalized_config.thinking.level,
-            outer_model=normalized_config.agent.outer.model,
-            outer_reasoning_effort=normalized_config.agent.outer.reasoning_effort,
-            inner_model=normalized_config.agent.inner.model,
-            inner_reasoning_effort=normalized_config.agent.inner.reasoning_effort,
-            operator_constraints=operator_constraints,
-        )
-        if project_mode
-        else None
+    project_configuration = AgentRunConfiguration(
+        outer_loop="agent",
+        inner_loop=inner_loop,
+        interface=interface,
+        model=normalized_config.model.name,
+        agent_backend=(
+            "stub"
+            if agent_backend == "stub"
+            else agent_backend or normalized_config.agent.backend or DEFAULT_AGENT_BACKEND
+        ),
+        cli_provider=(
+            cli_provider or normalized_config.agent.cli_provider or "codex"
+            if agent_backend != "stub"
+            else None
+        ),
+        compute_backend=backend.value,
+        profiler=profiler_kind.value,
+        max_rounds=max_rounds,
+        max_retries_per_round=max_retries_per_round,
+        judge_every=judge_every,
+        official_eval_every=official_eval_every,
+        memory_layout=memory_layout,
+        modality=modality,
+        cli_timeout=normalized_config.agent.cli_timeout,
+        default_reasoning_effort=normalized_config.thinking.level,
+        outer_model=normalized_config.agent.outer.model,
+        outer_reasoning_effort=normalized_config.agent.outer.reasoning_effort,
+        inner_model=normalized_config.agent.inner.model,
+        inner_reasoning_effort=normalized_config.agent.inner.reasoning_effort,
+        operator_constraints=operator_constraints,
     )
     ctx = create_run_context(
         config=normalized_config,
@@ -2257,7 +2104,6 @@ def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
         evaluator_path=evaluator_path,
         objective=objective,
         existing=existing,
-        project_mode=project_mode,
         project_configuration=project_configuration,
         trusted_input_baseline=trusted_input_baseline,
         debug=debug,
@@ -2265,16 +2111,16 @@ def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
         profiler_domain=domain_definition.name,
         skills_dirs=skills_dirs,
         run_environment=run_environment,
-        git_tracking=True,
         agent_backend=agent_backend,
         cli_provider=cli_provider,
         backend=backend,
         environment_hooks=domain_definition.environment_hooks,
         remote_repo=remote_repo,
         repo_visibility=repo_visibility,
+        active_state_model_type=_ActiveHypothesis,
     )
     ctx.lprint(f"[log] orchestrate run: {ctx.run_log_path}")
-    ctx.lprint(f"[log] experiment root: {ctx.exp_dir}")
+    ctx.lprint(f"[log] project root: {ctx.project_root}")
     ctx.lprint(f"[log] objective: {objective.splitlines()[0] if objective else '(empty)'}")
 
     roadmap_path, progress_path = issue_board.resolve_paths(ctx.workspace, memory_layout)
@@ -2286,15 +2132,12 @@ def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
     pareto_archive_path = issue_board.pareto_archive_path(progress_path)
     pareto_archive_location = issue_board.display_path(pareto_archive_path, ctx.workspace)
 
-    rounds_state_path = ctx.rounds_state_path
-    round_history = RoundHistory.load(rounds_state_path)
-    if ctx.project_store is not None and ctx.run_id is not None:
-        round_history.records[:] = ctx.project_store.load_rounds(ctx.run_id)
+    round_history = RoundHistory(records=ctx.state.completed_rounds())
     records = round_history.records
-    active_hypothesis_path = ctx.active_hypothesis_path
-    active_hypothesis = _load_active_hypothesis(active_hypothesis_path)
+    agent_state = AgentStateStore(ctx.state.local(RunStateNamespace.AGENT))
+    active_hypothesis = agent_state.load_active()
     if _backfill_revert_commit(active_hypothesis, records):
-        _save_active_hypothesis(active_hypothesis_path, active_hypothesis)
+        agent_state.save_active(active_hypothesis)
 
     carry = _CarryOver(regression_info=_terminal_workspace_notice(records))
     round_number = start_round if start_round is not None else len(records) + 1
@@ -2398,7 +2241,7 @@ def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
                         ),
                         parent_commit=ctx.git.current_sha(),
                     )
-                    _save_active_hypothesis(active_hypothesis_path, active_hypothesis)
+                    agent_state.save_active(active_hypothesis)
                 else:
                     plan = active_hypothesis.plan
                     issue_board.append_hypothesis_continuation(
@@ -2464,7 +2307,7 @@ def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
                             active_hypothesis.revert_applied = True
                             active_hypothesis.revert_commit = rollback_commit
                             active_hypothesis.parent_commit = rollback_commit
-                            _save_active_hypothesis(active_hypothesis_path, active_hypothesis)
+                            agent_state.save_active(active_hypothesis)
                         else:
                             ctx.lprint(
                                 "[warn] rollback was not applied; will retry round "
@@ -2641,7 +2484,7 @@ def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
                             if validation_feedback is not None:
                                 feedback = validation_feedback
                                 active_hypothesis.feedback = feedback
-                                _save_active_hypothesis(active_hypothesis_path, active_hypothesis)
+                                agent_state.save_active(active_hypothesis)
                                 continue
                             if (
                                 implementation.candidate_disposition
@@ -2662,7 +2505,7 @@ def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
                                 active_hypothesis.gate_approved_candidate_retention_reason = (
                                     implementation.candidate_retention_reason
                                 )
-                                _save_active_hypothesis(active_hypothesis_path, active_hypothesis)
+                                agent_state.save_active(active_hypothesis)
                             candidate_ready = implementation.hypothesis_outcome in {
                                 HypothesisOutcome.SUPPORTED,
                                 HypothesisOutcome.NOMINATED,
@@ -2708,7 +2551,7 @@ def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
                                 active_hypothesis.gate_approved_evaluation_artifact = (
                                     implementation.evaluation_artifact
                                 )
-                                _save_active_hypothesis(active_hypothesis_path, active_hypothesis)
+                                agent_state.save_active(active_hypothesis)
                             issue_board.append_official_evaluation_decision(
                                 progress_path,
                                 round_number,
@@ -2720,7 +2563,7 @@ def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
                                     _provisional_candidates_since_official(records)
                                 ),
                             )
-                            candidate_commit = ctx.git.current_sha() if ctx.git_tracking else None
+                            candidate_commit = ctx.git.current_sha()
                             reuse_accuracy_pass = bool(
                                 active_hypothesis.gate_revalidation_pending
                                 and candidate_commit is not None
@@ -2752,11 +2595,11 @@ def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
                             active_hypothesis.gate_candidate_commit = candidate_commit
                             active_hypothesis.gate_accuracy_passed = accuracy_passed
                             active_hypothesis.feedback = feedback
-                            _save_active_hypothesis(active_hypothesis_path, active_hypothesis)
+                            agent_state.save_active(active_hypothesis)
                             continue
                         feedback = verdict.feedback
                         active_hypothesis.feedback = feedback
-                        _save_active_hypothesis(active_hypothesis_path, active_hypothesis)
+                        agent_state.save_active(active_hypothesis)
                     else:
                         ctx.reselect_gpu()
                         single_agent_response = _run_single_agent_round(
@@ -2817,7 +2660,7 @@ def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
                                     _provisional_candidates_since_official(records)
                                 ),
                             )
-                            candidate_commit = ctx.git.current_sha() if ctx.git_tracking else None
+                            candidate_commit = ctx.git.current_sha()
                             reuse_accuracy_pass = bool(
                                 active_hypothesis.gate_revalidation_pending
                                 and candidate_commit is not None
@@ -2848,14 +2691,14 @@ def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
                             active_hypothesis.gate_candidate_commit = candidate_commit
                             active_hypothesis.gate_accuracy_passed = accuracy_passed
                             active_hypothesis.feedback = feedback
-                            _save_active_hypothesis(active_hypothesis_path, active_hypothesis)
+                            agent_state.save_active(active_hypothesis)
                             continue
                         feedback = single_agent_response.feedback
                         active_hypothesis.feedback = feedback
-                        _save_active_hypothesis(active_hypothesis_path, active_hypothesis)
+                        agent_state.save_active(active_hypothesis)
 
                 # --- Record round result & update carry-over ---
-                commit = ctx.git.current_sha() if ctx.git_tracking else None
+                commit = ctx.git.current_sha()
                 # `profile_skipped` is True when no fresh profile ran this round
                 # (cold-start or the orchestrator/framework decided to skip).
                 # The plateau detector ignores skipped-profile rounds so cached
@@ -2944,7 +2787,7 @@ def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
                     else:
                         # Profiles and directional probes inform the designer,
                         # but only an official checkpoint may update the
-                        # verified headline trajectory in rounds.json.
+                        # verified headline trajectory in portable round records.
                         perf_metric = None
                         perf_unit = None
                 # A prior retry may have been reviewed before the implementer
@@ -3048,8 +2891,8 @@ def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
 
                 # Compute the completed lifecycle transition in memory so its
                 # exact representation can enter the write-ahead journal before
-                # rounds.json, progress notes, or active.json are mutated.
-                next_active_hypothesis = _ActiveHypothesis.from_json(active_hypothesis.to_json())
+                # round records, progress notes, or active state are mutated.
+                next_active_hypothesis = active_hypothesis.clone()
                 if inner_loop == "multi-agent" and _implementation_keeps_hypothesis_active(
                     implementation,
                     continuation_rounds=next_active_hypothesis.continuation_rounds,
@@ -3090,11 +2933,8 @@ def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
                     next_active_hypothesis.next_step = (
                         implementation.next_step if implementation is not None else None
                     )
-                ctx.begin_completed_round(
-                    completed_record,
-                    next_active_contents=_serialize_active_hypothesis(next_active_hypothesis),
-                )
-                round_history.save()
+                active_transition = agent_state.prepare_active_transition(next_active_hypothesis)
+                ctx.begin_completed_round(completed_record, active_transition=active_transition)
 
                 if not passed and records[-1].reviewed:
                     issue_board.append_exhaustion_note(
@@ -3163,7 +3003,7 @@ def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
                 # a rejected review keeps the same claim plus reviewer feedback
                 # so the implementer can address it on the next round.
                 active_hypothesis = next_active_hypothesis
-                _save_active_hypothesis(active_hypothesis_path, active_hypothesis)
+                agent_state.apply_active_transition(active_transition)
                 ctx.persist_completed_round()
                 if ctx.supervisor is not None:
                     ctx.supervisor.record(

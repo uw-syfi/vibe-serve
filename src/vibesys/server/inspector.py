@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+from dataclasses import dataclass
 from pathlib import Path  # noqa: TC003  # tracked: #288
 from typing import TYPE_CHECKING
 
@@ -11,6 +12,14 @@ from vibesys.server.events import ConfigurationFailedData, EventStatus, EventTyp
 
 if TYPE_CHECKING:
     from vibesys.server.supervisor import RunSupervisor
+
+
+@dataclass(frozen=True)
+class _HistoryDocument:
+    """Decoded read-only evidence from persisted state or a run log."""
+
+    name: str
+    text: str
 
 
 class RunInspector:
@@ -70,20 +79,21 @@ class RunInspector:
     def round_detail(self, number: int) -> str:  # noqa: D102  # tracked: #288
         pattern = re.compile(rf"(?i)(round|iter(?:ation)?)\D*{number}\b")
         chunks = []
-        for path in self._history_files():
-            text = path.read_text(encoding="utf-8", errors="replace")
-            lines = text.splitlines()
+        for document in self._history_documents():
+            lines = document.text.splitlines()
             indexes = [i for i, line in enumerate(lines) if pattern.search(line)]
             if indexes:
                 start = max(0, indexes[-1] - 2)
-                chunks.append(f"--- {path.name} ---\n" + "\n".join(lines[start : start + 80]))
+                chunks.append(f"--- {document.name} ---\n" + "\n".join(lines[start : start + 80]))
         return "\n\n".join(chunks) or f"No persisted detail found for round {number}."
 
     def latest_run_log(self) -> Path | None:  # noqa: D102  # tracked: #288
         log_dir = self.supervisor.log_dir
         if log_dir is None:
             return None
-        candidates = sorted(log_dir.glob("run-*.log"))
+        candidates = sorted(
+            path for path in log_dir.glob("run-*.log") if path.is_file() and not path.is_symlink()
+        )
         if candidates:
             return candidates[-1]
         return None
@@ -92,24 +102,40 @@ class RunInspector:
         self.supervisor.record(EventType.STATUS_QUERY, question)
         return answer
 
-    def _history_files(self) -> list[Path]:
-        log_dir = self.supervisor.log_dir
-        if log_dir is None:
-            return []
-        names = ("progress.md", "rounds.json", "state.json", "perf_metrics.json")
-        files = [log_dir / name for name in names if (log_dir / name).is_file()]
+    def _history_documents(self) -> list[_HistoryDocument]:
+        documents: list[_HistoryDocument] = []
+        project_run = self.supervisor.project_run
+        if project_run is not None:
+            for snapshot in project_run.history_snapshots():
+                documents.extend(
+                    _HistoryDocument(
+                        name=item.relative_path.name,
+                        text=item.contents.decode("utf-8", errors="replace"),
+                    )
+                    for item in snapshot.files
+                    if item.relative_path.suffix in {".json", ".jsonl", ".log", ".md", ".txt"}
+                )
         latest = self.latest_run_log()
-        return files + ([latest] if latest else [])
+        if latest is not None:
+            documents.append(
+                _HistoryDocument(
+                    name=latest.name,
+                    text=latest.read_text(encoding="utf-8", errors="replace"),
+                )
+            )
+        return documents
 
     def _search_latest(self, terms: tuple[str, ...], label: str) -> str:
-        for path in reversed(self._history_files()):
-            lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+        for document in reversed(self._history_documents()):
+            lines = document.text.splitlines()
             hits = [
                 i for i, line in enumerate(lines) if any(term in line.lower() for term in terms)
             ]
             if hits:
                 start = max(0, hits[-1] - 8)
-                return f"Latest {label} ({path.name}):\n" + "\n".join(lines[start : hits[-1] + 12])
+                return f"Latest {label} ({document.name}):\n" + "\n".join(
+                    lines[start : hits[-1] + 12]
+                )
         return f"No {label} has been persisted yet."
 
     def _latest_invocation(
@@ -141,9 +167,8 @@ class RunInspector:
     def _latest_round_number(self) -> int | None:
         numbers = []
         pattern = re.compile(r"(?i)(?:round|iter(?:ation)?)\D*(\d+)")
-        for path in self._history_files():
-            text = path.read_text(encoding="utf-8", errors="replace")
-            numbers.extend(int(match.group(1)) for match in pattern.finditer(text))
+        for document in self._history_documents():
+            numbers.extend(int(match.group(1)) for match in pattern.finditer(document.text))
         return max(numbers) if numbers else None
 
     @staticmethod

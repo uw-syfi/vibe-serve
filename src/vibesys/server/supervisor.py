@@ -7,8 +7,9 @@ import threading
 import uuid
 from collections.abc import Callable, Generator  # noqa: TC003  # tracked: #288
 from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path  # noqa: TC003  # tracked: #288
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from vibesys.server.events import (
     AgentOutputChannel,
@@ -29,6 +30,24 @@ from vibesys.server.events import (
 )
 from vibesys.server.protocol import RunSnapshot
 
+if TYPE_CHECKING:
+    from vs_project_state import ProjectStore, StateSnapshot
+
+
+@dataclass(frozen=True)
+class ProjectRunState:
+    """Typed access to one run's canonical project state."""
+
+    store: ProjectStore
+    run_id: str
+
+    def history_snapshots(self) -> tuple[StateSnapshot, ...]:
+        """Return immutable snapshots used by read-only run inspection."""
+        return tuple(
+            self.store.portable_namespace(self.run_id, namespace).snapshot()
+            for namespace in ("agent", "plain", "evolve")
+        )
+
 
 class RunSupervisor:
     """Own pause state, invocation metadata, and the run audit store."""
@@ -44,6 +63,7 @@ class RunSupervisor:
         self._audit_store: EventStore | None = None
         self._pending_events: list[RunEvent] = []
         self.log_dir: Path | None = None
+        self._project_run: ProjectRunState | None = None
         self._current_kind: str | None = None
         self._current_round: str | None = None
         self._chat_handler: Callable[[str], str] | None = None
@@ -54,20 +74,44 @@ class RunSupervisor:
         with self._condition:
             return self._current_round
 
-    def attach(self, log_dir: Path) -> None:  # noqa: D102  # tracked: #288
+    @property
+    def project_run(self) -> ProjectRunState | None:
+        """Return canonical project state when a run context has attached."""
+        with self._condition:
+            return self._project_run
+
+    def attach(
+        self,
+        log_dir: Path,
+        *,
+        project_store: ProjectStore | None = None,
+        run_id: str | None = None,
+    ) -> None:
+        """Attach event logging, optionally with canonical project-run state.
+
+        The headless server first attaches a bootstrap event directory before
+        CLI parsing creates a project. The run context later supplies both the
+        project store and run ID, which readers use for persisted run metadata.
+        """
+        if (project_store is None) != (run_id is None):
+            raise ValueError("project_store and run_id must be provided together")  # noqa: TRY003  # tracked: #288
         log_dir.mkdir(parents=True, exist_ok=True)
         self.log_dir = log_dir
         events_path = log_dir / "run-events.jsonl"
         with self._condition:
+            if project_store is not None and run_id is not None:
+                self._project_run = ProjectRunState(project_store, run_id)
             store = self._store
+            if store is not None and run_id is not None:
+                store.run_id = run_id
             if store is not None and (store.path == events_path or self._audit_store is not None):
                 return
             if store is None:
-                store = EventStore(events_path, run_id=log_dir.parent.name)
+                store = EventStore(events_path, run_id=run_id or log_dir.parent.name)
                 self._store = store
                 pending, self._pending_events = self._pending_events, []
             else:
-                self._audit_store = EventStore(events_path, run_id=log_dir.parent.name)
+                self._audit_store = EventStore(events_path, run_id=run_id or log_dir.parent.name)
                 pending = store.read()
         for event in pending:
             (self._audit_store or store).append(event)

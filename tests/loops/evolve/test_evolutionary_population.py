@@ -7,7 +7,6 @@ runtime imports so this file runs in isolation.
 
 from __future__ import annotations
 
-import json
 import random
 from collections import Counter
 
@@ -19,38 +18,6 @@ from vibesys.loops.evolve.population import (
     Population,
     _dominates,
 )
-
-# ---------------------------------------------------------------------------
-# Individual: JSON round-trip
-# ---------------------------------------------------------------------------
-
-
-def test_individual_json_round_trip():  # noqa: ANN201  # tracked: #288
-    ind = Individual(
-        id=7,
-        generation=3,
-        parent_id=4,
-        inspiration_ids=[1, 2, 3],
-        commit="abc123",
-        perf_metric=12.5,
-        perf_unit="tok/s",
-        passed=True,
-        summary="swapped attention to FlashAttention",
-        feedback="",
-    )
-    blob = ind.to_json()
-    restored = Individual.from_json(blob)
-    assert restored == ind
-
-
-def test_individual_from_json_tolerates_missing_optional_fields():  # noqa: ANN201  # tracked: #288
-    """Older population.json files might omit defaults — load anyway."""
-    ind = Individual.from_json({"id": 1, "generation": 1, "parent_id": None})
-    assert ind.id == 1
-    assert ind.inspiration_ids == []
-    assert ind.passed is False
-    assert ind.summary == ""
-
 
 # ---------------------------------------------------------------------------
 # Population: basic accessors
@@ -208,30 +175,6 @@ def test_select_inspirations_empty_when_only_parent_passed():  # noqa: ANN201  #
 
 
 # ---------------------------------------------------------------------------
-# Persistence
-# ---------------------------------------------------------------------------
-
-
-def test_population_save_and_load_round_trip(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
-    src = Population([_passed(1, 10.0), _failed(2), _passed(3, 11.5)])
-    path = tmp_path / "subdir" / "population.json"  # exercises mkdir
-    src.save(path)
-    assert path.exists()
-
-    loaded = Population.load(path)
-    assert [i.id for i in loaded.all] == [1, 2, 3]
-    assert loaded.best().id == 3  # pyright: ignore[reportOptionalMemberAccess]  # tracked: #297
-    # Parent id shape preserved (None survives JSON round-trip).
-    assert loaded.get(1).parent_id is None  # pyright: ignore[reportOptionalMemberAccess]  # tracked: #297
-
-
-def test_population_load_missing_returns_empty(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
-    pop = Population.load(tmp_path / "does-not-exist.json")
-    assert len(pop) == 0
-    assert pop.best() is None
-
-
-# ---------------------------------------------------------------------------
 # Objective + dominance + Pareto frontier
 # ---------------------------------------------------------------------------
 
@@ -258,7 +201,7 @@ def _multi(id_: int, metrics: dict[str, float], parent_id: int | None = None) ->
 
 def test_objective_rejects_unknown_direction():  # noqa: ANN201  # tracked: #288
     with pytest.raises(ValueError):  # noqa: PT011  # tracked: #288
-        Objective(name="foo", direction="bigger")
+        Objective(name="foo", direction="bigger")  # pyright: ignore[reportArgumentType]
 
 
 def test_objective_signed_max_passes_through():  # noqa: ANN201  # tracked: #288
@@ -463,17 +406,6 @@ def test_select_inspirations_backfills_when_frontier_smaller_than_k_top():  # no
     assert ids[1:] == [3, 4]
 
 
-def test_population_save_writes_valid_json(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
-    """Sanity: the persisted file is a JSON list of records."""
-    src = Population([_passed(1, 10.0)])
-    path = tmp_path / "population.json"
-    src.save(path)
-    data = json.loads(path.read_text())
-    assert isinstance(data, list)
-    assert data[0]["id"] == 1
-    assert data[0]["perf_metric"] == 10.0
-
-
 @pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
 def test_individual_rejects_non_finite_perf_metric(value):  # noqa: ANN001, ANN201  # tracked: #288
     with pytest.raises(ValueError, match="perf_metric must be a finite number"):
@@ -492,14 +424,6 @@ def test_individual_rejects_non_finite_multi_objective_metric(value):  # noqa: A
             metrics={"throughput": value},
             passed=True,
         )
-
-
-def test_population_save_rejects_non_finite_metric_added_after_construction(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
-    individual = _passed(1, 10.0)
-    individual.perf_metric = float("nan")
-
-    with pytest.raises(ValueError, match="perf_metric must be a finite number"):
-        Population([individual]).save(tmp_path / "population.json")
 
 
 def test_best_revalidates_mutated_fitness_before_ranking():  # noqa: ANN201  # tracked: #288
@@ -535,11 +459,3 @@ def test_softmax_revalidates_mutated_fitness_before_sampling():  # noqa: ANN201 
 
     with pytest.raises(ValueError, match="perf_metric must be a finite number"):
         population.select_parent(rng=random.Random(0))  # noqa: S311  # tracked: #288
-
-
-def test_population_load_rejects_non_finite_metric(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
-    path = tmp_path / "population.json"
-    path.write_text('[{"id": 1, "generation": 1, "parent_id": null, "perf_metric": NaN}]')
-
-    with pytest.raises(ValueError, match="perf_metric must be a finite number"):
-        Population.load(path)

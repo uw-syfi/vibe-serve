@@ -1,7 +1,7 @@
 # Extending Profilers
 
 VibeSys profiler implementations expose evidence-gathering tools to the profiler agent.
-The framework selects a profiler, copies its bundled support package into the workspace,
+The framework selects a profiler, copies its bundled support package into the project,
 starts its MCP server, renders its prompt, and records the returned `ProfilerSummary`.
 
 ## Declare a profiler
@@ -15,7 +15,7 @@ The identifier is used without transformation. For a kind named `perf`, VibeSys 
 
 | Resource | Derived name |
 | --- | --- |
-| Workspace support directory | `perf_profiler/` |
+| Project support directory | `perf_profiler/` |
 | MCP entrypoint | `perf_profiler/server.py` |
 | MCP server name | `vibesys-perf-profiler` |
 | Agent prompt | `profilers/perf.j2` |

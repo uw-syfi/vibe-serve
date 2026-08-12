@@ -84,7 +84,7 @@ domains = ["llm-serving"]
 ## Validation
 
 VibeSys validates standard skill frontmatter and sidecar metadata before
-materializing skills into an experiment workspace. Validation fails with the
+materializing skills into a copied project. Validation fails with the
 offending path when:
 
 - `SKILL.md` YAML frontmatter delimiters are missing.

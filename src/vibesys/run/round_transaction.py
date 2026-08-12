@@ -5,8 +5,8 @@
 application boundary where one completed round must update both stores while
 also advancing machine-local active-hypothesis state.
 
-Callers prepare the transaction with the completed ``RoundRecord`` and desired
-``active.json`` contents before mutating either local state file. A journal
+Callers prepare the transaction with the completed ``RoundRecord`` and a typed
+``active.json`` transition before mutating either local state file. A journal
 below ``.vs/local`` makes every intermediate state recoverable after a process
 crash. Recovery always rolls the completed round forward, preserving paid
 agent work and its candidate tree.
@@ -25,19 +25,25 @@ import os
 import tempfile
 from dataclasses import dataclass
 from enum import StrEnum
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
-from vibesys.run.git_tracker import GitTracker, GitTrackingMode
 from vs_loop_state import RoundRecord, parse_round_record
-from vs_project_state import serialize_round
+from vs_project_state import (
+    ProjectStateError,
+    StateDocument,
+    StateSlot,
+    StateTransition,
+    serialize_round,
+)
 
 if TYPE_CHECKING:
+    from vibesys.run.git_tracker import GitTracker
     from vs_project_state import ProjectStore
 
-_JOURNAL_SCHEMA_VERSION: Literal[1] = 1
+_JOURNAL_SCHEMA_VERSION: Literal[2] = 2
 _GIT_OBJECT_ID_PATTERN = r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
 _SHA256_PATTERN = r"^[0-9a-f]{64}$"
 
@@ -58,15 +64,16 @@ class _RoundJournal(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
-    schema_version: Literal[1]
+    schema_version: Literal[2]
     run_id: str
     round_number: Annotated[int, Field(gt=0)]
     pre_commit: Annotated[str, Field(pattern=_GIT_OBJECT_ID_PATTERN)]
-    next_active_contents_base64: str | None
+    active_state_path: str
+    active_state_document_base64: str | None
     round_payload_base64: str
     round_payload_sha256: Annotated[str, Field(pattern=_SHA256_PATTERN)]
 
-    @field_validator("next_active_contents_base64", "round_payload_base64")
+    @field_validator("active_state_document_base64", "round_payload_base64")
     @classmethod
     def _validate_base64(cls, value: str | None) -> str | None:
         if value is None:
@@ -77,11 +84,18 @@ class _RoundJournal(BaseModel):
             raise ValueError("must contain canonical base64-encoded bytes") from exc
         return value
 
-    def next_active_contents(self) -> bytes | None:
-        """Return the completed round's active-state bytes, or ``None`` if absent."""
-        if self.next_active_contents_base64 is None:
-            return None
-        return base64.b64decode(self.next_active_contents_base64, validate=True)
+    def active_transition(self) -> StateTransition:
+        """Return the completed round's typed active-state transition."""
+        path = PurePosixPath(self.active_state_path)
+        document = (
+            None
+            if self.active_state_document_base64 is None
+            else StateDocument(
+                project_relative_path=path,
+                contents=base64.b64decode(self.active_state_document_base64, validate=True),
+            )
+        )
+        return StateTransition(project_relative_path=path, next_document=document)
 
     def round_payload(self) -> bytes:
         """Return the exact portable completed-round payload."""
@@ -125,9 +139,9 @@ class RoundTransactionCoordinator:
     portable project-state library with project-mode Git tracking and exposes
     only three operations:
 
-    1. ``begin(record, next_active_contents)`` journals the exact portable
-       round payload and desired active state.
-    2. The caller updates its machine-local compatibility state.
+    1. ``begin(record, active_transition)`` journals the exact portable round
+       payload and desired typed active-state transition.
+    2. The caller updates its machine-local active state.
     3. ``RoundTransaction.complete()`` writes and commits the prepared round.
 
     ``recover()`` is idempotent. It commits the exact journaled payload when
@@ -136,15 +150,20 @@ class RoundTransactionCoordinator:
     discards the result or causes its paid attempt to be replayed.
     """
 
-    def __init__(self, store: ProjectStore, git: GitTracker, run_id: str) -> None:
+    def __init__(
+        self,
+        store: ProjectStore,
+        git: GitTracker,
+        run_id: str,
+        *,
+        active_state_model_type: type[BaseModel],
+    ) -> None:
         """Validate and bind the store, Git tracker, and run identity."""
         project_root = store.project_root.resolve()
         if git.root.resolve() != project_root:
             raise RoundTransactionError(
                 "Round transaction store and Git tracker must use the same project root"
             )
-        if git.mode is not GitTrackingMode.USER_PROJECT:
-            raise RoundTransactionError("Round transactions require GitTracker user-project mode")
         if git.run_id != run_id:
             raise RoundTransactionError(
                 f"Round transaction run {run_id!r} does not match Git tracker run {git.run_id!r}"
@@ -154,17 +173,22 @@ class RoundTransactionCoordinator:
         self._store = store
         self._git = git
         self.run_id = run_id
+        self._active_state_slot: StateSlot[BaseModel] = store.local_namespace(
+            run_id,
+            "agent",
+        ).slot("active.json", active_state_model_type)
+        self._active_state_path = self._active_state_slot.project_relative_path
 
     @property
     def journal_path(self) -> Path:
         """Return the machine-local journal path for diagnostics and tests."""
-        return self._store.active_state_path(self.run_id).parent / "round-transaction.json"
+        return self._store.round_transaction_path(self.run_id)
 
     def begin(
         self,
         record: RoundRecord,
         *,
-        next_active_contents: bytes | None,
+        active_transition: StateTransition,
     ) -> RoundTransaction:
         """Durably prepare a completed round before mutating local state."""
         round_number = record.round_number
@@ -188,6 +212,7 @@ class RoundTransactionCoordinator:
         if pre_commit is None:
             raise RoundTransactionError("Round transactions require an initialized Git HEAD")
         self._require_clean_index()
+        self._validate_active_transition(active_transition)
 
         round_payload = serialize_round(record)
         journal = _RoundJournal(
@@ -195,9 +220,10 @@ class RoundTransactionCoordinator:
             run_id=self.run_id,
             round_number=round_number,
             pre_commit=pre_commit,
-            next_active_contents_base64=(
-                base64.b64encode(next_active_contents).decode("ascii")
-                if next_active_contents is not None
+            active_state_path=active_transition.project_relative_path.as_posix(),
+            active_state_document_base64=(
+                base64.b64encode(active_transition.next_document.contents).decode("ascii")
+                if active_transition.next_document is not None
                 else None
             ),
             round_payload_base64=base64.b64encode(round_payload).decode("ascii"),
@@ -225,12 +251,12 @@ class RoundTransactionCoordinator:
                     f"Committed round metadata differs from transaction journal: {round_path}"
                 )
             self._restore_committed_round(round_path, committed_blob)
-            self._restore_active(journal.next_active_contents())
+            self._restore_active(journal.active_transition())
             self._clear_journal()
             return RoundRecoveryOutcome.COMMITTED
 
         self._commit_prepared_round(journal)
-        self._restore_active(journal.next_active_contents())
+        self._restore_active(journal.active_transition())
         self._clear_journal()
         return RoundRecoveryOutcome.COMMITTED
 
@@ -242,7 +268,7 @@ class RoundTransactionCoordinator:
             )
 
         completed = self._commit_prepared_round(journal)
-        self._restore_active(journal.next_active_contents())
+        self._restore_active(journal.active_transition())
         self._clear_journal()
         return completed
 
@@ -260,10 +286,9 @@ class RoundTransactionCoordinator:
                 f"Portable round metadata differs from transaction journal: {round_path}"
             )
 
-        relative = round_path.relative_to(self._store.project_root)
         self._git.snapshot_with_framework_metadata(
             f"vibesys(round {journal.round_number}): record result",
-            {relative: round_payload},
+            self._store.completed_round_snapshot(self.run_id, journal.round_number),
         )
         committed_blob = self._head_blob(round_path)
         if committed_blob is None or _sha256(committed_blob) != journal.round_payload_sha256:
@@ -300,6 +325,12 @@ class RoundTransactionCoordinator:
                 f"Round transaction journal payload digest does not match: {path}"
             )
         _parse_round_payload(journal.round_payload(), source=path)
+        try:
+            self._validate_active_transition(journal.active_transition())
+        except (TypeError, ValueError, RoundTransactionError) as exc:
+            raise RoundTransactionError(
+                f"Invalid active-state transition in round transaction journal {path}: {exc}"
+            ) from exc
         return journal
 
     def _round_path(self, round_number: int) -> Path:
@@ -329,12 +360,22 @@ class RoundTransactionCoordinator:
         if result.returncode != 0:
             raise RoundTransactionError("Could not verify that the Git index is clean")
 
-    def _restore_active(self, contents: bytes | None) -> None:
-        active_path = self._store.active_state_path(self.run_id)
-        if contents is None:
-            active_path.unlink(missing_ok=True)
-        else:
-            _atomic_write_bytes(active_path, contents)
+    def _validate_active_transition(self, transition: StateTransition) -> None:
+        try:
+            self._active_state_slot.validate_transition(transition)
+        except ProjectStateError as exc:
+            raise RoundTransactionError(
+                f"Invalid round transaction active-state transition: {exc}"
+            ) from exc
+
+    def _restore_active(self, transition: StateTransition) -> None:
+        self._validate_active_transition(transition)
+        try:
+            self._active_state_slot.apply(transition)
+        except ProjectStateError as exc:
+            raise RoundTransactionError(
+                f"Could not restore the round transaction active state: {exc}"
+            ) from exc
 
     def _restore_committed_round(self, path: Path, contents: bytes) -> None:
         if path.is_symlink() or not path.is_file() or path.read_bytes() != contents:

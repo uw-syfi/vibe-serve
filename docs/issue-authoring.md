@@ -39,7 +39,7 @@ so avoid prefixes such as `[Bug]` or `[Feature]`.
 
 Good examples:
 
-- `Skip redundant workspace syncs when inputs are unchanged`
+- `Skip redundant project materialization when inputs are unchanged`
 - `CLI: report missing backend dependencies in vibesys doctor`
 - `Queue: MPMC bounded retryable-BUSY FIFO scenario`
 - `Simulator: validate latency estimates against CUDA traces`

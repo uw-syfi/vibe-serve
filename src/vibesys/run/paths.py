@@ -6,20 +6,21 @@ from pathlib import Path
 
 @dataclass(frozen=True)
 class RunPaths:
-    """Host-side directories and files owned by one experiment run.
+    """Canonical host paths owned by one project run.
 
     ``run_log_path`` is the *current* log file.  ``switch_log_file``
     replaces the whole record (the dataclass is frozen) rather than
     mutating the field in place.
     """
 
-    exp_dir: Path
+    project_root: Path
     log_dir: Path
-    workspace: Path
     run_log_path: Path
-    project_root: Path | None = None
-    committed_state_dir: Path | None = None
-    local_state_dir: Path | None = None
+
+    @property
+    def workspace(self) -> Path:
+        """Return the project root, which is also the only agent workspace."""
+        return self.project_root
 
 
 @dataclass(frozen=True)

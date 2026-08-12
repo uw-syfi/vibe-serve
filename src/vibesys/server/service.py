@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import json
-
 from vibesys.server.events import EventType, RunEvent
 from vibesys.server.inspector import RunInspector
 from vibesys.server.protocol import (
@@ -87,25 +85,23 @@ class SupervisionService:
         return self.supervisor.read_history_events()
 
     def performance_rounds(self) -> list[PerformanceRound]:  # noqa: D102  # tracked: #288
-        log_dir = self.supervisor.log_dir
-        if log_dir is None:
+        project_run = self.supervisor.project_run
+        if project_run is None:
             return []
-        rounds_path = log_dir / "rounds.json"
-        if not rounds_path.is_file():
+        manifest = project_run.store.load_run(project_run.run_id)
+        if manifest.configuration.outer_loop != "agent":
             return []
         rounds: list[PerformanceRound] = []
-        for item in json.loads(rounds_path.read_text(encoding="utf-8")):
-            metric = item.get("perf_metric")
-            unit = item.get("perf_unit")
-            if not isinstance(metric, int | float) or not isinstance(unit, str) or not unit:
+        for record in project_run.store.load_rounds(project_run.run_id):
+            if record.perf_metric is None or record.perf_unit is None:
                 continue
             rounds.append(
                 PerformanceRound(
-                    round=int(item["round"]),
-                    perf_metric=float(metric),
-                    perf_unit=unit,
-                    passed=bool(item.get("passed", False)),
-                    profile_skipped=bool(item.get("profile_skipped", False)),
+                    round=record.round_number,
+                    perf_metric=record.perf_metric,
+                    perf_unit=record.perf_unit,
+                    passed=record.passed,
+                    profile_skipped=record.profile_skipped,
                 )
             )
         return rounds

@@ -92,7 +92,7 @@ def _materialize_linearizable_input(
     from vibesys.input_manifest import load_input_bundle  # noqa: PLC0415  # tracked: #288
 
     input_dir = project_root / "examples" / "data-structures" / input_name
-    bundle = load_input_bundle(input_dir, project_root=project_root)
+    bundle = load_input_bundle(input_dir)
     assert bundle.workspace_seed_path is not None
     assert bundle.evaluator_path is not None
     _copy_input_bundle(bundle.workspace_seed_path, workspace)
@@ -170,7 +170,7 @@ def test_linearizable_queue_inputs_use_shared_editable_rust_starter():  # noqa: 
 
     for input_name in LINEARIZABLE_QUEUE_INPUTS:
         input_dir = root / input_name
-        bundle = load_input_bundle(input_dir, project_root=project_root)
+        bundle = load_input_bundle(input_dir)
         assert bundle.workspace_seed_path == starter.resolve()
         assert (
             bundle.evaluator_path == (project_root / "examples" / "evaluators" / "queue").resolve()

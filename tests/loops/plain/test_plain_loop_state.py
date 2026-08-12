@@ -1,78 +1,11 @@
-"""Tests for the issue-loop state machine checkpoint and resume logic."""
+"""Tests for plain-loop resume decisions over typed state."""
 
-import json
-
-from vibesys.loops.plain.loop import (
-    PlainLoopState,
-    _determine_resume_point,
-    _save_state,
-    load_state,
-)
+from vibesys.loops.plain.loop import PlainLoopState, _determine_resume_point
 from vs_issue_board import IssueBoard, IssueStatus, IssueType
 
 
 def _make_store(tmp_path) -> IssueBoard:  # noqa: ANN001  # tracked: #288
     return IssueBoard(tmp_path / "issues.json")
-
-
-# ---------------------------------------------------------------------------
-# _save_state / load_state round-trip
-# ---------------------------------------------------------------------------
-
-
-class TestSaveLoadState:
-    def test_round_trip(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
-        state = PlainLoopState(
-            round_idx=2,
-            phase="judge",
-            current_issue_id=5,
-            bootstrap_done=True,
-        )
-        _save_state(tmp_path, state)
-        loaded = load_state(tmp_path)
-        assert loaded is not None
-        assert loaded.round_idx == 2
-        assert loaded.phase == "judge"
-        assert loaded.current_issue_id == 5
-        assert loaded.bootstrap_done is True
-
-    def test_load_missing(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
-        assert load_state(tmp_path) is None
-
-    def test_load_corrupt_json(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
-        (tmp_path / "state.json").write_text("not json", encoding="utf-8")
-        assert load_state(tmp_path) is None
-
-    def test_load_wrong_version(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
-        (tmp_path / "state.json").write_text(
-            json.dumps({"version": 999, "iteration": 0}), encoding="utf-8"
-        )
-        assert load_state(tmp_path) is None
-
-    def test_atomic_write_leaves_no_tmp(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
-        _save_state(tmp_path, PlainLoopState())
-        assert not (tmp_path / "state.json.tmp").exists()
-        assert (tmp_path / "state.json").exists()
-
-    def test_load_ignores_extra_fields(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
-        data = {
-            "version": 1,
-            "round_idx": 3,
-            "phase": "implementer",
-            "current_issue_id": None,
-            "bootstrap_done": True,
-            "extra_field": "ignored",
-        }
-        (tmp_path / "state.json").write_text(json.dumps(data), encoding="utf-8")
-        loaded = load_state(tmp_path)
-        assert loaded is not None
-        assert loaded.round_idx == 3
-        assert loaded.bootstrap_done is True
-
-
-# ---------------------------------------------------------------------------
-# _determine_resume_point
-# ---------------------------------------------------------------------------
 
 
 class TestDetermineResumePoint:

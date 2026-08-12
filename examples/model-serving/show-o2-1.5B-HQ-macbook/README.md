@@ -3,7 +3,7 @@ Show-o2 1.5B HQ input bundle.
 Use:
 
 ```bash
-uv run vibesys --runs-dir "$PWD/exp_env" --local \
+vibesys --runs-dir /work/vibesys-runs --local \
   --input examples/model-serving/show-o2-1.5B-HQ-macbook
 ```
 

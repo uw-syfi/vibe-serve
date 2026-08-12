@@ -49,7 +49,7 @@ def test_headless_readme_examples_select_a_run_collection() -> None:
         headless_block = next(block for block in blocks if "--headless" in block)
         arguments = shlex.split(headless_block.replace("\\\n", " "))
         runs_index = arguments.index("--runs-dir")
-        assert arguments[runs_index + 1] == "$PWD/exp_env", readme
+        assert arguments[runs_index + 1] == "/work/vibesys-runs", readme
 
 
 def test_vcs_installs_do_not_initialize_repository_submodules() -> None:
@@ -149,6 +149,22 @@ def test_namespace_discovery_excludes_build_and_cache_artifacts(tmp_path: Path) 
         "example": "src/example",
         "example.namespace": "src/example/namespace",
     }
+
+
+def test_build_output_cleanup_removes_only_owned_top_level_packages(tmp_path: Path) -> None:
+    module = _load_packaging_support()
+    build_lib = tmp_path / "build"
+    stale = build_lib / "example" / "deleted.py"
+    stale.parent.mkdir(parents=True)
+    stale.write_text("STALE = True\n")
+    unrelated = build_lib / "other" / "keep.py"
+    unrelated.parent.mkdir(parents=True)
+    unrelated.write_text("KEEP = True\n")
+
+    module.clear_distribution_build_outputs(build_lib, ["example", "example.nested"])
+
+    assert not stale.parent.exists()
+    assert unrelated.is_file()
 
 
 def test_root_metadata_declares_internal_runtime_dependencies_directly():  # noqa: ANN201

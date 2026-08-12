@@ -56,8 +56,8 @@ The framework factors the work along two axes:
 - **Performance evaluator** — profiles the implementation (Nsight Systems,
   PyTorch profiler) and feeds bottleneck hints into future design decisions.
 - **Skills library** — Agent Skills entries distilled from existing serving engines and research literature (continuous batching, paged-KV, FlashInfer/FlashAttention, MLX, hybrid-cache management, …). New model families, hardware platforms, and optimization techniques are added by writing a skill, not by modifying the framework.
-- **Execution environment** — an isolated workspace where candidate source is
-  writable while evaluator-owned inputs and framework metadata are read-only
+- **Execution environment**: an isolated runtime view where candidate source
+  is writable while evaluator-owned inputs and framework metadata are read-only
   and integrity-checked. It exposes the target hardware (local CUDA, Modal,
   Docker, or Apple Silicon) plus profilers.
 
@@ -115,8 +115,8 @@ vibesys --max-rounds 4
 
 The directory must be its Git repository root, or outside Git so VibeSys can
 initialize a repository. An existing repository needs a baseline commit and a
-clean worktree. See [Running VibeSys](docs/running-vibesys.md) for isolated
-workspaces, seeded inputs, Docker, Modal, remote repositories, resume, and
+clean worktree. See [Running VibeSys](docs/running-vibesys.md) for copied
+projects, seeded inputs, Docker, Modal, remote repositories, resume, and
 alternate search loops. The [CLI reference](docs/cli-flags.md) documents every
 flag. Contributor setup belongs in [`docs/development.md`](docs/development.md).
 

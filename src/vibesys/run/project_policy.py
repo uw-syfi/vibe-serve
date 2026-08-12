@@ -1,4 +1,4 @@
-"""VibeSys-owned policy for in-place project inputs.
+"""VibeSys-owned policy for canonical project inputs.
 
 The reusable sandbox library enforces paths supplied by its caller. This
 module is the single application-level owner of which project paths VibeSys
@@ -26,7 +26,7 @@ def build_project_path_policy(
     *,
     evaluator_source: Path | None,
 ) -> ProjectPathPolicy:
-    """Return the agent sandbox policy for one in-place project."""
+    """Return the agent sandbox policy for one canonical project."""
     root = project_root.resolve()
     read_only = {
         path

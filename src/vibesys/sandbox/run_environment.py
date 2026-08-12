@@ -44,6 +44,7 @@ from vibesys.constants import DEFAULT_AGENT_BACKEND, PROJECT_ROOT
 from vibesys.domains.environment import EnvironmentBindMount  # noqa: TC001  # tracked: #288
 from vibesys.input_manifest import WorkspaceSource  # noqa: TC001  # tracked: #288
 from vibesys.profilers import ProfilerKind
+from vs_sandbox import ProjectPathPolicy
 
 
 @dataclass(frozen=True)
@@ -113,7 +114,9 @@ class RunEnvironmentRequest:  # noqa: D101  # tracked: #288
     backend: ComputeBackendImpl
     agent_backend: str | None
     cli_provider: str | None
+    run_id: str
     objective: str | None = None
+    objective_document: Path | None = None
     accuracy_command: str | None = None
     benchmark_command: str | None = None
     profiler_support_path: str | None = None
@@ -122,7 +125,8 @@ class RunEnvironmentRequest:  # noqa: D101  # tracked: #288
     environment_bind_mounts: tuple[EnvironmentBindMount, ...] = ()
     workspace_sources: tuple[WorkspaceSource, ...] = ()
     log: Callable[[str], None] | None = None
-    project_root: Path = PROJECT_ROOT
+    framework_root: Path = PROJECT_ROOT
+    project_path_policy: ProjectPathPolicy = field(default_factory=ProjectPathPolicy)
 
 
 class RunEnvironmentSession(Protocol):  # noqa: D101  # tracked: #288
@@ -427,7 +431,7 @@ class ModalEnvironment(_NoopWorkspaceRecovery):  # noqa: D101  # tracked: #288
         cli_provider_env.setdefault("UV_CACHE_DIR", "/workspace/.cache/uv")
         if request.git_history_root is not None:
             cli_provider_env.setdefault("VIBESYS_GIT_HISTORY", "/opt/vibesys-history")
-        app_name = _modal_app_name(request.workspace, fallback=self.config.app)
+        app_name = _modal_app_name(request.run_id, fallback=self.config.app)
         cli_provider_env["VIBESYS_MODAL_APP_NAME"] = app_name
         runtime_document = request.log_dir / "runtime-environment.md"
         runtime_document.write_text(
@@ -437,7 +441,7 @@ class ModalEnvironment(_NoopWorkspaceRecovery):  # noqa: D101  # tracked: #288
         runtime_container_path = "/opt/vibesys-runtime/environment.md"
         bind_mounts.append((str(runtime_document), runtime_container_path, True))
         passthrough.append("/opt/vibesys-runtime")
-        evaluator_helper = request.project_root / "src/vibesys/sandbox/modal_evaluator.py"
+        evaluator_helper = request.framework_root / "src/vibesys/sandbox/modal_evaluator.py"
         evaluator_container_path = "/opt/vibesys-modal-evaluator.py"
         bind_mounts.append((str(evaluator_helper), evaluator_container_path, True))
 
@@ -671,17 +675,14 @@ def make_run_environment_spec(  # noqa: PLR0913  # tracked: #288
     return RunEnvironmentSpec()
 
 
-def _modal_app_name(workspace: Path, fallback: str) -> str:
+def _modal_app_name(run_id: str, fallback: str) -> str:
     """Derive a Modal app name unique to this run.
 
-    Two concurrent runs must not share a ``modal.App(name=...)`` — Modal
-    treats them as the same app, so the second run's deploys/lookups can
-    clobber or shadow the first.  ``exp_dir.name`` is already unique per
-    run (timestamp + exp_name) and is the natural source.  We sanitize it
-    to Modal's allowed alphabet (lowercase alphanumerics + hyphens, ≤63
-    chars) and prefix with ``vibesys-`` so all app names are findable.
+    Two concurrent runs must not share a ``modal.App(name=...)``. The persisted
+    run ID is location-independent and stable when a project is moved or
+    cloned, so it is the only input to the namespace.
     """
-    candidate = workspace.parent.name or fallback or "vibesys"
+    candidate = run_id or fallback or "vibesys"
     sanitized = "".join(c if c.isalnum() or c == "-" else "-" for c in candidate.lower())
     sanitized = "-".join(part for part in sanitized.split("-") if part)
     name = f"vibesys-{sanitized}" if sanitized else "vibesys"
@@ -913,6 +914,19 @@ def _materialize_effective_objective(request: RunEnvironmentRequest) -> Path | N
     """
     if request.objective is None:
         return None
+    if request.objective_document is not None:
+        path = request.objective_document.resolve()
+        try:
+            path.relative_to(request.workspace.resolve())
+        except ValueError as exc:
+            raise ValueError(  # noqa: TRY003  # tracked: #288
+                f"effective objective must be inside the project workspace: {path}"
+            ) from exc
+        if not path.is_file() or path.read_text() != request.objective:
+            raise ValueError(  # noqa: TRY003  # tracked: #288
+                f"effective objective does not match its committed document: {path}"
+            )
+        return path
     path = request.log_dir / "effective-objective.md"
     path.write_text(request.objective)
     return path
@@ -1030,6 +1044,8 @@ def _container_mount_plan(
             )
         )
 
+    bind_mounts.extend(_container_project_policy_mounts(request))
+
     if (
         include_cli_provider_mounts
         and (request.agent_backend or DEFAULT_AGENT_BACKEND) == "cli"
@@ -1038,9 +1054,37 @@ def _container_mount_plan(
         from vibesys.agents.cli_docker import auth_bind_mounts  # noqa: PLC0415  # tracked: #288
 
         bind_mounts.extend(auth_bind_mounts(request.cli_provider))
-        bind_mounts.append((str(request.project_root), "/opt/vibesys", True))
+        bind_mounts.append((str(request.framework_root), "/opt/vibesys", True))
 
     return bind_mounts, symlinks, passthrough_paths
+
+
+def _container_project_policy_mounts(
+    request: RunEnvironmentRequest,
+) -> list[tuple[str, str, bool]]:
+    """Translate project visibility rules into Docker overlay mounts."""
+    resolved = request.project_path_policy.resolve(request.workspace)
+    workspace = request.workspace.resolve()
+    mounts = [
+        (
+            str(protected.path),
+            f"/workspace/{protected.path.relative_to(workspace).as_posix()}",
+            True,
+        )
+        for protected in resolved.read_only_paths
+    ]
+
+    mask_root = request.log_dir / "sandbox-hidden"
+    for index, hidden in enumerate(resolved.hidden_paths):
+        mask = mask_root / str(index)
+        if hidden.is_directory:
+            mask.mkdir(parents=True, exist_ok=True)
+        else:
+            mask.parent.mkdir(parents=True, exist_ok=True)
+            mask.touch(exist_ok=True)
+        relative = hidden.path.relative_to(workspace).as_posix()
+        mounts.append((str(mask), f"/workspace/{relative}", True))
+    return mounts
 
 
 def _git_history_prompt_note(history_root: Path | None) -> str:

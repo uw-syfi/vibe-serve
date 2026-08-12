@@ -1,45 +1,29 @@
 # Running VibeSys
 
-VibeSys has two workspace models. Omit `--runs-dir` to optimize an existing
-project in place. Pass `--runs-dir` to create a separate experiment workspace.
+Every VibeSys run operates on one canonical project. The project root contains
+the candidate source, `OBJECTIVE.md`, `vibesys.input.toml`, `.git/`, and `.vs/`.
+The project root is the agent's working directory.
 
-## Choose a Workflow
+```text
+project/
+├── .git/
+├── .vs/
+│   ├── project.json
+│   ├── runs/<run-id>/          # committed run metadata and loop state
+│   └── local/runs/<run-id>/    # logs and machine-local state
+├── OBJECTIVE.md
+├── vibesys.input.toml
+└── candidate source
+```
 
-| Workflow | Choose it when | State location |
-| --- | --- | --- |
-| In-place project | The candidate source already exists and the default local agent loop is sufficient. | The project source, Git history, and `.vs/` directory. |
-| Materialized experiment | VibeSys must construct an isolated workspace or use seeded inputs, Docker, Modal, active profilers, remote repositories, or another outer loop. | A new experiment below `--runs-dir`. |
+VibeSys commits candidate evolution and portable `.vs/runs/` metadata on a
+`vibesys/<run-id>` branch. `.vs/local/`, `agent.toml`, and root `.env*` files
+stay uncommitted and are hidden from coding agents.
 
-The input can be a project or bundle directory selected with `--input`. In
-materialized mode, automation may instead provide the same input contract with
-`--input-*` flags. That changes how the input is supplied, not the workspace
-model.
+## Start from the Current Project
 
-| Capability | In-place project | Materialized experiment |
-| --- | --- | --- |
-| Edit existing candidate source directly | Yes | No, source is copied or materialized first |
-| `agent` outer loop | Yes | Yes |
-| `plain` and `evolve` outer loops | No | Yes |
-| Native local execution | Yes | Yes |
-| Docker or Modal | No | Yes |
-| Active profilers | No | Yes |
-| DeepAgents | No | Yes |
-| Workspace seeds and Git-pinned sources | No | Yes |
-| GitHub-backed experiment repository | No | Yes |
-
-## In-Place Projects
-
-This is the default workflow. The project must contain the candidate source,
-`OBJECTIVE.md`, and `vibesys.input.toml`. A root `agent.toml` may configure the
-coding agent, model, and hardware backend.
-
-The directory must be the root of its Git repository, not a subdirectory of
-another repository. An existing repository needs a baseline commit and a clean
-worktree. A directory outside Git is initialized automatically. Keep
-`agent.toml` and root `.env*` files untracked; VibeSys rejects them if they are
-recoverable from Git history.
-
-Launch from the project root:
+Launch from a self-contained project root when its candidate source is already
+present:
 
 ```bash
 cd /path/to/project
@@ -47,86 +31,85 @@ vibesys validate
 vibesys --max-rounds 4
 ```
 
-Passing the project explicitly is equivalent. When `agent.toml` lives in that
-project, select it too because configuration is resolved from the launch
-directory:
+`--input` selects the same project explicitly:
 
 ```bash
-vibesys \
-  --input /path/to/project \
-  --config /path/to/project/agent.toml \
-  --max-rounds 4
+vibesys --input /path/to/project --config /path/to/project/agent.toml
 ```
 
-Each fresh run receives a `vibesys/<run-id>` branch. Candidate source remains at
-its normal paths, portable run records are committed below `.vs/runs/`, and
-machine-local state and logs live below the ignored `.vs/local/` directory.
+The directory must be its Git repository root, or outside Git so VibeSys can
+initialize a repository. An existing repository needs a baseline commit and a
+clean worktree. Keep `agent.toml` and root `.env*` files out of Git history.
 
-A plain launch always starts a new run. Resume the current or newest run, or
-select one by ID:
+The `agent`, `plain`, and `evolve` outer loops all use this project model. Local,
+Docker, and Modal execution change where commands run, not the on-disk layout.
 
-```bash
-vibesys --resume
-vibesys --resume <run-id>
-```
+## Create a Copied Project
 
-In-place execution supports the `agent` outer loop, a CLI coding agent, the
-native host sandbox, and profiler `none`. Use a materialized experiment for the
-capabilities marked unavailable in the table above.
-
-## Materialized Experiments
-
-Passing `--runs-dir` tells VibeSys to create a separate experiment workspace.
-The input directory can already contain candidate source, or its manifest can
-declare a workspace seed or Git-pinned sources for VibeSys to materialize.
-Checked-in examples that use separate starters and evaluators use this workflow.
-
-Keep an experiment local with `--local`:
+Pass `--runs-dir` when the input should remain unchanged or its manifest uses a
+workspace seed or Git-pinned sources:
 
 ```bash
 vibesys \
   --runs-dir /work/vibesys-runs \
   --local \
-  --input /path/to/input-bundle
+  --input /path/to/input
 ```
 
-Without `--local`, a fresh materialized run creates a GitHub-backed experiment
-repository. Authenticate the GitHub CLI first, then optionally choose its name:
+VibeSys provisions a self-contained project at
+`/work/vibesys-runs/<generated-run-id>/`. Candidate source is at that directory's
+root. The copied manifest no longer depends on the original seed or source
+paths, and a declared evaluator is copied below `_evaluator/`.
+
+The source input's `.git/`, `.vs/`, `agent.toml`, and `.env*` files are never
+copied. Agent configuration continues to come from the launch directory or an
+explicit `--config` path.
+
+Without `--local`, a fresh copied project is published to GitHub. Authenticate
+the GitHub CLI first, then optionally select the repository name:
 
 ```bash
 gh auth login
 vibesys \
   --runs-dir /work/vibesys-runs \
   --repo my-org/my-experiment \
-  --input /path/to/input-bundle
+  --input /path/to/input
 ```
 
-Materialized experiments support the `agent`, `plain`, and `evolve` outer
-loops, plus Docker, Modal, active profilers, custom skills, and DeepAgents. See
-the [CLI reference](cli-flags.md) for the supported flag combinations.
+Publication pushes the existing `vibesys/<run-id>` history and retained evolve
+candidate refs. It does not create an additional synchronization commit.
 
-### Resume a Materialized Experiment
+## Resume
 
-Always provide `--runs-dir` when resuming this workflow. The resume target may
-be a collection run ID, a local experiment directory, a GitHub `OWNER/NAME`, or
-a cloneable URL:
+Inside a project, resume the machine-local current run, then the newest run if
+no current pointer exists. A run ID selects a specific run:
 
 ```bash
-vibesys --runs-dir /work/vibesys-runs --resume <run-id>
-vibesys --runs-dir /work/vibesys-runs --resume /path/to/experiment
+cd /path/to/project
+vibesys --resume
+vibesys --resume <run-id>
+```
+
+With `--runs-dir`, the resume argument selects a project in the collection. It
+may be a directory name, a local path, a GitHub `OWNER/NAME`, or a cloneable
+URL. VibeSys then resumes that project's current or newest run.
+
+```bash
+vibesys --runs-dir /work/vibesys-runs --resume <project-directory-name>
+vibesys --runs-dir /work/vibesys-runs --resume /path/to/project
 vibesys --runs-dir /work/vibesys-runs --resume my-org/my-experiment
 vibesys --runs-dir /work/vibesys-runs --resume https://github.com/my-org/my-experiment.git
 ```
 
-## Configure Inputs with CLI Flags
+Omitted configuration flags are restored from `.vs/runs/<run-id>/run.json`.
+The total round or generation limit may increase. Other recorded settings
+cannot change during a resume.
 
-Automation can provide the input contract without creating an input bundle by
-hand. This form requires `--runs-dir`. VibeSys writes an internal
-`OBJECTIVE.md` and `vibesys.input.toml` below `<runs-dir>/_inputs/`, then uses
-the normal materialized workflow.
+## Supply an Input with CLI Flags
 
-The following example stages candidate source and evaluator programs from local
-directories:
+Automation can supply the input contract without first writing an input
+directory. This form requires `--runs-dir`. VibeSys synthesizes the objective
+and manifest, then provisions the same canonical project layout.
 
 ```bash
 vibesys \
@@ -142,23 +125,17 @@ vibesys \
   --input-workspace-seed ./candidate
 ```
 
-Use this form for CI or programmatic integrations. For a project maintained by
-a person, checked-in `OBJECTIVE.md` and `vibesys.input.toml` files are easier to
-review and reproduce.
+Use this form for CI or programmatic integrations. Checked-in
+`OBJECTIVE.md` and `vibesys.input.toml` files are easier to review for projects
+maintained by people.
 
 ## Presentation and Validation
 
-The interactive and headless launchers run the same engine:
-
 - `vibesys` launches the TUI when attached to a terminal.
 - `vibesys --headless` disables the TUI.
-- Non-interactive execution, such as CI, runs headless automatically.
+- Non-interactive execution runs headless automatically.
 - `vibesys validate [INPUT]` checks the static input contract without starting
   an agent or executing the checker and benchmark.
 
-These presentation choices do not change the workspace model. Local, Docker,
-and Modal select where commands execute; `agent`, `plain`, and `evolve` select
-the search loop.
-
-See the [CLI reference](cli-flags.md) for every flag and the
-[`examples/`](../examples/) directory for complete objectives and manifests.
+See the [CLI reference](cli-flags.md) for every flag and
+[`examples/`](../examples/) for complete objectives and manifests.

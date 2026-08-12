@@ -23,6 +23,7 @@ _REPO_ROOT = Path(__file__).parent.resolve()
 sys.path.insert(0, str(_REPO_ROOT))
 
 from packaging_support import (  # noqa: E402
+    clear_distribution_build_outputs,
     discover_distribution_packages,
     release_has_native_payload,
 )
@@ -35,6 +36,7 @@ class build_py(_build_py):  # noqa: N801 - setuptools command classes are lowerc
     """Standard ``build_py`` plus staging the compiled TUI into the package."""
 
     def run(self) -> None:  # noqa: D102  # tracked: #288
+        clear_distribution_build_outputs(Path(self.build_lib), self.packages or [])
         super().run()
         package_root = Path(self.build_lib) / "vibesys"
         target_key = os.environ.get("VIBESYS_WHEEL_TARGET")

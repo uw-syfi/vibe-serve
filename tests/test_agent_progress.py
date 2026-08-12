@@ -18,9 +18,8 @@ def _make_context(tmp_path):  # noqa: ANN001, ANN202  # tracked: #288
     ctx = object.__new__(_RunContext)
     ctx._progress_stack = []  # noqa: SLF001  # tracked: #288
     ctx._paths = RunPaths(  # noqa: SLF001  # tracked: #288
-        exp_dir=tmp_path,
+        project_root=tmp_path,
         log_dir=tmp_path / "logs",
-        workspace=tmp_path,
         run_log_path=tmp_path / "run.log",
     )
     ctx.gpu_env = dict

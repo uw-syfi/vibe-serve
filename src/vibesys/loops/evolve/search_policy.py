@@ -15,13 +15,14 @@ import shutil
 import uuid
 from collections.abc import Generator  # noqa: TC003  # tracked: #288
 from contextlib import contextmanager
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path  # noqa: TC003  # tracked: #288
-from typing import Any, Protocol, cast
+from typing import Literal, Protocol, cast
 
 from openevolve.config import DatabaseConfig  # pyright: ignore[reportMissingTypeStubs]
 from openevolve.database import Program, ProgramDatabase  # pyright: ignore[reportMissingTypeStubs]
+from pydantic import BaseModel, ConfigDict, Field
 
 from vibesys.loops.evolve.population import Individual, Objective, Population
 
@@ -62,6 +63,64 @@ class OpenEvolveSearchConfig:
             raise ValueError("OpenEvolve migration_interval must be >= 1")  # noqa: TRY003  # tracked: #288
         if not 0.0 <= self.migration_rate <= 1.0:
             raise ValueError("OpenEvolve migration_rate must be in [0, 1]")  # noqa: TRY003  # tracked: #288
+
+
+class _PersistedOpenEvolveConfig(BaseModel):
+    """Strict JSON representation of supported OpenEvolve settings."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+
+    population_size: int = Field(gt=0)
+    archive_size: int = Field(gt=0)
+    num_islands: int = Field(gt=0)
+    migration_interval: int = Field(gt=0)
+    migration_rate: float = Field(ge=0, le=1, allow_inf_nan=False)
+
+    @classmethod
+    def from_domain(cls, config: OpenEvolveSearchConfig) -> _PersistedOpenEvolveConfig:
+        return cls(
+            population_size=config.population_size,
+            archive_size=config.archive_size,
+            num_islands=config.num_islands,
+            migration_interval=config.migration_interval,
+            migration_rate=config.migration_rate,
+        )
+
+    def to_domain(self) -> OpenEvolveSearchConfig:
+        return OpenEvolveSearchConfig(**self.model_dump())
+
+
+class _PersistedObjective(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+
+    name: str
+    direction: Literal["max", "min"]
+
+
+type _RandomState = tuple[int, tuple[int, ...], float | None]
+
+
+class _AdapterState(BaseModel):
+    """VibeSys-owned metadata stored beside an upstream database snapshot."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+
+    schema_version: Literal[1] = 1
+    config: _PersistedOpenEvolveConfig
+    active_program_ids: tuple[str, ...]
+    admitted_individual_ids: tuple[int, ...]
+    objective_signature: tuple[_PersistedObjective, ...]
+    rng_state: _RandomState
+
+
+class _SelectionState(BaseModel):
+    """Lightweight state that advances between full upstream snapshots."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+
+    snapshot: str
+    current_island: int = Field(ge=0)
+    rng_state: _RandomState
 
 
 class SearchPolicy(Protocol):
@@ -185,13 +244,7 @@ class OpenEvolveSearchPolicy:
         self.state_dir = state_dir
         self._snapshot_dir = self._resolve_snapshot_dir(state_dir)
         saved_state = self._load_adapter_state()
-        saved_config = (
-            OpenEvolveSearchConfig(
-                **cast("dict[str, Any]", saved_state["config"]),
-            )
-            if saved_state is not None
-            else None
-        )
+        saved_config = saved_state.config.to_domain() if saved_state is not None else None
         if config is not None and saved_config is not None and config != saved_config:
             raise ValueError(  # noqa: TRY003  # tracked: #288
                 "OpenEvolve search configuration does not match the resumed run: "
@@ -199,18 +252,18 @@ class OpenEvolveSearchPolicy:
             )
         self.config = config or saved_config or OpenEvolveSearchConfig()
         self._objective_signature = self._objectives_signature(objectives)
-        saved_objectives = saved_state.get("objective_signature") if saved_state else None
+        saved_objectives = saved_state.objective_signature if saved_state else None
         if saved_objectives is not None and saved_objectives != self._objective_signature:
             raise ValueError(  # noqa: TRY003  # tracked: #288
                 "OpenEvolve fitness objective does not match the resumed run: "
                 f"saved={saved_objectives}, requested={self._objective_signature}"
             )
         self._admitted_individual_ids = set(
-            cast("list[int]", saved_state.get("admitted_individual_ids", [])) if saved_state else []
+            saved_state.admitted_individual_ids if saved_state else ()
         )
         self._rng = random.Random(seed)  # noqa: S311  # tracked: #288
-        if saved_state is not None and "rng_state" in saved_state:
-            self._rng.setstate(cast("tuple[Any, ...]", self._tuple_tree(saved_state["rng_state"])))
+        if saved_state is not None:
+            self._rng.setstate(saved_state.rng_state)
 
         process_random_state = random.getstate()
         try:
@@ -234,7 +287,7 @@ class OpenEvolveSearchPolicy:
             random.setstate(process_random_state)
 
         if saved_state is not None:
-            active_ids = set(cast("list[str]", saved_state.get("active_program_ids", [])))
+            active_ids = set(saved_state.active_program_ids)
             self._database.programs = {
                 program_id: program
                 for program_id, program in self._database.programs.items()
@@ -253,38 +306,25 @@ class OpenEvolveSearchPolicy:
         snapshot_dir = cls._resolve_snapshot_dir(state_dir)
         if snapshot_dir is None:
             return None
-        state_path = snapshot_dir / cls._STATE_FILE
-        payload = json.loads(state_path.read_text())
-        if payload.get("schema_version") != cls._STATE_SCHEMA_VERSION:
-            raise ValueError(f"unsupported OpenEvolve adapter state in {state_path}")  # noqa: TRY003  # tracked: #288
-        return OpenEvolveSearchConfig(**cast("dict[str, Any]", payload["config"]))
+        return cls._read_adapter_state(snapshot_dir).config.to_domain()
 
     @classmethod
     def persisted_objectives(cls, state_dir: Path) -> list[Objective] | None:  # noqa: D102  # tracked: #288
         snapshot_dir = cls._resolve_snapshot_dir(state_dir)
         if snapshot_dir is None:
             return None
-        state_path = snapshot_dir / cls._STATE_FILE
-        payload = json.loads(state_path.read_text())
-        if payload.get("schema_version") != cls._STATE_SCHEMA_VERSION:
-            raise ValueError(f"unsupported OpenEvolve adapter state in {state_path}")  # noqa: TRY003  # tracked: #288
-        signature = cast("list[dict[str, str]]", payload.get("objective_signature", []))
-        return [Objective(item["name"], item["direction"]) for item in signature]
+        signature = cls._read_adapter_state(snapshot_dir).objective_signature
+        return [Objective(item.name, item.direction) for item in signature]
 
-    @staticmethod
-    def _tuple_tree(value: Any) -> Any:  # noqa: ANN401  # tracked: #288
-        if isinstance(value, list):
-            return tuple(OpenEvolveSearchPolicy._tuple_tree(item) for item in value)
-        return value
-
-    def _load_adapter_state(self) -> dict[str, object] | None:
+    def _load_adapter_state(self) -> _AdapterState | None:
         if self._snapshot_dir is None:
             return None
-        state_path = self._snapshot_dir / self._STATE_FILE
-        payload = json.loads(state_path.read_text())
-        if payload.get("schema_version") != self._STATE_SCHEMA_VERSION:
-            raise ValueError(f"unsupported OpenEvolve adapter state in {state_path}")  # noqa: TRY003  # tracked: #288
-        return payload
+        return self._read_adapter_state(self._snapshot_dir)
+
+    @classmethod
+    def _read_adapter_state(cls, snapshot_dir: Path) -> _AdapterState:
+        state_path = snapshot_dir / cls._STATE_FILE
+        return _AdapterState.model_validate_json(state_path.read_bytes(), strict=True)
 
     @classmethod
     def _resolve_snapshot_dir(cls, state_dir: Path) -> Path | None:
@@ -298,11 +338,13 @@ class OpenEvolveSearchPolicy:
         return snapshot_dir
 
     @staticmethod
-    def _objectives_signature(objectives: list[Objective] | None) -> list[dict[str, str]]:
-        return [
-            {"name": objective.name, "direction": objective.direction}
+    def _objectives_signature(
+        objectives: list[Objective] | None,
+    ) -> tuple[_PersistedObjective, ...]:
+        return tuple(
+            _PersistedObjective(name=objective.name, direction=objective.direction)
             for objective in (objectives or [])
-        ]
+        )
 
     @contextmanager
     def _upstream_random(self) -> Generator[None, None, None]:
@@ -523,18 +565,18 @@ class OpenEvolveSearchPolicy:
         self,
         *,
         admitted_individual_ids: set[int] | None = None,
-    ) -> dict[str, object]:
+    ) -> _AdapterState:
         active_ids = sorted(self._database.programs)
-        return {
-            "schema_version": self._STATE_SCHEMA_VERSION,
-            "config": asdict(self.config),
-            "active_program_ids": active_ids,
-            "admitted_individual_ids": sorted(
-                admitted_individual_ids or self._admitted_individual_ids
+        return _AdapterState(
+            schema_version=self._STATE_SCHEMA_VERSION,
+            config=_PersistedOpenEvolveConfig.from_domain(self.config),
+            active_program_ids=tuple(active_ids),
+            admitted_individual_ids=tuple(
+                sorted(admitted_individual_ids or self._admitted_individual_ids)
             ),
-            "objective_signature": self._objective_signature,
-            "rng_state": self._rng.getstate(),
-        }
+            objective_signature=self._objective_signature,
+            rng_state=cast("_RandomState", self._rng.getstate()),
+        )
 
     def _save_after_selection(self, program_ids_before: set[str]) -> None:
         if set(self._database.programs) != program_ids_before:
@@ -553,10 +595,9 @@ class OpenEvolveSearchPolicy:
         try:
             self._database.save(str(temporary_dir))
             (temporary_dir / self._STATE_FILE).write_text(
-                json.dumps(
-                    self._adapter_payload(admitted_individual_ids=admitted_individual_ids),
-                    sort_keys=True,
-                )
+                self._adapter_payload(
+                    admitted_individual_ids=admitted_individual_ids
+                ).model_dump_json()
             )
             temporary_dir.replace(snapshot_dir)
             current_path = self.state_dir / self._CURRENT_FILE
@@ -576,14 +617,14 @@ class OpenEvolveSearchPolicy:
     def _save_selection_state(self) -> None:
         if self._snapshot_dir is None:
             return
-        payload = {
-            "snapshot": self._snapshot_dir.name,
-            "current_island": self._database.current_island,
-            "rng_state": self._rng.getstate(),
-        }
+        state = _SelectionState(
+            snapshot=self._snapshot_dir.name,
+            current_island=self._database.current_island,
+            rng_state=cast("_RandomState", self._rng.getstate()),
+        )
         selection_path = self.state_dir / self._SELECTION_FILE
         temporary_path = selection_path.with_suffix(".tmp")
-        temporary_path.write_text(json.dumps(payload, sort_keys=True))
+        temporary_path.write_text(state.model_dump_json())
         temporary_path.replace(selection_path)
 
     def _restore_selection_state(self) -> None:
@@ -592,11 +633,11 @@ class OpenEvolveSearchPolicy:
         selection_path = self.state_dir / self._SELECTION_FILE
         if not selection_path.is_file():
             return
-        payload = json.loads(selection_path.read_text())
-        if payload.get("snapshot") != self._snapshot_dir.name:
+        state = _SelectionState.model_validate_json(selection_path.read_bytes(), strict=True)
+        if state.snapshot != self._snapshot_dir.name:
             return
-        self._database.set_current_island(int(payload["current_island"]))
-        self._rng.setstate(cast("tuple[Any, ...]", self._tuple_tree(payload["rng_state"])))
+        self._database.set_current_island(state.current_island)
+        self._rng.setstate(state.rng_state)
 
     @staticmethod
     def _combined_score(

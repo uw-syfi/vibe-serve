@@ -15,6 +15,7 @@ from vibesys.sandbox.run_environment import (
     build_run_environment,
     make_run_environment_spec,
 )
+from vs_sandbox import ProjectPathPolicy
 
 
 class FakeBackend:
@@ -31,7 +32,7 @@ class FakeBackend:
 
 def _request(tmp_path: Path, backend: FakeBackend, **overrides):  # noqa: ANN003, ANN202  # tracked: #288
     workspace = tmp_path / "workspace"
-    workspace.mkdir()
+    workspace.mkdir(exist_ok=True)
     values = dict(  # noqa: C408  # tracked: #288
         log_dir=tmp_path / "logs",
         workspace=workspace,
@@ -39,6 +40,7 @@ def _request(tmp_path: Path, backend: FakeBackend, **overrides):  # noqa: ANN003
         backend=backend,
         agent_backend="deepagents",
         cli_provider=None,
+        run_id="run-123",
     )
     values.update(overrides)
     values["log_dir"].mkdir(exist_ok=True)  # pyright: ignore[reportOptionalMemberAccess]  # tracked: #297
@@ -147,6 +149,50 @@ def test_docker_environment_mounts_effective_objective_read_only(tmp_path):  # n
     ) in backend.calls[0][1]["bind_mounts"]
     assert "/opt/vibesys-runtime" in backend.calls[0][1]["passthrough_paths"]
     assert session.view.paths.objective == "/opt/vibesys-runtime/objective.md"
+
+
+@pytest.mark.parametrize("environment_name", ["docker", "modal"])
+def test_isolated_environment_enforces_project_path_policy(tmp_path, environment_name):  # noqa: ANN001, ANN201  # tracked: #288
+    backend = FakeBackend()
+    env = build_run_environment(RunEnvironmentSpec(environment_name))
+    project = tmp_path / "workspace"
+    (project / ".git").mkdir(parents=True)
+    (project / ".vs" / "local").mkdir(parents=True)
+    (project / ".vs" / "project.json").write_text("{}\n")
+    (project / "vibesys.input.toml").write_text("version = 1\n")
+    (project / "agent.toml").write_text("[model]\nname = 'private'\n")
+    policy = ProjectPathPolicy(
+        read_only_paths=(".git", ".vs", "vibesys.input.toml"),
+        hidden_paths=(".vs/local", "agent.toml"),
+    )
+
+    env.open(
+        _request(
+            tmp_path,
+            backend,
+            agent_backend="cli",
+            cli_provider="codex",
+            project_path_policy=policy,
+        )
+    )
+
+    mounts = backend.calls[0][1]["bind_mounts"]
+    assert (str(project / ".git"), "/workspace/.git", True) in mounts
+    assert (str(project / ".vs"), "/workspace/.vs", True) in mounts
+    assert (
+        str(project / "vibesys.input.toml"),
+        "/workspace/vibesys.input.toml",
+        True,
+    ) in mounts
+    hidden_mounts = {
+        container: Path(host)
+        for host, container, read_only in mounts
+        if read_only and container in {"/workspace/.vs/local", "/workspace/agent.toml"}
+    }
+    assert hidden_mounts["/workspace/.vs/local"].is_dir()
+    assert hidden_mounts["/workspace/agent.toml"].is_file()
+    assert hidden_mounts["/workspace/.vs/local"].is_relative_to(tmp_path / "logs")
+    assert hidden_mounts["/workspace/agent.toml"].is_relative_to(tmp_path / "logs")
 
 
 def test_docker_environment_copies_cli_auth_from_readonly_staging(tmp_path, monkeypatch):  # noqa: ANN001, ANN201  # tracked: #288
@@ -465,17 +511,15 @@ def test_modal_environment_documents_history_and_exact_measurement_source(tmp_pa
     assert "Create this provenance artifact before launch" in notes
 
 
-def test_modal_environment_per_run_namespace_prefix_unique(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
-    """Two runs (different exp_dir names) must produce different Modal
-    namespace prefixes so concurrent runs cannot collide on app names,
-    web-endpoint labels, or auxiliary volumes."""
+def test_modal_environment_uses_explicit_run_id_for_namespace(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+    """Project location does not participate in remote resource identity."""
     backend_a = FakeBackend()
     backend_b = FakeBackend()
     env = build_run_environment(RunEnvironmentSpec("modal"))
 
-    ws_a = tmp_path / "20260429-100000-runA" / "workspace"
+    ws_a = tmp_path / "projects" / "queue-a"
     ws_a.mkdir(parents=True)
-    ws_b = tmp_path / "20260429-100100-runB" / "workspace"
+    ws_b = tmp_path / "projects" / "queue-b"
     ws_b.mkdir(parents=True)
 
     log_a = tmp_path / "logsA"
@@ -490,6 +534,7 @@ def test_modal_environment_per_run_namespace_prefix_unique(tmp_path):  # noqa: A
         backend=backend_a,  # pyright: ignore[reportArgumentType]  # tracked: #297
         agent_backend="cli",
         cli_provider="codex",
+        run_id="20260429-100000-runa",
     )
     req_b = RunEnvironmentRequest(
         log_dir=log_b,
@@ -498,13 +543,13 @@ def test_modal_environment_per_run_namespace_prefix_unique(tmp_path):  # noqa: A
         backend=backend_b,  # pyright: ignore[reportArgumentType]  # tracked: #297
         agent_backend="cli",
         cli_provider="codex",
+        run_id="20260429-100100-runb",
     )
     env.open(req_a)
     env.open(req_b)
     notes_a = (log_a / "runtime-environment.md").read_text()
     notes_b = (log_b / "runtime-environment.md").read_text()
 
-    # Each run's prefix is `vibesys-<exp-dir-name-sanitized>`.
     assert "vibesys-20260429-100000-runa" in notes_a
     assert "vibesys-20260429-100100-runb" in notes_b
     assert "vibesys-20260429-100000-runa" not in notes_b

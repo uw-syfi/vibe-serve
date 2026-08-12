@@ -3,7 +3,7 @@ Llama 3.1 8B Instruct MLX 8-bit input bundle.
 Use:
 
 ```bash
-uv run vibesys --runs-dir "$PWD/exp_env" --local \
+vibesys --runs-dir /work/vibesys-runs --local \
   --input examples/model-serving/Llama-3.1-8B-Instruct-MLX-8bit
 ```
 

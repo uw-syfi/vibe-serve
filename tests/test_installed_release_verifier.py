@@ -137,9 +137,9 @@ if headless:
     run_id = "20260811-120000-deadbeef-installed-release-smoke"
     metadata = input_root / ".vs"
     run_root = metadata / "runs" / run_id
-    (run_root / "rounds").mkdir(parents=True)
+    (run_root / "agent" / "rounds").mkdir(parents=True)
     (run_root / "run.json").write_text("{}")
-    (run_root / "rounds" / "0001.json").write_text("{}")
+    (run_root / "agent" / "rounds" / "0001.json").write_text("{}")
     (metadata / "project.json").write_text("{}")
     (metadata / ".gitignore").write_text("/local/\\n")
     local = metadata / "local"
@@ -272,7 +272,7 @@ arguments = os.sys.argv[1:]
     )
     monkeypatch.setattr(verifier.sys, "prefix", str(prefix))
     environment = {**os.environ, "VIBESYS_TEST_PREFIX": str(prefix)}
-    monkeypatch.setattr(verifier, "_verify_in_place_project_state", lambda _root: None)
+    monkeypatch.setattr(verifier, "_verify_project_state", lambda _root: None)
 
     with pytest.raises(verifier.InstalledReleaseError, match="installation prefix"):
         verifier.run_headless_stub_smoke(
@@ -284,7 +284,7 @@ arguments = os.sys.argv[1:]
 
 
 @pytest.mark.parametrize("run_count", [0, 2])
-def test_in_place_smoke_requires_exactly_one_run(
+def test_project_smoke_requires_exactly_one_run(
     tmp_path: Path,
     run_count: int,
 ) -> None:
@@ -297,4 +297,4 @@ def test_in_place_smoke_requires_exactly_one_run(
         (runs_root / f"20260811-12000{index}-installed-release-smoke").mkdir()
 
     with pytest.raises(verifier.InstalledReleaseError, match="exactly one run"):
-        verifier._verify_in_place_project_state(tmp_path)  # noqa: SLF001
+        verifier._verify_project_state(tmp_path)  # noqa: SLF001

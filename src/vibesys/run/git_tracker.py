@@ -1,22 +1,20 @@
-"""Git snapshot tracking over an experiment workspace.
+"""Git history owned by one VibeSys project run."""
 
-``GitTracker`` owns the repo-over-workspace history kept when
-``--git-tracking`` is enabled: per-round snapshot commits, checkout of prior
-round trees, and detection of tampering with evaluator-owned inputs.  It is
-deliberately independent of the rest of the run context — construction takes
-the workspace root, a log callback, and the directory names to keep out of
-history; nothing here touches sandboxes or backends.
-"""
+from __future__ import annotations
 
 import os
 import re
 import shutil
 import subprocess
-from collections.abc import Callable, Iterable, Mapping
-from enum import StrEnum
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from vibesys.run.project_policy import TRUSTED_PROJECT_INPUT_PATHS
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Iterable, Mapping
+
+    from vs_project_state import StateSnapshot
 
 
 def _normalize_project_paths(paths: Iterable[str | Path]) -> tuple[Path, ...]:
@@ -34,19 +32,12 @@ def _normalize_project_paths(paths: Iterable[str | Path]) -> tuple[Path, ...]:
     return tuple(normalized)
 
 
-class GitTrackingMode(StrEnum):
-    """Repository ownership model used by :class:`GitTracker`."""
-
-    LEGACY_WORKSPACE = "legacy-workspace"
-    USER_PROJECT = "user-project"
-
-
 class GitTracker:
-    """Snapshot tracking for one workspace directory.
+    """Snapshot tracking for one canonical project repository.
 
-    Construction is side-effect free; ``init`` creates (or, on resume,
-    validates) the repository.  ``run`` is the public escape hatch for
-    loop-specific git plumbing that has no dedicated method yet.
+    The project root is also the Git worktree root. Each run advances its own
+    ``vibesys/<run-id>`` branch. Framework-local state stays below ``.vs/local``
+    and is excluded through repository-local Git configuration.
     """
 
     _GIT_ENV_STATIC = {  # noqa: RUF012  # tracked: #288
@@ -84,26 +75,22 @@ class GitTracker:
         ".ruff_cache/",
     )
 
-    _PRIVATE_PROJECT_INPUTS: tuple[str, ...] = (
-        ".env",
-        ".env.*",
-        "agent.toml",
-    )
+    _CANDIDATE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 
-    def __init__(  # noqa: D107, PLR0913  # tracked: #288
+    def __init__(  # noqa: D107  # tracked: #288
         self,
         root: Path,
         *,
+        run_id: str,
         log: Callable[[str], None],
         excluded_dirs: Iterable[str] = (),
-        mode: GitTrackingMode = GitTrackingMode.LEGACY_WORKSPACE,
-        run_id: str | None = None,
         trusted_input_paths: Iterable[str | Path] = (),
     ) -> None:
-        self.root = root
+        self.root = root.expanduser().resolve()
+        if not self.root.is_dir():
+            raise ValueError(f"project root must be an existing directory: {self.root}")  # noqa: TRY003  # tracked: #288
         self._log = log
         self._excluded_dirs = frozenset(excluded_dirs)
-        self.mode = GitTrackingMode(mode)
         self.run_id = run_id
         self._trusted_input_paths = tuple(
             dict.fromkeys(
@@ -116,18 +103,13 @@ class GitTracker:
         self._trusted_input_baseline: str | None = None
         self._git_dir: Path | None = None
         self._work_tree: Path | None = None
-        # Keep dynamic snapshot exclusions outside the candidate worktree. An
-        # isolated agent may create or replace ``root/.git`` as another user;
-        # framework bookkeeping must remain host-owned and writable.
-        self._exclude_file = self.root.parent / ".vibesys-git-excludes" / self.root.name
+        self._exclude_file = self.root / ".git" / "info" / "exclude"
 
     @property
     def _GIT_ENV(self) -> dict[str, str]:  # noqa: N802  # tracked: #288
         """Git env pinned to the repository selected during initialization."""
         safe_directory = self._work_tree or self.root
         config = [("safe.directory", str(safe_directory))]
-        if self.mode is GitTrackingMode.LEGACY_WORKSPACE:
-            config.append(("core.excludesFile", str(self._exclude_file)))
         result = {
             **self._GIT_ENV_STATIC,
             "GIT_CONFIG_COUNT": str(len(config)),
@@ -145,7 +127,10 @@ class GitTracker:
     ) -> subprocess.CompletedProcess[bytes]:
         """Run a git command in the workspace, logging stderr on failure."""
         if env is None:
-            env = {**os.environ, **self._GIT_ENV}
+            env = os.environ.copy()
+            for variable in ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"):
+                env.pop(variable, None)
+            env.update(self._GIT_ENV)
         result = subprocess.run(cmd, cwd=self.root, capture_output=True, env=env)  # noqa: PLW1510, S603  # tracked: #288
         if check and result.returncode != 0:
             stderr = result.stderr.decode(errors="replace").strip()
@@ -155,45 +140,11 @@ class GitTracker:
         return result
 
     def init(self, existing: bool, *, trusted_input_baseline: str | None = None) -> None:  # noqa: FBT001  # tracked: #288
-        """Initialize or validate Git tracking for the unified workspace.
-
-        Experiment directories are themselves Git repositories. When the
-        workspace already lives below one, use that repository and keep every
-        operation scoped to the workspace. Standalone callers still get a
-        repository rooted directly at ``self.root``.
-        """
-        if self.mode is GitTrackingMode.USER_PROJECT:
-            self._init_user_project(
-                existing=existing,
-                trusted_input_baseline=trusted_input_baseline,
-            )
-            return
-
-        if existing:
-            if not self._inside_work_tree():
-                raise ValueError(  # noqa: TRY003  # tracked: #288
-                    f"--git-tracking with --resume but no git repository in {self.root}"
-                )
-            self._bind_repository()
-            if trusted_input_baseline is not None:
-                self.configure_trusted_input_baseline(trusted_input_baseline)
-            return
-
-        if trusted_input_baseline is not None:
-            raise ValueError("trusted input baseline is only valid when resuming a run")  # noqa: TRY003  # tracked: #288
-
-        if not self._inside_work_tree():
-            self.run(["git", "init"])
-        self._bind_repository()
-
-        gitignore = self.root / ".gitignore"
-        existing_gitignore = gitignore.read_text() if gitignore.is_file() else ""
-        if existing_gitignore and not existing_gitignore.endswith("\n"):
-            existing_gitignore += "\n"
-        gitignore.write_text(existing_gitignore + self._workspace_gitignore())
-
-        self._add_all()
-        self.run(["git", "commit", "-m", "initial: workspace setup"])
+        """Create a run branch, or resume the existing branch for this run."""
+        self._init_project(
+            existing=existing,
+            trusted_input_baseline=trusted_input_baseline,
+        )
 
     def add_worktree(self, worktree_dir: Path, commit: str) -> None:
         """Create a detached linked worktree at *commit*.
@@ -207,8 +158,9 @@ class GitTracker:
         adds; committing *inside* a worktree afterwards is independent per
         worktree and safe to run concurrently.
         """
-        worktree_dir.parent.mkdir(parents=True, exist_ok=True)
-        self.run(["git", "worktree", "add", "--detach", str(worktree_dir), commit])
+        destination = self._validate_local_worktree_path(worktree_dir)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        self.run(["git", "worktree", "add", "--detach", str(destination), commit])
 
     def remove_worktree(self, worktree_dir: Path) -> None:
         """Unregister a linked worktree and delete its directory (best-effort).
@@ -223,10 +175,89 @@ class GitTracker:
         correctness, so ``ignore_errors`` keeps a stubborn file from sinking the
         run.
         """
-        self.run(["git", "worktree", "remove", "--force", str(worktree_dir)], check=False)
-        if Path(worktree_dir).exists():
-            shutil.rmtree(worktree_dir, ignore_errors=True)
+        destination = self._validate_local_worktree_path(worktree_dir)
+        self.run(["git", "worktree", "remove", "--force", str(destination)], check=False)
+        if destination.exists():
+            shutil.rmtree(destination, ignore_errors=True)
         self.run(["git", "worktree", "prune"], check=False)
+
+    def retain_candidate(self, candidate_id: str, commit: str) -> str:
+        """Keep a candidate commit reachable after its worktree is removed."""
+        if not self._CANDIDATE_ID.fullmatch(candidate_id):
+            raise ValueError(f"invalid candidate id: {candidate_id!r}")  # noqa: TRY003  # tracked: #288
+        resolved = self.run(
+            ["git", "rev-parse", "--verify", f"{commit}^{{commit}}"],
+            check=False,
+        )
+        if resolved.returncode != 0:
+            raise ValueError(f"candidate revision is not a commit: {commit!r}")  # noqa: TRY003  # tracked: #288
+        sha = resolved.stdout.decode(errors="replace").strip()
+        ref = f"refs/vibesys/{self.run_id}/candidates/{candidate_id}"
+        self.run(["git", "update-ref", ref, sha])
+        return ref
+
+    def retain_worktree(self, worktree_dir: Path, candidate_id: str) -> str:
+        """Retain the current commit from a caller-created local worktree."""
+        destination = self._validate_local_worktree_path(worktree_dir)
+        result = self._run_in_worktree(destination, ["git", "rev-parse", "HEAD"])
+        return self.retain_candidate(
+            candidate_id,
+            result.stdout.decode(errors="replace").strip(),
+        )
+
+    def _validate_local_worktree_path(self, worktree_dir: Path) -> Path:
+        """Resolve a worktree path and require it below ``.vs/local``."""
+        local_root_path = self.root / ".vs" / "local"
+        for boundary in (self.root / ".vs", local_root_path):
+            if boundary.is_symlink():
+                raise ValueError(f"candidate worktree boundary must not be a symlink: {boundary}")  # noqa: TRY003  # tracked: #288
+
+        raw_destination = worktree_dir.expanduser()
+        if not raw_destination.is_absolute():
+            raw_destination = self.root / raw_destination
+        destination = raw_destination.resolve()
+        local_root = local_root_path.resolve()
+        if destination == local_root or not destination.is_relative_to(local_root):
+            raise ValueError(  # noqa: TRY003  # tracked: #288
+                f"candidate worktree must be below {local_root}: {worktree_dir}"
+            )
+
+        current = raw_destination
+        while current not in (local_root_path, self.root):
+            if current.is_symlink():
+                raise ValueError(f"candidate worktree path traverses a symlink: {worktree_dir}")  # noqa: TRY003  # tracked: #288
+            current = current.parent
+        return destination
+
+    def _run_in_worktree(
+        self,
+        worktree_dir: Path,
+        command: list[str],
+    ) -> subprocess.CompletedProcess[bytes]:
+        """Run Git against a linked worktree without the main-worktree pins."""
+        env = os.environ.copy()
+        for variable in ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"):
+            env.pop(variable, None)
+        env.update(
+            {
+                **self._GIT_ENV_STATIC,
+                "GIT_CONFIG_COUNT": "1",
+                "GIT_CONFIG_KEY_0": "safe.directory",
+                "GIT_CONFIG_VALUE_0": str(worktree_dir),
+            }
+        )
+        result = subprocess.run(  # noqa: PLW1510, S603  # tracked: #288
+            command,
+            cwd=worktree_dir,
+            capture_output=True,
+            env=env,
+        )
+        if result.returncode != 0:
+            stderr = result.stderr.decode(errors="replace").strip()
+            raise RuntimeError(  # noqa: TRY003  # tracked: #288
+                f"Git command failed in candidate worktree ({' '.join(command)}): {stderr}"
+            )
+        return result
 
     def snapshot(self, label: str) -> None:
         """Commit current workspace state with *label* as the commit message."""
@@ -251,19 +282,23 @@ class GitTracker:
     def snapshot_with_framework_metadata(
         self,
         label: str,
-        metadata: Mapping[str | Path, str | bytes],
+        snapshot: StateSnapshot,
     ) -> None:
         """Commit candidate changes with exact framework-authored ``.vs`` files.
 
-        This is the only project-mode snapshot API that stages ``.vs``. The
+        This is the only snapshot API that stages ``.vs``. The
         framework supplies complete file contents so the tracker can verify
         existing committed metadata before it writes anything. Local runtime
         state under ``.vs/local`` is never accepted or staged.
         """
-        if self.mode is not GitTrackingMode.USER_PROJECT:
-            raise ValueError("framework metadata snapshots require user-project mode")  # noqa: TRY003  # tracked: #288
-
-        destinations = self._framework_metadata_destinations(metadata)
+        destinations = self._framework_metadata_destinations(
+            {
+                (snapshot.namespace_root / state_file.relative_path).as_posix(): (
+                    state_file.contents
+                )
+                for state_file in snapshot.files
+            }
+        )
         pending = self._pending_committed_framework_metadata()
         supplied = {relative.as_posix(): content for relative, _, content in destinations}
         unexpected = [path for path in pending if path not in supplied]
@@ -290,6 +325,80 @@ class GitTracker:
             self.run(["git", "add", "--force", "--", relative.as_posix()])
         self._commit_staged(label)
 
+    def snapshot_framework_state(
+        self,
+        label: str,
+        snapshot: StateSnapshot,
+    ) -> None:
+        """Replace and commit one framework-owned run-state namespace exactly.
+
+        Omitting a previously committed file from the validated snapshot
+        authorizes its deletion. Pending tracked metadata outside the namespace
+        remains protected from accidental inclusion or overwrite.
+        """
+        relative_root, destination_root = self._framework_state_namespace(
+            snapshot.namespace_root.as_posix()
+        )
+        destinations = self._framework_state_destinations(
+            destination_root,
+            {
+                state_file.relative_path.as_posix(): state_file.contents
+                for state_file in snapshot.files
+            },
+        )
+        prefix = f"{relative_root.as_posix()}/"
+        unexpected = [
+            path
+            for path in self._pending_committed_framework_metadata()
+            if path != relative_root.as_posix() and not path.startswith(prefix)
+        ]
+        if unexpected:
+            raise ValueError(  # noqa: TRY003  # tracked: #288
+                "refusing to replace framework state while other committed "
+                f"VibeSys metadata has pending changes: {', '.join(unexpected)}"
+            )
+
+        tracked = self.run(["git", "ls-files", "--", relative_root.as_posix()]).stdout.strip()
+        if destination_root.exists():
+            if not destination_root.is_dir():
+                raise ValueError(  # noqa: TRY003  # tracked: #288
+                    f"framework state namespace is not a directory: {destination_root}"
+                )
+            shutil.rmtree(destination_root)
+        for relative, content in destinations:
+            destination = destination_root / relative
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            if isinstance(content, str):
+                destination.write_text(content)
+            else:
+                destination.write_bytes(content)
+        if destinations or tracked:
+            self.run(["git", "add", "--force", "-A", "--", relative_root.as_posix()])
+        has_changes = (
+            self.run(
+                ["git", "diff", "--cached", "--quiet", "--", relative_root.as_posix()],
+                check=False,
+            ).returncode
+            != 0
+        )
+        if has_changes:
+            # Commit only this namespace. Candidate edits, including edits the
+            # agent staged itself, must remain pending for the candidate
+            # snapshot that owns them.
+            self.run(
+                [
+                    "git",
+                    "commit",
+                    "--only",
+                    "-m",
+                    label,
+                    "--",
+                    relative_root.as_posix(),
+                ]
+            )
+        else:
+            self._log(f"[git-tracking] no changes to commit for '{label}'")
+
     def current_sha(self) -> str | None:
         """Return the HEAD commit sha, or ``None`` if it cannot be resolved."""
         try:
@@ -301,24 +410,13 @@ class GitTracker:
             return None
 
     @property
-    def history_root(self) -> Path | None:
-        """Return the repository worktree containing checkpoint history.
-
-        Sandboxed agents edit only ``root``, which can be a subdirectory of
-        the experiment repository. Run environments mount this larger root
-        read-only so agents can inspect the commits the framework advertises
-        without granting them ownership of snapshot bookkeeping.
-        """
-        return self._work_tree
+    def history_root(self) -> Path:
+        """Return the canonical project repository root."""
+        return self.root
 
     @property
     def trusted_input_baseline(self) -> str | None:
-        """Return the resolved commit used as the trusted-input baseline.
-
-        Fresh user-project runs capture their branch-point commit. Legacy
-        workspaces retain their historical behavior and return ``None`` unless
-        an explicit baseline was supplied while resuming.
-        """
+        """Return the resolved commit used as the trusted-input baseline."""
         return self._trusted_input_baseline
 
     def configure_trusted_input_baseline(self, revision: str) -> str:
@@ -384,13 +482,10 @@ class GitTracker:
                 "--",
                 ".",
             ]
-            if self.mode is GitTrackingMode.USER_PROJECT:
-                restore_cmd.extend([":(exclude).vs", ":(exclude).vs/**"])
+            restore_cmd.extend([":(exclude).vs", ":(exclude).vs/**"])
             self.run(restore_cmd)
             if clean:
-                clean_cmd = ["git", "clean", "-fd"]
-                if self.mode is GitTrackingMode.USER_PROJECT:
-                    clean_cmd.extend(["-e", ".vs/"])
+                clean_cmd = ["git", "clean", "-fd", "-e", ".vs/"]
                 clean_cmd.extend(["--", "."])
                 self.run(clean_cmd, check=False)
             self._restore_preserved_paths(preserved)
@@ -502,27 +597,18 @@ class GitTracker:
             raise ValueError(f"trusted input baseline {revision!r} is not an ancestor of HEAD")  # noqa: TRY003  # tracked: #288
         return commit
 
-    def _workspace_gitignore(self) -> str:
-        """Contents of the workspace ``.gitignore`` (excluded dirs + artifacts)."""
-        lines = sorted(self._excluded_dirs) + list(self._ARTIFACT_GITIGNORE_PATTERNS)
-        return "\n".join(lines) + "\n"
-
-    # -- in-place user projects ---------------------------------------------
-
     @property
-    def project_branch(self) -> str | None:
-        """Return the run branch name selected for project mode."""
-        if self.mode is not GitTrackingMode.USER_PROJECT or self.run_id is None:
-            return None
+    def project_branch(self) -> str:
+        """Return the canonical branch name for this run."""
         return f"vibesys/{self.run_id}"
 
-    def _init_user_project(
+    def _init_project(
         self,
         *,
         existing: bool,
         trusted_input_baseline: str | None,
     ) -> None:
-        """Initialize or resume tracking directly in a user's project root."""
+        """Initialize or resume tracking directly in the project root."""
         branch = self._validated_project_branch()
         inside_work_tree = self._prepare_project_repository(existing=existing)
         self._bind_repository()
@@ -540,8 +626,6 @@ class GitTracker:
 
     def _validated_project_branch(self) -> str:
         branch = self.project_branch
-        if branch is None:
-            raise ValueError("user-project git tracking requires a run id")  # noqa: TRY003  # tracked: #288
         valid = self.run(["git", "check-ref-format", "--branch", branch], check=False)
         if valid.returncode != 0:
             raise ValueError(f"invalid VibeSys run id for a Git branch: {self.run_id!r}")  # noqa: TRY003  # tracked: #288
@@ -561,7 +645,7 @@ class GitTracker:
         repository_root = Path(top_level.stdout.decode(errors="replace").strip()).resolve()
         if repository_root != self.root.resolve():
             raise ValueError(  # noqa: TRY003  # tracked: #288
-                "user-project git tracking requires the input directory to be "
+                "VibeSys Git tracking requires the input directory to be "
                 f"the repository root; found containing repository {repository_root}"
             )
         return True
@@ -725,6 +809,54 @@ class GitTracker:
             result.append((relative, destination, content))
         return result
 
+    def _framework_state_namespace(self, raw_path: str | Path) -> tuple[Path, Path]:
+        """Validate a dedicated namespace below this run's portable state."""
+        relative = Path(raw_path)
+        expected = (".vs", "runs", self.run_id)
+        if (
+            relative.is_absolute()
+            or relative == Path()
+            or any(part in {"", ".", ".."} for part in relative.parts)
+            or relative.parts[:3] != expected
+            or len(relative.parts) < 4  # noqa: PLR2004  # tracked: #288
+        ):
+            raise ValueError(  # noqa: TRY003  # tracked: #288
+                "framework state namespace must be a dedicated directory below "
+                f".vs/runs/{self.run_id}/: {raw_path}"
+            )
+        destination = self.root / relative
+        for parent in (destination, *destination.parents):
+            if parent == self.root:
+                break
+            if parent.is_symlink():
+                raise ValueError(f"framework state namespace traverses a symlink: {raw_path}")  # noqa: TRY003  # tracked: #288
+        return relative, destination
+
+    @staticmethod
+    def _framework_state_destinations(
+        namespace_root: Path,
+        files: Mapping[str | Path, str | bytes],
+    ) -> list[tuple[Path, str | bytes]]:
+        """Validate exact-state file keys relative to one namespace."""
+        result: list[tuple[Path, str | bytes]] = []
+        seen: set[Path] = set()
+        for raw_path, content in files.items():
+            relative = Path(raw_path)
+            if (
+                relative.is_absolute()
+                or relative == Path()
+                or any(part in {"", ".", ".."} for part in relative.parts)
+            ):
+                raise ValueError(f"framework state file must be namespace-relative: {raw_path}")  # noqa: TRY003  # tracked: #288
+            if relative in seen:
+                raise ValueError(f"duplicate framework state file: {raw_path}")  # noqa: TRY003  # tracked: #288
+            seen.add(relative)
+            destination = namespace_root / relative
+            if destination == namespace_root:
+                raise ValueError(f"framework state file must be namespace-relative: {raw_path}")  # noqa: TRY003  # tracked: #288
+            result.append((relative, content))
+        return result
+
     def _pending_committed_framework_metadata(self) -> list[str]:
         result = self.run(["git", "diff", "--name-only", "HEAD", "--", ".vs"])
         return sorted(path for path in result.stdout.decode(errors="replace").splitlines() if path)
@@ -812,7 +944,7 @@ class GitTracker:
         permission failure (a file may appear between the scan and the add).
         """
         self._exclude_paths(self._collect_unreadable())
-        if self.mode is GitTrackingMode.USER_PROJECT and self.current_sha() is not None:
+        if self.current_sha() is not None:
             # Discard any index mutations made by the candidate before staging
             # the exact candidate-owned path set ourselves.
             self.run(["git", "reset", "--quiet", "HEAD", "--", "."])
@@ -833,8 +965,6 @@ class GitTracker:
 
     def _unstage_project_owned_paths(self) -> None:
         """Remove framework, private, and cache paths from the candidate index."""
-        if self.mode is not GitTrackingMode.USER_PROJECT:
-            return
         protected = [
             ".vs",
             ".env",
@@ -868,12 +998,11 @@ class GitTracker:
         work_tree = self.run(["git", "rev-parse", "--show-toplevel"])
         self._git_dir = Path(git_dir.stdout.decode(errors="replace").strip()).resolve()
         self._work_tree = Path(work_tree.stdout.decode(errors="replace").strip()).resolve()
-        if self.mode is GitTrackingMode.USER_PROJECT:
-            exclude_file = self.run(["git", "rev-parse", "--git-path", "info/exclude"])
-            exclude_path = Path(exclude_file.stdout.decode(errors="replace").strip())
-            if not exclude_path.is_absolute():
-                exclude_path = self.root / exclude_path
-            self._exclude_file = exclude_path.resolve()
+        exclude_file = self.run(["git", "rev-parse", "--git-path", "info/exclude"])
+        exclude_path = Path(exclude_file.stdout.decode(errors="replace").strip())
+        if not exclude_path.is_absolute():
+            exclude_path = self.root / exclude_path
+        self._exclude_file = exclude_path.resolve()
 
     def _exclude_pattern(self, rel_path: str) -> str:
         """Return an exact repository-root-relative ignore pattern."""

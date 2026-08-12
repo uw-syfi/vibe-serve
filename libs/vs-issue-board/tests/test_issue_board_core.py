@@ -62,6 +62,16 @@ class TestCreate:
         # No tmp file left behind
         assert not (tmp_path / "issues.json.tmp").exists()
 
+    def test_create_preserves_versioned_json_contract(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+        store = _make_store(tmp_path)
+        issue = _create(store, title="persist me")
+
+        assert json.loads(store.path.read_text(encoding="utf-8")) == {
+            "version": 1,
+            "next_id": 2,
+            "issues": [issue.model_dump(mode="json")],
+        }
+
     def test_create_records_create_event_in_history(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         store = _make_store(tmp_path)
         issue = _create(store, created_by="perf_eval", iteration=2)
@@ -275,6 +285,19 @@ class TestList:
         _create(store, type=IssueType.BUG)
         bugs = store.list(status="open", type="bug")
         assert len(bugs) == 1
+
+    def test_public_issue_models_do_not_mutate_board_state(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+        store = _make_store(tmp_path)
+        created = _create(store, title="original")
+        fetched = store.get(created.id)
+        listed = store.list()
+
+        created.title = "changed through create result"
+        fetched.title = "changed through get result"  # pyright: ignore[reportOptionalMemberAccess]  # tracked: #297
+        listed[0].title = "changed through list result"
+
+        assert store.get(created.id).title == "original"  # pyright: ignore[reportOptionalMemberAccess]  # tracked: #297
+        assert IssueBoard(store.path).get(created.id).title == "original"  # pyright: ignore[reportOptionalMemberAccess]  # tracked: #297
 
 
 # ---------------------------------------------------------------------------

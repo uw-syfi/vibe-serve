@@ -5,7 +5,6 @@ from unittest.mock import patch
 
 import pytest
 
-from vibesys.loops.plain.loop import PlainLoopState
 from vibesys.main import _build_plain_parser as build_parser
 from vibesys.main import main
 
@@ -132,36 +131,6 @@ class TestMain:
             assert kwargs["max_attempts_per_issue"] == 4
             assert kwargs["max_issues_per_perf_eval"] == 2
             assert kwargs["runs_dir"] == Path("/tmp/vibesys-test-runs")  # noqa: S108
-
-    def test_main_start_round_overrides_loaded_state(self, tmp_path):  # noqa: ANN001, ANN201, ARG002  # tracked: #288
-        with (
-            patch(
-                "sys.argv",
-                [
-                    *self._BASE_ARGV,
-                    "--resume",
-                    "fake-run-dir",
-                    "--start-round",
-                    "3",
-                ],
-            ),
-            self._patch_config(),
-            patch(
-                "vibesys.main._resolve_run_dir",
-                return_value="fake-run-dir",
-            ),
-            patch(
-                "vibesys.loops.plain.loop.run_plain_loop",
-                return_value=True,
-            ) as mock_run,
-        ):
-            main()
-            kwargs = mock_run.call_args.kwargs
-            assert kwargs["existing"] is True
-            state = kwargs["resume_state"]
-            assert isinstance(state, PlainLoopState)
-            assert state.round_idx == 2  # 0-indexed
-            assert state.bootstrap_done is True
 
     def test_main_forwards_agent_backend_and_cli_provider(self):  # noqa: ANN201  # tracked: #288
         with (

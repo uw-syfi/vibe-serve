@@ -1,7 +1,6 @@
 """Tests for vibesys.loops.agent — orchestrator-driven build loop."""
 
 import json
-import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import ANY, MagicMock, patch
@@ -263,6 +262,35 @@ def _invoke_orchestrate(tmp_path, ref_file, runner, **kwargs):  # noqa: ANN001, 
         return run_agent_loop(**defaults)  # pyright: ignore[reportArgumentType]  # tracked: #297
 
 
+def _created_project(tmp_path: Path) -> Path:
+    projects = [path for path in (tmp_path / "exp_env").iterdir() if path.is_dir()]
+    assert len(projects) == 1
+    project = projects[0]
+    assert (project / ".git").is_dir()
+    assert (project / ".vs" / "project.json").is_file()
+    return project
+
+
+def _run_id(project: Path) -> str:
+    run_dirs = [path for path in (project / ".vs" / "runs").iterdir() if path.is_dir()]
+    assert len(run_dirs) == 1
+    return run_dirs[0].name
+
+
+def _round_payloads(tmp_path: Path) -> list[dict[str, object]]:
+    project = _created_project(tmp_path)
+    run_id = _run_id(project)
+    rounds_dir = project / ".vs" / "runs" / run_id / "agent" / "rounds"
+    paths = sorted(rounds_dir.glob("*.json"))
+    assert paths
+    return [json.loads(path.read_text()) for path in paths]
+
+
+def _active_hypothesis_path(tmp_path: Path) -> Path:
+    project = _created_project(tmp_path)
+    return project / ".vs" / "local" / "runs" / _run_id(project) / "agent" / "active.json"
+
+
 # ---------------------------------------------------------------------------
 # Response models
 # ---------------------------------------------------------------------------
@@ -293,8 +321,7 @@ def test_project_configuration_captures_effective_agent_behavior(tmp_path: Path)
             accuracy_command="check",
             benchmark_command="benchmark",
             objective="Optimize the queue",
-            runs_dir=tmp_path / ".vs" / "local",
-            project_mode=True,
+            runs_dir=tmp_path / "projects",
             inner_loop="single-agent",
             interface="service",
             modality="messages",
@@ -424,13 +451,11 @@ def test_read_only_role_does_not_restore_clean_turn():  # noqa: ANN201  # tracke
 
 
 def test_read_only_role_preserves_allowed_roadmap_and_reverts_other_writes(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
-    experiment = tmp_path / "experiment"
-    workspace = experiment / "workspace"
+    workspace = tmp_path / "project"
     roadmap = workspace / "roadmap" / "index.md"
     roadmap.parent.mkdir(parents=True)
     roadmap.write_text("initial roadmap\n")
-    subprocess.run(["git", "init", "-q", "-b", "main"], cwd=experiment, check=True)  # noqa: S607  # tracked: #288
-    tracker = GitTracker(workspace, log=lambda _message: None)
+    tracker = GitTracker(workspace, run_id="test-run", log=lambda _message: None)
     tracker.init(existing=False)
 
     expected = OrchestratorPlan(
@@ -473,13 +498,11 @@ def test_read_only_role_preserves_allowed_roadmap_and_reverts_other_writes(tmp_p
 
 
 def test_read_only_role_preserves_allowed_directory_and_reverts_candidate_edits(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
-    experiment = tmp_path / "experiment"
-    workspace = experiment / "workspace"
+    workspace = tmp_path / "project"
     workspace.mkdir(parents=True)
     main = workspace / "main.py"
     main.write_text("accepted candidate\n")
-    subprocess.run(["git", "init", "-q", "-b", "main"], cwd=experiment, check=True)  # noqa: S607  # tracked: #288
-    tracker = GitTracker(workspace, log=lambda _message: None)
+    tracker = GitTracker(workspace, run_id="test-run", log=lambda _message: None)
     tracker.init(existing=False)
 
     expected = ProfilerSummary(analysis="done", bottlenecks="b", suggestions="s")
@@ -1669,6 +1692,27 @@ def test_loop_round_one_no_profile_runs_one_round(tmp_path, ref_file):  # noqa: 
     assert runner.counters["judge"] == 1
 
 
+def test_continuing_hypothesis_uses_canonical_local_state(tmp_path, ref_file):  # noqa: ANN001, ANN201  # tracked: #288
+    runner = _make_orchestrate_runner(
+        plans=[
+            OrchestratorPlan(
+                hypothesis_id="continue-canonical",
+                task="continue the bounded experiment",
+                pass_criteria="retain causal evidence",  # noqa: S106  # tracked: #288
+                reasoning="one more implementation step is required",
+            )
+        ],
+        implementer_outcomes=[HypothesisOutcome.CONTINUE],
+    )
+
+    assert _invoke_orchestrate(tmp_path, ref_file, runner, max_rounds=1) is True
+
+    active_path = _active_hypothesis_path(tmp_path)
+    assert active_path.is_file()
+    assert json.loads(active_path.read_text())["plan"]["hypothesis_id"] == "continue-canonical"
+    assert [round_data["round"] for round_data in _round_payloads(tmp_path)] == [1]
+
+
 def test_agent_roles_reference_framework_owned_effective_objective(tmp_path, ref_file):  # noqa: ANN001, ANN201  # tracked: #288
     effective = (
         "Optimize the service.\n\n## Operator constraints\n\n- simultaneous exact H100/BF16\n"
@@ -1691,7 +1735,10 @@ def test_agent_roles_reference_framework_owned_effective_objective(tmp_path, ref
         max_rounds=1,
     )
 
-    objective_path = next((tmp_path / "exp_env").glob("*/logs/effective-objective.md"))
+    project = _created_project(tmp_path)
+    objective_path = (
+        project / ".vs" / "runs" / _run_id(project) / "runtime" / "effective-objective.md"
+    )
     assert objective_path.read_text() == effective
     for call in runner.invoke.call_args_list:
         if call.kwargs.get("kind") not in {"orchestrator", "implementer", "judge"}:
@@ -1806,11 +1853,9 @@ def test_loop_defers_judge_until_cadence_and_always_reviews_final_round(tmp_path
     assert result is True
     assert runner.counters["impl"] == 3
     assert runner.counters["judge"] == 2  # cadence round 2 + mandatory final round 3
-    rounds_files = list((tmp_path / "exp_env").glob("*/logs/rounds.json"))
-    rounds = __import__("json").loads(rounds_files[0].read_text())
+    rounds = _round_payloads(tmp_path)
     assert [round_data["reviewed"] for round_data in rounds] == [False, True, True]
-    progress_files = list((tmp_path / "exp_env").glob("*/workspace/progress.md"))
-    assert "Independent review deferred" in progress_files[0].read_text()
+    assert "Independent review deferred" in (_created_project(tmp_path) / "progress.md").read_text()
 
 
 def test_nominated_candidate_gets_early_review(tmp_path, ref_file):  # noqa: ANN001, ANN201  # tracked: #288
@@ -1845,8 +1890,7 @@ def test_official_gates_run_on_candidate_cadence_and_final_round(tmp_path, ref_f
         _accuracy_gate_results=[None, None],
     )
 
-    rounds_file = next((tmp_path / "exp_env").glob("*/logs/rounds.json"))
-    rounds = __import__("json").loads(rounds_file.read_text())
+    rounds = _round_payloads(tmp_path)
     assert [record["official_evaluation"] for record in rounds] == [
         False,
         False,
@@ -1891,8 +1935,7 @@ def test_orchestrator_can_request_official_evaluation_before_cadence(tmp_path, r
         _accuracy_gate_results=[None, None],
     )
 
-    rounds_file = next((tmp_path / "exp_env").glob("*/logs/rounds.json"))
-    rounds = __import__("json").loads(rounds_file.read_text())
+    rounds = _round_payloads(tmp_path)
     assert [record["official_evaluation_reason"] for record in rounds] == [
         "orchestrator_request",
         "final_round",
@@ -1935,8 +1978,7 @@ def test_supported_hypothesis_is_reviewed_without_global_gates_and_closes(tmp_pa
     assert runner.counters["orch_plan"] == 2
     assert runner.counters["impl"] == 2
     assert runner.counters["judge"] == 2
-    rounds_file = next((tmp_path / "exp_env").glob("*/logs/rounds.json"))
-    rounds = __import__("json").loads(rounds_file.read_text())
+    rounds = _round_payloads(tmp_path)
     assert [round_data["hypothesis_outcome"] for round_data in rounds] == [
         "proven",
         "proven",
@@ -1977,8 +2019,7 @@ def test_cadence_pass_keeps_a_continuing_hypothesis_active(tmp_path, ref_file): 
     assert runner.counters["orch_plan"] == 1
     assert runner.counters["impl"] == 3
     assert runner.counters["judge"] == 2
-    rounds_file = next((tmp_path / "exp_env").glob("*/logs/rounds.json"))
-    rounds = __import__("json").loads(rounds_file.read_text())
+    rounds = _round_payloads(tmp_path)
     assert [round_data["hypothesis_outcome"] for round_data in rounds] == [
         "continue",
         "continue",
@@ -2013,8 +2054,7 @@ def test_implementation_failure_with_repair_keeps_hypothesis_active(tmp_path, re
 
     assert runner.counters["orch_plan"] == 1
     assert runner.counters["impl"] == 2
-    rounds_file = next((tmp_path / "exp_env").glob("*/logs/rounds.json"))
-    rounds = __import__("json").loads(rounds_file.read_text())
+    rounds = _round_payloads(tmp_path)
     assert [round_data["hypothesis_id"] for round_data in rounds] == [
         "repairable-mechanism",
         "repairable-mechanism",
@@ -2060,8 +2100,7 @@ def test_repeated_implementation_failures_return_control_to_designer(tmp_path, r
     )
 
     assert runner.counters["orch_plan"] == 2
-    rounds_file = next((tmp_path / "exp_env").glob("*/logs/rounds.json"))
-    rounds = __import__("json").loads(rounds_file.read_text())
+    rounds = _round_payloads(tmp_path)
     assert [round_data["hypothesis_id"] for round_data in rounds] == [
         "repair-lease",
         "repair-lease",
@@ -2105,8 +2144,7 @@ def test_repeated_continue_outcomes_return_control_to_designer(tmp_path, ref_fil
     )
 
     assert runner.counters["orch_plan"] == 2
-    rounds_file = next((tmp_path / "exp_env").glob("*/logs/rounds.json"))
-    rounds = __import__("json").loads(rounds_file.read_text())
+    rounds = _round_payloads(tmp_path)
     assert [round_data["hypothesis_id"] for round_data in rounds] == [
         "self-renewing-lease",
         "self-renewing-lease",
@@ -2147,8 +2185,7 @@ def test_repeated_rejected_reviews_return_control_to_designer(tmp_path, ref_file
     )
 
     assert runner.counters["orch_plan"] == 2
-    rounds_file = next((tmp_path / "exp_env").glob("*/logs/rounds.json"))
-    rounds = __import__("json").loads(rounds_file.read_text())
+    rounds = _round_payloads(tmp_path)
     assert [round_data["hypothesis_id"] for round_data in rounds] == [
         "rejected-review-lease",
         "rejected-review-lease",
@@ -2184,8 +2221,7 @@ def test_resolvable_inconclusive_result_keeps_hypothesis_active(tmp_path, ref_fi
 
     assert runner.counters["orch_plan"] == 1
     assert runner.counters["impl"] == 2
-    rounds_file = next((tmp_path / "exp_env").glob("*/logs/rounds.json"))
-    rounds = __import__("json").loads(rounds_file.read_text())
+    rounds = _round_payloads(tmp_path)
     assert [round_data["hypothesis_id"] for round_data in rounds] == [
         "variance-boundary",
         "variance-boundary",
@@ -2274,8 +2310,7 @@ def test_unreviewed_terminal_outcome_returns_control_to_designer(tmp_path, ref_f
 
     assert runner.counters["orch_plan"] == 2
     assert runner.counters["judge"] == 1  # only the replacement, on the final round
-    rounds_files = list((tmp_path / "exp_env").glob("*/logs/rounds.json"))
-    rounds = __import__("json").loads(rounds_files[0].read_text())
+    rounds = _round_payloads(tmp_path)
     assert [round_data["hypothesis_id"] for round_data in rounds] == [
         "falsified-path",
         "replacement-path",
@@ -2309,8 +2344,7 @@ def test_reviewed_disproof_skips_framework_gates(tmp_path, ref_file):  # noqa: A
         _accuracy_gate_results=[None],
     )
 
-    rounds_file = next((tmp_path / "exp_env").glob("*/logs/rounds.json"))
-    rounds = __import__("json").loads(rounds_file.read_text())
+    rounds = _round_payloads(tmp_path)
     assert rounds[0]["passed"] is True
     assert rounds[0]["reviewed"] is True
     assert rounds[0]["hypothesis_outcome"] == "disproven"
@@ -2356,8 +2390,7 @@ def test_disproven_retry_after_failed_review_returns_control_to_designer(tmp_pat
     assert runner.counters["orch_plan"] == 2
     assert runner.counters["impl"] == 3
     assert runner.counters["judge"] == 3
-    rounds_file = next((tmp_path / "exp_env").glob("*/logs/rounds.json"))
-    rounds = __import__("json").loads(rounds_file.read_text())
+    rounds = _round_payloads(tmp_path)
     assert [round_data["hypothesis_id"] for round_data in rounds] == [
         "falsified-after-review",
         "replacement-after-review",
@@ -2424,8 +2457,7 @@ def test_role_session_policy_is_explicit_and_hypothesis_scoped(tmp_path, ref_fil
     assert "do not merely restate prior work" in implementer_calls[1].kwargs["user_prompt"]
     assert all(call.kwargs["reuse_session"] is False for call in judge_calls)
 
-    rounds_files = list((tmp_path / "exp_env").glob("*/logs/rounds.json"))
-    rounds = __import__("json").loads(rounds_files[0].read_text())
+    rounds = _round_payloads(tmp_path)
     assert [round_data["hypothesis_id"] for round_data in rounds] == [
         "stable-hypothesis",
         "stable-hypothesis",
@@ -2627,8 +2659,7 @@ def test_judge_audited_implementer_metrics_are_recorded(tmp_path, ref_file):  # 
         judge_every=10,
     )
 
-    rounds_files = list((tmp_path / "exp_env").glob("*/logs/rounds.json"))
-    rounds = __import__("json").loads(rounds_files[0].read_text())
+    rounds = _round_payloads(tmp_path)
     assert rounds[0]["perf_metric"] == 321.5
     assert rounds[0]["perf_unit"] == "tok/s"
     assert rounds[0]["metrics"] == {
@@ -2698,8 +2729,7 @@ def test_framework_gate_retry_preserves_judge_approved_metrics(tmp_path, ref_fil
     )
 
     assert result is True
-    rounds_files = list((tmp_path / "exp_env").glob("*/logs/rounds.json"))
-    rounds = __import__("json").loads(rounds_files[0].read_text())
+    rounds = _round_payloads(tmp_path)
     assert rounds[0]["perf_metric"] == 321.5
     assert rounds[0]["perf_unit"] == "tok/s"
     assert rounds[0]["metrics"] == {
@@ -3187,8 +3217,8 @@ def test_detect_plateau_streak_must_be_recent():  # noqa: ANN201  # tracked: #28
     assert _detect_plateau(records) is None
 
 
-def test_loop_creates_roadmap_md_in_workspace(tmp_path, ref_file):  # noqa: ANN001, ANN201  # tracked: #288
-    """The first round of a fresh run must seed roadmap.md in the workspace."""
+def test_loop_creates_roadmap_md_in_project(tmp_path, ref_file):  # noqa: ANN001, ANN201  # tracked: #288
+    """The first round of a fresh run seeds roadmap.md at the project root."""
     runner = _make_orchestrate_runner(
         plans=[
             OrchestratorPlan(
@@ -3200,10 +3230,7 @@ def test_loop_creates_roadmap_md_in_workspace(tmp_path, ref_file):  # noqa: ANN0
     )
     result = _invoke_orchestrate(tmp_path, ref_file, runner, max_rounds=1)
     assert result is True
-    # The workspace lives under exp_env/<run-dir>/workspace/.
-    roadmap_files = list((tmp_path / "exp_env").glob("*/workspace/roadmap.md"))
-    assert len(roadmap_files) == 1
-    text = roadmap_files[0].read_text()
+    text = (_created_project(tmp_path) / "roadmap.md").read_text()
     assert "## Major" in text
 
 
@@ -3219,10 +3246,9 @@ def test_loop_can_create_scannable_directory_memory(tmp_path, ref_file):  # noqa
     )
 
     assert result is True
-    workspaces = list((tmp_path / "exp_env").glob("*/workspace"))
-    workspace = workspaces[0]
-    assert (workspace / "roadmap" / "index.md").exists()
-    round_log = workspace / "progress" / "round-0001.md"
+    project = _created_project(tmp_path)
+    assert (project / "roadmap" / "index.md").exists()
+    round_log = project / "progress" / "round-0001.md"
     assert round_log.exists()
     assert "Framework" not in round_log.read_text()  # stub skips official commands
 
@@ -3331,58 +3357,3 @@ def test_loop_threads_plateau_warning_into_prompt(tmp_path, ref_file):  # noqa: 
     assert "Plateau detected" in seen_prompts[4]
     assert "Refresh an analytical performance model" in seen_prompts[4]
     assert "unexplained residual" in seen_prompts[4]
-
-
-def test_loop_resume_with_round_number_starts_there(tmp_path, ref_file):  # noqa: ANN001, ANN201  # tracked: #288
-    """--resume 4 starts the loop at round 4 (prior rounds were committed by previous run)."""
-    # With start_round=4 and max_rounds=5 only rounds 4 and 5 execute.
-    plans = [
-        OrchestratorPlan(task="keep going", pass_criteria="tests pass", reasoning="round 4"),  # noqa: S106  # tracked: #288
-        OrchestratorPlan(task="more work", pass_criteria="tests pass", reasoning="round 5"),  # noqa: S106  # tracked: #288
-    ]
-    runner = _make_orchestrate_runner(plans=plans)
-
-    # Pre-seed an existing exp dir so the context init takes the `existing=True`
-    # branch.
-    exp_env = tmp_path / "exp_env"
-    (exp_env / "20260422-000000-test-orch").mkdir(parents=True)
-    # Minimal git setup so the context validation accepts the repo.
-    import subprocess  # noqa: PLC0415  # tracked: #288
-
-    subprocess.run(
-        ["git", "init"],  # noqa: S607  # tracked: #288
-        cwd=exp_env / "20260422-000000-test-orch",
-        capture_output=True,
-        check=True,
-    )
-    ws = exp_env / "20260422-000000-test-orch" / "workspace"
-    ws.mkdir()
-    subprocess.run(["git", "init"], cwd=ws, capture_output=True, check=True)  # noqa: S607  # tracked: #288
-    (ws / "dummy.txt").write_text("x")
-    env = {
-        "GIT_AUTHOR_NAME": "t",
-        "GIT_AUTHOR_EMAIL": "t@t",
-        "GIT_COMMITTER_NAME": "t",
-        "GIT_COMMITTER_EMAIL": "t@t",
-    }
-    subprocess.run(["git", "add", "-A"], cwd=ws, env={**env}, capture_output=True, check=True)  # noqa: S607  # tracked: #288
-    subprocess.run(
-        ["git", "commit", "-m", "seed"],  # noqa: S607  # tracked: #288
-        cwd=ws,
-        env={**env},
-        capture_output=True,
-        check=True,  # noqa: RUF100, S607  # tracked: #288
-    )
-
-    result = _invoke_orchestrate(
-        tmp_path,
-        ref_file,
-        runner,
-        exp_name="20260422-000000-test-orch",
-        existing=True,
-        start_round=4,
-        max_rounds=5,
-    )
-    assert result is True
-    # Round 4 and 5 only: 2 plan calls (one task, one done).
-    assert runner.counters["orch_plan"] == 2

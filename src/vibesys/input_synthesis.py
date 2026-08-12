@@ -23,7 +23,7 @@ from vibesys.input_manifest import MANIFEST_NAME, InputManifest
 
 #: Bundle-relative directory names used to stage trusted sources supplied by
 #: standalone flags. They live inside the synthesized bundle so the bundle is
-#: self-contained; ``load_input_bundle(..., allow_bundle_local_sources=True)``
+#: self-contained; ``load_input_bundle(...)``
 #: permits sources that resolve here.
 SEED_DIRNAME = "_seed"
 EVALUATOR_SRC_DIRNAME = "_evaluator_src"
@@ -191,7 +191,7 @@ def synthesize_input_bundle(spec: SynthesizedInputSpec, destination: Path) -> Pa
     """Materialize ``spec`` into a bundle directory at ``destination``.
 
     Returns the created bundle root. The caller loads it with
-    ``load_input_bundle(root, allow_bundle_local_sources=True)``.
+    ``load_input_bundle(root)``.
     """
     manifest = _build_manifest_dict(spec)
     try:

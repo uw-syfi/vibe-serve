@@ -21,25 +21,23 @@ issues exist.
 
 from __future__ import annotations
 
-import json
-import os
-import shutil
-from dataclasses import asdict, dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path  # noqa: TC003  # tracked: #288
 from typing import Any
 
 from vibesys.agents.progress import RoundProgress
 from vibesys.config import Config, as_config
-from vibesys.constants import DEFAULT_COMPUTE_BACKEND, ComputeBackend
+from vibesys.constants import DEFAULT_AGENT_BACKEND, DEFAULT_COMPUTE_BACKEND, ComputeBackend
 from vibesys.context import create_run_context
-from vibesys.domains.llm_serving.hooks import LLMServingEnvironmentHooks
+from vibesys.domains.base import DomainName  # noqa: TC001  # tracked: #288
+from vibesys.domains.registry import resolve_domain
 from vibesys.input_manifest import WorkspaceSource  # noqa: TC001  # tracked: #288
 from vibesys.loops.plain.render import render_all
 from vibesys.loops.plain.runner_ext import PlainLoopAgentRunner
+from vibesys.loops.plain.state import PlainStateStore
 from vibesys.profilers import ProfilerKind
 from vibesys.prompts import PROMPTS_DIR, Prompt
-from vibesys.run import LoopContext, RepositoryVisibility
+from vibesys.run import LoopContext, RepositoryVisibility, RunStateNamespace
 from vibesys.sandbox.run_environment import (
     RunEnvironmentSpec,
     make_run_environment_spec,
@@ -58,51 +56,23 @@ from vs_issue_board import (
     IssueStatus,
     IssueType,
 )
+from vs_loop_state import PlainLoopCursor, PlainPerformanceRecord
+from vs_project_state import PlainRunConfiguration
 
 _TEMPLATE_DIR = PROMPTS_DIR / "loops" / "plain"
-_STATE_VERSION = 1
+PlainLoopState = PlainLoopCursor
 
 
-# ---------------------------------------------------------------------------
-# Loop state checkpoint (state.json)
-# ---------------------------------------------------------------------------
-
-
-@dataclass
-class PlainLoopState:
-    """Serialisable cursor for the issue loop.
-
-    The store (issues.json) is the source of truth for which issues exist;
-    this state only records *where* the loop was when it last paused.
-    """
-
-    version: int = _STATE_VERSION
-    round_idx: int = 0  # 0-indexed outer round
-    phase: str = "implementer"  # "implementer" | "judge" | "perf_eval"
-    current_issue_id: int | None = None
-    bootstrap_done: bool = False
-
-
-def _save_state(log_dir: Path, state: PlainLoopState) -> None:
-    target = log_dir / "state.json"
-    tmp = log_dir / "state.json.tmp"
-    tmp.write_text(json.dumps(asdict(state), indent=2), encoding="utf-8")
-    os.replace(tmp, target)  # noqa: PTH105  # tracked: #288
-
-
-def load_state(log_dir: Path) -> PlainLoopState | None:  # noqa: D103  # tracked: #288
-    path = log_dir / "state.json"
-    if not path.is_file():
-        return None
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-        if data.get("version") != _STATE_VERSION:
-            return None
-        return PlainLoopState(
-            **{k: v for k, v in data.items() if k in PlainLoopState.__dataclass_fields__}
-        )
-    except (json.JSONDecodeError, TypeError):
-        return None
+def _checkpoint_state(
+    ctx: LoopContext,
+    store: PlainStateStore,
+    state: PlainLoopState,
+    *,
+    label: str,
+) -> None:
+    """Write and commit a recoverable plain-loop checkpoint."""
+    store.save_cursor(state)
+    ctx.state.commit(label, store.namespace)
 
 
 def _determine_resume_point(
@@ -201,65 +171,9 @@ def _update_progress_from_perf_eval(
             f.write("\n")
 
 
-def _save_perf_metrics(
-    perf_metrics_path: Path, iteration: int, response: IssuePerfEvalResponse
-) -> None:
-    existing = json.loads(perf_metrics_path.read_text(encoding="utf-8"))
-    entry = {
-        "iteration": iteration,
-        "timestamp": datetime.now().isoformat(),  # noqa: DTZ005  # tracked: #288
-        "throughput_trend": response.throughput_trend.value,
-        "latency_trend": response.latency_trend.value,
-        "metrics": response.metrics.model_dump(),
-        "new_issue_ids": response.new_issue_ids,
-    }
-    existing.append(entry)
-    perf_metrics_path.write_text(json.dumps(existing, indent=2), encoding="utf-8")
-    per_iter = perf_metrics_path.parent / f"iter-{iteration}-perf.json"
-    per_iter.write_text(json.dumps(entry, indent=2), encoding="utf-8")
-
-
-def _init_perf_metrics(log_dir: Path) -> Path:
-    perf_dir = log_dir / "perf"
-    perf_dir.mkdir(parents=True, exist_ok=True)
-    metrics_path = perf_dir / "metrics.json"
-    if not metrics_path.exists():
-        metrics_path.write_text("[]", encoding="utf-8")
-    return metrics_path
-
-
 # ---------------------------------------------------------------------------
-# Workspace sync
+# Agent-visible memory
 # ---------------------------------------------------------------------------
-
-
-def _sync_workspace_files(
-    progress_path: Path,
-    perf_metrics_path: Path,
-    issues_dir: Path,
-    workspace: Path,
-) -> None:
-    """Mirror progress.md, perf_metrics.json, and the per-issue markdown
-    directory into the agent workspace.
-
-    NOTE: progress.md and the per-issue ``issues/`` directory are mirrored
-    for HUMAN inspection only — agents do not consult them during reasoning.
-    The implementer has no tracker tools (the relevant issue is inlined
-    into its system prompt), and the judge/perf_eval read the canonical
-    store via MCP tools (CLI backend) or LangChain tools (deepagents
-    backend), both of which call ``store.reload()`` before each access.
-    perf_metrics.json IS consulted directly by the perf_eval agent template
-    so the evaluator can compare current results against the best-performing
-    historical iteration.
-
-    The canonical ``issues.json`` lives in the workspace root so the MCP
-    server, the loop's ``IssueBoard``, and a human inspecting the workspace
-    all see the same file. We do not copy it here.
-    """  # noqa: D205  # tracked: #288
-    shutil.copy2(progress_path, workspace / "progress.md")
-    shutil.copy2(perf_metrics_path, workspace / "perf_metrics.json")
-    if issues_dir.is_dir():
-        shutil.copytree(issues_dir, workspace / "issues", dirs_exist_ok=True)
 
 
 # ---------------------------------------------------------------------------
@@ -307,7 +221,7 @@ def _ensure_bootstrap_issue(
     store: IssueBoard,
     *,
     state: PlainLoopState,
-    log_dir: Path,
+    state_store: PlainStateStore,
     ctx: LoopContext,
     prompt: Prompt,
 ) -> None:
@@ -332,7 +246,12 @@ def _ensure_bootstrap_issue(
         iteration=max(state.round_idx + 1, 1),
     )
     state.bootstrap_done = True
-    _save_state(log_dir, state)
+    _checkpoint_state(
+        ctx,
+        state_store,
+        state,
+        label="plain: initialize issue board",
+    )
     ctx.lprint(f"[bootstrap] created initial issue #{issue.id}")
 
 
@@ -348,7 +267,7 @@ def run_plain_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
     accuracy_command: str,
     benchmark_command: str,
     *,
-    runs_dir: Path,
+    runs_dir: Path | None,
     workspace_seed: Path | None = None,
     workspace_sources: tuple[WorkspaceSource, ...] = (),
     evaluator_path: Path | None = None,
@@ -364,6 +283,7 @@ def run_plain_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
     agent_backend: str | None = None,
     cli_provider: str | None = None,
     backend: ComputeBackend = DEFAULT_COMPUTE_BACKEND,
+    domain: DomainName,
     remote_repo: str | None = None,
     repo_visibility: RepositoryVisibility = RepositoryVisibility.PRIVATE,
 ) -> bool:
@@ -375,10 +295,26 @@ def run_plain_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
     remaining issue is BLOCKED).
     """
     config = as_config(config)
-    # Issue loop always uses git tracking so judge test scripts and the
-    # issue tracker mirror persist across iterations.
-    git_tracking = True
+    domain_definition = resolve_domain(domain)
     run_environment = run_environment or make_run_environment_spec()
+    run_configuration = PlainRunConfiguration(
+        outer_loop="plain",
+        model=config.model.name,
+        agent_backend=agent_backend or config.agent.backend or DEFAULT_AGENT_BACKEND,
+        cli_provider=cli_provider or config.agent.cli_provider or "codex",
+        cli_timeout=config.agent.cli_timeout,
+        compute_backend=backend.value,
+        profiler=profiler_kind.value,
+        modality=None,
+        default_reasoning_effort=config.thinking.level,
+        outer_model=config.agent.outer.model,
+        outer_reasoning_effort=config.agent.outer.reasoning_effort,
+        inner_model=config.agent.inner.model,
+        inner_reasoning_effort=config.agent.inner.reasoning_effort,
+        max_rounds=max_rounds,
+        max_attempts_per_issue=max_attempts_per_issue,
+        max_issues_per_perf_eval=max_issues_per_perf_eval,
+    )
 
     with create_run_context(
         config=config,
@@ -395,35 +331,33 @@ def run_plain_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
         profiler_kind=profiler_kind,
         skills_dirs=skills_dirs,
         run_environment=run_environment,
-        git_tracking=git_tracking,
+        project_configuration=run_configuration,
         agent_backend=agent_backend,
         cli_provider=cli_provider,
         backend=backend,
-        environment_hooks=LLMServingEnvironmentHooks(),
+        environment_hooks=domain_definition.environment_hooks,
         remote_repo=remote_repo,
         repo_visibility=repo_visibility,
     ) as ctx:
         ctx.lprint(f"[log] experiment log: {ctx.run_log_path}")
-        ctx.lprint(f"[log] experiment root: {ctx.exp_dir}")
+        ctx.lprint(f"[log] project root: {ctx.project_root}")
         ctx.lprint(f"[log] model: {ctx.model_name}")
         prompt = Prompt(_TEMPLATE_DIR, ctx.backend)
-        # ---- Initialize state, store, and progress files ----
-        progress_path = _init_progress(ctx.log_dir)
-        perf_metrics_path = _init_perf_metrics(ctx.log_dir)
-        issues_dir = ctx.log_dir / "issues"
+        portable_namespace = ctx.state.portable(RunStateNamespace.PLAIN)
+        state_store = PlainStateStore(portable_namespace)
+        local_dir = ctx.state.local(RunStateNamespace.PLAIN).external_directory()
 
-        # The canonical issues.json lives inside the unified workspace so
-        # the MCP server (spawned by Claude Code with cwd=workspace) and the
-        # loop's IssueBoard both read/write the same file. A convenience
-        # symlink at log_dir/issues.json keeps the historical layout for
-        # vibesys-shell users and tooling that walks logs/.
+        progress_path = _init_progress(local_dir)
+        perf_metrics_location = portable_namespace.project_relative_path(
+            "perf/metrics.json"
+        ).as_posix()
+        issues_dir = local_dir / "issues"
+
+        # The issue board is deliberately agent-visible project memory. CLI
+        # tracker tools run inside the candidate sandbox, where framework state
+        # below .vs is read-only. The framework cursor and performance history
+        # remain committed below the run's portable .vs namespace.
         store_path = ctx.workspace / "issues.json"
-        log_link = ctx.log_dir / "issues.json"
-        if not log_link.exists() and not log_link.is_symlink():
-            try:  # noqa: SIM105  # tracked: #288
-                log_link.symlink_to(os.path.relpath(store_path, ctx.log_dir))
-            except OSError:
-                pass  # symlink is convenience-only
 
         # Wire the per-issue markdown renderer as a store on_change hook
         # so every successful save (including tool-created issues from
@@ -434,9 +368,8 @@ def run_plain_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
             store_path,
             on_change=lambda: render_all(issues_dir, store),
         )
-        # Initial render covers the case where no mutation happens before
-        # the first _sync_workspace_files call (e.g. on resume with no
-        # bootstrap and no immediate work).
+        # Render immediately so local diagnostics are complete even if the
+        # resumed run performs no issue-board mutation.
         render_all(issues_dir, store)
 
         # Wrap the runner so judge/perf_eval invokes auto-receive issue
@@ -452,11 +385,12 @@ def run_plain_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
             max_issues_per_perf_eval=max_issues_per_perf_eval,
         )
 
-        state = resume_state if resume_state is not None else PlainLoopState()
+        persisted_state = state_store.load_cursor()
+        state = persisted_state or resume_state or PlainLoopState()
         _ensure_bootstrap_issue(
             store,
             state=state,
-            log_dir=ctx.log_dir,
+            state_store=state_store,
             ctx=ctx,
             prompt=prompt,
         )
@@ -466,7 +400,7 @@ def run_plain_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
         # bailed out because every remaining issue was blocked; without
         # this reset the resumed run would simply bail out again on the
         # first drain pass.
-        if resume_state is not None:
+        if existing or persisted_state is not None or resume_state is not None:
             reopened = store.reopen_blocked(
                 actor="loop:resume",
                 iteration=max(state.round_idx + 1, 1),
@@ -483,7 +417,7 @@ def run_plain_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
         i, next_phase, pending_issue_id = _determine_resume_point(state, store)
         end_iteration = i + max_rounds
 
-        if resume_state is not None:
+        if existing or persisted_state is not None or resume_state is not None:
             ctx.lprint(
                 f"Resuming at round {i + 1} phase '{next_phase}'"
                 + (f" issue #{pending_issue_id}" if pending_issue_id else "")
@@ -538,16 +472,16 @@ def run_plain_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
 
                     # ----- Implementer phase -----
                     if next_phase != "judge":
-                        state.round_idx = i
-                        state.phase = "implementer"
-                        state.current_issue_id = issue.id
-                        _save_state(ctx.log_dir, state)
-
-                        _sync_workspace_files(
-                            progress_path,
-                            perf_metrics_path,
-                            issues_dir,
-                            ctx.workspace,
+                        state = state.transition(
+                            round_idx=i,
+                            phase="implementer",
+                            current_issue_id=issue.id,
+                        )
+                        _checkpoint_state(
+                            ctx,
+                            state_store,
+                            state,
+                            label=f"plain: begin implementer for issue {issue.id}",
                         )
                         ctx.reselect_gpu()
 
@@ -606,16 +540,16 @@ def run_plain_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
                     next_phase = ""
 
                     # ----- Judge phase -----
-                    state.round_idx = i
-                    state.phase = "judge"
-                    state.current_issue_id = issue.id
-                    _save_state(ctx.log_dir, state)
-
-                    _sync_workspace_files(
-                        progress_path,
-                        perf_metrics_path,
-                        issues_dir,
-                        ctx.workspace,
+                    state = state.transition(
+                        round_idx=i,
+                        phase="judge",
+                        current_issue_id=issue.id,
+                    )
+                    _checkpoint_state(
+                        ctx,
+                        state_store,
+                        state,
+                        label=f"plain: begin judge for issue {issue.id}",
                     )
                     ctx.reselect_gpu()
 
@@ -688,9 +622,17 @@ def run_plain_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
                             payload=judge_response.model_dump(mode="json"),
                         )
 
-                    state.current_issue_id = None
-                    state.phase = "implementer"
-                    _save_state(ctx.log_dir, state)
+                    state = state.transition(
+                        round_idx=i,
+                        phase="implementer",
+                        current_issue_id=None,
+                    )
+                    _checkpoint_state(
+                        ctx,
+                        state_store,
+                        state,
+                        label=f"plain: record judge result for issue {issue.id}",
+                    )
                     # Loop back to drain the next open issue.
 
                 # ---------------------------------------------------------------
@@ -706,30 +648,37 @@ def run_plain_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
                         f"[stop] all remaining issues are blocked "
                         f"({len(remaining)} blocked); bailing out."
                     )
-                    state.round_idx = i
-                    state.phase = "perf_eval"
-                    state.current_issue_id = None
-                    _save_state(ctx.log_dir, state)
+                    state = state.transition(
+                        round_idx=i,
+                        phase="perf_eval",
+                        current_issue_id=None,
+                    )
+                    _checkpoint_state(
+                        ctx,
+                        state_store,
+                        state,
+                        label="plain: record blocked issue queue",
+                    )
                     return False
 
-                state.round_idx = i
-                state.phase = "perf_eval"
-                state.current_issue_id = None
-                _save_state(ctx.log_dir, state)
-
-                _sync_workspace_files(
-                    progress_path,
-                    perf_metrics_path,
-                    issues_dir,
-                    ctx.workspace,
+                state = state.transition(
+                    round_idx=i,
+                    phase="perf_eval",
+                    current_issue_id=None,
+                )
+                _checkpoint_state(
+                    ctx,
+                    state_store,
+                    state,
+                    label=f"plain: begin performance evaluation {iter_label}",
                 )
                 ctx.reselect_gpu()
 
                 perf_system_prompt = prompt.render(
                     "perf_eval/system.j2",
                     load_levels=load_levels,
-                    progress_path="progress.md",
-                    perf_metrics_path="perf_metrics.json",
+                    progress_path=None,
+                    perf_metrics_path=perf_metrics_location,
                     issue_create_cap=max_issues_per_perf_eval,
                     benchmark_command=ctx.judge_benchmark_command,
                     runtime_notes=ctx.run_environment_view.prompt_notes,
@@ -763,8 +712,23 @@ def run_plain_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
                 render_all(issues_dir, store)
 
                 _update_progress_from_perf_eval(progress_path, iter_label, perf_response)
-                _save_perf_metrics(perf_metrics_path, iter_label, perf_response)
+                state_store.append_performance(
+                    PlainPerformanceRecord(
+                        iteration=iter_label,
+                        timestamp=datetime.now(UTC),
+                        throughput_trend=perf_response.throughput_trend.value,
+                        latency_trend=perf_response.latency_trend.value,
+                        metrics=perf_response.metrics.model_dump(mode="json"),
+                        new_issue_ids=tuple(perf_response.new_issue_ids),
+                    )
+                )
                 ctx.snapshot_workspace(f"iter-{iter_label}-perf_eval")
+                _checkpoint_state(
+                    ctx,
+                    state_store,
+                    state,
+                    label=f"plain: record performance evaluation {iter_label}",
+                )
                 ctx.lprint(
                     f"\n>>> Perf trend: throughput={perf_response.throughput_trend.value.upper()}, "
                     f"latency={perf_response.latency_trend.value.upper()}"
@@ -774,16 +738,31 @@ def run_plain_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
                 still_open = store.list(status=IssueStatus.OPEN)
                 if not still_open and not perf_response.new_issue_ids:
                     ctx.lprint("[done] no open issues and perf_eval filed none.")
-                    state.round_idx = i + 1
-                    state.phase = "implementer"
-                    _save_state(ctx.log_dir, state)
+                    state = state.transition(
+                        round_idx=i + 1,
+                        phase="implementer",
+                        current_issue_id=None,
+                    )
+                    _checkpoint_state(
+                        ctx,
+                        state_store,
+                        state,
+                        label=f"plain: complete performance evaluation {iter_label}",
+                    )
                     return True
 
                 i += 1
-                state.round_idx = i
-                state.phase = "implementer"
-                state.current_issue_id = None
-                _save_state(ctx.log_dir, state)
+                state = state.transition(
+                    round_idx=i,
+                    phase="implementer",
+                    current_issue_id=None,
+                )
+                _checkpoint_state(
+                    ctx,
+                    state_store,
+                    state,
+                    label=f"plain: complete round {iter_label}",
+                )
 
         ctx.lprint("Run completed — round budget exhausted.")
         return False

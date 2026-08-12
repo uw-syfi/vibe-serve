@@ -7,7 +7,8 @@ export it from `./queue-candidate.so`.
 
 The shared seed at `examples/starters/queue-rs` provides an editable
 `src/lib.rs` with an intentionally naive Rust candidate using one mutex and
-`VecDeque`. Build and validate it from a materialized workspace:
+`VecDeque`. After VibeSys provisions a copied project, build and validate it
+from that project root:
 
     make
     go -C _evaluator/queue run . check --workspace "$PWD" --scenario mpsc

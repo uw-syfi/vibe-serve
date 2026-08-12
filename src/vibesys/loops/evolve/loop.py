@@ -40,8 +40,8 @@ from typing import Any, cast
 from jinja2 import Environment, FileSystemLoader
 
 from vibesys.agents.progress import CandidateProgress
-from vibesys.config import Config  # noqa: TC001  # tracked: #288
-from vibesys.constants import DEFAULT_COMPUTE_BACKEND, ComputeBackend
+from vibesys.config import Config, as_config
+from vibesys.constants import DEFAULT_AGENT_BACKEND, DEFAULT_COMPUTE_BACKEND, ComputeBackend
 from vibesys.context import create_candidate_context, create_run_context
 from vibesys.domains.base import DomainDefinition, DomainName, DomainRole
 from vibesys.domains.registry import resolve_domain
@@ -60,16 +60,18 @@ from vibesys.loops.evolve.search_policy import (
     SearchSelection,
     VibeSysSearchPolicy,
 )
+from vibesys.loops.evolve.state import EvolutionStateStore
 from vibesys.loops.gates import run_accuracy_gate
 from vibesys.loops.profiler import invoke_profiler
 from vibesys.profilers import ProfilerKind, profiler_definition
 from vibesys.prompts import PROMPTS_DIR
-from vibesys.run import LoopContext, RepositoryVisibility
+from vibesys.run import LoopContext, RepositoryVisibility, RunStateNamespace
 from vibesys.sandbox.run_environment import (
     RunEnvironmentSpec,
     make_run_environment_spec,
 )
 from vibesys.schemas import JudgeResponse, MutatorResponse, ProfilerSummary, Verdict
+from vs_project_state import EvolveRunConfiguration
 
 _TEMPLATE_DIR = PROMPTS_DIR / "loops" / "evolve"
 _AGENT_TEMPLATE_DIR = PROMPTS_DIR / "loops" / "agent"
@@ -88,6 +90,25 @@ _jinja_env = Environment(  # noqa: S701  # tracked: #288
 
 def _render(name: str, **kwargs: object) -> str:
     return _jinja_env.get_template(name).render(**kwargs)
+
+
+def _persist_evolve_state(
+    ctx: LoopContext, state_store: EvolutionStateStore, *, label: str
+) -> None:
+    """Commit the exact durable evolutionary-search state tree."""
+    ctx.state.commit(label, state_store.namespace)
+
+
+def _materialize_selected_candidate(ctx: LoopContext, individual: Individual) -> None:
+    """Make one deterministic selected candidate the run branch's final tree."""
+    if not individual.commit:
+        raise RuntimeError(f"selected individual {individual.id} has no Git commit")  # noqa: TRY003  # tracked: #288
+    ctx.git.retain_candidate(f"selected-{individual.id}", individual.commit)
+    if not ctx.git.checkout_tree(individual.commit, clean=True):
+        raise RuntimeError(  # noqa: TRY003  # tracked: #288
+            f"could not materialize selected individual {individual.id} at {individual.commit}"
+        )
+    ctx.snapshot_workspace(f"evolve: select individual {individual.id}")
 
 
 def _domain_render_context(
@@ -116,8 +137,8 @@ def _domain_render_context(
 def _discard_working_tree(ctx: LoopContext) -> None:
     """Drop any uncommitted changes left by a failed mutation attempt."""
     try:
-        ctx.git.run(["git", "checkout", "HEAD", "--", "."], check=False)
-        ctx.git.run(["git", "clean", "-fd"], check=False)
+        if not ctx.git.checkout_tree("HEAD", clean=True):
+            ctx.lprint("[warn] discard working tree failed")
     except Exception as exc:  # noqa: BLE001  # tracked: #288
         ctx.lprint(f"[warn] discard working tree failed: {exc}")
 
@@ -144,7 +165,7 @@ def _candidate_code(ctx: LoopContext, commit: str) -> str:
             commit,
             "--",
             ".",
-            ":(exclude)logs/**",
+            ":(exclude).vs/**",
         ]
     ).stdout.decode(errors="replace")
 
@@ -597,7 +618,7 @@ def _evaluate_candidate(  # noqa: PLR0913  # tracked: #288
 def _record_outcome(  # noqa: PLR0913  # tracked: #288
     ctx: LoopContext,
     population: Population,
-    population_path: Path,
+    state_store: EvolutionStateStore,
     outcome: _CandidateOutcome,
     *,
     generation: int,
@@ -625,8 +646,10 @@ def _record_outcome(  # noqa: PLR0913  # tracked: #288
         policy_parent_id=outcome.policy_parent_id,
         policy_target_island=outcome.target_island,
     )
+    if individual.commit:
+        ctx.git.retain_candidate(f"individual-{individual.id}", individual.commit)
     population.add(individual)
-    population.save(population_path)
+    state_store.save_population(population)
     if outcome.passed:
         if individual.commit:
             search_policy.record(
@@ -658,6 +681,7 @@ def _record_outcome(  # noqa: PLR0913  # tracked: #288
 def _plan_candidate(  # noqa: PLR0913  # tracked: #288
     ctx: LoopContext,
     population: Population,
+    state_store: EvolutionStateStore,
     rng: random.Random,
     *,
     k_top_inspirations: int,
@@ -687,6 +711,11 @@ def _plan_candidate(  # noqa: PLR0913  # tracked: #288
         objectives=objectives,
         frontier_bias=frontier_bias,
     )
+    _persist_evolve_state(
+        ctx,
+        state_store,
+        label="evolve: record search selection",
+    )
     if selection is None:
         ctx.lprint("[warn] no passing parent available; skipping candidate")
     return selection
@@ -699,7 +728,7 @@ def _run_generation_serial(  # noqa: PLR0913  # tracked: #288
     max_generations: int,
     children_per_generation: int,
     population: Population,
-    population_path: Path,
+    state_store: EvolutionStateStore,
     rng: random.Random,
     k_top_inspirations: int,
     k_random_inspirations: int,
@@ -724,6 +753,7 @@ def _run_generation_serial(  # noqa: PLR0913  # tracked: #288
             plan = _plan_candidate(
                 ctx,
                 population,
+                state_store,
                 rng,
                 k_top_inspirations=k_top_inspirations,
                 k_random_inspirations=k_random_inspirations,
@@ -759,10 +789,10 @@ def _run_generation_serial(  # noqa: PLR0913  # tracked: #288
                 target_island=plan.target_island,
                 accuracy_timeout_seconds=accuracy_timeout_seconds,
             )
-            _record_outcome(
+            individual = _record_outcome(
                 ctx,
                 population,
-                population_path,
+                state_store,
                 outcome,
                 generation=generation,
                 search_policy=search_policy,
@@ -772,6 +802,11 @@ def _run_generation_serial(  # noqa: PLR0913  # tracked: #288
                 # Dead-end mutation: revert the dirty tree back to the passing
                 # parent for the next candidate.
                 _discard_working_tree(ctx)
+            _persist_evolve_state(
+                ctx,
+                state_store,
+                label=f"evolve: record individual {individual.id}",
+            )
 
 
 def _evaluate_in_subcontext(  # noqa: PLR0913  # tracked: #288
@@ -836,7 +871,7 @@ def _evaluate_in_subcontext(  # noqa: PLR0913  # tracked: #288
             feedback=str(exc),
         )
     try:
-        return _evaluate_candidate(
+        outcome = _evaluate_candidate(
             subctx,
             generation=generation,
             child_idx=child_idx,
@@ -853,6 +888,11 @@ def _evaluate_in_subcontext(  # noqa: PLR0913  # tracked: #288
             isolated_deployment=True,
             accuracy_timeout_seconds=accuracy_timeout_seconds,
         )
+        if outcome.commit:
+            # Subcontext teardown removes the linked worktree. Retain its
+            # detached commit first so durable population state cannot name an
+            # object that Git is then free to prune.
+            parent_ctx.git.retain_candidate(label, outcome.commit)
     except Exception as exc:  # noqa: BLE001  # tracked: #288
         parent_ctx.lprint(f"[warn] candidate {label} evaluation raised: {exc}")
         return _CandidateOutcome(
@@ -862,6 +902,8 @@ def _evaluate_in_subcontext(  # noqa: PLR0913  # tracked: #288
             summary="candidate evaluation raised",
             feedback=str(exc),
         )
+    else:
+        return outcome
     finally:
         try:
             subctx.close()
@@ -879,7 +921,7 @@ def _run_generation_parallel(  # noqa: PLR0913  # tracked: #288
     generation: int,
     children_per_generation: int,
     population: Population,
-    population_path: Path,
+    state_store: EvolutionStateStore,
     rng: random.Random,
     k_top_inspirations: int,
     k_random_inspirations: int,
@@ -908,6 +950,7 @@ def _run_generation_parallel(  # noqa: PLR0913  # tracked: #288
         plan = _plan_candidate(
             parent_ctx,
             population,
+            state_store,
             rng,
             k_top_inspirations=k_top_inspirations,
             k_random_inspirations=k_random_inspirations,
@@ -967,14 +1010,19 @@ def _run_generation_parallel(  # noqa: PLR0913  # tracked: #288
 
     # Record serially, in child order, on this (single) thread.
     for child_idx in sorted(outcomes):
-        _record_outcome(
+        individual = _record_outcome(
             parent_ctx,
             population,
-            population_path,
+            state_store,
             outcomes[child_idx],
             generation=generation,
             search_policy=search_policy,
             objectives=objectives,
+        )
+        _persist_evolve_state(
+            parent_ctx,
+            state_store,
+            label=f"evolve: record individual {individual.id}",
         )
 
 
@@ -994,7 +1042,7 @@ def _bootstrap_seed(  # noqa: PLR0913, PLR0915  # tracked: #288
     max_attempts: int,
     rng: random.Random,  # noqa: ARG001  # tracked: #288
     population: Population,
-    population_path: Path,
+    state_store: EvolutionStateStore,
     search_policy: SearchPolicy,
     keep_deployments: bool = False,
     accuracy_timeout_seconds: int | None = None,
@@ -1115,7 +1163,12 @@ def _bootstrap_seed(  # noqa: PLR0913, PLR0915  # tracked: #288
                     feedback=failure_feedback,
                 )
                 population.add(failed)
-                population.save(population_path)
+                state_store.save_population(population)
+                _persist_evolve_state(
+                    ctx,
+                    state_store,
+                    label=f"evolve: record failed bootstrap {attempt}",
+                )
                 ctx.lprint(
                     f"[bootstrap {attempt}] FAILED — feedback: "
                     f"{failure_feedback.splitlines()[0][:120] if failure_feedback else ''}"
@@ -1150,7 +1203,7 @@ def _bootstrap_seed(  # noqa: PLR0913, PLR0915  # tracked: #288
                 feedback=verdict.feedback,
             )
             population.add(seed)
-            population.save(population_path)
+            state_store.save_population(population)
             if commit:
                 search_policy.record(
                     seed,
@@ -1159,6 +1212,12 @@ def _bootstrap_seed(  # noqa: PLR0913, PLR0915  # tracked: #288
                     target_island=None,
                     objectives=objectives,
                 )
+                ctx.git.retain_candidate(f"individual-{seed.id}", commit)
+            _persist_evolve_state(
+                ctx,
+                state_store,
+                label=f"evolve: record bootstrap seed {seed.id}",
+            )
             ctx.lprint(
                 f"[bootstrap {attempt}] PASSED — seed #{seed.id} "
                 f"perf={seed.perf_metric} {seed.perf_unit or ''} "
@@ -1180,13 +1239,14 @@ def _bootstrap_seed(  # noqa: PLR0913, PLR0915  # tracked: #288
 def _initialize_search_policy(  # noqa: PLR0913  # tracked: #288
     ctx: LoopContext,
     population: Population,
+    state_store: EvolutionStateStore,
     *,
     requested: SearchPolicyName | str | None,
     seed: int | None,
     config: OpenEvolveSearchConfig | None,
     objectives: list[Objective] | None,
 ) -> tuple[SearchPolicyName, SearchPolicy]:
-    state_dir = ctx.log_dir / "openevolve"
+    state_dir = state_store.namespace.external_directory("openevolve")
     if requested is None:
         policy_name = (
             SearchPolicyName.OPENEVOLVE
@@ -1230,7 +1290,7 @@ def run_evolve_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
     benchmark_command: str,
     objective: str,
     *,
-    runs_dir: Path,
+    runs_dir: Path | None,
     workspace_seed: Path | None = None,
     workspace_sources: tuple[WorkspaceSource, ...] = (),
     evaluator_path: Path | None = None,
@@ -1285,8 +1345,52 @@ def run_evolve_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
     if modality is None and domain_definition.name is DomainName.LLM_SERVING:
         modality = "text_generation"
     run_environment = run_environment or make_run_environment_spec()
+    normalized_config = as_config(config)
+    selected_policy = SearchPolicyName(search_policy).value if search_policy is not None else None
+    run_configuration = EvolveRunConfiguration(
+        outer_loop="evolve",
+        model=normalized_config.model.name,
+        agent_backend=(agent_backend or normalized_config.agent.backend or DEFAULT_AGENT_BACKEND),
+        cli_provider=cli_provider or normalized_config.agent.cli_provider or "codex",
+        cli_timeout=normalized_config.agent.cli_timeout,
+        compute_backend=backend.value,
+        profiler=profiler_kind.value,
+        modality=modality,
+        default_reasoning_effort=normalized_config.thinking.level,
+        outer_model=normalized_config.agent.outer.model,
+        outer_reasoning_effort=normalized_config.agent.outer.reasoning_effort,
+        inner_model=normalized_config.agent.inner.model,
+        inner_reasoning_effort=normalized_config.agent.inner.reasoning_effort,
+        max_generations=max_generations,
+        children_per_generation=children_per_generation,
+        k_top_inspirations=k_top_inspirations,
+        k_random_inspirations=k_random_inspirations,
+        selection_temperature=selection_temperature,
+        seed=seed,
+        search_policy=selected_policy,
+        openevolve_population_size=(
+            openevolve_config.population_size if openevolve_config is not None else None
+        ),
+        openevolve_archive_size=(
+            openevolve_config.archive_size if openevolve_config is not None else None
+        ),
+        openevolve_num_islands=(
+            openevolve_config.num_islands if openevolve_config is not None else None
+        ),
+        openevolve_migration_interval=(
+            openevolve_config.migration_interval if openevolve_config is not None else None
+        ),
+        openevolve_migration_rate=(
+            openevolve_config.migration_rate if openevolve_config is not None else None
+        ),
+        frontier_bias=frontier_bias,
+        bootstrap_max_attempts=bootstrap_max_attempts,
+        keep_deployments=keep_deployments,
+        max_parallelism=max_parallelism,
+        objectives=tuple(f"{item.name}:{item.direction}" for item in (objectives or [])),
+    )
     ctx = create_run_context(
-        config=config,
+        config=normalized_config,
         exp_name=exp_name,
         runs_dir=runs_dir,
         input_path=input_path,
@@ -1301,7 +1405,7 @@ def run_evolve_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
         profiler_domain=domain_definition.name,
         skills_dirs=skills_dirs,
         run_environment=run_environment,
-        git_tracking=True,
+        project_configuration=run_configuration,
         agent_backend=agent_backend,
         cli_provider=cli_provider,
         backend=backend,
@@ -1310,7 +1414,7 @@ def run_evolve_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
         repo_visibility=repo_visibility,
     )
     ctx.lprint(f"[log] evolutionary run: {ctx.run_log_path}")
-    ctx.lprint(f"[log] experiment root: {ctx.exp_dir}")
+    ctx.lprint(f"[log] project root: {ctx.project_root}")
     ctx.lprint(f"[log] objective: {objective.splitlines()[0] if objective else '(empty)'}")
     if objectives:
         spec = ", ".join(f"{o.name}({o.direction})" for o in objectives)
@@ -1318,16 +1422,25 @@ def run_evolve_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
     else:
         ctx.lprint("[log] single-objective mode (no Pareto frontier)")
 
-    population_path = ctx.log_dir / "population.json"
+    state_store = EvolutionStateStore(ctx.state.portable(RunStateNamespace.EVOLVE))
     try:
-        population = Population.load(population_path)
+        population = state_store.load_population()
+        # Materialize an empty population too, so a newly initialized run has
+        # one complete, inspectable persistence contract from the start.
+        state_store.save_population(population)
         policy_name, policy = _initialize_search_policy(
             ctx,
             population,
+            state_store,
             requested=search_policy,
             seed=seed,
             config=openevolve_config,
             objectives=objectives,
+        )
+        _persist_evolve_state(
+            ctx,
+            state_store,
+            label="evolve: initialize search state",
         )
     except KeyboardInterrupt:
         ctx.lprint("[evolutionary] interrupted during search-policy initialization.")
@@ -1356,7 +1469,7 @@ def run_evolve_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
                 max_attempts=bootstrap_max_attempts,
                 rng=rng,
                 population=population,
-                population_path=population_path,
+                state_store=state_store,
                 search_policy=policy,
                 keep_deployments=keep_deployments,
                 accuracy_timeout_seconds=accuracy_timeout_seconds,
@@ -1400,7 +1513,7 @@ def run_evolve_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
                     generation=generation,
                     children_per_generation=children_per_generation,
                     population=population,
-                    population_path=population_path,
+                    state_store=state_store,
                     rng=rng,
                     k_top_inspirations=k_top_inspirations,
                     k_random_inspirations=k_random_inspirations,
@@ -1422,7 +1535,7 @@ def run_evolve_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
                     max_generations=max_generations,
                     children_per_generation=children_per_generation,
                     population=population,
-                    population_path=population_path,
+                    state_store=state_store,
                     rng=rng,
                     k_top_inspirations=k_top_inspirations,
                     k_random_inspirations=k_random_inspirations,
@@ -1439,6 +1552,11 @@ def run_evolve_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
                 )
 
             policy.finish_generation(generation)
+            _persist_evolve_state(
+                ctx,
+                state_store,
+                label=f"evolve: complete generation {generation}",
+            )
 
         if objectives:
             front = population.frontier(objectives)
@@ -1459,7 +1577,12 @@ def run_evolve_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
                 ctx.lprint("\nFrontier is empty (no individual reported all objective metrics).")
 
         best = population.best()
+        if best is None and population.passed:
+            # A profiler-disabled run has no scalar fitness. Prefer the latest
+            # passing individual, matching the search-policy fallback.
+            best = max(population.passed, key=lambda individual: individual.id)
         if best is not None:
+            _materialize_selected_candidate(ctx, best)
             ctx.lprint(
                 f"\nFinal scalar-best: individual #{best.id} "
                 f"perf={best.perf_metric} {best.perf_unit or ''} "

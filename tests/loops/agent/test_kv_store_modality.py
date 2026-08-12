@@ -17,7 +17,7 @@ def test_kv_store_is_a_registered_modality():  # noqa: ANN201  # tracked: #288
 
 
 def test_kv_store_input_bundle_loads():  # noqa: ANN201  # tracked: #288
-    bundle = load_input_bundle(_PROJECT_ROOT / "examples" / "kv-store", project_root=_PROJECT_ROOT)
+    bundle = load_input_bundle(_PROJECT_ROOT / "examples" / "kv-store")
     assert bundle.domain.value == "generic"
     assert bundle.benchmark_result is not None
     assert bundle.benchmark_result.metric == "throughput_ops_per_sec"

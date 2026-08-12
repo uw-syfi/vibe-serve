@@ -2,20 +2,29 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime, timedelta
+from pathlib import PurePosixPath
 from typing import TYPE_CHECKING
 from uuid import UUID
 
 import pytest
-from pydantic import ValidationError
+from pydantic import BaseModel, ConfigDict, TypeAdapter, ValidationError
 
 from vs_loop_state import RoundRecord, parse_round_record, serialize_round_record
 from vs_project_state import (
     PROJECT_SCHEMA_VERSION,
+    AgentRunConfiguration,
+    EvolveRunConfiguration,
+    PlainRunConfiguration,
     ProjectManifest,
     ProjectStateError,
     ProjectStore,
     RunConfiguration,
     RunManifest,
+    StateDocument,
+    StateFile,
+    StateModelNotFoundError,
+    StateSnapshot,
+    StateTransition,
     generate_run_id,
     serialize_round,
 )
@@ -25,10 +34,18 @@ if TYPE_CHECKING:
 
 NOW = datetime(2026, 8, 11, 12, 34, 56, tzinfo=UTC)
 UNIQUE = UUID("12345678-1234-5678-1234-567812345678")
+RUN_CONFIGURATION_ADAPTER = TypeAdapter(RunConfiguration)
 
 
-def _configuration() -> RunConfiguration:
-    return RunConfiguration(
+class _Cursor(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+
+    round: int
+    phase: str
+
+
+def _configuration() -> AgentRunConfiguration:
+    return AgentRunConfiguration(
         model="gpt-5",
         outer_loop="agent",
         inner_loop="multi-agent",
@@ -50,6 +67,51 @@ def _configuration() -> RunConfiguration:
         inner_model="gpt-5.6-luna",
         inner_reasoning_effort="medium",
         operator_constraints=("Do not change the ABI",),
+    )
+
+
+def _plain_configuration() -> PlainRunConfiguration:
+    return PlainRunConfiguration(
+        model="gpt-5",
+        outer_loop="plain",
+        agent_backend="cli",
+        cli_provider="codex",
+        cli_timeout=1800,
+        compute_backend="cpu",
+        profiler="none",
+        max_rounds=5,
+        max_attempts_per_issue=3,
+        max_issues_per_perf_eval=3,
+    )
+
+
+def _evolve_configuration() -> EvolveRunConfiguration:
+    return EvolveRunConfiguration(
+        model="gpt-5",
+        outer_loop="evolve",
+        agent_backend="cli",
+        cli_provider="codex",
+        cli_timeout=1800,
+        compute_backend="cpu",
+        profiler="none",
+        modality="text_generation",
+        max_generations=8,
+        children_per_generation=2,
+        k_top_inspirations=2,
+        k_random_inspirations=2,
+        selection_temperature=0.5,
+        seed=17,
+        search_policy="openevolve",
+        openevolve_population_size=100,
+        openevolve_archive_size=20,
+        openevolve_num_islands=5,
+        openevolve_migration_interval=50,
+        openevolve_migration_rate=0.1,
+        frontier_bias=0.7,
+        bootstrap_max_attempts=5,
+        keep_deployments=False,
+        max_parallelism=1,
+        objectives=("throughput:max", "memory:min"),
     )
 
 
@@ -121,7 +183,7 @@ def test_run_configuration_rejects_secret_and_machine_local_fields() -> None:
     raw["environment"] = {"TOKEN": "not persisted"}
 
     with pytest.raises(ValidationError, match="environment"):
-        RunConfiguration.model_validate(raw)
+        RUN_CONFIGURATION_ADAPTER.validate_python(raw, strict=True)
 
 
 @pytest.mark.parametrize(
@@ -143,7 +205,7 @@ def test_run_configuration_strictly_validates_positive_counts(
     raw[field] = value
 
     with pytest.raises(ValidationError, match=field):
-        RunConfiguration.model_validate(raw)
+        RUN_CONFIGURATION_ADAPTER.validate_python(raw, strict=True)
 
 
 @pytest.mark.parametrize("field", ["inner_loop", "interface", "max_retries_per_round"])
@@ -152,7 +214,7 @@ def test_run_configuration_requires_core_agent_loop_behavior(field: str) -> None
     del raw[field]
 
     with pytest.raises(ValidationError, match=field):
-        RunConfiguration.model_validate(raw)
+        RUN_CONFIGURATION_ADAPTER.validate_python(raw, strict=True)
 
 
 def test_run_configuration_allows_optional_behavior_overrides_to_be_absent() -> None:
@@ -171,7 +233,7 @@ def test_run_configuration_allows_optional_behavior_overrides_to_be_absent() -> 
     ):
         raw[field] = None
 
-    configuration = RunConfiguration.model_validate(raw)
+    configuration = RUN_CONFIGURATION_ADAPTER.validate_python(raw, strict=True)
 
     assert configuration.cli_timeout is None
     assert configuration.modality is None
@@ -184,6 +246,82 @@ def test_run_configuration_is_frozen() -> None:
 
     with pytest.raises(ValidationError, match="frozen"):
         configuration.inner_loop = "single-agent"
+
+
+@pytest.mark.parametrize(
+    ("configuration", "expected_type"),
+    [
+        (_configuration(), AgentRunConfiguration),
+        (_plain_configuration(), PlainRunConfiguration),
+        (_evolve_configuration(), EvolveRunConfiguration),
+    ],
+)
+def test_run_configuration_discriminates_outer_loop(
+    configuration: RunConfiguration,
+    expected_type: type[RunConfiguration],
+) -> None:
+    parsed = RUN_CONFIGURATION_ADAPTER.validate_python(
+        configuration.model_dump(),
+        strict=True,
+    )
+
+    assert type(parsed) is expected_type
+    with pytest.raises(ValidationError, match="frozen"):
+        parsed.agent_backend = "stub"
+
+
+@pytest.mark.parametrize("outer_loop", [None, "unknown"])
+def test_run_configuration_requires_known_outer_loop(outer_loop: str | None) -> None:
+    raw = _configuration().model_dump()
+    if outer_loop is None:
+        del raw["outer_loop"]
+    else:
+        raw["outer_loop"] = outer_loop
+
+    with pytest.raises(ValidationError, match="outer_loop"):
+        RUN_CONFIGURATION_ADAPTER.validate_python(raw, strict=True)
+
+
+def test_run_configuration_rejects_fields_from_another_loop() -> None:
+    raw = _plain_configuration().model_dump()
+    raw["inner_loop"] = "multi-agent"
+
+    with pytest.raises(ValidationError, match="inner_loop"):
+        RUN_CONFIGURATION_ADAPTER.validate_python(raw, strict=True)
+
+
+@pytest.mark.parametrize(
+    ("configuration", "field", "value"),
+    [
+        (_plain_configuration(), "max_attempts_per_issue", 0),
+        (_plain_configuration(), "max_issues_per_perf_eval", "3"),
+        (_evolve_configuration(), "max_generations", 0),
+        (_evolve_configuration(), "k_top_inspirations", -1),
+        (_evolve_configuration(), "selection_temperature", 0.0),
+        (_evolve_configuration(), "selection_temperature", float("inf")),
+        (_evolve_configuration(), "openevolve_migration_rate", 1.1),
+        (_evolve_configuration(), "frontier_bias", -0.1),
+        (_evolve_configuration(), "max_parallelism", 0),
+    ],
+)
+def test_loop_specific_configuration_constraints(
+    configuration: RunConfiguration,
+    field: str,
+    value: object,
+) -> None:
+    raw = configuration.model_dump()
+    raw[field] = value
+
+    with pytest.raises(ValidationError, match=field):
+        RUN_CONFIGURATION_ADAPTER.validate_python(raw, strict=True)
+
+
+def test_evolve_configuration_rejects_openevolve_settings_for_vibesys_policy() -> None:
+    raw = _evolve_configuration().model_dump()
+    raw["search_policy"] = "vibesys"
+
+    with pytest.raises(ValidationError, match="OpenEvolve settings"):
+        RUN_CONFIGURATION_ADAPTER.validate_python(raw, strict=True)
 
 
 def test_create_project_writes_portable_committed_manifest(tmp_path: Path) -> None:
@@ -304,10 +442,22 @@ def test_run_manifest_and_local_state_use_separate_trees(tmp_path: Path) -> None
     assert store.logs_dir(manifest.run_id) == (
         tmp_path / ".vs" / "local" / "runs" / manifest.run_id / "logs"
     )
-    assert store.active_state_path(manifest.run_id) == (
-        tmp_path / ".vs" / "local" / "runs" / manifest.run_id / "active.json"
+    assert store.rounds_dir(manifest.run_id) == (
+        tmp_path / ".vs" / "runs" / manifest.run_id / "agent" / "rounds"
+    )
+    assert store.local_namespace(manifest.run_id, "agent").project_relative_path(
+        "active.json"
+    ) == PurePosixPath(f".vs/local/runs/{manifest.run_id}/agent/active.json")
+    assert store.round_transaction_path(manifest.run_id) == (
+        tmp_path / ".vs" / "local" / "runs" / manifest.run_id / "round-transaction.json"
+    )
+    assert store.worktrees_dir(manifest.run_id) == (
+        tmp_path / ".vs" / "local" / "runs" / manifest.run_id / "worktrees"
     )
     assert store.logs_dir(manifest.run_id).is_dir()
+    assert not (tmp_path / ".vs" / "runs" / manifest.run_id / "agent").exists()
+    assert not (tmp_path / ".vs" / "local" / "runs" / manifest.run_id / "agent").exists()
+    assert not store.worktrees_dir(manifest.run_id).exists()
     committed = store.run_manifest_path(manifest.run_id).read_text(encoding="utf-8")
     assert str(tmp_path) not in committed
     assert "token" not in committed
@@ -343,6 +493,37 @@ def test_run_manifest_persists_complete_agent_loop_behavior(tmp_path: Path) -> N
         "outer_reasoning_effort": "xhigh",
         "profiler": "linux-cpu",
     }
+
+
+@pytest.mark.parametrize(
+    ("configuration", "expected_type"),
+    [
+        (_configuration(), AgentRunConfiguration),
+        (_plain_configuration(), PlainRunConfiguration),
+        (_evolve_configuration(), EvolveRunConfiguration),
+    ],
+)
+def test_run_manifest_round_trips_each_outer_loop_configuration(
+    tmp_path: Path,
+    configuration: RunConfiguration,
+    expected_type: type[RunConfiguration],
+) -> None:
+    store = _store(tmp_path)
+    manifest = store.new_run_manifest(
+        "queue",
+        branch="vibesys/queue",
+        vibesys_version="0.2.0",
+        configuration=configuration,
+        trusted_input_baseline="a" * 40,
+        now=NOW,
+        unique=UNIQUE,
+    )
+
+    store.create_run(manifest)
+    loaded = store.load_run(manifest.run_id)
+
+    assert type(loaded.configuration) is expected_type
+    assert loaded.configuration == configuration
 
 
 @pytest.mark.parametrize("object_id", ["a" * 40, "b" * 64])
@@ -395,6 +576,16 @@ def test_update_run_configuration_preserves_manifest_identity(tmp_path: Path) ->
     assert path == store.run_manifest_path(manifest.run_id)
     assert updated.configuration == updated_configuration
     assert updated.model_copy(update={"configuration": manifest.configuration}) == manifest
+
+
+def test_update_run_configuration_rejects_outer_loop_change(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    manifest = _run(store)
+
+    with pytest.raises(ProjectStateError, match="uses outer loop 'agent', not 'plain'"):
+        store.update_run_configuration(manifest.run_id, _plain_configuration())
+
+    assert store.load_run(manifest.run_id) == manifest
 
 
 def test_new_run_manifest_accepts_a_preallocated_safe_run_id(tmp_path: Path) -> None:
@@ -488,6 +679,465 @@ def test_containment_rejects_symlinked_run_directory(tmp_path: Path) -> None:
         store.run_manifest_path("escaped")
 
 
+def test_containment_rejects_in_tree_symlinked_run_directory(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    runs_dir = tmp_path / ".vs" / "runs"
+    target = runs_dir / "target"
+    target.mkdir(parents=True)
+    (runs_dir / "alias").symlink_to(target, target_is_directory=True)
+
+    with pytest.raises(ProjectStateError, match="must not be a symlink"):
+        store.run_manifest_path("alias")
+
+
+@pytest.mark.parametrize(
+    "namespace",
+    ["", ".", "..", "../agent", "/agent", "agent/state", "agent\\state", "Agent"],
+)
+def test_state_namespace_validation_prevents_path_escape(
+    tmp_path: Path,
+    namespace: str,
+) -> None:
+    store = _store(tmp_path)
+    run = _run(store)
+
+    with pytest.raises(ProjectStateError, match="Invalid VibeSys state namespace"):
+        store.portable_namespace(run.run_id, namespace)
+    with pytest.raises(ProjectStateError, match="Invalid VibeSys state namespace"):
+        store.local_namespace(run.run_id, namespace)
+
+
+@pytest.mark.parametrize("local", [False, True])
+def test_state_namespace_rejects_symlink_aliases(tmp_path: Path, *, local: bool) -> None:
+    store = _store(tmp_path)
+    run = _run(store)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    parent = (
+        tmp_path / ".vs" / "local" / "runs" / run.run_id
+        if local
+        else tmp_path / ".vs" / "runs" / run.run_id
+    )
+    parent.mkdir(parents=True, exist_ok=True)
+    (parent / "unsafe").symlink_to(outside, target_is_directory=True)
+
+    state_namespace = store.local_namespace if local else store.portable_namespace
+    with pytest.raises(ProjectStateError, match=r"(?:escapes|must not be a symlink)"):
+        state_namespace(run.run_id, "unsafe")
+
+
+def test_state_namespace_rejects_in_tree_symlink_alias(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    run = _run(store)
+    parent = tmp_path / ".vs" / "runs" / run.run_id
+    target = parent / "target"
+    target.mkdir()
+    (parent / "alias").symlink_to(target, target_is_directory=True)
+
+    with pytest.raises(ProjectStateError, match="must not be a symlink"):
+        store.portable_namespace(run.run_id, "alias")
+
+
+def test_state_namespace_rejects_existing_file(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    run = _run(store)
+
+    with pytest.raises(ProjectStateError, match="is not a directory"):
+        store.portable_namespace(run.run_id, "run.json")
+
+
+def test_worktrees_directory_rejects_symlink_alias(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    run = _run(store)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    worktrees = tmp_path / ".vs" / "local" / "runs" / run.run_id / "worktrees"
+    worktrees.symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(ProjectStateError, match=r"(?:escapes|must not be a symlink)"):
+        store.worktrees_dir(run.run_id)
+
+
+def test_completed_round_directory_rejects_symlink_alias(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    run = _run(store)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    agent_dir = tmp_path / ".vs" / "runs" / run.run_id / "agent"
+    agent_dir.mkdir()
+    (agent_dir / "rounds").symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(ProjectStateError, match=r"(?:escapes|must not be a symlink)"):
+        store.save_round(
+            run.run_id,
+            RoundRecord(1, "a" * 40, 10.0, "ops/s", True),  # noqa: FBT003
+        )
+
+    assert list(outside.iterdir()) == []
+
+
+def test_state_namespace_round_trips_strict_models_atomically(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    run = _run(store)
+    namespace = store.portable_namespace(run.run_id, "plain")
+    cursor = _Cursor(round=3, phase="judge")
+
+    namespace.save("cursor.json", cursor)
+
+    assert namespace.load("cursor.json", _Cursor) == cursor
+    assert namespace.load_optional("cursor.json", _Cursor) == cursor
+    raw_path = namespace.external_directory() / "cursor.json"
+    assert json.loads(raw_path.read_text(encoding="utf-8")) == {
+        "phase": "judge",
+        "round": 3,
+    }
+    assert not list(raw_path.parent.glob("*.tmp"))
+
+
+def test_state_namespace_prepares_and_applies_exact_typed_transition(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    run = _run(store)
+    namespace = store.local_namespace(run.run_id, "agent")
+    cursor = _Cursor(round=3, phase="judge")
+
+    transition = namespace.transition("active.json", cursor)
+
+    expected_path = PurePosixPath(f".vs/local/runs/{run.run_id}/agent/active.json")
+    assert transition.project_relative_path == expected_path
+    assert transition.next_document == StateDocument(
+        project_relative_path=expected_path,
+        contents=b'{\n  "phase": "judge",\n  "round": 3\n}\n',
+    )
+    assert namespace.load_optional("active.json", _Cursor) is None
+
+    namespace.apply(transition)
+
+    assert namespace.load("active.json", _Cursor) == cursor
+
+    deletion = namespace.transition("active.json", None)
+    assert deletion == StateTransition(
+        project_relative_path=expected_path,
+        next_document=None,
+    )
+    namespace.apply(deletion)
+    assert namespace.load_optional("active.json", _Cursor) is None
+
+
+def test_state_namespace_rejects_transition_for_another_namespace(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    run = _run(store)
+    agent = store.local_namespace(run.run_id, "agent")
+    plain = store.local_namespace(run.run_id, "plain")
+    transition = plain.transition("cursor.json", _Cursor(round=1, phase="judge"))
+
+    with pytest.raises(ProjectStateError, match="outside this namespace"):
+        agent.apply(transition)
+
+    assert plain.load_optional("cursor.json", _Cursor) is None
+
+
+def test_typed_state_slot_rejects_schema_invalid_reconstructed_document(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path)
+    run = _run(store)
+    slot = store.local_namespace(run.run_id, "plain").slot("cursor.json", _Cursor)
+    path = slot.project_relative_path
+    transition = StateTransition(
+        project_relative_path=path,
+        next_document=StateDocument(
+            project_relative_path=path,
+            contents=b'{"round":1,"unexpected":true}',
+        ),
+    )
+
+    with pytest.raises(ProjectStateError, match="typed slot schema"):
+        slot.apply(transition)
+
+    assert slot.load_optional() is None
+
+
+def test_state_document_and_transition_validate_external_construction() -> None:
+    path = PurePosixPath(".vs/local/runs/run-1/agent/active.json")
+
+    with pytest.raises(ValueError, match="JSON object"):
+        StateDocument(project_relative_path=path, contents=b"not-json")
+    with pytest.raises(TypeError, match="JSON object"):
+        StateDocument(project_relative_path=path, contents=b"[]")
+    with pytest.raises(ValueError, match="match its target"):
+        StateTransition(
+            project_relative_path=path,
+            next_document=StateDocument(
+                project_relative_path=PurePosixPath(".vs/local/runs/run-1/agent/other.json"),
+                contents=b"{}",
+            ),
+        )
+
+
+def test_state_namespace_distinguishes_missing_from_corrupt_optional_state(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    run = _run(store)
+    namespace = store.portable_namespace(run.run_id, "plain")
+
+    assert namespace.load_optional("cursor.json", _Cursor) is None
+    with pytest.raises(StateModelNotFoundError, match=r"state model does not exist.*cursor\.json"):
+        namespace.load("cursor.json", _Cursor)
+
+    path = namespace.external_directory() / "cursor.json"
+    path.write_text("{not-json", encoding="utf-8")
+
+    with pytest.raises(ProjectStateError, match=r"Invalid VibeSys state model.*cursor\.json"):
+        namespace.load_optional("cursor.json", _Cursor)
+
+
+def test_state_namespace_rejects_unknown_model_fields(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    run = _run(store)
+    namespace = store.portable_namespace(run.run_id, "plain")
+    path = namespace.external_directory() / "cursor.json"
+    path.write_text(
+        json.dumps({"round": 1, "phase": "judge", "surprise": True}),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        ProjectStateError,
+        match=r"Invalid VibeSys state model.*cursor\.json.*surprise",
+    ):
+        namespace.load("cursor.json", _Cursor)
+
+
+@pytest.mark.parametrize(
+    "relative_path",
+    [
+        "",
+        ".",
+        "../cursor.json",
+        "/cursor.json",
+        "nested/../cursor.json",
+        "a//b.json",
+        "a\\b.json",
+    ],
+)
+def test_state_namespace_rejects_unsafe_relative_paths(
+    tmp_path: Path,
+    relative_path: str,
+) -> None:
+    store = _store(tmp_path)
+    run = _run(store)
+    namespace = store.portable_namespace(run.run_id, "plain")
+
+    with pytest.raises(ProjectStateError, match=r"safe portable|non-empty portable"):
+        namespace.save(relative_path, _Cursor(round=1, phase="judge"))
+
+
+def test_state_namespace_rejects_symlinks_below_namespace(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    run = _run(store)
+    namespace = store.portable_namespace(run.run_id, "plain")
+    root = namespace.external_directory()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (root / "nested").symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(ProjectStateError, match="must not contain symlinks"):
+        namespace.snapshot()
+    with pytest.raises(ProjectStateError, match=r"(?:escapes|must not be a symlink)"):
+        namespace.save("nested/cursor.json", _Cursor(round=1, phase="judge"))
+
+    assert list(outside.iterdir()) == []
+
+
+def test_state_namespace_revalidates_its_root_before_every_operation(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    run = _run(store)
+    namespace = store.portable_namespace(run.run_id, "plain")
+    root = tmp_path / ".vs" / "runs" / run.run_id / "plain"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    root.symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(ProjectStateError, match=r"(?:escapes|must not be a symlink)"):
+        namespace.snapshot()
+
+
+def test_state_namespace_delete_reports_presence_and_rejects_directories(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    run = _run(store)
+    namespace = store.local_namespace(run.run_id, "agent")
+    namespace.save("active.json", _Cursor(round=1, phase="implementer"))
+
+    assert namespace.delete("active.json") is True
+    assert namespace.delete("active.json") is False
+    namespace.external_directory("nested")
+    with pytest.raises(ProjectStateError, match="not a file"):
+        namespace.delete("nested")
+
+
+def test_portable_state_snapshot_is_deterministic_and_namespace_relative(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    run = _run(store)
+    namespace = store.portable_namespace(run.run_id, "evolve")
+    namespace.save("z.json", _Cursor(round=2, phase="profile"))
+    namespace.save("nested/a.json", _Cursor(round=1, phase="judge"))
+
+    root = namespace.external_directory()
+    expected = StateSnapshot(
+        namespace_root=PurePosixPath(f".vs/runs/{run.run_id}/evolve"),
+        files=(
+            StateFile(
+                relative_path=PurePosixPath("nested/a.json"),
+                contents=(root / "nested/a.json").read_bytes(),
+            ),
+            StateFile(
+                relative_path=PurePosixPath("z.json"),
+                contents=(root / "z.json").read_bytes(),
+            ),
+        ),
+    )
+
+    assert namespace.snapshot() == expected
+    assert namespace.snapshot() == namespace.snapshot()
+
+
+def test_empty_portable_namespace_has_an_empty_snapshot(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    run = _run(store)
+
+    snapshot = store.portable_namespace(run.run_id, "runtime").snapshot()
+
+    assert snapshot.namespace_root == PurePosixPath(f".vs/runs/{run.run_id}/runtime")
+    assert snapshot.files == ()
+
+
+def test_initialization_snapshot_contains_only_selected_run_metadata(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    first = _run(store)
+    second = _run(store, minute=1)
+
+    snapshot = store.initialization_snapshot(first.run_id)
+
+    assert snapshot.namespace_root == PurePosixPath(".vs")
+    assert tuple(file.relative_path for file in snapshot.files) == (
+        PurePosixPath(".gitignore"),
+        PurePosixPath("project.json"),
+        PurePosixPath(f"runs/{first.run_id}/run.json"),
+    )
+    assert PurePosixPath(f"runs/{second.run_id}/run.json") not in {
+        file.relative_path for file in snapshot.files
+    }
+    assert snapshot.files[0].contents == store.metadata_gitignore_path.read_bytes()
+    assert snapshot.files[1].contents == store.project_manifest_path.read_bytes()
+    assert snapshot.files[2].contents == store.run_manifest_path(first.run_id).read_bytes()
+
+
+def test_run_manifest_snapshot_is_rooted_at_the_selected_run(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    run = _run(store)
+
+    snapshot = store.run_manifest_snapshot(run.run_id)
+
+    assert snapshot == StateSnapshot(
+        namespace_root=PurePosixPath(f".vs/runs/{run.run_id}"),
+        files=(
+            StateFile(
+                relative_path=PurePosixPath("run.json"),
+                contents=store.run_manifest_path(run.run_id).read_bytes(),
+            ),
+        ),
+    )
+
+
+def test_completed_round_snapshot_contains_one_canonical_round(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    run = _run(store)
+    first = RoundRecord(1, "a" * 40, 10.0, "ops/s", True)  # noqa: FBT003
+    second = RoundRecord(2, "b" * 40, 20.0, "ops/s", True)  # noqa: FBT003
+    store.save_round(run.run_id, first)
+    second_path = store.save_round(run.run_id, second)
+
+    snapshot = store.completed_round_snapshot(run.run_id, 2)
+
+    assert snapshot == StateSnapshot(
+        namespace_root=PurePosixPath(f".vs/runs/{run.run_id}/agent"),
+        files=(
+            StateFile(
+                relative_path=PurePosixPath("rounds/0002.json"),
+                contents=second_path.read_bytes(),
+            ),
+        ),
+    )
+    assert snapshot.files[0].contents == serialize_round(second)
+
+
+@pytest.mark.parametrize("round_number", [0, 1, 2])
+def test_completed_round_snapshot_rejects_missing_or_invalid_round(
+    tmp_path: Path,
+    round_number: int,
+) -> None:
+    store = _store(tmp_path)
+    run = _run(store)
+
+    with pytest.raises(ProjectStateError, match=r"positive|does not exist"):
+        store.completed_round_snapshot(run.run_id, round_number)
+
+
+def test_metadata_snapshot_rejects_symlinked_files(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    run = _run(store)
+    outside = tmp_path / "outside"
+    outside.write_text("local\n", encoding="utf-8")
+    store.metadata_gitignore_path.unlink()
+    store.metadata_gitignore_path.symlink_to(outside)
+
+    with pytest.raises(ProjectStateError, match=r"(?:escapes|must not be a symlink)"):
+        store.initialization_snapshot(run.run_id)
+
+
+@pytest.mark.parametrize(
+    "root",
+    [
+        PurePosixPath("elsewhere"),
+        PurePosixPath(".vs/local"),
+        PurePosixPath(".vs/runs"),
+        PurePosixPath(".vs/runs/Uppercase"),
+        PurePosixPath(".vs/runs/run-1/Uppercase"),
+    ],
+)
+def test_state_snapshot_rejects_unsafe_or_local_roots(root: PurePosixPath) -> None:
+    with pytest.raises(ValueError, match=r"portable state snapshot|invalid"):
+        StateSnapshot(namespace_root=root, files=())
+
+
+@pytest.mark.parametrize(
+    "relative_path",
+    [PurePosixPath("../secret"), PurePosixPath("/absolute"), PurePosixPath(".")],
+)
+def test_state_file_rejects_unsafe_relative_paths(relative_path: PurePosixPath) -> None:
+    with pytest.raises(ValueError, match="portable relative path"):
+        StateFile(relative_path=relative_path, contents=b"secret")
+
+
+def test_state_snapshot_rejects_local_file_below_metadata_root() -> None:
+    local_file = StateFile(
+        relative_path=PurePosixPath("local/runs/run-1/state.json"),
+        contents=b"{}",
+    )
+
+    with pytest.raises(ValueError, match=r"must not contain \.vs/local"):
+        StateSnapshot(namespace_root=PurePosixPath(".vs"), files=(local_file,))
+
+
+def test_machine_local_state_namespace_cannot_be_snapshotted(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    run = _run(store)
+    namespace = store.local_namespace(run.run_id, "agent")
+    namespace.save("active.json", _Cursor(round=1, phase="implementer"))
+
+    with pytest.raises(ProjectStateError, match=r"Machine-local.*cannot be snapshotted"):
+        namespace.snapshot()
+
+
 def test_round_record_serializer_is_public_and_round_trips() -> None:
     record = RoundRecord(
         round_number=7,
@@ -572,7 +1222,7 @@ def test_loaded_rounds_must_form_contiguous_sequence(tmp_path: Path) -> None:
     store = _store(tmp_path)
     run = _run(store)
     directory = store.rounds_dir(run.run_id)
-    directory.mkdir()
+    directory.mkdir(parents=True)
     for round_number in (1, 3):
         record = RoundRecord(
             round_number,
@@ -636,7 +1286,7 @@ def test_loaded_round_rejects_machine_local_artifact_path(tmp_path: Path) -> Non
     store = _store(tmp_path)
     run = _run(store)
     path = store.rounds_dir(run.run_id) / "0001.json"
-    path.parent.mkdir()
+    path.parent.mkdir(parents=True)
     record = RoundRecord(
         1,
         "a" * 40,
@@ -658,7 +1308,7 @@ def test_loaded_round_rejects_non_finite_metrics(tmp_path: Path) -> None:
     store = _store(tmp_path)
     run = _run(store)
     path = store.rounds_dir(run.run_id) / "0001.json"
-    path.parent.mkdir()
+    path.parent.mkdir(parents=True)
     record = RoundRecord(1, "a" * 40, float("nan"), "ops/s", True)  # noqa: FBT003
     path.write_text(json.dumps(serialize_round_record(record)), encoding="utf-8")
 
@@ -680,7 +1330,7 @@ def test_unknown_round_field_is_rejected_with_its_path(tmp_path: Path) -> None:
     store = _store(tmp_path)
     run = _run(store)
     path = store.rounds_dir(run.run_id) / "0001.json"
-    path.parent.mkdir()
+    path.parent.mkdir(parents=True)
     path.write_text(
         json.dumps(
             {

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 from pathlib import Path
 
 PACKAGE_SOURCE_ROOTS = (
@@ -29,6 +30,21 @@ _BUILD_AND_CACHE_DIRECTORIES = frozenset(
 def release_has_native_payload() -> bool:
     """Return whether setuptools is building a target-specific release wheel."""
     return os.environ.get("VIBESYS_WHEEL_TARGET") is not None
+
+
+def clear_distribution_build_outputs(build_lib: Path, packages: list[str]) -> None:
+    """Remove stale build-tree copies of packages owned by this distribution."""
+    top_level_packages = {package.partition(".")[0] for package in packages}
+    if any(not package.isidentifier() for package in top_level_packages):
+        raise ValueError(  # noqa: TRY003  # tracked: #288
+            "distribution package names must be Python identifiers"
+        )
+    for package in top_level_packages:
+        destination = build_lib / package
+        if destination.is_symlink() or destination.is_file():
+            destination.unlink()
+        elif destination.is_dir():
+            shutil.rmtree(destination)
 
 
 def discover_distribution_packages(repo_root: Path) -> tuple[list[str], dict[str, str]]:

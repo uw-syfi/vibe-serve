@@ -1,8 +1,7 @@
-"""Population state: individuals, selection, and JSON persistence.
+"""In-memory evolutionary population and selection behavior.
 
-This module is pure logic — no agent invocations, no filesystem IO beyond
-loading / saving the population JSON. Keeping it free of vibesys runtime
-imports lets the unit tests run without a GPU or sandbox.
+This module is pure logic with no agent invocations or filesystem I/O. The
+loop-owned state adapter converts populations to strict persisted contracts.
 
 ## Single-objective vs multi-objective modes
 
@@ -28,12 +27,10 @@ layer.
 
 from __future__ import annotations
 
-import json
 import math
 import random  # noqa: TC003  # tracked: #288
-from dataclasses import asdict, dataclass, field
-from pathlib import Path  # noqa: TC003  # tracked: #288
-from typing import Any
+from dataclasses import dataclass, field
+from typing import Literal
 
 # ---------------------------------------------------------------------------
 # Objective spec + dominance
@@ -51,7 +48,7 @@ class Objective:
     """
 
     name: str
-    direction: str  # "max" or "min"
+    direction: Literal["max", "min"]
 
     def __post_init__(self) -> None:  # noqa: D105  # tracked: #288
         if self.direction not in ("max", "min"):
@@ -137,27 +134,6 @@ class Individual:
         _require_finite_metric(self.perf_metric, "perf_metric")
         for name, value in self.metrics.items():
             _require_finite_metric(value, f"metrics[{name!r}]")
-
-    def to_json(self) -> dict[str, Any]:  # noqa: D102  # tracked: #288
-        return asdict(self)
-
-    @classmethod
-    def from_json(cls, data: dict[str, Any]) -> Individual:  # noqa: D102  # tracked: #288
-        return cls(
-            id=int(data["id"]),
-            generation=int(data["generation"]),
-            parent_id=data.get("parent_id"),
-            inspiration_ids=list(data.get("inspiration_ids") or []),
-            commit=data.get("commit"),
-            perf_metric=data.get("perf_metric"),
-            perf_unit=data.get("perf_unit"),
-            metrics=dict(data.get("metrics") or {}),
-            passed=bool(data.get("passed", False)),
-            summary=data.get("summary", ""),
-            feedback=data.get("feedback", ""),
-            policy_parent_id=data.get("policy_parent_id"),
-            policy_target_island=data.get("policy_target_island"),
-        )
 
 
 # ---------------------------------------------------------------------------
@@ -359,23 +335,6 @@ class Population:
         rest = [i for i in pool if i.id not in top_ids]
         rnd = rng.sample(rest, k=min(k_random, len(rest))) if rest else []
         return top + rnd
-
-    # -- persistence ---------------------------------------------------------
-
-    def save(self, path: Path) -> None:  # noqa: D102  # tracked: #288
-        for individual in self._individuals:
-            individual.validate_fitness()
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(
-            json.dumps([i.to_json() for i in self._individuals], indent=2, allow_nan=False)
-        )
-
-    @classmethod
-    def load(cls, path: Path) -> Population:  # noqa: D102  # tracked: #288
-        if not path.exists():
-            return cls()
-        data = json.loads(path.read_text())
-        return cls([Individual.from_json(d) for d in data])
 
 
 def _require_finite_metric(value: float | None, field_name: str) -> None:

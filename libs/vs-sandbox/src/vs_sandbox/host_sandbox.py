@@ -4,8 +4,8 @@ VibeSys launches coding-agent CLIs (codex, claude, ...) with the provider's own
 approval/sandbox bypass flags (``--dangerously-bypass-approvals-and-sandbox``,
 ``--dangerously-skip-permissions``) so they can run autonomously. On the host
 execution path that leaves the spawned agent process able to read and write
-anywhere the VibeSys user can, so a misbehaving agent can step outside its
-``exp_env/<run>/workspace`` and reach sibling runs, unrelated repositories, or
+anywhere the VibeSys user can, so a misbehaving agent can step outside the
+canonical project root and reach sibling projects, unrelated repositories, or
 host secrets. Prompt-only containment is not a security boundary (issue #149).
 
 This module wraps the agent command in an OS confinement layer that exposes only:
@@ -14,10 +14,10 @@ This module wraps the agent command in an OS confinement layer that exposes only
   runtimes needed to launch,
 * resources supplied as typed :class:`~vs_sandbox.host_resources.HostResource`
   declarations (agent state, toolchains, model caches, MCP server code),
-* read-write access to the run workspace and a private ``/tmp``.
+* read-write access to the canonical project root and a private ``/tmp``.
 
-Everything else — including the workspace's *parent* and sibling runs — is
-denied, so absolute-path traversal outside the workspace fails. Network is left
+Everything else, including the project's *parent* and sibling projects, is
+denied, so absolute-path traversal outside the project fails. Network is left
 open so the agent can still reach its model provider.
 
 Two host backends implement the same ``wrap(argv) -> argv`` contract, selected
@@ -95,7 +95,7 @@ _SYSTEM_READ_ROOTS: tuple[str, ...] = (
 
 # Read-only system roots the macOS dynamic linker and command-line tools need to
 # launch anything at all. Kept deliberately broad on the *system* side (dyld,
-# frameworks, config) while the workspace's parent and sibling runs stay denied
+# frameworks, config) while the project's parent and siblings stay denied
 # by ``(deny default)``.
 _MACOS_SYSTEM_READ_ROOTS: tuple[str, ...] = (
     "/usr",
@@ -121,11 +121,11 @@ def _is_disabled(env: dict[str, str]) -> bool:
 
 @dataclass(frozen=True)
 class WorkspaceSandbox(ABC):
-    """A host confinement policy for a single run workspace.
+    """A host confinement policy for a single canonical project.
 
-    Both OS backends are built by :func:`build` from the same inputs — the
-    workspace plus the read/write allowlists computed from resource declarations
-    — and expose the same ``wrap(argv) -> argv`` contract consumed at the process
+    Both OS backends are built by :func:`build` from the same inputs: the
+    project plus the read/write allowlists computed from resource declarations.
+    They expose the same ``wrap(argv) -> argv`` contract consumed at the process
     launch chokepoint. Subclasses differ only
     in the OS mechanism they emit: :class:`HostSandbox` a bubblewrap namespace,
     :class:`SeatbeltSandbox` a ``sandbox-exec`` profile.
@@ -143,7 +143,7 @@ class WorkspaceSandbox(ABC):
 
 @dataclass(frozen=True)
 class HostSandbox(WorkspaceSandbox):
-    """A bubblewrap confinement policy for a single run workspace."""
+    """A bubblewrap confinement policy for a single canonical project."""
 
     bwrap_path: str = field(kw_only=True)
     system_read_roots: tuple[str, ...] = _SYSTEM_READ_ROOTS
@@ -191,7 +191,7 @@ class HostSandbox(WorkspaceSandbox):
             cmd += ["--dev-bind-try", str(node), str(node)]
         for path in self.write_paths:
             cmd += ["--bind-try", str(path), str(path)]
-        # The workspace bind wins over imported host resources. Nested project
+        # The project bind wins over imported host resources. Nested project
         # restrictions are then overlaid in increasing strength: read-only
         # paths first, hidden masks last.
         cmd += ["--bind", ws, ws]
@@ -236,22 +236,21 @@ def _sbpl_string(value: str) -> str:
 
 @dataclass(frozen=True)
 class SeatbeltSandbox(WorkspaceSandbox):
-    """A macOS Seatbelt (``sandbox-exec``) confinement policy for a workspace.
+    """A macOS Seatbelt (``sandbox-exec``) policy for a canonical project.
 
     macOS confinement follows the model that Codex's own Seatbelt sandbox uses,
     because it is the one that reliably launches Apple-Silicon toolchains:
     **reads are allowed broadly** (a ``(deny default)`` read policy makes dyld
     and code-signing abort every dynamically linked binary), while **writes are
-    denied by default** and permitted only on the workspace, the agent's config
-    dirs, and ``/tmp``. On top of that, the workspace's run-container tree — the
-    directory that holds sibling runs — is explicitly denied for both read and
-    write, with the workspace itself carved back out. That blocks the concrete
-    escape from issue #149 (discovering/using a sibling run) and all writes
-    outside the workspace.
+    denied by default** and permitted only on the project, the agent's config
+    dirs, and ``/tmp``. On top of that, the project's nearest ancestor trees are
+    explicitly denied for both read and write, with the project itself carved
+    back out. That blocks the concrete escape from issue #149 (discovering or
+    using a sibling project) and all writes outside the project.
 
     This is a weaker guarantee than the Linux bubblewrap backend, which hides the
-    entire host outside the workspace: on macOS, reads of unrelated host files
-    outside the run-container tree are still permitted. Use ``--docker`` on macOS
+    entire host outside the project: on macOS, reads of unrelated host files
+    outside the denied ancestor trees are still permitted. Use ``--docker`` on macOS
     if full read-confinement is required.
     """
 
@@ -259,11 +258,10 @@ class SeatbeltSandbox(WorkspaceSandbox):
     system_read_roots: tuple[str, ...] = _MACOS_SYSTEM_READ_ROOTS
 
     def blind_roots(self) -> list[Path]:
-        """Ancestor dirs of the workspace to deny (read+write) to hide siblings.
+        """Project ancestor directories to deny for sibling isolation.
 
-        Returns the workspace's parent and grandparent (the run and run-container
-        dirs in the ``exp_env/<run>/workspace`` layout), skipping the filesystem
-        root and any system location so the deny can never blind the toolchain.
+        Returns the project's parent and grandparent, skipping the filesystem
+        root and system locations so the deny can never blind the toolchain.
         """
         roots: list[Path] = []
         for anc in list(self.workspace.parents)[:2]:
@@ -302,7 +300,7 @@ class SeatbeltSandbox(WorkspaceSandbox):
             "(allow file-read*)",
         ]
 
-        # Writes are denied by default; permit them only on the workspace, the
+        # Writes are denied by default; permit them only on the project, the
         # agent's own config/auth dirs, scratch tmp, and device nodes (a process
         # must be able to write /dev/null, /dev/stdout, /dev/tty, ...).
         write_roots = [str(self.workspace)] + [str(p) for p in self.write_paths]
@@ -311,9 +309,9 @@ class SeatbeltSandbox(WorkspaceSandbox):
         lines += [f"    (subpath {_sbpl_string(w)})" for w in write_roots]
         lines.append(")")
 
-        # Blind the sibling-run area: deny read+write on the run-container tree,
-        # then carve the workspace back out. The most-specific (last) matching
-        # rule wins in SBPL, so workspace access survives the deny.
+        # Blind nearby sibling projects by denying the project's ancestor
+        # trees, then carve the project back out. The most-specific (last)
+        # matching rule wins in SBPL, so project access survives the deny.
         blind = self.blind_roots()
         if blind:
             lines.append("(deny file-read* file-write*")
@@ -321,7 +319,7 @@ class SeatbeltSandbox(WorkspaceSandbox):
             lines.append(")")
             lines.append(f"(allow file-read* file-write* (subpath {ws}))")
 
-        # Project restrictions come after every workspace allow. Hidden paths
+        # Project restrictions come after every project allow. Hidden paths
         # deny both visibility and mutation; read-only paths deny mutation.
         for path in project_paths.read_only_paths:
             lines.append(

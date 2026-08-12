@@ -1,38 +1,17 @@
-"""Tests for manifest-declared workspace seeds and evaluator sources."""
+"""Contracts for manifest-declared project seeds and external sources."""
 
 from __future__ import annotations
 
-import subprocess
-from contextlib import contextmanager
-from pathlib import Path  # noqa: TC003  # tracked: #288
-from unittest.mock import MagicMock, patch
+from typing import TYPE_CHECKING
+from unittest.mock import MagicMock
 
 import pytest
 
-from vibesys.constants import DEFAULT_COMPUTE_BACKEND
-from vibesys.context import _RunContext, create_run_context
-from vibesys.domains.base import DomainName
-from vibesys.domains.environment import NoopEnvironmentHooks
-from vibesys.errors import ConfigurationError
 from vibesys.input_manifest import WorkspaceSource, load_input_bundle
-from vibesys.main import main
-from vibesys.profilers import ProfilerKind
 from vibesys.run import Workspace
-from vibesys.sandbox.run_environment import RunEnvironmentSpec
 
-
-class _FakeBackend:
-    image = "fake-image"
-    selected_device = None
-
-    def __init__(self) -> None:
-        self.sandbox = MagicMock()
-
-    def make_sandbox(self, *_args, **_kwargs):  # noqa: ANN002, ANN003, ANN202  # tracked: #288
-        return self.sandbox
-
-    def make_monitor(self, _log_dir):  # noqa: ANN001, ANN202  # tracked: #288
-        return None
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def _write_bundle(project_root: Path, manifest_blocks: str = "") -> Path:
@@ -58,97 +37,48 @@ command = ["benchmark"]
     return bundle
 
 
-def _init_git_repo(path: Path) -> None:
-    subprocess.run(["git", "init", "-q", str(path)], check=True)  # noqa: S603, S607  # tracked: #288
-
-
-def _commit_all(path: Path, message: str = "init") -> str:
-    subprocess.run(["git", "add", "."], cwd=path, check=True)  # noqa: S607  # tracked: #288
-    subprocess.run(  # noqa: S603  # tracked: #288
-        [  # noqa: S607  # tracked: #288
-            "git",
-            "-c",
-            "user.name=VibeSys Test",
-            "-c",
-            "user.email=vibesys@example.invalid",
-            "commit",
-            "-qm",
-            message,
-        ],
-        cwd=path,
-        check=True,
-    )
-    return subprocess.run(
-        ["git", "rev-parse", "HEAD"],  # noqa: S607  # tracked: #288
-        cwd=path,
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout.strip()
-
-
-@contextmanager
-def _patched_context_dependencies(project_root: Path):  # noqa: ANN202  # tracked: #288
-    with (
-        patch("vibesys.context.PROJECT_ROOT", project_root),
-        patch("vibesys.context.build_model", return_value="mock-model"),
-        patch("vibesys.context.build_agent_runner", return_value=MagicMock()),
-        patch("vibesys.context.backends.get", return_value=_FakeBackend()),
-    ):
-        yield
-
-
-def _make_context(input_dir: Path, seed: Path | None = None, **kwargs) -> _RunContext:  # noqa: ANN003  # tracked: #288
-    return create_run_context(
-        config={"model": {"name": "claude-sonnet-4-6"}},  # pyright: ignore[reportArgumentType]  # tracked: #297
-        exp_name=kwargs.pop("exp_name", "workspace-seed"),
-        runs_dir=input_dir.parents[2] / "exp_env",
-        input_path=str(input_dir),
-        accuracy_command="accuracy-checker",
-        benchmark_command="benchmark",
-        workspace_seed=seed,
-        workspace_sources=kwargs.pop("workspace_sources", ()),
-        profiler_kind=ProfilerKind.NONE,
-        skills_dirs=[],
-        run_environment=RunEnvironmentSpec("local"),
-        environment_hooks=NoopEnvironmentHooks(),
-        **kwargs,
+def _workspace(root: Path, *, excluded_dirs: set[str] | None = None) -> Workspace:
+    return Workspace(
+        root,
+        run_environment=MagicMock(isolated=False),
+        backend=MagicMock(),
+        log=MagicMock(),
+        project_root=root.parent,
+        excluded_dirs=excluded_dirs or set(),
     )
 
 
-def test_all_repo_example_input_bundles_are_valid(  # noqa: ANN201  # tracked: #288
-    repo_root: Path, example_input_bundles: tuple[Path, ...]
-):
+def test_all_repo_example_input_bundles_are_valid(
+    example_input_bundles: tuple[Path, ...],
+) -> None:
     for input_bundle in example_input_bundles:
-        bundle = load_input_bundle(input_bundle, project_root=repo_root)
+        bundle = load_input_bundle(input_bundle)
         assert bundle.domain is bundle.manifest.agent.domain
 
 
-def test_manifest_without_workspace_seed_remains_valid(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+def test_manifest_without_external_sources_is_valid(tmp_path: Path) -> None:
     project_root = tmp_path / "project"
     bundle = _write_bundle(project_root)
 
-    loaded = load_input_bundle(bundle, project_root=project_root)
+    loaded = load_input_bundle(bundle)
 
     assert loaded.workspace_seed_path is None
+    assert loaded.workspace_sources == ()
     assert loaded.evaluator_path is None
 
 
-def test_manifest_resolves_seed_relative_to_bundle(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+def test_manifest_resolves_seed_relative_to_bundle(tmp_path: Path) -> None:
     project_root = tmp_path / "project"
     seed = project_root / "examples" / "starters" / "queue-rs"
     seed.mkdir(parents=True)
-    bundle = _write_bundle(
-        project_root,
-        '[workspace]\nseed = "../../starters/queue-rs"',
-    )
+    bundle = _write_bundle(project_root, '[workspace]\nseed = "../../starters/queue-rs"')
 
-    loaded = load_input_bundle(bundle, project_root=project_root)
+    loaded = load_input_bundle(bundle)
 
     assert loaded.workspace_seed_path == seed.resolve()
 
 
-def test_manifest_resolves_workspace_sources(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+def test_manifest_resolves_workspace_sources(tmp_path: Path) -> None:
     project_root = tmp_path / "project"
     seed = project_root / "examples" / "starters" / "queue"
     seed.mkdir(parents=True)
@@ -166,7 +96,7 @@ dest = "vllm"
 """,
     )
 
-    loaded = load_input_bundle(bundle, project_root=project_root)
+    loaded = load_input_bundle(bundle)
 
     assert loaded.workspace_seed_path == seed.resolve()
     assert loaded.workspace_sources == (
@@ -199,7 +129,11 @@ dest = "vllm"
         ),
     ],
 )
-def test_manifest_rejects_invalid_workspace_sources(tmp_path, source_block, error):  # noqa: ANN001, ANN201  # tracked: #288
+def test_manifest_rejects_invalid_workspace_sources(
+    tmp_path: Path,
+    source_block: str,
+    error: str,
+) -> None:
     project_root = tmp_path / "project"
     bundle = _write_bundle(
         project_root,
@@ -212,10 +146,10 @@ def test_manifest_rejects_invalid_workspace_sources(tmp_path, source_block, erro
     )
 
     with pytest.raises(ValueError, match=error):
-        load_input_bundle(bundle, project_root=project_root)
+        load_input_bundle(bundle)
 
 
-def test_manifest_rejects_duplicate_workspace_source_destinations(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+def test_manifest_rejects_duplicate_workspace_source_destinations(tmp_path: Path) -> None:
     project_root = tmp_path / "project"
     bundle = _write_bundle(
         project_root,
@@ -237,68 +171,62 @@ dest = "src"
     )
 
     with pytest.raises(ValueError, match="duplicate workspace source destination"):
-        load_input_bundle(bundle, project_root=project_root)
+        load_input_bundle(bundle)
 
 
-def test_manifest_resolves_evaluator_relative_to_bundle(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+def test_manifest_resolves_evaluator_relative_to_bundle(tmp_path: Path) -> None:
     project_root = tmp_path / "project"
     evaluator = project_root / "examples" / "evaluators" / "queue"
     evaluator.mkdir(parents=True)
-    bundle = _write_bundle(
-        project_root,
-        '[evaluator]\nsource = "../../evaluators/queue"',
-    )
+    bundle = _write_bundle(project_root, '[evaluator]\nsource = "../../evaluators/queue"')
 
-    loaded = load_input_bundle(bundle, project_root=project_root)
+    loaded = load_input_bundle(bundle)
 
     assert loaded.evaluator_path == evaluator.resolve()
 
 
-def test_bundle_local_seed_rejected_without_flag_but_allowed_with_it(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+def test_manifest_resolves_bundle_local_seed(tmp_path: Path) -> None:
     project_root = tmp_path / "project"
     bundle = _write_bundle(project_root, '[workspace]\nseed = "_seed"')
-    (bundle / "_seed").mkdir()
+    seed = bundle / "_seed"
+    seed.mkdir()
 
-    # A seed inside the bundle escapes examples/starters under the default policy.
-    with pytest.raises(ValueError, match="must resolve inside"):
-        load_input_bundle(bundle, project_root=project_root)
-
-    loaded = load_input_bundle(bundle, project_root=project_root, allow_bundle_local_sources=True)
-    assert loaded.workspace_seed_path == (bundle / "_seed").resolve()
+    loaded = load_input_bundle(bundle)
+    assert loaded.workspace_seed_path == seed.resolve()
 
 
-def test_bundle_local_evaluator_sources_allowed_with_flag(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+def test_manifest_resolves_bundle_local_evaluator(tmp_path: Path) -> None:
     project_root = tmp_path / "project"
-    bundle = _write_bundle(
-        project_root,
-        '[evaluator]\nsource = "_evaluator_src"',
-    )
-    (bundle / "_evaluator_src").mkdir()
+    bundle = _write_bundle(project_root, '[evaluator]\nsource = "_evaluator_src"')
+    evaluator = bundle / "_evaluator_src"
+    evaluator.mkdir()
 
-    loaded = load_input_bundle(bundle, project_root=project_root, allow_bundle_local_sources=True)
-    assert loaded.evaluator_path == (bundle / "_evaluator_src").resolve()
+    loaded = load_input_bundle(bundle)
+
+    assert loaded.evaluator_path == evaluator.resolve()
 
 
 @pytest.mark.parametrize(
     ("seed_value", "error"),
     [
-        ("/tmp/candidate", "seed must be relative"),  # noqa: S108  # tracked: #288
-        ("../../../outside", "must resolve inside"),
+        ("/tmp/candidate", "seed must be relative"),  # noqa: S108
+        ("../../../outside", "path does not exist"),
         ("../../starters/missing", "path does not exist"),
     ],
 )
-def test_manifest_rejects_invalid_seed_paths(tmp_path, seed_value, error):  # noqa: ANN001, ANN201  # tracked: #288
+def test_manifest_rejects_invalid_seed_paths(
+    tmp_path: Path,
+    seed_value: str,
+    error: str,
+) -> None:
     project_root = tmp_path / "project"
-    bundle = _write_bundle(
-        project_root,
-        f'[workspace]\nseed = "{seed_value}"',
-    )
+    bundle = _write_bundle(project_root, f'[workspace]\nseed = "{seed_value}"')
 
     with pytest.raises((FileNotFoundError, ValueError), match=error):
-        load_input_bundle(bundle, project_root=project_root)
+        load_input_bundle(bundle)
 
 
-def test_manifest_rejects_seed_file(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+def test_manifest_rejects_seed_file(tmp_path: Path) -> None:
     project_root = tmp_path / "project"
     seed = project_root / "examples" / "starters" / "not-a-directory"
     seed.parent.mkdir(parents=True)
@@ -309,26 +237,19 @@ def test_manifest_rejects_seed_file(tmp_path):  # noqa: ANN001, ANN201  # tracke
     )
 
     with pytest.raises(ValueError, match="path is not a directory"):
-        load_input_bundle(bundle, project_root=project_root)
+        load_input_bundle(bundle)
 
 
-def test_manifest_rejects_seed_symlink_that_escapes_starters(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+def test_manifest_allows_explicit_relative_seed_outside_example_tree(tmp_path: Path) -> None:
     project_root = tmp_path / "project"
     outside = project_root / "outside"
     outside.mkdir(parents=True)
-    seed = project_root / "examples" / "starters" / "escape"
-    seed.parent.mkdir(parents=True)
-    seed.symlink_to(outside, target_is_directory=True)
-    bundle = _write_bundle(
-        project_root,
-        '[workspace]\nseed = "../../starters/escape"',
-    )
+    bundle = _write_bundle(project_root, '[workspace]\nseed = "../../../outside"')
 
-    with pytest.raises(ValueError, match="must resolve inside"):
-        load_input_bundle(bundle, project_root=project_root)
+    assert load_input_bundle(bundle).workspace_seed_path == outside.resolve()
 
 
-def test_manifest_rejects_unknown_workspace_keys(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+def test_manifest_rejects_unknown_workspace_keys(tmp_path: Path) -> None:
     project_root = tmp_path / "project"
     seed = project_root / "examples" / "starters" / "queue"
     seed.mkdir(parents=True)
@@ -338,29 +259,30 @@ def test_manifest_rejects_unknown_workspace_keys(tmp_path):  # noqa: ANN001, ANN
     )
 
     with pytest.raises(ValueError, match="Extra inputs are not permitted"):
-        load_input_bundle(bundle, project_root=project_root)
+        load_input_bundle(bundle)
 
 
 @pytest.mark.parametrize(
     ("source_value", "error"),
     [
-        ("/tmp/evaluator", "source must be relative"),  # noqa: S108  # tracked: #288
-        ("../../../outside", "must resolve inside"),
+        ("/tmp/evaluator", "source must be relative"),  # noqa: S108
+        ("../../../outside", "path does not exist"),
         ("../../evaluators/missing", "path does not exist"),
     ],
 )
-def test_manifest_rejects_invalid_evaluator_paths(tmp_path, source_value, error):  # noqa: ANN001, ANN201  # tracked: #288
+def test_manifest_rejects_invalid_evaluator_paths(
+    tmp_path: Path,
+    source_value: str,
+    error: str,
+) -> None:
     project_root = tmp_path / "project"
-    bundle = _write_bundle(
-        project_root,
-        f'[evaluator]\nsource = "{source_value}"',
-    )
+    bundle = _write_bundle(project_root, f'[evaluator]\nsource = "{source_value}"')
 
     with pytest.raises((FileNotFoundError, ValueError), match=error):
-        load_input_bundle(bundle, project_root=project_root)
+        load_input_bundle(bundle)
 
 
-def test_manifest_rejects_evaluator_file(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+def test_manifest_rejects_evaluator_file(tmp_path: Path) -> None:
     project_root = tmp_path / "project"
     evaluator = project_root / "examples" / "evaluators" / "not-a-directory"
     evaluator.parent.mkdir(parents=True)
@@ -371,26 +293,22 @@ def test_manifest_rejects_evaluator_file(tmp_path):  # noqa: ANN001, ANN201  # t
     )
 
     with pytest.raises(ValueError, match="path is not a directory"):
-        load_input_bundle(bundle, project_root=project_root)
+        load_input_bundle(bundle)
 
 
-def test_manifest_rejects_evaluator_symlink_that_escapes_evaluators(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+def test_manifest_allows_explicit_relative_evaluator_outside_example_tree(tmp_path: Path) -> None:
     project_root = tmp_path / "project"
     outside = project_root / "outside"
     outside.mkdir(parents=True)
-    evaluator = project_root / "examples" / "evaluators" / "escape"
-    evaluator.parent.mkdir(parents=True)
-    evaluator.symlink_to(outside, target_is_directory=True)
     bundle = _write_bundle(
         project_root,
-        '[evaluator]\nsource = "../../evaluators/escape"',
+        '[evaluator]\nsource = "../../../outside"',
     )
 
-    with pytest.raises(ValueError, match="must resolve inside"):
-        load_input_bundle(bundle, project_root=project_root)
+    assert load_input_bundle(bundle).evaluator_path == outside.resolve()
 
 
-def test_manifest_rejects_unknown_evaluator_keys(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+def test_manifest_rejects_unknown_evaluator_keys(tmp_path: Path) -> None:
     project_root = tmp_path / "project"
     evaluator = project_root / "examples" / "evaluators" / "queue"
     evaluator.mkdir(parents=True)
@@ -400,420 +318,45 @@ def test_manifest_rejects_unknown_evaluator_keys(tmp_path):  # noqa: ANN001, ANN
     )
 
     with pytest.raises(ValueError, match="Extra inputs are not permitted"):
-        load_input_bundle(bundle, project_root=project_root)
+        load_input_bundle(bundle)
 
 
-def test_manifest_rejects_removed_hidden_evaluator_table(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+def test_manifest_rejects_unknown_top_level_tables(tmp_path: Path) -> None:
     project_root = tmp_path / "project"
-    bundle = _write_bundle(
-        project_root,
-        '[hidden_evaluator]\nsource = "../../evaluators/queue"',
-    )
+    bundle = _write_bundle(project_root, "[unknown]\nvalue = true")
 
     with pytest.raises(ValueError, match="Extra inputs are not permitted"):
-        load_input_bundle(bundle, project_root=project_root)
+        load_input_bundle(bundle)
 
 
-def test_fresh_workspace_materializes_seed_and_preserves_it_in_initial_commit(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
-    project_root = tmp_path / "project"
-    project_root.mkdir()
-    _init_git_repo(project_root)
-
-    seed = project_root / "examples" / "starters" / "queue"
-    (seed / "src").mkdir(parents=True)
-    (seed / "target").mkdir()
-    (seed / ".gitignore").write_text("target/\n*.so\n")
-    (seed / "Cargo.toml").write_text("[package]\nname = 'candidate'\n")
-    (seed / "src" / "lib.rs").write_text("pub fn queue() {}\n")
-    (seed / "target" / "debug.o").write_bytes(b"build artifact")
-    (seed / "candidate.so").write_bytes(b"shared library")
-
-    evaluator = project_root / "examples" / "evaluators" / "queue"
-    (evaluator / "target").mkdir(parents=True)
-    (evaluator / ".gitignore").write_text("target/\n")
-    (evaluator / "checker.go").write_text("package main\n")
-    (evaluator / "target" / "checker").write_bytes(b"build artifact")
-
-    input_dir = project_root / "examples" / "data-structures" / "queue"
-    input_dir.mkdir(parents=True)
-    (input_dir / "OBJECTIVE.md").write_text("Build a queue.\n")
-    (input_dir / "checker.py").write_text("pass\n")
-
-    with (
-        _patched_context_dependencies(project_root),
-        _make_context(
-            input_dir,
-            seed,
-            evaluator_path=evaluator,
-            git_tracking=True,
-        ) as ctx,
-    ):
-        assert ctx.workspace_seed_path == seed.resolve()
-        assert ctx.evaluator_path == evaluator.resolve()
-        assert (ctx.workspace / "Cargo.toml").is_file()
-        assert (ctx.workspace / "src" / "lib.rs").is_file()
-        assert (ctx.workspace / "OBJECTIVE.md").is_file()
-        assert (ctx.workspace / "checker.py").is_file()
-        assert not (ctx.workspace / "target").exists()
-        assert not (ctx.workspace / "candidate.so").exists()
-        assert (ctx.workspace / "_evaluator" / "queue" / "checker.go").is_file()
-        assert not (ctx.workspace / "_evaluator" / "queue" / "target").exists()
-        assert "target/\n" in (ctx.workspace / ".gitignore").read_text()
-
-        tracked = subprocess.run(
-            ["git", "ls-files"],  # noqa: S607  # tracked: #288
-            cwd=ctx.workspace,
-            check=True,
-            capture_output=True,
-            text=True,
-        ).stdout.splitlines()
-        assert "Cargo.toml" in tracked
-        assert "src/lib.rs" in tracked
-        assert "OBJECTIVE.md" in tracked
-        assert "_evaluator/queue/checker.go" in tracked
-
-        (ctx.workspace / "_evaluator" / "queue" / "checker.go").write_text("package compromised\n")
-        assert ctx.trusted_input_changes() == ["_evaluator/queue/checker.go"]
-
-
-def test_fresh_workspace_materializes_git_source_and_strips_nested_git(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
-    project_root = tmp_path / "project"
-    project_root.mkdir()
-    _init_git_repo(project_root)
-
-    source_repo = tmp_path / "source-vllm"
-    source_repo.mkdir()
-    _init_git_repo(source_repo)
-    (source_repo / "vllm").mkdir()
-    (source_repo / "vllm" / "__init__.py").write_text("__version__ = 'test'\n")
-    commit = _commit_all(source_repo)
-
-    seed = project_root / "examples" / "starters" / "vllm-h100"
-    seed.mkdir(parents=True)
-    (seed / "serve.py").write_text("print('serve')\n")
-
-    input_dir = project_root / "examples" / "model-serving" / "llama-vllm"
-    input_dir.mkdir(parents=True)
-    (input_dir / "OBJECTIVE.md").write_text("Optimize vLLM.\n")
-    (input_dir / "vibesys.input.toml").write_text("version = 1\n")
-
+def test_workspace_source_destination_collision_is_rejected(tmp_path: Path) -> None:
+    root = tmp_path / "project"
+    workspace = _workspace(root)
+    workspace.create()
+    (root / "library").mkdir()
     source = WorkspaceSource(
-        name="vllm",
-        repo=str(source_repo),
-        commit=commit,
-        dest="vllm",
-    )
-
-    with (
-        _patched_context_dependencies(project_root),
-        _make_context(
-            input_dir,
-            seed,
-            workspace_sources=(source,),
-            git_tracking=True,
-        ) as ctx,
-    ):
-        assert (ctx.workspace / "serve.py").is_file()
-        assert (ctx.workspace / "vllm" / "vllm" / "__init__.py").read_text() == (
-            "__version__ = 'test'\n"
-        )
-        assert not (ctx.workspace / "vllm" / ".git").exists()
-
-        metadata = (ctx.workspace / "_vibesys_sources.json").read_text()
-        assert str(source_repo) in metadata
-        assert commit in metadata
-
-        tracked = subprocess.run(
-            ["git", "ls-files"],  # noqa: S607  # tracked: #288
-            cwd=ctx.workspace,
-            check=True,
-            capture_output=True,
-            text=True,
-        ).stdout.splitlines()
-        assert "vllm/vllm/__init__.py" in tracked
-        assert "vllm/.git" not in tracked
-
-
-def test_fresh_workspace_materializes_git_source_without_seed(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
-    """Sources must survive the input-bundle copy when no seed is declared."""
-    project_root = tmp_path / "project"
-    project_root.mkdir()
-    _init_git_repo(project_root)
-
-    source_repo = tmp_path / "source-vllm"
-    source_repo.mkdir()
-    _init_git_repo(source_repo)
-    (source_repo / "vllm").mkdir()
-    (source_repo / "vllm" / "__init__.py").write_text("__version__ = 'test'\n")
-    commit = _commit_all(source_repo)
-
-    input_dir = project_root / "examples" / "model-serving" / "llama-vllm"
-    input_dir.mkdir(parents=True)
-    (input_dir / "OBJECTIVE.md").write_text("Optimize vLLM.\n")
-    (input_dir / "vibesys.input.toml").write_text("version = 1\n")
-
-    source = WorkspaceSource(
-        name="vllm",
-        repo=str(source_repo),
-        commit=commit,
-        dest="vllm",
-    )
-
-    with (
-        _patched_context_dependencies(project_root),
-        _make_context(
-            input_dir,
-            seed=None,
-            workspace_sources=(source,),
-            git_tracking=True,
-        ) as ctx,
-    ):
-        assert (ctx.workspace / "OBJECTIVE.md").is_file()
-        assert (ctx.workspace / "vllm" / "vllm" / "__init__.py").read_text() == (
-            "__version__ = 'test'\n"
-        )
-        metadata = (ctx.workspace / "_vibesys_sources.json").read_text()
-        assert commit in metadata
-
-
-def test_workspace_source_destination_collision_is_rejected(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
-    source_repo = tmp_path / "source"
-    source_repo.mkdir()
-    _init_git_repo(source_repo)
-    (source_repo / "src.py").write_text("pass\n")
-    commit = _commit_all(source_repo)
-
-    seed = tmp_path / "seed"
-    input_dir = tmp_path / "input"
-    workspace = tmp_path / "workspace"
-    seed.mkdir()
-    _init_git_repo(seed)
-    input_dir.mkdir()
-    (seed / "vllm").mkdir()
-    (seed / "vllm" / "placeholder.txt").write_text("seed\n")
-    _commit_all(seed)
-    (input_dir / "OBJECTIVE.md").write_text("objective\n")
-
-    workspace_files = Workspace(
-        workspace,
-        run_environment=MagicMock(isolated=False),
-        backend=MagicMock(),
-        log=MagicMock(),
-        project_root=tmp_path,
-        excluded_dirs=set(),
-    )
-    workspace_files.create()
-    plan = workspace_files.plan_setup(
-        existing=False,
-        seed=seed,
-        input_dir=input_dir,
-        evaluator_source=None,
-        skill_sources=[],
-        input_project_dir=None,
-        profiler_support_path=None,
-        profiler_support_name=None,
-        workspace_sources=(
-            WorkspaceSource(name="vllm", repo=str(source_repo), commit=commit, dest="vllm"),
-        ),
+        name="library",
+        repo="https://example.invalid/library.git",
+        commit="0123456",
+        dest="library",
     )
 
     with pytest.raises(ValueError, match="destination already exists"):
-        workspace_files.setup(plan, existing=False)
+        workspace.materialize_git_source(source)
 
 
-def test_input_collision_is_rejected_before_overlay(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
-    seed = tmp_path / "seed"
-    input_dir = tmp_path / "input"
-    workspace = tmp_path / "workspace"
-    seed.mkdir()
-    input_dir.mkdir()
-    (seed / "shared").mkdir()
-    (seed / "shared" / "seed.txt").write_text("seed\n")
-    (input_dir / "input-only.txt").write_text("input\n")
-    (input_dir / "shared").write_text("input collision\n")
-
-    workspace_files = Workspace(
-        workspace,
-        run_environment=MagicMock(isolated=False),
-        backend=MagicMock(),
-        log=MagicMock(),
-        project_root=tmp_path,
-        excluded_dirs=set(),
-    )
-    workspace_files.copy_dir(seed, workspace)
-
-    with pytest.raises(ValueError, match="same paths: shared"):
-        workspace_files.copy_dir(input_dir, workspace, reject_collisions=True)
-
-    assert (workspace / "shared" / "seed.txt").read_text() == "seed\n"
-    assert not (workspace / "input-only.txt").exists()
-
-
-def test_resume_does_not_refresh_workspace_from_seed(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
-    project_root = tmp_path / "project"
-    project_root.mkdir()
-    _init_git_repo(project_root)
-
-    seed = project_root / "examples" / "starters" / "queue"
-    seed.mkdir(parents=True)
-    seed_file = seed / "candidate.rs"
-    seed_file.write_text("seed version 1\n")
-
-    evaluator = project_root / "examples" / "evaluators" / "queue"
-    evaluator.mkdir(parents=True)
-    evaluator_file = evaluator / "checker.go"
-    evaluator_file.write_text("evaluator version 1\n")
-
-    input_dir = project_root / "examples" / "data-structures" / "queue"
-    input_dir.mkdir(parents=True)
-    (input_dir / "OBJECTIVE.md").write_text("Build a queue.\n")
-
-    with _patched_context_dependencies(project_root):
-        with _make_context(
-            input_dir,
-            seed,
-            evaluator_path=evaluator,
-            git_tracking=True,
-        ) as first:
-            run_name = first.exp_dir.name
-            workspace_file = first.workspace / "candidate.rs"
-            workspace_file.write_text("agent version\n")
-            workspace_evaluator = first.workspace / "_evaluator" / "queue" / "checker.go"
-            workspace_evaluator.write_text("run evaluator\n")
-
-        seed_file.write_text("seed version 2\n")
-        evaluator_file.write_text("evaluator version 2\n")
-
-        with _make_context(
-            input_dir,
-            seed,
-            evaluator_path=evaluator,
-            exp_name=run_name,
-            existing=True,
-            git_tracking=True,
-        ) as resumed:
-            assert (resumed.workspace / "candidate.rs").read_text() == "agent version\n"
-            assert (
-                resumed.workspace / "_evaluator" / "queue" / "checker.go"
-            ).read_text() == "run evaluator\n"
-
-
-@pytest.mark.parametrize(
-    ("outer_loop", "runner_path"),
-    [
-        ("agent", "vibesys.loops.agent.loop.run_agent_loop"),
-        ("evolve", "vibesys.loops.evolve.loop.run_evolve_loop"),
-        ("plain", "vibesys.loops.plain.loop.run_plain_loop"),
-    ],
-)
-def test_cli_forwards_workspace_sources_to_every_outer_loop(tmp_path, outer_loop, runner_path):  # noqa: ANN001, ANN201  # tracked: #288
-    project_root = tmp_path / "project"
-    seed = project_root / "examples" / "starters" / "queue"
-    seed.mkdir(parents=True)
-    evaluator = project_root / "examples" / "evaluators" / "queue"
-    evaluator.mkdir(parents=True)
-    bundle = _write_bundle(
-        project_root,
-        '[workspace]\nseed = "../../starters/queue"\n\n'
-        "[[workspace.sources]]\n"
-        'name = "vllm"\n'
-        'repo = "https://github.com/vllm-project/vllm.git"\n'
-        'commit = "0123456789abcdef0123456789abcdef01234567"\n'
-        'dest = "vllm"\n\n'
-        '[evaluator]\nsource = "../../evaluators/queue"',
-    )
-    runs_dir = tmp_path / "runs"
-    argv = [
-        "vibesys",
-        "--outer-loop",
-        outer_loop,
-        "--local",
-        "--input",
-        str(bundle),
-        "--runs-dir",
-        str(runs_dir),
-    ]
-
-    with (
-        patch("sys.argv", argv),
-        patch("vibesys.input_manifest.PROJECT_ROOT", project_root),
-        patch(
-            "vibesys.main.load_config_and_skills",
-            return_value=(
-                {"model": {"name": "claude-sonnet-4-6"}},
-                None,
-                DEFAULT_COMPUTE_BACKEND,
-            ),
-        ),
-        patch(runner_path, return_value=True) as runner,
-    ):
-        main()
-
-    assert runner.call_args.kwargs["workspace_seed"] == seed.resolve()
-    assert runner.call_args.kwargs["runs_dir"] == runs_dir.resolve()
-    assert runner.call_args.kwargs["workspace_sources"] == (
-        WorkspaceSource(
-            name="vllm",
-            repo="https://github.com/vllm-project/vllm.git",
-            commit="0123456789abcdef0123456789abcdef01234567",
-            dest="vllm",
-        ),
-    )
-    assert runner.call_args.kwargs["evaluator_path"] == evaluator.resolve()
-    if outer_loop in {"agent", "evolve"}:
-        assert runner.call_args.kwargs["domain"] is DomainName.GENERIC
-
-
-def test_workspace_source_with_nested_git_is_rejected_when_tracking(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
-    """strip_git=false under git tracking would snapshot a bare gitlink."""
-    project_root = tmp_path / "project"
-    project_root.mkdir()
-    _init_git_repo(project_root)
-
-    source_repo = tmp_path / "source"
-    source_repo.mkdir()
-    _init_git_repo(source_repo)
-    (source_repo / "src.py").write_text("pass\n")
-    commit = _commit_all(source_repo)
-
-    input_dir = project_root / "examples" / "model-serving" / "seeded"
-    input_dir.mkdir(parents=True)
-    (input_dir / "OBJECTIVE.md").write_text("objective\n")
-    (input_dir / "vibesys.input.toml").write_text("version = 1\n")
-
+def test_workspace_source_destination_cannot_use_excluded_path(tmp_path: Path) -> None:
+    root = tmp_path / "project"
+    workspace = _workspace(root, excluded_dirs={"repos", "target"})
+    workspace.create()
     source = WorkspaceSource(
-        name="vllm",
-        repo=str(source_repo),
-        commit=commit,
-        dest="vllm",
-        strip_git=False,
+        name="library",
+        repo="https://example.invalid/library.git",
+        commit="0123456",
+        dest="repos/library",
     )
 
-    with _patched_context_dependencies(project_root):  # noqa: SIM117  # tracked: #288
-        with pytest.raises(ConfigurationError, match="strip_git=false"):
-            _make_context(input_dir, workspace_sources=(source,), git_tracking=True)
-
-
-def test_workspace_source_dest_colliding_with_excluded_dirs_is_rejected(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
-    """A dest under an excluded name would be invisible to copies and tracking."""
-    source_repo = tmp_path / "source"
-    source_repo.mkdir()
-    _init_git_repo(source_repo)
-    (source_repo / "src.py").write_text("pass\n")
-    commit = _commit_all(source_repo)
-
-    workspace = tmp_path / "workspace"
-    workspace_files = Workspace(
-        workspace,
-        run_environment=MagicMock(isolated=False),
-        backend=MagicMock(),
-        log=MagicMock(),
-        project_root=tmp_path,
-        excluded_dirs={"repos", "target"},
-    )
-    workspace_files.create()
-
-    source = WorkspaceSource(name="vllm", repo=str(source_repo), commit=commit, dest="repos/vllm")
     with pytest.raises(ValueError, match="excluded path component"):
-        workspace_files.materialize_git_source(source)
-    assert not (workspace / "repos").exists()
+        workspace.materialize_git_source(source)
+
+    assert not (root / "repos").exists()
