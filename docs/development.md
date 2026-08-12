@@ -51,7 +51,7 @@ required before running commands. For example:
 
 ```bash
 uv run vibesys --help
-uv run vibesys validate examples/data-structures/queue-spsc
+uv run vibesys validate examples/data-structures/repositories/queue-rs --task spsc
 uv run pytest
 ```
 

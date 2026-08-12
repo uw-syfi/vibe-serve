@@ -1,6 +1,7 @@
 # Rigtorp SPSC baseline
 
-This is the comparison baseline for the `queue-spsc` optimization input. It
+This is the comparison baseline for the `spsc` task in the `queue-rs`
+optimization repository. It
 vendors the unmodified upstream
 [`SPSCQueue.h`](https://github.com/rigtorp/SPSCQueue/blob/1053918dbd251fbff69b24ef27fa5d51c29ec2af/include/rigtorp/SPSCQueue.h)
 at commit `1053918dbd251fbff69b24ef27fa5d51c29ec2af` and directly instantiates
@@ -18,17 +19,17 @@ queue creation, so the ABI bridge adds no per-operation heap allocation.
 The vendored header is byte-for-byte identical to that upstream revision and
 retains its license header. Rigtorp's MIT license is also in `LICENSE.rigtorp`.
 
-This directory is deliberately outside the `queue-spsc` input bundle. VibeSys
-does not copy it into optimization workspaces, so the optimization agents cannot
-inspect or reuse the implementation.
+This directory is deliberately outside the `queue-rs` repository. VibeSys does
+not include it in optimization workspaces, so optimization agents cannot inspect
+or reuse the implementation.
 
 From this directory:
 
 ```bash
 make
-go -C ../../evaluators/queue run . check \
-  --workspace ../../baselines/queue-spsc-rigtorp --scenario spsc
-go -C ../../evaluators/queue run . benchmark \
-  --workspace ../../baselines/queue-spsc-rigtorp --scenario spsc \
+go -C ../../../resources/evaluators/queue run . check \
+  --workspace ../../../examples/baselines/queue-spsc-rigtorp --scenario spsc
+go -C ../../../resources/evaluators/queue run . benchmark \
+  --workspace ../../../examples/baselines/queue-spsc-rigtorp --scenario spsc \
   --repetitions 3
 ```

@@ -3,24 +3,22 @@ version = 1
 [agent]
 domain = "generic"
 
-[workspace]
-seed = "../../starters/queue-rs"
-
 [evaluator]
-source = "../../evaluators/queue"
+name = "vibesys-evaluator-queue"
+version = "0.1.0"
 
 [accuracy]
-command = [
-  "go", "-C", "_evaluator/queue",
-  "run", ".", "check", "--workspace", "../..",
+entrypoint = "vibesys-queue"
+args = [
+  "check", "--workspace", "${PROJECT_ROOT}",
   "--scenario", "mpsc", "--operations", "24", "--trials", "50",
 ]
 timeout_seconds = 120
 
 [benchmark]
-command = [
-  "go", "-C", "_evaluator/queue",
-  "run", ".", "benchmark", "--workspace", "../..",
+entrypoint = "vibesys-queue"
+args = [
+  "benchmark", "--workspace", "${PROJECT_ROOT}",
   "--scenario", "mpsc", "--repetitions", "3",
 ]
 timeout_seconds = 300
