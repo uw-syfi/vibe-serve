@@ -1,12 +1,16 @@
 """Typed filesystem boundary for the ``.vs`` project state directory.
 
 Git owns candidate source history. This module owns only portable completed-run
-metadata and machine-local operational paths. It deliberately has no knowledge
-of Git, VibeSys CLI arguments, agent providers, or evaluator implementations.
+metadata, machine-local operational paths, and translation into validated Git
+integration capabilities. It never invokes Git and has no knowledge of VibeSys
+CLI arguments, agent providers, or evaluator implementations.
 """
 
+# These private values are shared only between cooperating types in this module.
+# pyright: reportPrivateUsage=false
+
 # These boundary errors deliberately embed the offending metadata path and value.
-# ruff: noqa: TRY003
+# ruff: noqa: SLF001, TRY003
 
 from __future__ import annotations
 
@@ -32,6 +36,7 @@ if TYPE_CHECKING:
     from uuid import UUID
 
 PROJECT_SCHEMA_VERSION: Literal[1] = 1
+_STATE_DIRECTORY_NAME = ".vs"
 _IDENTIFIER_PATTERN = r"^[a-z0-9][a-z0-9._-]{0,127}$"
 _DIGEST_PATTERN = r"^[0-9a-f]{64}$"
 _GIT_OBJECT_ID_PATTERN = r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
@@ -45,7 +50,7 @@ _EXCLUDED_NAMES = frozenset(
         ".pytest_cache",
         ".ruff_cache",
         ".tox",
-        ".vs",
+        _STATE_DIRECTORY_NAME,
         "__pycache__",
         "agent.toml",
         "node_modules",
@@ -66,52 +71,84 @@ class StateModelNotFoundError(ProjectStateError):
     """Raised when a required model is absent from a state namespace."""
 
 
+def is_project_state_path(relative_path: Path | str) -> bool:
+    """Return whether a safe project-relative path is owned by this package."""
+    path = Path(relative_path)
+    if path.is_absolute() or path == Path() or ".." in path.parts:
+        raise ProjectStateError(f"Project path must be a safe relative path: {relative_path}")
+    return _STATE_DIRECTORY_NAME in path.parts
+
+
 @dataclass(frozen=True)
+class ProjectSandboxPaths:
+    """Project-relative framework paths for a sandbox policy.
+
+    A missing path is represented by ``None`` so callers can combine this
+    capability with their own policy without interpreting the state layout.
+    """
+
+    read_only_path: Path | None
+    hidden_path: Path | None
+
+
+@dataclass(frozen=True, init=False)
 class StateDocument:
-    """One immutable, validated JSON state document at a project-relative path."""
+    """Opaque immutable JSON state document owned by this package."""
 
-    project_relative_path: PurePosixPath
-    contents: bytes
+    _project_relative_path: PurePosixPath
+    _contents: bytes
 
-    def __post_init__(self) -> None:
-        """Require a safe ``.vs`` path and a JSON object payload."""
-        _validate_project_state_path(self.project_relative_path)
+    @classmethod
+    def _create(cls, project_relative_path: PurePosixPath, contents: bytes) -> Self:
+        """Construct a validated package-owned document."""
+        _validate_project_state_path(project_relative_path)
         if not isinstance(  # pyright: ignore[reportUnnecessaryIsInstance]
-            self.contents, bytes
+            contents, bytes
         ):
             raise TypeError("state document contents must be bytes")
         try:
-            payload = json.loads(self.contents)
+            payload = json.loads(contents)
         except (UnicodeDecodeError, ValueError) as exc:
             raise ValueError("state document contents must be a JSON object") from exc
         if not isinstance(payload, dict):
             raise TypeError("state document contents must be a JSON object")
+        document = object.__new__(cls)
+        object.__setattr__(document, "_project_relative_path", project_relative_path)
+        object.__setattr__(document, "_contents", contents)
+        return document
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, init=False)
 class StateTransition:
-    """An immutable replacement or deletion of one ``.vs`` state document."""
+    """Opaque immutable replacement or deletion of one state document."""
 
-    project_relative_path: PurePosixPath
-    next_document: StateDocument | None
+    _project_relative_path: PurePosixPath
+    _next_document: StateDocument | None
 
-    def __post_init__(self) -> None:
-        """Require a safe target and an exactly matching replacement document."""
-        _validate_project_state_path(self.project_relative_path)
+    @classmethod
+    def _create(
+        cls,
+        project_relative_path: PurePosixPath,
+        next_document: StateDocument | None,
+    ) -> Self:
+        """Construct a validated package-owned transition."""
+        _validate_project_state_path(project_relative_path)
         if (
-            self.next_document is not None
-            and self.next_document.project_relative_path != self.project_relative_path
+            next_document is not None
+            and next_document._project_relative_path != project_relative_path
         ):
             raise ValueError("state transition document path must match its target path")
+        transition = object.__new__(cls)
+        object.__setattr__(transition, "_project_relative_path", project_relative_path)
+        object.__setattr__(transition, "_next_document", next_document)
+        return transition
 
 
 @dataclass(frozen=True)
 class StateFile:
     """One immutable file in a portable state snapshot.
 
-    ``relative_path`` is relative to the snapshot root. Snapshot
-    consumers must combine it with :attr:`StateSnapshot.namespace_root`, never
-    with an unvalidated filesystem path.
+    ``relative_path`` is relative to the opaque snapshot scope.
     """
 
     relative_path: PurePosixPath
@@ -126,7 +163,7 @@ class StateFile:
             raise TypeError("state snapshot file contents must be bytes")
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, init=False)
 class StateSnapshot:
     """Deterministic, immutable selection of portable ``.vs`` files.
 
@@ -135,32 +172,155 @@ class StateSnapshot:
     machine-local state below ``.vs/local``.
     """
 
-    namespace_root: PurePosixPath
+    _namespace_root: PurePosixPath
     files: tuple[StateFile, ...]
 
-    def __post_init__(self) -> None:
-        """Require a safe portable root and ordered unique files."""
-        _validate_snapshot_root(self.namespace_root)
+    @classmethod
+    def _create(cls, namespace_root: PurePosixPath, files: tuple[StateFile, ...]) -> Self:
+        """Construct a validated package-owned snapshot."""
+        _validate_snapshot_root(namespace_root)
         if not isinstance(  # pyright: ignore[reportUnnecessaryIsInstance]
-            self.files, tuple
+            files, tuple
         ):
             raise TypeError("state snapshot files must be an immutable tuple")
         if any(
             not isinstance(  # pyright: ignore[reportUnnecessaryIsInstance]
                 item, StateFile
             )
-            for item in self.files
+            for item in files
         ):
             raise TypeError("state snapshot files must contain StateFile values")
-        paths = tuple(item.relative_path for item in self.files)
+        paths = tuple(item.relative_path for item in files)
         if paths != tuple(sorted(paths, key=PurePosixPath.as_posix)):
             raise ValueError("state snapshot files must be ordered by relative path")
         if len(paths) != len(set(paths)):
             raise ValueError("state snapshot files must have unique relative paths")
         for path in paths:
-            combined = self.namespace_root / path
-            if combined.parts[:2] == (".vs", "local"):
+            combined = namespace_root / path
+            if combined.parts[:2] == (_STATE_DIRECTORY_NAME, "local"):
                 raise ValueError("portable state snapshots must not contain .vs/local files")
+        snapshot = object.__new__(cls)
+        object.__setattr__(snapshot, "_namespace_root", namespace_root)
+        object.__setattr__(snapshot, "files", files)
+        return snapshot
+
+
+@dataclass(frozen=True)
+class GitSnapshotFile:
+    """One validated portable-state file ready for a Git integration."""
+
+    pathspec: str
+    destination: Path
+    contents: bytes
+
+
+@dataclass(frozen=True)
+class GitSnapshotPlan:
+    """Opaque filesystem and pathspec capability for committing one snapshot."""
+
+    scope_pathspec: str
+    destination_root: Path
+    files: tuple[GitSnapshotFile, ...]
+
+    def contains_pathspec(self, pathspec: str) -> bool:
+        """Return whether a Git-reported path belongs to this snapshot scope."""
+        return pathspec == self.scope_pathspec or pathspec.startswith(f"{self.scope_pathspec}/")
+
+
+@dataclass(frozen=True)
+class ProjectGitIntegration:
+    """Semantic Git capabilities for one project's framework-owned state.
+
+    Git adapters may pass the returned pathspecs to Git and write the resolved
+    destinations. They do not need to know or validate the underlying project
+    layout.
+    """
+
+    _project_root: Path
+    _run_id: str
+
+    @property
+    def local_exclude_pattern(self) -> str:
+        """Return the repository-local ignore pattern for machine-local state."""
+        return f"/{_STATE_DIRECTORY_NAME}/local/"
+
+    @property
+    def metadata_pathspec(self) -> str:
+        """Return the pathspec selecting all framework-owned project state."""
+        return _STATE_DIRECTORY_NAME
+
+    @property
+    def metadata_restore_exclusions(self) -> tuple[str, ...]:
+        """Return pathspecs that preserve framework state during tree restores."""
+        return (
+            f":(exclude){_STATE_DIRECTORY_NAME}",
+            f":(exclude){_STATE_DIRECTORY_NAME}/**",
+        )
+
+    @property
+    def metadata_clean_exclusion(self) -> str:
+        """Return the ignore expression that preserves framework state on clean."""
+        return f"{_STATE_DIRECTORY_NAME}/"
+
+    def validate_candidate_worktree(self, path: Path) -> Path:
+        """Resolve a candidate worktree below this run's machine-local area."""
+        store = ProjectStore(self._project_root)
+        worktrees_root = store._worktrees_dir(self._run_id)
+        raw_destination = path.expanduser()
+        if not raw_destination.is_absolute():
+            raw_destination = self._project_root / raw_destination
+        try:
+            destination = _contained_without_symlinks(
+                worktrees_root,
+                raw_destination,
+                kind="candidate worktree",
+            )
+        except ProjectStateError as exc:
+            raise ValueError(f"candidate worktree must be below {worktrees_root}: {path}") from exc
+        destination = destination.resolve()
+        if destination == worktrees_root.resolve():
+            raise ValueError(f"candidate worktree must be below {worktrees_root}: {path}")
+        return destination
+
+    def resolve_snapshot(self, snapshot: StateSnapshot) -> GitSnapshotPlan:
+        """Resolve a validated portable snapshot into opaque Git capabilities."""
+        ProjectStore(self._project_root)
+        namespace_root = snapshot._namespace_root
+        parts = namespace_root.parts
+        if parts != (_STATE_DIRECTORY_NAME,) and parts[2] != self._run_id:
+            raise ValueError(f"state snapshot belongs to run {parts[2]!r}, not {self._run_id!r}")
+        destination_root = _contained_without_symlinks(
+            self._project_root,
+            self._project_root.joinpath(*namespace_root.parts),
+            kind="Git snapshot root",
+        )
+        files = tuple(
+            GitSnapshotFile(
+                pathspec=(namespace_root / state_file.relative_path).as_posix(),
+                destination=_contained_without_symlinks(
+                    destination_root,
+                    destination_root.joinpath(*state_file.relative_path.parts),
+                    kind="Git snapshot file",
+                ),
+                contents=state_file.contents,
+            )
+            for state_file in snapshot.files
+        )
+        return GitSnapshotPlan(
+            scope_pathspec=namespace_root.as_posix(),
+            destination_root=destination_root,
+            files=files,
+        )
+
+    def resolve_replacement_snapshot(self, snapshot: StateSnapshot) -> GitSnapshotPlan:
+        """Resolve an exact replacement of one namespace owned by this run."""
+        namespace_root = snapshot._namespace_root
+        if len(namespace_root.parts) != 4 or namespace_root.parts[2] != self._run_id:  # noqa: PLR2004
+            raise ValueError(
+                "framework state snapshot must select a dedicated namespace "
+                f"for run {self._run_id!r}"
+            )
+        return self.resolve_snapshot(snapshot)
 
 
 class StateNamespace:
@@ -236,35 +396,29 @@ class StateNamespace:
         document = (
             None
             if model is None
-            else StateDocument(
-                project_relative_path=project_relative_path,
-                contents=_serialize_state_model(model),
-            )
+            else StateDocument._create(project_relative_path, _serialize_state_model(model))
         )
-        return StateTransition(
-            project_relative_path=project_relative_path,
-            next_document=document,
-        )
+        return StateTransition._create(project_relative_path, document)
 
     def apply(self, transition: StateTransition) -> None:
         """Atomically apply a transition prepared for this namespace."""
         root = self._validated_root()
         namespace_root = PurePosixPath(root.relative_to(self._project_root).as_posix())
         try:
-            relative_path = transition.project_relative_path.relative_to(namespace_root)
+            relative_path = transition._project_relative_path.relative_to(namespace_root)
         except ValueError as exc:
             raise ProjectStateError(
                 f"State transition target is outside this namespace: "
-                f"{transition.project_relative_path}"
+                f"{transition._project_relative_path}"
             ) from exc
         path = self._resolve_file(relative_path)
         try:
-            if transition.next_document is None:
+            if transition._next_document is None:
                 if path.exists() and not path.is_file():
                     raise ProjectStateError(f"VibeSys state path is not a file: {path}")
                 path.unlink(missing_ok=True)
             else:
-                _atomic_write_bytes(path, transition.next_document.contents)
+                _atomic_write_bytes(path, transition._next_document._contents)
         except OSError as exc:
             raise ProjectStateError(
                 f"Could not apply VibeSys state transition at {path}: {exc}"
@@ -292,7 +446,7 @@ class StateNamespace:
         root = self._validated_root()
         namespace_root = PurePosixPath(root.relative_to(self._project_root).as_posix())
         if not root.exists():
-            return StateSnapshot(namespace_root=namespace_root, files=())
+            return StateSnapshot._create(namespace_root, ())
 
         files: list[StateFile] = []
         try:
@@ -319,17 +473,36 @@ class StateNamespace:
             raise ProjectStateError(
                 f"Could not snapshot VibeSys {self._kind} state at {root}: {exc}"
             ) from exc
-        return StateSnapshot(namespace_root=namespace_root, files=tuple(files))
+        return StateSnapshot._create(namespace_root, tuple(files))
 
-    def project_relative_path(
-        self, relative_path: str | PurePosixPath | None = None
-    ) -> PurePosixPath:
-        """Return a safe project-relative location for display or external APIs.
+    def agent_visible_path(self, relative_path: str | PurePosixPath | None = None) -> str:
+        """Return a safe project-relative location for an agent-facing prompt.
 
-        Filesystem reads and writes must still use this namespace's typed
-        methods. This representation exists for agent prompts and external
-        libraries whose contracts require a path.
+        Filesystem reads and writes must still use this namespace's typed methods.
         """
+        return self._project_relative_path(relative_path).as_posix()
+
+    def equivalent_external_file(
+        self,
+        project_root: Path | str,
+        relative_path: str | PurePosixPath,
+    ) -> Path:
+        """Resolve the equivalent state file inside another project worktree."""
+        root = Path(project_root).resolve()
+        if not root.is_dir():
+            raise ProjectStateError(f"Project root is not a directory: {root}")
+        relative = self._project_relative_path(relative_path)
+        return _contained_without_symlinks(
+            root,
+            root.joinpath(*relative.parts),
+            kind="equivalent external state file",
+        )
+
+    def _project_relative_path(
+        self,
+        relative_path: str | PurePosixPath | None = None,
+    ) -> PurePosixPath:
+        """Return this namespace's validated project-relative location."""
         root = self._validated_root()
         result = PurePosixPath(root.relative_to(self._project_root).as_posix())
         if relative_path is not None:
@@ -410,11 +583,6 @@ class StateSlot[ModelT: BaseModel]:
         self._relative_path = _validate_state_relative_path(relative_path)
         self._model_type = model_type
 
-    @property
-    def project_relative_path(self) -> PurePosixPath:
-        """Return this slot's validated project-relative path."""
-        return self._namespace.project_relative_path(self._relative_path)
-
     def load_optional(self) -> ModelT | None:
         """Load this slot, returning ``None`` only when it is absent."""
         return self._namespace.load_optional(self._relative_path, self._model_type)
@@ -427,24 +595,66 @@ class StateSlot[ModelT: BaseModel]:
         """Atomically save or clear this slot."""
         self.apply(self.transition(model))
 
+    def serialize_transition(self, transition: StateTransition) -> bytes:
+        """Serialize one validated transition without exposing its state path."""
+        validated = self.validate_transition(transition)
+        document = (
+            None
+            if validated._next_document is None
+            else json.loads(validated._next_document._contents)
+        )
+        return _serialize_json_object(
+            {
+                "schema_version": 1,
+                "document": document,
+            },
+            subject="state transition",
+        )
+
+    def deserialize_transition(self, payload: bytes) -> StateTransition:
+        """Parse and schema-validate a transition for exactly this slot."""
+        if not isinstance(payload, bytes):  # pyright: ignore[reportUnnecessaryIsInstance]
+            raise TypeError("serialized state transition must be bytes")
+        try:
+            raw = json.loads(payload)
+        except (UnicodeDecodeError, ValueError) as exc:
+            raise ProjectStateError("Serialized state transition is not valid JSON") from exc
+        if not isinstance(raw, dict):
+            raise ProjectStateError("Serialized state transition must be a JSON object")
+        if set(raw) != {"schema_version", "document"} or raw["schema_version"] != 1:
+            raise ProjectStateError("Serialized state transition has an invalid schema")
+        document = raw["document"]
+        if document is None:
+            return self.transition(None)
+        if not isinstance(document, dict):
+            raise ProjectStateError("Serialized state transition document must be an object")
+        try:
+            model = self._model_type.model_validate(document, strict=True)
+        except ValidationError as exc:
+            raise ProjectStateError(
+                f"Serialized state transition does not match the slot schema: {exc}"
+            ) from exc
+        return self.transition(model)
+
     def validate_transition(self, transition: StateTransition) -> StateTransition:
         """Validate a reconstructed transition's target and replacement schema."""
-        if transition.project_relative_path != self.project_relative_path:
+        expected_path = self._namespace._project_relative_path(self._relative_path)
+        if transition._project_relative_path != expected_path:
             raise ProjectStateError(
                 "State transition must target the typed slot: "
-                f"expected {self.project_relative_path}, got "
-                f"{transition.project_relative_path}"
+                f"expected {expected_path}, got "
+                f"{transition._project_relative_path}"
             )
-        if transition.next_document is not None:
+        if transition._next_document is not None:
             try:
                 self._model_type.model_validate_json(
-                    transition.next_document.contents,
+                    transition._next_document._contents,
                     strict=True,
                 )
             except ValidationError as exc:
                 raise ProjectStateError(
                     "State transition document does not match the typed slot schema at "
-                    f"{self.project_relative_path}: {exc}"
+                    f"{expected_path}: {exc}"
                 ) from exc
         return transition
 
@@ -606,12 +816,106 @@ class ProjectStore:
         if not root.is_dir():
             raise ProjectStateError(f"Project root is not a directory: {root}")
         self.project_root = root
-        self.metadata_dir = root / ".vs"
-        self.project_manifest_path = self.metadata_dir / "project.json"
-        self.metadata_gitignore_path = self.metadata_dir / ".gitignore"
-        self.local_dir = self.metadata_dir / "local"
-        self.current_run_path = self.local_dir / "current-run"
+        self._metadata_dir = root / _STATE_DIRECTORY_NAME
+        self._project_manifest_path = self._metadata_dir / "project.json"
+        self._metadata_gitignore_path = self._metadata_dir / ".gitignore"
+        self._local_dir = self._metadata_dir / "local"
+        self._current_run_path = self._local_dir / "current-run"
         self._validate_storage_roots()
+
+    @classmethod
+    def is_project_root(cls, path: Path | str) -> bool:
+        """Return whether *path* is an initialized VibeSys project root."""
+        root = Path(path).expanduser()
+        try:
+            if not root.is_dir() or root.is_symlink():
+                return False
+            metadata = root / _STATE_DIRECTORY_NAME
+            manifest = metadata / "project.json"
+            if metadata.is_symlink() or manifest.is_symlink() or not manifest.is_file():
+                return False
+            _load_model(manifest, ProjectManifest)
+        except (OSError, ProjectStateError):
+            return False
+        return True
+
+    @classmethod
+    def find_projects(cls, collection: Path | str) -> tuple[Path, ...]:
+        """Return initialized projects directly below an existing collection."""
+        root = Path(collection).expanduser().resolve()
+        if not root.is_dir():
+            return ()
+        try:
+            children = tuple(root.iterdir())
+        except OSError as exc:
+            raise ProjectStateError(f"Could not inspect project collection {root}: {exc}") from exc
+        return tuple(
+            sorted(
+                (child.resolve() for child in children if cls.is_project_root(child)),
+                key=Path.as_posix,
+            )
+        )
+
+    @classmethod
+    def log_directory_for(cls, project_root: Path | str, run_id: str) -> Path:
+        """Return a run log destination before the project root is materialized."""
+        root = Path(project_root).expanduser().resolve()
+        if root.exists() and not root.is_dir():
+            raise ProjectStateError(f"Project root is not a directory: {root}")
+        normalized = _validate_run_id(run_id)
+        return _contained_without_symlinks(
+            root,
+            root / _STATE_DIRECTORY_NAME / "local" / "runs" / normalized / "logs",
+            kind="run log directory",
+        )
+
+    def sandbox_paths(self) -> ProjectSandboxPaths:
+        """Return existing framework paths for an application sandbox policy."""
+        self._validate_storage_roots()
+        return ProjectSandboxPaths(
+            read_only_path=(Path(_STATE_DIRECTORY_NAME) if self._metadata_dir.exists() else None),
+            hidden_path=(
+                Path(_STATE_DIRECTORY_NAME) / "local" if self._local_dir.exists() else None
+            ),
+        )
+
+    def log_directory(self, run_id: str) -> Path:
+        """Return the machine-local log directory for one run."""
+        self._validate_storage_roots()
+        return self.log_directory_for(self.project_root, run_id)
+
+    def model_cache_directory(self, name: str) -> Path:
+        """Return a named machine-local model cache directory."""
+        self._validate_storage_roots()
+        cache_root = _contained_without_symlinks(
+            self._local_dir,
+            self._local_dir / "cache",
+            kind="model cache root",
+        )
+        return _contained_state_dir(cache_root, name, kind="model cache")
+
+    def candidate_worktree_directory(self, run_id: str, candidate_id: str) -> Path:
+        """Return the exact Git worktree directory for one run candidate."""
+        candidate_root = _contained_state_dir(
+            self._worktrees_dir(run_id),
+            candidate_id,
+            kind="candidate worktree",
+        )
+        return _contained_state_dir(candidate_root, "workspace", kind="candidate workspace")
+
+    def portable_run_export(self, run_id: str) -> StateSnapshot:
+        """Return all portable documents for one run as an immutable snapshot."""
+        self.load_run(run_id)
+        return _snapshot_directory(
+            project_root=self.project_root, root=self._contained_run_dir(run_id)
+        )
+
+    def git_integration(self, run_id: str) -> ProjectGitIntegration:
+        """Return opaque Git integration capabilities for one run."""
+        return ProjectGitIntegration(
+            _project_root=self.project_root,
+            _run_id=_validate_run_id(run_id),
+        )
 
     def input_fingerprint(self) -> str:
         """Hash the portable project input, excluding metadata, secrets, and caches."""
@@ -635,7 +939,7 @@ class ProjectStore:
     ) -> ProjectManifest:
         """Create the project manifest, or return the existing manifest unchanged."""
         self._validate_storage_roots()
-        if self.project_manifest_path.exists():
+        if self._project_manifest_path.exists():
             manifest = self.load_project()
             self._ensure_local_gitignore()
             return manifest
@@ -646,14 +950,14 @@ class ProjectStore:
             created_at=_aware_now(now),
             initial_input_fingerprint=fingerprint,
         )
-        _atomic_write_model(self.project_manifest_path, manifest)
+        _atomic_write_model(self._project_manifest_path, manifest)
         self._ensure_local_gitignore()
         return manifest
 
     def load_project(self) -> ProjectManifest:
         """Load the project manifest with path-specific validation errors."""
         self._validate_storage_roots()
-        return _load_model(self.project_manifest_path, ProjectManifest)
+        return _load_model(self._project_manifest_path, ProjectManifest)
 
     def new_run_manifest(  # noqa: PLR0913
         self,
@@ -696,14 +1000,14 @@ class ProjectStore:
                 f"Run {manifest.run_id!r} belongs to project {manifest.project_id!r}, "
                 f"not {project.project_id!r}"
             )
-        path = self.run_manifest_path(manifest.run_id)
+        path = self._run_manifest_path(manifest.run_id)
         if path.exists():
             existing = self.load_run(manifest.run_id)
             if existing != manifest:
                 raise ProjectStateError(f"Run metadata already exists with different data: {path}")
         else:
             _atomic_write_model(path, manifest)
-        self.logs_dir(manifest.run_id).mkdir(parents=True, exist_ok=True)
+        self.log_directory(manifest.run_id).mkdir(parents=True, exist_ok=True)
         if make_current:
             self.set_current_run(manifest.run_id)
 
@@ -713,22 +1017,22 @@ class ProjectStore:
         self.load_run(run_id)
         return _snapshot_selected_files(
             project_root=self.project_root,
-            root=self.metadata_dir,
+            root=self._metadata_dir,
             paths=(
-                self.metadata_gitignore_path,
-                self.project_manifest_path,
-                self.run_manifest_path(run_id),
+                self._metadata_gitignore_path,
+                self._project_manifest_path,
+                self._run_manifest_path(run_id),
             ),
         )
 
     def load_run(self, run_id: str) -> RunManifest:
         """Load one run manifest."""
-        return _load_model(self.run_manifest_path(run_id), RunManifest)
+        return _load_model(self._run_manifest_path(run_id), RunManifest)
 
     def run_manifest_snapshot(self, run_id: str) -> StateSnapshot:
         """Snapshot the current portable manifest for one run."""
         self.load_run(run_id)
-        path = self.run_manifest_path(run_id)
+        path = self._run_manifest_path(run_id)
         return _snapshot_selected_files(
             project_root=self.project_root,
             root=path.parent,
@@ -739,7 +1043,7 @@ class ProjectStore:
         self,
         run_id: str,
         configuration: RunConfiguration,
-    ) -> Path:
+    ) -> None:
         """Replace a run's sanitized configuration while preserving its identity."""
         self._validate_storage_roots()
         manifest = self.load_run(run_id)
@@ -748,16 +1052,15 @@ class ProjectStore:
                 f"Run {manifest.run_id!r} uses outer loop "
                 f"{manifest.configuration.outer_loop!r}, not {configuration.outer_loop!r}"
             )
-        path = self.run_manifest_path(run_id)
+        path = self._run_manifest_path(run_id)
         updated = manifest.model_copy(update={"configuration": configuration})
         if updated != manifest:
             _atomic_write_model(path, updated)
-        return path
 
     def list_runs(self) -> list[RunManifest]:
         """Return all runs ordered by creation time, then run ID."""
         self._validate_storage_roots()
-        runs_dir = self.metadata_dir / "runs"
+        runs_dir = self._metadata_dir / "runs"
         if not runs_dir.exists():
             return []
         manifests: list[RunManifest] = []
@@ -775,25 +1078,25 @@ class ProjectStore:
     def current_run_id(self) -> str | None:
         """Return the machine-local current run pointer, if it is set."""
         self._validate_storage_roots()
-        if not self.current_run_path.exists():
+        if not self._current_run_path.exists():
             return None
         try:
-            value = self.current_run_path.read_text(encoding="utf-8").strip()
+            value = self._current_run_path.read_text(encoding="utf-8").strip()
         except OSError as exc:
             raise ProjectStateError(
-                f"Could not read current run pointer {self.current_run_path}: {exc}"
+                f"Could not read current run pointer {self._current_run_path}: {exc}"
             ) from exc
-        return _validate_run_id(value, source=self.current_run_path)
+        return _validate_run_id(value, source=self._current_run_path)
 
     def set_current_run(self, run_id: str | None) -> None:
         """Atomically update or clear the machine-local current run pointer."""
         self._validate_storage_roots()
         if run_id is None:
-            self.current_run_path.unlink(missing_ok=True)
+            self._current_run_path.unlink(missing_ok=True)
             return
         normalized = _validate_run_id(run_id)
         self.load_run(normalized)
-        _atomic_write_text(self.current_run_path, f"{normalized}\n")
+        _atomic_write_text(self._current_run_path, f"{normalized}\n")
 
     def resolve_run(self, run_id: str | None = None) -> RunManifest:
         """Resolve an explicit run, otherwise current, otherwise latest."""
@@ -804,23 +1107,23 @@ class ProjectStore:
             return self.load_run(current)
         latest = self.latest_run()
         if latest is None:
-            raise ProjectStateError(f"No VibeSys runs exist under {self.metadata_dir}")
+            raise ProjectStateError(f"No VibeSys runs exist under {self._metadata_dir}")
         return latest
 
-    def save_round(self, run_id: str, record: RoundRecord) -> Path:
-        """Persist one completed round without overwriting conflicting evidence."""
+    def save_round(self, run_id: str, record: RoundRecord) -> StateSnapshot:
+        """Persist one completed round and return its exact portable snapshot."""
         self._validate_storage_roots()
         self.load_run(run_id)
         contents = serialize_round(record)
         completed = self.load_rounds(run_id)
-        path = self.rounds_dir(run_id) / f"{record.round_number:04d}.json"
+        path = self._rounds_dir(run_id) / f"{record.round_number:04d}.json"
         if record.round_number <= len(completed):
             existing = completed[record.round_number - 1]
             if existing != record:
                 raise ProjectStateError(
                     f"Completed round already exists with different data: {path}"
                 )
-            return path
+            return self.completed_round_snapshot(run_id, record.round_number)
         next_round = len(completed) + 1
         if record.round_number != next_round:
             raise ProjectStateError(
@@ -828,12 +1131,42 @@ class ProjectStore:
                 f"got {record.round_number}"
             )
         _atomic_write_text(path, contents.decode("utf-8"))
-        return path
+        return self.completed_round_snapshot(run_id, record.round_number)
+
+    def prepare_completed_round_snapshot(
+        self,
+        run_id: str,
+        record: RoundRecord,
+    ) -> StateSnapshot:
+        """Build the canonical snapshot for a typed completed round without writing it."""
+        self.load_run(run_id)
+        _validate_portable_round(record, source=self.project_root)
+        root = self._portable_state_dir(run_id, "agent")
+        round_path = self._rounds_dir(run_id) / f"{record.round_number:04d}.json"
+        return StateSnapshot._create(
+            namespace_root=PurePosixPath(root.relative_to(self.project_root).as_posix()),
+            files=(
+                StateFile(
+                    relative_path=PurePosixPath(round_path.relative_to(root).as_posix()),
+                    contents=serialize_round(record),
+                ),
+            ),
+        )
+
+    def restore_completed_round(self, run_id: str, record: RoundRecord) -> StateSnapshot:
+        """Restore one already-committed round from its typed canonical record."""
+        self.load_run(run_id)
+        _validate_portable_round(record, source=self.project_root)
+        directory = self._rounds_dir(run_id)
+        self._validate_round_restore_position(directory, record.round_number)
+        path = directory / f"{record.round_number:04d}.json"
+        _atomic_write_bytes(path, serialize_round(record))
+        return self.completed_round_snapshot(run_id, record.round_number)
 
     def load_rounds(self, run_id: str) -> list[RoundRecord]:
         """Load completed rounds in numeric order."""
         self.load_run(run_id)
-        directory = self.rounds_dir(run_id)
+        directory = self._rounds_dir(run_id)
         if not directory.exists():
             return []
         numbered_paths: list[tuple[int, Path]] = []
@@ -868,18 +1201,18 @@ class ProjectStore:
                 f"Completed round {round_number} does not exist for run {run_id!r}"
             )
         root = self._portable_state_dir(run_id, "agent")
-        path = self.rounds_dir(run_id) / f"{round_number:04d}.json"
+        path = self._rounds_dir(run_id) / f"{round_number:04d}.json"
         return _snapshot_selected_files(
             project_root=self.project_root,
             root=root,
             paths=(path,),
         )
 
-    def run_manifest_path(self, run_id: str) -> Path:
+    def _run_manifest_path(self, run_id: str) -> Path:
         """Return the committed manifest path for *run_id*."""
         return self._contained_run_dir(run_id) / "run.json"
 
-    def rounds_dir(self, run_id: str) -> Path:
+    def _rounds_dir(self, run_id: str) -> Path:
         """Return the agent loop's committed completed-round directory."""
         return _contained_state_dir(
             self._portable_state_dir(run_id, "agent"),
@@ -921,15 +1254,11 @@ class ProjectStore:
             portable=False,
         )
 
-    def logs_dir(self, run_id: str) -> Path:
-        """Return the uncommitted log directory for *run_id*."""
-        return self._contained_local_run_dir(run_id) / "logs"
-
-    def round_transaction_path(self, run_id: str) -> Path:
+    def _round_transaction_path(self, run_id: str) -> Path:
         """Return the machine-local round commit transaction path."""
         return self._contained_local_run_dir(run_id) / "round-transaction.json"
 
-    def worktrees_dir(self, run_id: str) -> Path:
+    def _worktrees_dir(self, run_id: str) -> Path:
         """Return the machine-local directory reserved for candidate worktrees."""
         return _contained_state_dir(
             self._contained_local_run_dir(run_id),
@@ -941,8 +1270,8 @@ class ProjectStore:
         self._validate_storage_roots()
         normalized = _validate_run_id(run_id)
         return _contained_without_symlinks(
-            self.metadata_dir,
-            self.metadata_dir / "runs" / normalized,
+            self._metadata_dir,
+            self._metadata_dir / "runs" / normalized,
             kind="portable run",
         )
 
@@ -950,32 +1279,32 @@ class ProjectStore:
         self._validate_storage_roots()
         normalized = _validate_run_id(run_id)
         return _contained_without_symlinks(
-            self.local_dir,
-            self.local_dir / "runs" / normalized,
+            self._local_dir,
+            self._local_dir / "runs" / normalized,
             kind="local run",
         )
 
     def _validate_storage_roots(self) -> None:
-        _validate_storage_root(self.metadata_dir, self.project_root, name="metadata")
-        _validate_storage_root(self.local_dir, self.metadata_dir, name="local metadata")
+        _validate_storage_root(self._metadata_dir, self.project_root, name="metadata")
+        _validate_storage_root(self._local_dir, self._metadata_dir, name="local metadata")
 
     def _ensure_local_gitignore(self) -> None:
         self._validate_storage_roots()
         required = "/local/"
         try:
             existing = (
-                self.metadata_gitignore_path.read_text(encoding="utf-8")
-                if self.metadata_gitignore_path.exists()
+                self._metadata_gitignore_path.read_text(encoding="utf-8")
+                if self._metadata_gitignore_path.exists()
                 else ""
             )
         except OSError as exc:
             raise ProjectStateError(
-                f"Could not read VibeSys ignore contract {self.metadata_gitignore_path}: {exc}"
+                f"Could not read VibeSys ignore contract {self._metadata_gitignore_path}: {exc}"
             ) from exc
         if required in existing.splitlines():
             return
         separator = "" if not existing or existing.endswith("\n") else "\n"
-        _atomic_write_text(self.metadata_gitignore_path, f"{existing}{separator}{required}\n")
+        _atomic_write_text(self._metadata_gitignore_path, f"{existing}{separator}{required}\n")
 
     @staticmethod
     def _load_round(path: Path) -> RoundRecord:
@@ -988,6 +1317,45 @@ class ProjectStore:
             ) from exc
         _validate_portable_round(record, source=path)
         return record
+
+    @classmethod
+    def _validate_round_restore_position(cls, directory: Path, round_number: int) -> None:
+        """Require valid predecessors while permitting repair of the target file."""
+        if round_number < 1:
+            raise ProjectStateError(f"Round number must be positive, got {round_number}")
+        if not directory.exists():
+            existing: dict[int, Path] = {}
+        else:
+            existing = {}
+            for path in directory.iterdir():
+                match = _ROUND_FILE_PATTERN.fullmatch(path.name)
+                if not path.is_file() or path.is_symlink() or match is None:
+                    raise ProjectStateError(f"Unexpected completed-round entry: {path}")
+                file_number = int(match.group("round"))
+                if file_number in existing:
+                    raise ProjectStateError(
+                        f"Duplicate completed-round number {file_number}: "
+                        f"{existing[file_number]} and {path}"
+                    )
+                existing[file_number] = path
+
+        unexpected_later = sorted(number for number in existing if number > round_number)
+        if unexpected_later:
+            raise ProjectStateError(
+                f"Cannot restore round {round_number} before existing round {unexpected_later[0]}"
+            )
+        for predecessor in range(1, round_number):
+            path = existing.get(predecessor)
+            if path is None:
+                raise ProjectStateError(
+                    f"Cannot restore round {round_number} without completed round {predecessor}"
+                )
+            restored = cls._load_round(path)
+            if restored.round_number != predecessor:
+                raise ProjectStateError(
+                    f"Round file {path} contains round {restored.round_number}, "
+                    f"expected {predecessor}"
+                )
 
 
 def _aware_now(value: datetime | None) -> datetime:
@@ -1053,7 +1421,7 @@ def _validate_project_state_path(path: PurePosixPath) -> None:
         _validate_state_relative_path(path)
     except ProjectStateError as exc:
         raise ValueError(str(exc)) from exc
-    if path.parts[:1] != (".vs",) or path == PurePosixPath(".vs"):
+    if path.parts[:1] != (_STATE_DIRECTORY_NAME,) or path == PurePosixPath(_STATE_DIRECTORY_NAME):
         raise ValueError("state document paths must identify a file below .vs")
 
 
@@ -1071,11 +1439,11 @@ def _validate_snapshot_relative_path(path: PurePosixPath) -> None:
 def _validate_snapshot_root(path: PurePosixPath) -> None:
     _validate_snapshot_relative_path(path)
     parts = path.parts
-    if parts == (".vs",):
+    if parts == (_STATE_DIRECTORY_NAME,):
         return
-    if parts[:2] == (".vs", "local"):
+    if parts[:2] == (_STATE_DIRECTORY_NAME, "local"):
         raise ValueError("portable state snapshot root must not be below .vs/local")
-    if parts[:2] != (".vs", "runs") or len(parts) not in {3, 4}:
+    if parts[:2] != (_STATE_DIRECTORY_NAME, "runs") or len(parts) not in {3, 4}:
         raise ValueError(
             "portable state snapshot root must be .vs, .vs/runs/<run-id>, "
             "or .vs/runs/<run-id>/<namespace>"
@@ -1122,9 +1490,44 @@ def _snapshot_selected_files(
             f"Could not read portable VibeSys snapshot below {snapshot_root}: {exc}"
         ) from exc
     files.sort(key=lambda item: item.relative_path.as_posix())
-    return StateSnapshot(
-        namespace_root=PurePosixPath(snapshot_root.relative_to(project_root).as_posix()),
-        files=tuple(files),
+    return StateSnapshot._create(
+        PurePosixPath(snapshot_root.relative_to(project_root).as_posix()),
+        tuple(files),
+    )
+
+
+def _snapshot_directory(*, project_root: Path, root: Path) -> StateSnapshot:
+    snapshot_root = _contained_without_symlinks(
+        project_root,
+        root,
+        kind="portable snapshot root",
+    )
+    if not snapshot_root.exists():
+        return StateSnapshot._create(
+            PurePosixPath(snapshot_root.relative_to(project_root).as_posix()),
+            (),
+        )
+    try:
+        entries = tuple(
+            sorted(
+                snapshot_root.rglob("*"),
+                key=lambda item: item.relative_to(snapshot_root).as_posix(),
+            )
+        )
+        symlinks = tuple(path for path in entries if path.is_symlink())
+        if symlinks:
+            raise ProjectStateError(
+                f"Portable VibeSys snapshot must not contain symlinks: {symlinks[0]}"
+            )
+        paths = tuple(path for path in entries if not path.is_dir())
+    except OSError as exc:
+        raise ProjectStateError(
+            f"Could not inspect portable VibeSys snapshot below {snapshot_root}: {exc}"
+        ) from exc
+    return _snapshot_selected_files(
+        project_root=project_root,
+        root=snapshot_root,
+        paths=paths,
     )
 
 
@@ -1275,6 +1678,14 @@ def _serialize_state_model(model: BaseModel) -> bytes:
     return f"{content}\n".encode()
 
 
+def _serialize_json_object(value: dict[str, object], *, subject: str) -> bytes:
+    try:
+        content = json.dumps(value, allow_nan=False, indent=2, sort_keys=True)
+    except (TypeError, ValueError) as exc:
+        raise ProjectStateError(f"Could not serialize {subject}") from exc
+    return f"{content}\n".encode()
+
+
 def _atomic_write_model(path: Path, model: BaseModel) -> None:
     _atomic_write_bytes(path, _serialize_state_model(model))
 
@@ -1340,7 +1751,7 @@ def _load_model[ModelT: BaseModel](path: Path, model_type: type[ModelT]) -> Mode
         return model_type.model_validate_json(content, strict=True)
     except FileNotFoundError as exc:
         raise ProjectStateError(f"VibeSys metadata file does not exist: {path}") from exc
-    except OSError as exc:
+    except (OSError, UnicodeError) as exc:
         raise ProjectStateError(f"Could not read VibeSys metadata at {path}: {exc}") from exc
     except ValidationError as exc:
         raise ProjectStateError(

@@ -7,6 +7,7 @@ considers trusted, read-only, or secret.
 
 from pathlib import Path
 
+from vs_project_state import ProjectStore
 from vs_sandbox import ProjectPathPolicy
 
 TRUSTED_PROJECT_INPUT_PATHS: tuple[str, ...] = (
@@ -28,11 +29,12 @@ def build_project_path_policy(
 ) -> ProjectPathPolicy:
     """Return the agent sandbox policy for one canonical project."""
     root = project_root.resolve()
+    state_paths = ProjectStore(root).sandbox_paths()
     read_only = {
         path
         for path in (
             Path(".git"),
-            Path(".vs"),
+            state_paths.read_only_path,
             *(Path(value) for value in TRUSTED_PROJECT_INPUT_PATHS),
             _project_relative(root, evaluator_source),
         )
@@ -41,11 +43,11 @@ def build_project_path_policy(
     hidden = {
         path
         for path in (
-            Path(".vs/local"),
+            state_paths.hidden_path,
             Path("agent.toml"),
             *(path.relative_to(root) for path in root.glob(".env*")),
         )
-        if (root / path).exists()
+        if path is not None and (root / path).exists()
     }
     return ProjectPathPolicy(
         hidden_paths=_minimal_paths(hidden),

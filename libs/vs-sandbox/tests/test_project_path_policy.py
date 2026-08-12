@@ -17,8 +17,8 @@ from vs_sandbox.project_paths import ProjectPathPolicy, ProjectPathPolicyError
 
 def _workspace(tmp_path: Path) -> Path:
     workspace = tmp_path / "workspace"
-    (workspace / ".vs" / "local").mkdir(parents=True)
-    (workspace / ".vs" / "run.json").write_text("{}\n")
+    (workspace / ".state" / "local").mkdir(parents=True)
+    (workspace / ".state" / "run.json").write_text("{}\n")
     (workspace / ".env").write_text("TOKEN=secret\n")
     (workspace / "Cargo.toml").write_text("[package]\n")
     return workspace
@@ -26,8 +26,8 @@ def _workspace(tmp_path: Path) -> Path:
 
 def _policy() -> ProjectPathPolicy:
     return ProjectPathPolicy(
-        read_only_paths=(".vs", "Cargo.toml"),
-        hidden_paths=(".vs/local", ".env"),
+        read_only_paths=(".state", "Cargo.toml"),
+        hidden_paths=(".state/local", ".env"),
     )
 
 
@@ -90,10 +90,10 @@ class TestProjectPathPolicy:
     @pytest.mark.parametrize(
         ("hidden", "read_only"),
         [
-            ((".vs", ".vs/local"), ()),
+            ((".state", ".state/local"), ()),
             ((), ("src", "src/generated")),
-            ((".vs",), (".vs",)),
-            ((".vs",), (".vs/schema.json",)),
+            ((".state",), (".state",)),
+            ((".state",), (".state/schema.json",)),
         ],
     )
     def test_rejects_redundant_or_unreachable_overlap(
@@ -110,8 +110,8 @@ class TestProjectPathPolicy:
 
         policy.validate(workspace)
 
-        assert policy.read_only_paths == (Path(".vs"), Path("Cargo.toml"))
-        assert policy.hidden_paths == (Path(".vs/local"), Path(".env"))
+        assert policy.read_only_paths == (Path(".state"), Path("Cargo.toml"))
+        assert policy.hidden_paths == (Path(".state/local"), Path(".env"))
 
     def test_rejects_missing_path(self, tmp_path: Path) -> None:
         workspace = _workspace(tmp_path)
@@ -121,7 +121,7 @@ class TestProjectPathPolicy:
             policy.validate(workspace)
 
     def test_rejects_missing_or_non_directory_workspace(self, tmp_path: Path) -> None:
-        policy = ProjectPathPolicy(hidden_paths=(".vs",))
+        policy = ProjectPathPolicy(hidden_paths=(".state",))
 
         with pytest.raises(ValueError, match="workspace does not exist"):
             policy.validate(tmp_path / "missing")
@@ -157,8 +157,8 @@ class TestProjectPathPolicy:
 
     def test_rechecks_overlap_after_resolving_symlinks(self, tmp_path: Path) -> None:
         workspace = _workspace(tmp_path)
-        (workspace / "alias").symlink_to(workspace / ".vs", target_is_directory=True)
-        policy = ProjectPathPolicy(hidden_paths=("alias/local",), read_only_paths=(".vs/local",))
+        (workspace / "alias").symlink_to(workspace / ".state", target_is_directory=True)
+        policy = ProjectPathPolicy(hidden_paths=("alias/local",), read_only_paths=(".state/local",))
 
         with pytest.raises(ValueError, match="both hidden and read-only"):
             policy.validate(workspace)
@@ -183,8 +183,8 @@ class TestBubblewrapProjectPaths:
         readonly_dir = _sequence_index(
             argv,
             "--ro-bind",
-            str(workspace / ".vs"),
-            str(workspace / ".vs"),
+            str(workspace / ".state"),
+            str(workspace / ".state"),
         )
         readonly_file = _sequence_index(
             argv,
@@ -192,7 +192,7 @@ class TestBubblewrapProjectPaths:
             str(workspace / "Cargo.toml"),
             str(workspace / "Cargo.toml"),
         )
-        hidden_dir = _sequence_index(argv, "--tmpfs", str(workspace / ".vs" / "local"))
+        hidden_dir = _sequence_index(argv, "--tmpfs", str(workspace / ".state" / "local"))
         hidden_file = _sequence_index(argv, "--ro-bind", "/dev/null", str(workspace / ".env"))
         chdir = _sequence_index(argv, "--chdir", str(workspace))
 
@@ -211,15 +211,15 @@ class TestBubblewrapProjectPaths:
             project_path_policy=_policy(),
         )
         script = (
-            "test ! -e .vs/local/host-secret"
+            "test ! -e .state/local/host-secret"
             " && test ! -s .env"
             " && ! printf changed > .env"
             " && ! printf changed > Cargo.toml"
-            " && ! printf changed > .vs/run.json"
-            " && printf ephemeral > .vs/local/agent-file"
+            " && ! printf changed > .state/run.json"
+            " && printf ephemeral > .state/local/agent-file"
             " && printf editable > source.txt"
         )
-        (workspace / ".vs" / "local" / "host-secret").write_text("secret\n")
+        (workspace / ".state" / "local" / "host-secret").write_text("secret\n")
 
         result = subprocess.run(  # noqa: S603
             sandbox.wrap(["/bin/sh", "-c", script]),
@@ -231,8 +231,8 @@ class TestBubblewrapProjectPaths:
         assert result.returncode == 0, result.stderr
         assert (workspace / ".env").read_text() == "TOKEN=secret\n"
         assert (workspace / "Cargo.toml").read_text() == "[package]\n"
-        assert (workspace / ".vs" / "run.json").read_text() == "{}\n"
-        assert not (workspace / ".vs" / "local" / "agent-file").exists()
+        assert (workspace / ".state" / "run.json").read_text() == "{}\n"
+        assert not (workspace / ".state" / "local" / "agent-file").exists()
         assert (workspace / "source.txt").read_text() == "editable"
 
     def test_builder_passes_validated_policy_to_linux_backend(
@@ -274,9 +274,9 @@ class TestSeatbeltProjectPaths:
 
         profile = sandbox.profile()
         workspace_allow = f'(allow file-read* file-write* (subpath "{workspace}"))'
-        readonly_dir = f'(deny file-write* (subpath "{workspace / ".vs"}"))'
+        readonly_dir = f'(deny file-write* (subpath "{workspace / ".state"}"))'
         readonly_file = f'(deny file-write* (literal "{workspace / "Cargo.toml"}"))'
-        hidden_dir = f'(deny file-read* file-write* (subpath "{workspace / ".vs" / "local"}"))'
+        hidden_dir = f'(deny file-read* file-write* (subpath "{workspace / ".state" / "local"}"))'
         hidden_file = f'(deny file-read* file-write* (literal "{workspace / ".env"}"))'
 
         allow_index = profile.index(workspace_allow)

@@ -13,7 +13,7 @@ import json
 import random
 import threading
 import time
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -54,12 +54,7 @@ from vibesys.profilers import ProfilerKind
 from vibesys.run import GitTracker, RunState, RunStateNamespace
 from vibesys.sandbox.run_environment import CandidateRuntime, RunEnvironmentSpec
 from vibesys.schemas import JudgeResponse, MutatorResponse, ProfilerSummary, Verdict
-from vs_project_state import (
-    EvolveRunConfiguration,
-    ProjectStore,
-    StateFile,
-    StateSnapshot,
-)
+from vs_project_state import EvolveRunConfiguration, ProjectStore
 
 _LLM_SERVING_DOMAIN = resolve_domain(DomainName.LLM_SERVING)
 
@@ -803,35 +798,44 @@ def test_openevolve_policy_persists_multi_file_search_state(tmp_path, ref_file):
     assert child.policy_target_island == 0
 
 
-def test_candidate_code_is_multi_file_but_excludes_vs_state(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+def test_candidate_code_is_multi_file_but_excludes_framework_state(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     tracker = GitTracker(tmp_path, run_id="test-evolve", log=lambda _message: None)
     (tmp_path / "src").mkdir()
     (tmp_path / "src" / "lib.rs").write_text("baseline\n")
     (tmp_path / "src" / "ffi.rs").write_text("baseline\n")
     tracker.init(existing=False)
+    store = ProjectStore(tmp_path)
+    store.create_project("evolve patch test")
+    assert tracker.project_branch is not None
+    assert tracker.trusted_input_baseline is not None
+    store.create_run(
+        store.new_run_manifest(
+            "evolve patch test",
+            run_id="test-evolve",
+            branch=tracker.project_branch,
+            vibesys_version="test",
+            configuration=_evolution_configuration(),
+            trusted_input_baseline=tracker.trusted_input_baseline,
+        )
+    )
+    tracker.snapshot_with_framework_metadata(
+        "initialize state",
+        store.initialization_snapshot("test-evolve"),
+    )
 
     (tmp_path / "src" / "lib.rs").write_text("optimized lib\n")
     (tmp_path / "src" / "ffi.rs").write_text("optimized ffi\n")
     tracker.snapshot("candidate")
-    tracker.snapshot_framework_state(
-        "evolve state",
-        StateSnapshot(
-            namespace_root=PurePosixPath(".vs/runs/test-evolve/evolve"),
-            files=(
-                StateFile(
-                    relative_path=PurePosixPath("population.json"),
-                    contents=b"[]\n",
-                ),
-            ),
-        ),
-    )
+    evolve_state = store.portable_namespace("test-evolve", "evolve")
+    (evolve_state.external_directory() / "population.json").write_text("[]\n")
+    tracker.snapshot_framework_state("evolve state", evolve_state.snapshot())
     commit = tracker.current_sha()
 
     assert commit is not None
     code = _candidate_code(SimpleNamespace(git=tracker), commit)  # pyright: ignore[reportArgumentType]  # tracked: #297
     assert "src/lib.rs" in code
     assert "src/ffi.rs" in code
-    assert ".vs/runs/test-evolve/evolve/population.json" not in code
+    assert "population.json" not in code
 
 
 def test_search_policy_initialization_failure_closes_context(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
@@ -1335,7 +1339,7 @@ def test_evaluate_in_subcontext_builds_worktree_and_evaluates(tmp_path, ref_file
             parent.git.run(["git", "cat-file", "-e", outcome.commit], check=False).returncode == 0
         )
         # The candidate's worktree is torn down when its sub-context closes.
-        cand_ws = parent.project_store.worktrees_dir(parent.run_id) / "g1c1" / "workspace"
+        cand_ws = parent.project_store.candidate_worktree_directory(parent.run_id, "g1c1")
         assert not cand_ws.exists()
         retained = f"refs/vibesys/{parent.run_id}/candidates/g1c1"
         resolved = parent.git.run(["git", "rev-parse", retained])

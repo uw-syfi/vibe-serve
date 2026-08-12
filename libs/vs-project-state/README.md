@@ -2,10 +2,13 @@
 
 Typed persistence for the `.vs` directory in an in-place VibeSys project.
 
-The library owns portable project manifests, run manifests, completed-round
-records, input fingerprints, and machine-local operational paths. It does not
-invoke Git, construct agents, resolve compute backends, or read provider
-credentials. Those application concerns remain in VibeSys.
+The library owns the physical project-state layout, portable project and run
+manifests, completed-round records, input fingerprints, and machine-local
+operational paths. Code outside this package uses semantic operations and
+typed capabilities. It does not construct or interpret paths within `.vs`.
+
+The library does not invoke Git, construct agents, resolve compute backends,
+or read provider credentials. Those application concerns remain in VibeSys.
 
 ## State layout
 
@@ -23,7 +26,7 @@ credentials. Those application concerns remain in VibeSys.
     └── runs/<run-id>/
         ├── agent/active.json
         ├── logs/
-        ├── round-transaction.json
+        ├── transaction/round.json
         └── worktrees/
 ```
 
@@ -36,16 +39,15 @@ Loop and subsystem code acquire a typed `StateNamespace` through
 atomically saves Pydantic models by safe relative path. `load_optional()`
 returns `None` only for an absent file; malformed or schema-invalid state is an
 error. Required loads report absence as `StateModelNotFoundError`.
-`transition()` prepares an immutable `StateTransition` containing the exact
-typed `StateDocument` replacement, or a deletion, and `apply()` commits that
-transition atomically. This lets application transactions journal one validated
-state change without depending on the model's owning loop package. A typed
-`StateSlot` binds a namespace path to its Pydantic schema, so reconstructed
-journal transitions are schema-validated before recovery applies them. Portable
-namespaces also produce deterministic immutable
-`StateSnapshot` values for application-level Git integration. Machine-local
-namespaces cannot be snapshotted. The directory-returning methods remain only
-for explicit path-based integrations such as an external search library.
+`transition()` prepares an opaque immutable `StateTransition`, and `apply()`
+commits that transition atomically. This lets application transactions journal
+one validated state change without depending on the model's owning loop
+package. A typed `StateSlot` binds a namespace path to its Pydantic schema, so
+reconstructed journal transitions are schema-validated before recovery applies
+them. Portable namespaces also produce deterministic immutable `StateSnapshot`
+values for application-level Git integration. Machine-local namespaces cannot
+be snapshotted. Directory-returning methods are reserved for explicit
+path-based integrations such as an external search library.
 
 `ProjectStore` also produces typed metadata snapshots without exposing path to
 bytes mappings:
@@ -57,8 +59,10 @@ bytes mappings:
   completed-round record.
 
 These snapshots are portable selections for the application Git layer. Their
-roots and relative files are validated together, and no snapshot can address
-`.vs/local`.
+physical roots and relative files are validated inside this package, and no
+snapshot can address machine-local state. `ProjectGitIntegration` converts them into
+validated Git pathspec and destination capabilities. The Git adapter consumes
+those capabilities without knowing the project-state layout.
 
 ## Run configuration
 

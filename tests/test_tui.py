@@ -203,7 +203,7 @@ def test_inspector_answers_round_and_failure_queries(tmp_path):  # noqa: ANN001,
         _round(2, metric=1100.0, passed=False, reason="Judge FAIL: latency regressed"),
     )
     supervisor = RunSupervisor()
-    supervisor.attach(store.logs_dir(run_id), project_store=store, run_id=run_id)
+    supervisor.attach(store.log_directory(run_id), project_store=store, run_id=run_id)
     inspector = RunInspector(supervisor)
     assert '"round": 2' in inspector.round_detail(2)
     assert "latency regressed" in inspector.answer("why did the judge fail?")
@@ -239,7 +239,7 @@ def test_side_channel_chat_output_is_tagged_without_changing_active_agent(tmp_pa
 
 def test_bootstrap_events_migrate_to_run_audit_without_replacing_history(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     store, run_id = _project_run(tmp_path / "project")
-    logs = store.logs_dir(run_id)
+    logs = store.log_directory(run_id)
     historical = RunSupervisor()
     historical.attach(logs, project_store=store, run_id=run_id)
     historical.record(EventType.RUN_FINISHED, "previous invocation", status="completed")
@@ -280,7 +280,7 @@ def test_bootstrap_events_migrate_to_run_audit_without_replacing_history(tmp_pat
 
 def test_history_query_reads_prior_and_current_session_events(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     store, run_id = _project_run(tmp_path / "project")
-    logs = store.logs_dir(run_id)
+    logs = store.log_directory(run_id)
     historical = RunSupervisor()
     historical.attach(logs, project_store=store, run_id=run_id)
     historical.record(EventType.ROUND_FINISHED, status="completed", round_label="round-1")
@@ -305,10 +305,10 @@ def test_performance_query_reads_canonical_completed_rounds(tmp_path):  # noqa: 
     store.save_round(run_id, _round(2, metric=None, passed=False))
     store.save_round(run_id, _round(3, metric=2400.0, passed=True))
     supervisor = RunSupervisor()
-    supervisor.attach(store.logs_dir(run_id))
+    supervisor.attach(store.log_directory(run_id))
     assert SupervisionService(supervisor).execute(PerformanceQuery()).performance == []
 
-    supervisor.attach(store.logs_dir(run_id), project_store=store, run_id=run_id)
+    supervisor.attach(store.log_directory(run_id), project_store=store, run_id=run_id)
 
     response = SupervisionService(supervisor).execute(PerformanceQuery())
 
@@ -357,7 +357,7 @@ def test_inspector_searches_portable_loop_state(
     )
     state_path.write_text(contents, encoding="utf-8")
     supervisor = RunSupervisor()
-    supervisor.attach(store.logs_dir(run_id), project_store=store, run_id=run_id)
+    supervisor.attach(store.log_directory(run_id), project_store=store, run_id=run_id)
 
     answer = RunInspector(supervisor).answer(question)
 
@@ -366,11 +366,11 @@ def test_inspector_searches_portable_loop_state(
 
 def test_inspector_searches_canonical_local_run_log(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     store, run_id = _project_run(tmp_path / "project")
-    (store.logs_dir(run_id) / "run-20260812-120000.log").write_text(
+    (store.log_directory(run_id) / "run-20260812-120000.log").write_text(
         "Benchmark throughput reached 2400 ops/s.", encoding="utf-8"
     )
     supervisor = RunSupervisor()
-    supervisor.attach(store.logs_dir(run_id), project_store=store, run_id=run_id)
+    supervisor.attach(store.log_directory(run_id), project_store=store, run_id=run_id)
 
     answer = RunInspector(supervisor).answer("what is the latest benchmark result?")
 
@@ -495,17 +495,17 @@ def test_run_context_chat_exposes_trajectory_without_inlining_it_in_prompt(tmp_p
     portable_metrics.write_text(
         '{"iteration": 2, "throughput_trend": "improved"}', encoding="utf-8"
     )
-    run_log = store.logs_dir(run_id) / "run-20260812-120000.log"
+    run_log = store.log_directory(run_id) / "run-20260812-120000.log"
     run_log.write_text("Round 2 improved throughput.", encoding="utf-8")
     supervisor = RunSupervisor()
-    supervisor.attach(store.logs_dir(run_id), project_store=store, run_id=run_id)
+    supervisor.attach(store.log_directory(run_id), project_store=store, run_id=run_id)
     ctx = _RunContext.__new__(_RunContext)
     ctx.supervisor = supervisor
     ctx.agent_runner = Mock()
     ctx.agent_runner.invoke_text.return_value = "It improved in round 2."
     ctx._paths = RunPaths(  # noqa: SLF001  # tracked: #288
         project_root=store.project_root,
-        log_dir=store.logs_dir(run_id),
+        log_dir=store.log_directory(run_id),
         run_log_path=run_log,
     )
     ctx.project_store = store

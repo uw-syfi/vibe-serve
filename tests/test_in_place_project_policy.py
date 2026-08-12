@@ -5,6 +5,7 @@ from vibesys.run.project_policy import (
     TRUSTED_PROJECT_INPUT_PATHS,
     build_project_path_policy,
 )
+from vs_project_state import ProjectStore
 
 
 def test_trusted_project_paths_have_one_application_owner() -> None:
@@ -21,7 +22,9 @@ def test_project_policy_protects_trusted_inputs_and_hides_local_state(tmp_path: 
         else:
             path.mkdir()
     (project / ".git").mkdir()
-    (project / ".vs" / "local").mkdir(parents=True)
+    store = ProjectStore(project)
+    store.create_project("test")
+    store.model_cache_directory("test").mkdir(parents=True)
     (project / "agent.toml").write_text("private\n")
     (project / ".env.local").write_text("TOKEN=private\n")
 
@@ -29,14 +32,15 @@ def test_project_policy_protects_trusted_inputs_and_hides_local_state(tmp_path: 
         project,
         evaluator_source=project / "_evaluator" / "nested",
     )
+    state_paths = store.sandbox_paths()
 
     assert set(policy.read_only_paths) == {
         Path(".git"),
-        Path(".vs"),
+        state_paths.read_only_path,
         *(Path(relative) for relative in TRUSTED_PROJECT_INPUT_PATHS),
     }
     assert set(policy.hidden_paths) == {
-        Path(".vs/local"),
+        state_paths.hidden_path,
         Path(".env.local"),
         Path("agent.toml"),
     }

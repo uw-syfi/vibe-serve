@@ -18,8 +18,9 @@ from vibesys.input_manifest import (
     render_input_manifest,
 )
 from vibesys.run.workspace import CopySpec, GitSourceSpec, InputProjectSpec, Workspace
+from vs_project_state import is_project_state_path
 
-_PRIVATE_SOURCE_NAMES = frozenset({".git", ".vs", "agent.toml"})
+_PRIVATE_PROJECT_ENTRY_NAMES = frozenset({".git", "agent.toml"})
 
 
 class ProjectProvisioningError(ValueError):
@@ -52,8 +53,9 @@ def provision_project(
     """Copy and normalize ``input_root`` into one self-contained project root.
 
     The destination must not exist and must be outside the input tree. The
-    function does not initialize Git or ``.vs``. If any copy, source checkout,
-    or manifest rewrite fails, the newly created destination is removed.
+    The function does not initialize Git or VibeSys project metadata. If any
+    copy, source checkout, or manifest rewrite fails, the newly created
+    destination is removed.
     """
     source = _require_input_root(input_root)
     destination = destination_root.expanduser().resolve()
@@ -61,8 +63,8 @@ def provision_project(
     manifest = _load_manifest(source)
     _validate_materialization_contract(manifest, spec)
 
-    private_names = _private_source_names(source)
-    primary_steps = _primary_steps(source, destination, spec, private_names)
+    copy_excludes = _project_copy_excludes(source)
+    primary_steps = _primary_steps(source, destination, spec, copy_excludes)
 
     try:
         spec.workspace.create()
@@ -163,18 +165,17 @@ def _validate_materialization_contract(
         )
 
 
-def _private_source_names(source: Path) -> frozenset[str]:
-    root_environment_files = {
-        child.name for child in source.iterdir() if child.name.startswith(".env")
-    }
-    return _PRIVATE_SOURCE_NAMES | root_environment_files
+def _project_copy_excludes(source: Path) -> frozenset[str]:
+    return frozenset(
+        child.name for child in source.iterdir() if not _should_copy_project_entry(Path(child.name))
+    )
 
 
 def _primary_steps(
     source: Path,
     destination: Path,
     spec: ProjectProvisioningSpec,
-    private_names: frozenset[str],
+    copy_excludes: frozenset[str],
 ) -> tuple[CopySpec | GitSourceSpec | InputProjectSpec, ...]:
     steps: list[CopySpec | GitSourceSpec | InputProjectSpec] = []
     if spec.seed is not None:
@@ -183,7 +184,7 @@ def _primary_steps(
                 src=spec.seed,
                 dest=destination,
                 respect_gitignore=_is_git_worktree(spec.seed),
-                extra_excludes=_private_source_names(spec.seed),
+                extra_excludes=_project_copy_excludes(spec.seed),
             )
         )
     steps.extend(GitSourceSpec(source=item) for item in spec.workspace_sources)
@@ -192,7 +193,7 @@ def _primary_steps(
             src=source,
             dest=destination,
             reject_collisions=spec.seed is not None or bool(spec.workspace_sources),
-            extra_excludes=private_names | spec.input_excludes,
+            extra_excludes=copy_excludes | spec.input_excludes,
         )
     )
     if spec.input_project_dir is not None:
@@ -234,7 +235,7 @@ def _materialize_evaluator(
                 src=evaluator_source,
                 dest=evaluator_destination,
                 respect_gitignore=_is_git_worktree(evaluator_source),
-                extra_excludes=_private_source_names(evaluator_source),
+                extra_excludes=_project_copy_excludes(evaluator_source),
                 require_absent=evaluator_destination,
                 require_absent_message=(
                     "evaluator destination already exists in provisioned project: "
@@ -252,13 +253,21 @@ def _remove_private_entries(root: Path) -> None:
         (
             path
             for path in root.rglob("*")
-            if path.name in _PRIVATE_SOURCE_NAMES or path.name.startswith(".env")
+            if not _should_copy_project_entry(path.relative_to(root))
         ),
         key=lambda path: len(path.parts),
         reverse=True,
     )
     for path in private_paths:
         _remove_path(path)
+
+
+def _should_copy_project_entry(relative_path: Path) -> bool:
+    """Apply application privacy rules without interpreting state layout."""
+    return not is_project_state_path(relative_path) and not any(
+        part in _PRIVATE_PROJECT_ENTRY_NAMES or part == ".env" or part.startswith(".env.")
+        for part in relative_path.parts
+    )
 
 
 def _is_git_worktree(path: Path) -> bool:

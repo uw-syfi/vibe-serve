@@ -688,7 +688,7 @@ def test_direct_resume_prefers_current_then_latest_run(
         configuration=_agent_configuration(),
         created_at=datetime(2026, 8, 11, 12, tzinfo=UTC),
     )
-    _write_project_run(
+    store = _write_project_run(
         project,
         latest,
         configuration=_agent_configuration(),
@@ -750,7 +750,7 @@ def test_collection_resume_requires_project_metadata(tmp_path: Path) -> None:
     with pytest.raises(ConfigurationError) as exc:
         parse_cli_invocation(["--runs-dir", str(collection), "--resume", unmanaged.name])
     assert exc.value.diagnostic.code == "resume_not_found"
-    assert ".vs" in exc.value.diagnostic.message
+    assert "not a VibeSys project" in exc.value.diagnostic.message
 
 
 def test_resume_switches_to_the_recorded_run_branch(
@@ -774,13 +774,18 @@ def test_resume_switches_to_the_recorded_run_branch(
     run_id = "20260811-120000-11111111-agent"
     _git(project, "switch", "-q", "-c", f"vibesys/{run_id}")
     (project / "OBJECTIVE.md").write_text("Objective on the run branch.\n")
-    _write_project_run(
+    store = _write_project_run(
         project,
         run_id,
         configuration=_agent_configuration(),
         created_at=datetime(2026, 8, 11, 12, tzinfo=UTC),
     )
-    _git(project, "add", "OBJECTIVE.md", ".vs")
+    state_pathspec = (
+        store.git_integration(run_id)
+        .resolve_snapshot(store.initialization_snapshot(run_id))
+        .scope_pathspec
+    )
+    _git(project, "add", "OBJECTIVE.md", state_pathspec)
     _git(
         project,
         "-c",

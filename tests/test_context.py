@@ -149,21 +149,24 @@ def test_direct_run_uses_one_project_root_and_canonical_state(tmp_path):  # noqa
             assert ctx.project_root == project
             assert ctx.workspace == project
             assert ctx.project_store.project_root == project
-            assert ctx.log_dir == project / ".vs" / "local" / "runs" / ctx.run_id / "logs"
+            assert ctx.log_dir == ctx.project_store.log_directory(ctx.run_id)
             assert (
-                ctx.state.local(RunStateNamespace.AGENT).project_relative_path("active.json")
-                == Path(".vs/local/runs") / ctx.run_id / "agent" / "active.json"
+                ctx.state.local(RunStateNamespace.AGENT)
+                .agent_visible_path("active.json")
+                .endswith("agent/active.json")
             )
             objective_path = Path(ctx.objective_location)
             assert objective_path == (
-                project / ".vs" / "runs" / ctx.run_id / "runtime" / "effective-objective.md"
+                ctx.project_store.portable_namespace(ctx.run_id, "runtime").external_directory()
+                / "effective-objective.md"
             )
             assert objective_path.read_text() == "Make the queue faster.\n"
             assert objective_path.is_relative_to(ctx.workspace)
 
         policy = build_runner.call_args.kwargs["project_path_policy"]
-        assert Path(".vs") in policy.read_only_paths
-        assert Path(".vs/local") in policy.hidden_paths
+        state_paths = ProjectStore(project).sandbox_paths()
+        assert state_paths.read_only_path in policy.read_only_paths
+        assert state_paths.hidden_path in policy.hidden_paths
 
     manifest = ProjectStore(project).load_run(ctx.run_id)
     assert manifest.branch == f"vibesys/{ctx.run_id}"
@@ -187,7 +190,7 @@ def test_copied_run_provisions_self_contained_project_in_collection(tmp_path):  
         manifest_text = (project / "vibesys.input.toml").read_text()
         assert 'source = "_evaluator/checker"' in manifest_text
         assert "[workspace]" not in manifest_text
-        assert ctx.log_dir == project / ".vs" / "local" / "runs" / ctx.run_id / "logs"
+        assert ctx.log_dir == ctx.project_store.log_directory(ctx.run_id)
 
     assert _git(project, "status", "--porcelain") == ""
 
@@ -287,13 +290,10 @@ def test_portable_state_snapshot_replaces_namespace_exactly(tmp_path):  # noqa: 
         state.save("new.json", PlainLoopCursor(round_idx=2))
         ctx.state.commit("state 2", state)
 
-        assert ctx.state.local(RunStateNamespace.EVOLVE).project_relative_path() == (
-            Path(".vs/local/runs") / ctx.run_id / "evolve"
-        )
-
     tree = _git(project, "ls-tree", "-r", "--name-only", "HEAD")
-    assert f".vs/runs/{ctx.run_id}/evolve/new.json" in tree
-    assert f".vs/runs/{ctx.run_id}/evolve/old.json" not in tree
+    portable = ctx.project_store.portable_namespace(ctx.run_id, "evolve")
+    assert portable.agent_visible_path("new.json") in tree
+    assert portable.agent_visible_path("old.json") not in tree
 
 
 def test_candidate_context_uses_project_store_worktree_directory(tmp_path):  # noqa: ANN001, ANN201
@@ -312,8 +312,9 @@ def test_candidate_context_uses_project_store_worktree_directory(tmp_path):  # n
             agent_backend="stub",
         )
         candidate_root = candidate.workspace
-        assert candidate_root == (
-            parent.project_store.worktrees_dir(parent.run_id) / "g2c3" / "workspace"
+        assert candidate_root == parent.project_store.candidate_worktree_directory(
+            parent.run_id,
+            "g2c3",
         )
         assert candidate.log_dir == (
             parent.state.local(RunStateNamespace.EVOLVE).external_directory("candidates/g2c3/logs")

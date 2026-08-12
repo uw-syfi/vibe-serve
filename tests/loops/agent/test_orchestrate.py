@@ -27,6 +27,7 @@ from vibesys.loops.agent.loop import (
     _terminal_workspace_notice,
     run_agent_loop,
 )
+from vibesys.loops.agent.state import AgentStateStore
 from vibesys.loops.evolve.population import Objective
 from vibesys.profilers import ProfilerKind, ProfilerPreflightResult
 from vibesys.prompts import PROMPTS_DIR
@@ -45,6 +46,7 @@ from vibesys.schemas import (
     Verdict,
 )
 from vs_loop_state.agent import RoundRecord
+from vs_project_state import ProjectStore, serialize_round
 
 # ---------------------------------------------------------------------------
 # Fixtures & helpers
@@ -267,28 +269,27 @@ def _created_project(tmp_path: Path) -> Path:
     assert len(projects) == 1
     project = projects[0]
     assert (project / ".git").is_dir()
-    assert (project / ".vs" / "project.json").is_file()
+    assert ProjectStore.is_project_root(project)
     return project
 
 
 def _run_id(project: Path) -> str:
-    run_dirs = [path for path in (project / ".vs" / "runs").iterdir() if path.is_dir()]
-    assert len(run_dirs) == 1
-    return run_dirs[0].name
+    runs = ProjectStore(project).list_runs()
+    assert len(runs) == 1
+    return runs[0].run_id
 
 
 def _round_payloads(tmp_path: Path) -> list[dict[str, object]]:
     project = _created_project(tmp_path)
-    run_id = _run_id(project)
-    rounds_dir = project / ".vs" / "runs" / run_id / "agent" / "rounds"
-    paths = sorted(rounds_dir.glob("*.json"))
-    assert paths
-    return [json.loads(path.read_text()) for path in paths]
+    records = ProjectStore(project).load_rounds(_run_id(project))
+    assert records
+    return [json.loads(serialize_round(record)) for record in records]
 
 
-def _active_hypothesis_path(tmp_path: Path) -> Path:
+def _active_hypothesis(tmp_path: Path) -> _ActiveHypothesis | None:
     project = _created_project(tmp_path)
-    return project / ".vs" / "local" / "runs" / _run_id(project) / "agent" / "active.json"
+    store = ProjectStore(project)
+    return AgentStateStore(store.local_namespace(_run_id(project), "agent")).load_active()
 
 
 # ---------------------------------------------------------------------------
@@ -1707,9 +1708,9 @@ def test_continuing_hypothesis_uses_canonical_local_state(tmp_path, ref_file):  
 
     assert _invoke_orchestrate(tmp_path, ref_file, runner, max_rounds=1) is True
 
-    active_path = _active_hypothesis_path(tmp_path)
-    assert active_path.is_file()
-    assert json.loads(active_path.read_text())["plan"]["hypothesis_id"] == "continue-canonical"
+    active = _active_hypothesis(tmp_path)
+    assert active is not None
+    assert active.plan.hypothesis_id == "continue-canonical"
     assert [round_data["round"] for round_data in _round_payloads(tmp_path)] == [1]
 
 
@@ -1737,7 +1738,8 @@ def test_agent_roles_reference_framework_owned_effective_objective(tmp_path, ref
 
     project = _created_project(tmp_path)
     objective_path = (
-        project / ".vs" / "runs" / _run_id(project) / "runtime" / "effective-objective.md"
+        ProjectStore(project).portable_namespace(_run_id(project), "runtime").external_directory()
+        / "effective-objective.md"
     )
     assert objective_path.read_text() == effective
     for call in runner.invoke.call_args_list:

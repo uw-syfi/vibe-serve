@@ -157,13 +157,13 @@ def test_isolated_environment_enforces_project_path_policy(tmp_path, environment
     env = build_run_environment(RunEnvironmentSpec(environment_name))
     project = tmp_path / "workspace"
     (project / ".git").mkdir(parents=True)
-    (project / ".vs" / "local").mkdir(parents=True)
-    (project / ".vs" / "project.json").write_text("{}\n")
+    (project / ".state" / "local").mkdir(parents=True)
+    (project / ".state" / "project.json").write_text("{}\n")
     (project / "vibesys.input.toml").write_text("version = 1\n")
     (project / "agent.toml").write_text("[model]\nname = 'private'\n")
     policy = ProjectPathPolicy(
-        read_only_paths=(".git", ".vs", "vibesys.input.toml"),
-        hidden_paths=(".vs/local", "agent.toml"),
+        read_only_paths=(".git", ".state", "vibesys.input.toml"),
+        hidden_paths=(".state/local", "agent.toml"),
     )
 
     env.open(
@@ -178,7 +178,7 @@ def test_isolated_environment_enforces_project_path_policy(tmp_path, environment
 
     mounts = backend.calls[0][1]["bind_mounts"]
     assert (str(project / ".git"), "/workspace/.git", True) in mounts
-    assert (str(project / ".vs"), "/workspace/.vs", True) in mounts
+    assert (str(project / ".state"), "/workspace/.state", True) in mounts
     assert (
         str(project / "vibesys.input.toml"),
         "/workspace/vibesys.input.toml",
@@ -187,11 +187,11 @@ def test_isolated_environment_enforces_project_path_policy(tmp_path, environment
     hidden_mounts = {
         container: Path(host)
         for host, container, read_only in mounts
-        if read_only and container in {"/workspace/.vs/local", "/workspace/agent.toml"}
+        if read_only and container in {"/workspace/.state/local", "/workspace/agent.toml"}
     }
-    assert hidden_mounts["/workspace/.vs/local"].is_dir()
+    assert hidden_mounts["/workspace/.state/local"].is_dir()
     assert hidden_mounts["/workspace/agent.toml"].is_file()
-    assert hidden_mounts["/workspace/.vs/local"].is_relative_to(tmp_path / "logs")
+    assert hidden_mounts["/workspace/.state/local"].is_relative_to(tmp_path / "logs")
     assert hidden_mounts["/workspace/agent.toml"].is_relative_to(tmp_path / "logs")
 
 

@@ -391,7 +391,7 @@ def _add_common_args(parser: argparse.ArgumentParser) -> None:
         metavar="PATH",
         help=(
             "Materialize each run in an experiment collection under PATH. When omitted, "
-            "VibeSys optimizes the input project in place and stores run state under .vs/."
+            "VibeSys optimizes the input project in place and stores run state alongside it."
         ),
     )
     _add_standalone_input_args(parser)
@@ -888,11 +888,25 @@ def _resolve_project_root(project_arg: str, runs_dir: Path) -> Path:
     if project_arg != "latest":
         explicit = Path(project_arg).expanduser()
         if explicit.is_dir():
-            return explicit.resolve()
+            project_root = explicit.resolve()
+            if ProjectStore.is_project_root(project_root):
+                return project_root
+            _configuration_error(
+                f"Directory is not a VibeSys project: {project_root}",
+                code="resume_not_found",
+                stage="resume_resolution",
+            )
 
         collection_path = runs_dir / project_arg
         if collection_path.is_dir():
-            return collection_path.resolve()
+            project_root = collection_path.resolve()
+            if ProjectStore.is_project_root(project_root):
+                return project_root
+            _configuration_error(
+                f"Directory is not a VibeSys project: {project_root}",
+                code="resume_not_found",
+                stage="resume_resolution",
+            )
 
         if _is_remote_project(project_arg):
             return _clone_project(project_arg, runs_dir)
@@ -908,13 +922,7 @@ def _resolve_project_root(project_arg: str, runs_dir: Path) -> Path:
             code="resume_not_found",
             stage="resume_resolution",
         )
-    projects = sorted(
-        child
-        for child in runs_dir.iterdir()
-        if child.is_dir()
-        and not child.name.startswith((".", "_"))
-        and (child / ".vs" / "project.json").is_file()
-    )
+    projects = ProjectStore.find_projects(runs_dir)
     if not projects:
         _configuration_error(
             f"No VibeSys projects found in {runs_dir}.",

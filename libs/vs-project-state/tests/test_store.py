@@ -1,3 +1,7 @@
+# Package-boundary tests intentionally inspect private on-disk details.
+# pyright: reportPrivateUsage=false
+# ruff: noqa: SLF001
+
 from __future__ import annotations
 
 import json
@@ -20,12 +24,11 @@ from vs_project_state import (
     ProjectStore,
     RunConfiguration,
     RunManifest,
-    StateDocument,
     StateFile,
     StateModelNotFoundError,
     StateSnapshot,
-    StateTransition,
     generate_run_id,
+    is_project_state_path,
     serialize_round,
 )
 
@@ -333,15 +336,15 @@ def test_create_project_writes_portable_committed_manifest(tmp_path: Path) -> No
     manifest = store.create_project("Queue SPSC", now=NOW)
 
     assert store.load_project() == manifest
-    assert store.metadata_gitignore_path.read_text(encoding="utf-8") == "/local/\n"
-    raw = json.loads(store.project_manifest_path.read_text(encoding="utf-8"))
+    assert store._metadata_gitignore_path.read_text(encoding="utf-8") == "/local/\n"
+    raw = json.loads(store._project_manifest_path.read_text(encoding="utf-8"))
     assert raw == {
         "created_at": "2026-08-11T12:34:56Z",
         "initial_input_fingerprint": manifest.initial_input_fingerprint,
         "project_id": manifest.project_id,
         "schema_version": PROJECT_SCHEMA_VERSION,
     }
-    serialized = store.project_manifest_path.read_text(encoding="utf-8")
+    serialized = store._project_manifest_path.read_text(encoding="utf-8")
     assert str(tmp_path) not in serialized
     assert "provider" not in serialized
 
@@ -352,7 +355,108 @@ def test_create_project_is_idempotent_after_source_changes(tmp_path: Path) -> No
     (tmp_path / "src.py").write_text("changed = True\n", encoding="utf-8")
 
     assert store.create_project("A different display name", now=NOW + timedelta(days=1)) == original
-    assert store.metadata_gitignore_path.read_text(encoding="utf-8") == "/local/\n"
+    assert store._metadata_gitignore_path.read_text(encoding="utf-8") == "/local/\n"
+
+
+def test_project_discovery_validates_manifests_without_exposing_layout(tmp_path: Path) -> None:
+    first = tmp_path / "first"
+    second = tmp_path / "second"
+    invalid = tmp_path / "invalid"
+    for root in (first, second, invalid):
+        root.mkdir()
+    _store(second)
+    _store(first)
+
+    assert ProjectStore.is_project_root(first)
+    assert not ProjectStore.is_project_root(invalid)
+    assert ProjectStore.find_projects(tmp_path) == (first.resolve(), second.resolve())
+
+
+@pytest.mark.parametrize(
+    ("relative_path", "expected"),
+    [
+        ("src/queue.py", False),
+        (".git/HEAD", False),
+        ("nested/.vs/project.json", True),
+        ("agent.toml", False),
+        ("nested/.env.local", False),
+    ],
+)
+def test_project_state_path_ownership_is_semantic(
+    relative_path: str,
+    expected: bool,  # noqa: FBT001
+) -> None:
+    assert is_project_state_path(relative_path) is expected
+
+
+def test_semantic_runtime_and_sandbox_paths(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    run_id = "run-1"
+
+    assert ProjectStore.log_directory_for(project, run_id) == (
+        project / ".vs" / "local" / "runs" / run_id / "logs"
+    )
+    store = _store(project)
+    run = _run(store)
+
+    assert store.log_directory(run.run_id).is_dir()
+    assert store.model_cache_directory("huggingface").is_relative_to(project)
+    assert store.candidate_worktree_directory(run.run_id, "g1c1").is_relative_to(project)
+    assert store.sandbox_paths().read_only_path is not None
+    assert store.sandbox_paths().hidden_path is not None
+
+
+def test_log_directory_rejects_symlinked_parent(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    outside = tmp_path / "outside"
+    (project / ".vs" / "local").mkdir(parents=True)
+    outside.mkdir()
+    (project / ".vs" / "local" / "runs").symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(ProjectStateError, match=r"(?:escapes|must not be a symlink)"):
+        ProjectStore.log_directory_for(project, "run-1")
+
+
+def test_model_cache_directory_rejects_symlinked_parent(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    outside = tmp_path / "outside"
+    store._local_dir.mkdir(parents=True)
+    outside.mkdir()
+    (store._local_dir / "cache").symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(ProjectStateError, match=r"(?:escapes|must not be a symlink)"):
+        store.model_cache_directory("huggingface")
+
+
+def test_portable_run_export_contains_all_run_documents(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    run = _run(store)
+    store.portable_namespace(run.run_id, "plain").save(
+        "cursor.json",
+        _Cursor(round=2, phase="judge"),
+    )
+
+    exported = store.portable_run_export(run.run_id)
+
+    assert {item.relative_path for item in exported.files} == {
+        PurePosixPath("run.json"),
+        PurePosixPath("plain/cursor.json"),
+    }
+
+
+def test_portable_run_export_rejects_symlinked_directories(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    run = _run(store)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (store._contained_run_dir(run.run_id) / "linked").symlink_to(
+        outside,
+        target_is_directory=True,
+    )
+
+    with pytest.raises(ProjectStateError, match="must not contain symlinks"):
+        store.portable_run_export(run.run_id)
 
 
 def test_create_project_preserves_existing_metadata_ignore_rules(tmp_path: Path) -> None:
@@ -364,7 +468,7 @@ def test_create_project_preserves_existing_metadata_ignore_rules(tmp_path: Path)
     store.create_project("queue", now=NOW)
     store.create_project("queue", now=NOW)
 
-    assert store.metadata_gitignore_path.read_text(encoding="utf-8") == ("custom.tmp\n/local/\n")
+    assert store._metadata_gitignore_path.read_text(encoding="utf-8") == ("custom.tmp\n/local/\n")
 
 
 def test_create_project_rejects_symlinked_metadata_root_before_writing(tmp_path: Path) -> None:
@@ -374,7 +478,7 @@ def test_create_project_rejects_symlinked_metadata_root_before_writing(tmp_path:
     outside = tmp_path / "outside"
     outside.mkdir()
     store = ProjectStore(project)
-    store.metadata_dir.symlink_to(outside, target_is_directory=True)
+    store._metadata_dir.symlink_to(outside, target_is_directory=True)
 
     with pytest.raises(ProjectStateError, match=r"metadata root must not be a symlink.*\.vs"):
         store.create_project("Queue SPSC", now=NOW)
@@ -397,12 +501,12 @@ def test_create_run_rejects_symlinked_local_root_before_writing(tmp_path: Path) 
     )
     outside = tmp_path / "outside"
     outside.mkdir()
-    store.local_dir.symlink_to(outside, target_is_directory=True)
+    store._local_dir.symlink_to(outside, target_is_directory=True)
 
     with pytest.raises(ProjectStateError, match="local metadata root must not be a symlink"):
         store.create_run(manifest)
 
-    assert not (store.metadata_dir / "runs").exists()
+    assert not (store._metadata_dir / "runs").exists()
     assert list(outside.iterdir()) == []
 
 
@@ -436,29 +540,30 @@ def test_run_manifest_and_local_state_use_separate_trees(tmp_path: Path) -> None
     manifest = _run(store)
 
     assert store.load_run(manifest.run_id) == manifest
-    assert store.run_manifest_path(manifest.run_id) == (
+    assert store._run_manifest_path(manifest.run_id) == (
         tmp_path / ".vs" / "runs" / manifest.run_id / "run.json"
     )
-    assert store.logs_dir(manifest.run_id) == (
+    assert store.log_directory(manifest.run_id) == (
         tmp_path / ".vs" / "local" / "runs" / manifest.run_id / "logs"
     )
-    assert store.rounds_dir(manifest.run_id) == (
+    assert store._rounds_dir(manifest.run_id) == (
         tmp_path / ".vs" / "runs" / manifest.run_id / "agent" / "rounds"
     )
-    assert store.local_namespace(manifest.run_id, "agent").project_relative_path(
-        "active.json"
-    ) == PurePosixPath(f".vs/local/runs/{manifest.run_id}/agent/active.json")
-    assert store.round_transaction_path(manifest.run_id) == (
+    assert (
+        store.local_namespace(manifest.run_id, "agent").agent_visible_path("active.json")
+        == f".vs/local/runs/{manifest.run_id}/agent/active.json"
+    )
+    assert store._round_transaction_path(manifest.run_id) == (
         tmp_path / ".vs" / "local" / "runs" / manifest.run_id / "round-transaction.json"
     )
-    assert store.worktrees_dir(manifest.run_id) == (
+    assert store._worktrees_dir(manifest.run_id) == (
         tmp_path / ".vs" / "local" / "runs" / manifest.run_id / "worktrees"
     )
-    assert store.logs_dir(manifest.run_id).is_dir()
+    assert store.log_directory(manifest.run_id).is_dir()
     assert not (tmp_path / ".vs" / "runs" / manifest.run_id / "agent").exists()
     assert not (tmp_path / ".vs" / "local" / "runs" / manifest.run_id / "agent").exists()
-    assert not store.worktrees_dir(manifest.run_id).exists()
-    committed = store.run_manifest_path(manifest.run_id).read_text(encoding="utf-8")
+    assert not store._worktrees_dir(manifest.run_id).exists()
+    committed = store._run_manifest_path(manifest.run_id).read_text(encoding="utf-8")
     assert str(tmp_path) not in committed
     assert "token" not in committed
 
@@ -467,7 +572,7 @@ def test_run_manifest_persists_complete_agent_loop_behavior(tmp_path: Path) -> N
     store = _store(tmp_path)
     manifest = _run(store)
 
-    raw = json.loads(store.run_manifest_path(manifest.run_id).read_text(encoding="utf-8"))
+    raw = json.loads(store._run_manifest_path(manifest.run_id).read_text(encoding="utf-8"))
 
     assert raw["trusted_input_baseline"] == "a" * 40
     assert raw["configuration"] == {
@@ -570,10 +675,10 @@ def test_update_run_configuration_preserves_manifest_identity(tmp_path: Path) ->
     manifest = _run(store)
     updated_configuration = manifest.configuration.model_copy(update={"max_rounds": 20})
 
-    path = store.update_run_configuration(manifest.run_id, updated_configuration)
+    result = store.update_run_configuration(manifest.run_id, updated_configuration)
     updated = store.load_run(manifest.run_id)
 
-    assert path == store.run_manifest_path(manifest.run_id)
+    assert result is None
     assert updated.configuration == updated_configuration
     assert updated.model_copy(update={"configuration": manifest.configuration}) == manifest
 
@@ -664,7 +769,7 @@ def test_run_id_validation_prevents_path_escape(tmp_path: Path, run_id: str) -> 
     store = _store(tmp_path)
 
     with pytest.raises(ProjectStateError, match="Invalid VibeSys run ID"):
-        store.run_manifest_path(run_id)
+        store._run_manifest_path(run_id)
 
 
 def test_containment_rejects_symlinked_run_directory(tmp_path: Path) -> None:
@@ -676,7 +781,7 @@ def test_containment_rejects_symlinked_run_directory(tmp_path: Path) -> None:
     (runs_dir / "escaped").symlink_to(outside, target_is_directory=True)
 
     with pytest.raises(ProjectStateError, match="escapes"):
-        store.run_manifest_path("escaped")
+        store._run_manifest_path("escaped")
 
 
 def test_containment_rejects_in_tree_symlinked_run_directory(tmp_path: Path) -> None:
@@ -687,7 +792,7 @@ def test_containment_rejects_in_tree_symlinked_run_directory(tmp_path: Path) -> 
     (runs_dir / "alias").symlink_to(target, target_is_directory=True)
 
     with pytest.raises(ProjectStateError, match="must not be a symlink"):
-        store.run_manifest_path("alias")
+        store._run_manifest_path("alias")
 
 
 @pytest.mark.parametrize(
@@ -755,7 +860,7 @@ def test_worktrees_directory_rejects_symlink_alias(tmp_path: Path) -> None:
     worktrees.symlink_to(outside, target_is_directory=True)
 
     with pytest.raises(ProjectStateError, match=r"(?:escapes|must not be a symlink)"):
-        store.worktrees_dir(run.run_id)
+        store._worktrees_dir(run.run_id)
 
 
 def test_completed_round_directory_rejects_symlink_alias(tmp_path: Path) -> None:
@@ -800,26 +905,18 @@ def test_state_namespace_prepares_and_applies_exact_typed_transition(tmp_path: P
     namespace = store.local_namespace(run.run_id, "agent")
     cursor = _Cursor(round=3, phase="judge")
 
-    transition = namespace.transition("active.json", cursor)
-
-    expected_path = PurePosixPath(f".vs/local/runs/{run.run_id}/agent/active.json")
-    assert transition.project_relative_path == expected_path
-    assert transition.next_document == StateDocument(
-        project_relative_path=expected_path,
-        contents=b'{\n  "phase": "judge",\n  "round": 3\n}\n',
-    )
+    slot = namespace.slot("active.json", _Cursor)
+    transition = slot.transition(cursor)
+    serialized = slot.serialize_transition(transition)
+    restored = slot.deserialize_transition(serialized)
     assert namespace.load_optional("active.json", _Cursor) is None
 
-    namespace.apply(transition)
+    slot.apply(restored)
 
     assert namespace.load("active.json", _Cursor) == cursor
 
-    deletion = namespace.transition("active.json", None)
-    assert deletion == StateTransition(
-        project_relative_path=expected_path,
-        next_document=None,
-    )
-    namespace.apply(deletion)
+    deletion = slot.deserialize_transition(slot.serialize_transition(slot.transition(None)))
+    slot.apply(deletion)
     assert namespace.load_optional("active.json", _Cursor) is None
 
 
@@ -842,36 +939,33 @@ def test_typed_state_slot_rejects_schema_invalid_reconstructed_document(
     store = _store(tmp_path)
     run = _run(store)
     slot = store.local_namespace(run.run_id, "plain").slot("cursor.json", _Cursor)
-    path = slot.project_relative_path
-    transition = StateTransition(
-        project_relative_path=path,
-        next_document=StateDocument(
-            project_relative_path=path,
-            contents=b'{"round":1,"unexpected":true}',
-        ),
-    )
+    payload = b'{"schema_version":1,"document":{"round":1,"unexpected":true}}'
 
-    with pytest.raises(ProjectStateError, match="typed slot schema"):
-        slot.apply(transition)
+    with pytest.raises(ProjectStateError, match="does not match the slot schema"):
+        slot.deserialize_transition(payload)
 
     assert slot.load_optional() is None
 
 
-def test_state_document_and_transition_validate_external_construction() -> None:
-    path = PurePosixPath(".vs/local/runs/run-1/agent/active.json")
+@pytest.mark.parametrize(
+    "payload",
+    [
+        b"not-json",
+        b"[]",
+        b'{"schema_version":2,"document":null}',
+        b'{"schema_version":1,"document":[]}',
+    ],
+)
+def test_typed_state_slot_rejects_malformed_serialized_transition(
+    tmp_path: Path,
+    payload: bytes,
+) -> None:
+    store = _store(tmp_path)
+    run = _run(store)
+    slot = store.local_namespace(run.run_id, "plain").slot("cursor.json", _Cursor)
 
-    with pytest.raises(ValueError, match="JSON object"):
-        StateDocument(project_relative_path=path, contents=b"not-json")
-    with pytest.raises(TypeError, match="JSON object"):
-        StateDocument(project_relative_path=path, contents=b"[]")
-    with pytest.raises(ValueError, match="match its target"):
-        StateTransition(
-            project_relative_path=path,
-            next_document=StateDocument(
-                project_relative_path=PurePosixPath(".vs/local/runs/run-1/agent/other.json"),
-                contents=b"{}",
-            ),
-        )
+    with pytest.raises(ProjectStateError, match="transition"):
+        slot.deserialize_transition(payload)
 
 
 def test_state_namespace_distinguishes_missing_from_corrupt_optional_state(tmp_path: Path) -> None:
@@ -982,7 +1076,7 @@ def test_portable_state_snapshot_is_deterministic_and_namespace_relative(tmp_pat
     namespace.save("nested/a.json", _Cursor(round=1, phase="judge"))
 
     root = namespace.external_directory()
-    expected = StateSnapshot(
+    expected = StateSnapshot._create(
         namespace_root=PurePosixPath(f".vs/runs/{run.run_id}/evolve"),
         files=(
             StateFile(
@@ -1006,7 +1100,7 @@ def test_empty_portable_namespace_has_an_empty_snapshot(tmp_path: Path) -> None:
 
     snapshot = store.portable_namespace(run.run_id, "runtime").snapshot()
 
-    assert snapshot.namespace_root == PurePosixPath(f".vs/runs/{run.run_id}/runtime")
+    assert snapshot._namespace_root == PurePosixPath(f".vs/runs/{run.run_id}/runtime")
     assert snapshot.files == ()
 
 
@@ -1017,7 +1111,7 @@ def test_initialization_snapshot_contains_only_selected_run_metadata(tmp_path: P
 
     snapshot = store.initialization_snapshot(first.run_id)
 
-    assert snapshot.namespace_root == PurePosixPath(".vs")
+    assert snapshot._namespace_root == PurePosixPath(".vs")
     assert tuple(file.relative_path for file in snapshot.files) == (
         PurePosixPath(".gitignore"),
         PurePosixPath("project.json"),
@@ -1026,9 +1120,9 @@ def test_initialization_snapshot_contains_only_selected_run_metadata(tmp_path: P
     assert PurePosixPath(f"runs/{second.run_id}/run.json") not in {
         file.relative_path for file in snapshot.files
     }
-    assert snapshot.files[0].contents == store.metadata_gitignore_path.read_bytes()
-    assert snapshot.files[1].contents == store.project_manifest_path.read_bytes()
-    assert snapshot.files[2].contents == store.run_manifest_path(first.run_id).read_bytes()
+    assert snapshot.files[0].contents == store._metadata_gitignore_path.read_bytes()
+    assert snapshot.files[1].contents == store._project_manifest_path.read_bytes()
+    assert snapshot.files[2].contents == store._run_manifest_path(first.run_id).read_bytes()
 
 
 def test_run_manifest_snapshot_is_rooted_at_the_selected_run(tmp_path: Path) -> None:
@@ -1037,12 +1131,12 @@ def test_run_manifest_snapshot_is_rooted_at_the_selected_run(tmp_path: Path) -> 
 
     snapshot = store.run_manifest_snapshot(run.run_id)
 
-    assert snapshot == StateSnapshot(
+    assert snapshot == StateSnapshot._create(
         namespace_root=PurePosixPath(f".vs/runs/{run.run_id}"),
         files=(
             StateFile(
                 relative_path=PurePosixPath("run.json"),
-                contents=store.run_manifest_path(run.run_id).read_bytes(),
+                contents=store._run_manifest_path(run.run_id).read_bytes(),
             ),
         ),
     )
@@ -1054,16 +1148,16 @@ def test_completed_round_snapshot_contains_one_canonical_round(tmp_path: Path) -
     first = RoundRecord(1, "a" * 40, 10.0, "ops/s", True)  # noqa: FBT003
     second = RoundRecord(2, "b" * 40, 20.0, "ops/s", True)  # noqa: FBT003
     store.save_round(run.run_id, first)
-    second_path = store.save_round(run.run_id, second)
+    second_snapshot = store.save_round(run.run_id, second)
 
     snapshot = store.completed_round_snapshot(run.run_id, 2)
 
-    assert snapshot == StateSnapshot(
+    assert snapshot == StateSnapshot._create(
         namespace_root=PurePosixPath(f".vs/runs/{run.run_id}/agent"),
         files=(
             StateFile(
                 relative_path=PurePosixPath("rounds/0002.json"),
-                contents=second_path.read_bytes(),
+                contents=second_snapshot.files[0].contents,
             ),
         ),
     )
@@ -1087,8 +1181,8 @@ def test_metadata_snapshot_rejects_symlinked_files(tmp_path: Path) -> None:
     run = _run(store)
     outside = tmp_path / "outside"
     outside.write_text("local\n", encoding="utf-8")
-    store.metadata_gitignore_path.unlink()
-    store.metadata_gitignore_path.symlink_to(outside)
+    store._metadata_gitignore_path.unlink()
+    store._metadata_gitignore_path.symlink_to(outside)
 
     with pytest.raises(ProjectStateError, match=r"(?:escapes|must not be a symlink)"):
         store.initialization_snapshot(run.run_id)
@@ -1106,7 +1200,7 @@ def test_metadata_snapshot_rejects_symlinked_files(tmp_path: Path) -> None:
 )
 def test_state_snapshot_rejects_unsafe_or_local_roots(root: PurePosixPath) -> None:
     with pytest.raises(ValueError, match=r"portable state snapshot|invalid"):
-        StateSnapshot(namespace_root=root, files=())
+        StateSnapshot._create(namespace_root=root, files=())
 
 
 @pytest.mark.parametrize(
@@ -1125,7 +1219,7 @@ def test_state_snapshot_rejects_local_file_below_metadata_root() -> None:
     )
 
     with pytest.raises(ValueError, match=r"must not contain \.vs/local"):
-        StateSnapshot(namespace_root=PurePosixPath(".vs"), files=(local_file,))
+        StateSnapshot._create(namespace_root=PurePosixPath(".vs"), files=(local_file,))
 
 
 def test_machine_local_state_namespace_cannot_be_snapshotted(tmp_path: Path) -> None:
@@ -1192,13 +1286,14 @@ def test_completed_rounds_use_one_file_per_round_and_are_idempotent(tmp_path: Pa
     second = RoundRecord(2, "b" * 40, 20.0, "ops/s", True)  # noqa: FBT003
     first = RoundRecord(1, "a" * 40, 10.0, "ops/s", True)  # noqa: FBT003
 
-    first_path = store.save_round(run.run_id, first)
-    second_path = store.save_round(run.run_id, second)
-    assert store.save_round(run.run_id, first) == first_path
+    first_snapshot = store.save_round(run.run_id, first)
+    second_snapshot = store.save_round(run.run_id, second)
+    assert store.save_round(run.run_id, first) == first_snapshot
 
-    assert first_path.name == "0001.json"
-    assert second_path.name == "0002.json"
+    assert first_snapshot.files[0].relative_path.name == "0001.json"
+    assert second_snapshot.files[0].relative_path.name == "0002.json"
     assert store.load_rounds(run.run_id) == [first, second]
+    first_path = store._rounds_dir(run.run_id) / "0001.json"
     assert json.loads(first_path.read_text(encoding="utf-8"))["round"] == 1
     assert first_path.read_bytes() == serialize_round(first)
 
@@ -1218,10 +1313,35 @@ def test_completed_rounds_must_be_saved_in_append_order(tmp_path: Path) -> None:
         store.save_round(run.run_id, third)
 
 
+def test_restoring_a_completed_round_validates_sequence_before_writing(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    run = _run(store)
+    second = RoundRecord(2, "b" * 40, 20.0, "ops/s", True)  # noqa: FBT003
+
+    with pytest.raises(ProjectStateError, match="without completed round 1"):
+        store.restore_completed_round(run.run_id, second)
+
+    assert store.load_rounds(run.run_id) == []
+
+
+def test_restoring_a_completed_round_repairs_its_corrupt_local_copy(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    run = _run(store)
+    first = RoundRecord(1, "a" * 40, 10.0, "ops/s", True)  # noqa: FBT003
+    store.save_round(run.run_id, first)
+    target = store._rounds_dir(run.run_id) / "0001.json"
+    target.write_text("{not-json", encoding="utf-8")
+
+    restored = store.restore_completed_round(run.run_id, first)
+
+    assert restored == store.completed_round_snapshot(run.run_id, 1)
+    assert store.load_rounds(run.run_id) == [first]
+
+
 def test_loaded_rounds_must_form_contiguous_sequence(tmp_path: Path) -> None:
     store = _store(tmp_path)
     run = _run(store)
-    directory = store.rounds_dir(run.run_id)
+    directory = store._rounds_dir(run.run_id)
     directory.mkdir(parents=True)
     for round_number in (1, 3):
         record = RoundRecord(
@@ -1285,7 +1405,7 @@ def test_completed_round_rejects_non_finite_metrics(tmp_path: Path) -> None:
 def test_loaded_round_rejects_machine_local_artifact_path(tmp_path: Path) -> None:
     store = _store(tmp_path)
     run = _run(store)
-    path = store.rounds_dir(run.run_id) / "0001.json"
+    path = store._rounds_dir(run.run_id) / "0001.json"
     path.parent.mkdir(parents=True)
     record = RoundRecord(
         1,
@@ -1307,7 +1427,7 @@ def test_loaded_round_rejects_machine_local_artifact_path(tmp_path: Path) -> Non
 def test_loaded_round_rejects_non_finite_metrics(tmp_path: Path) -> None:
     store = _store(tmp_path)
     run = _run(store)
-    path = store.rounds_dir(run.run_id) / "0001.json"
+    path = store._rounds_dir(run.run_id) / "0001.json"
     path.parent.mkdir(parents=True)
     record = RoundRecord(1, "a" * 40, float("nan"), "ops/s", True)  # noqa: FBT003
     path.write_text(json.dumps(serialize_round_record(record)), encoding="utf-8")
@@ -1319,7 +1439,7 @@ def test_loaded_round_rejects_non_finite_metrics(tmp_path: Path) -> None:
 def test_corrupt_metadata_error_names_the_path(tmp_path: Path) -> None:
     store = _store(tmp_path)
     run = _run(store)
-    path = store.run_manifest_path(run.run_id)
+    path = store._run_manifest_path(run.run_id)
     path.write_text('{"schema_version": 99}', encoding="utf-8")
 
     with pytest.raises(ProjectStateError, match=r"Invalid VibeSys metadata.*run\.json"):
@@ -1329,7 +1449,7 @@ def test_corrupt_metadata_error_names_the_path(tmp_path: Path) -> None:
 def test_unknown_round_field_is_rejected_with_its_path(tmp_path: Path) -> None:
     store = _store(tmp_path)
     run = _run(store)
-    path = store.rounds_dir(run.run_id) / "0001.json"
+    path = store._rounds_dir(run.run_id) / "0001.json"
     path.parent.mkdir(parents=True)
     path.write_text(
         json.dumps(
@@ -1347,3 +1467,56 @@ def test_unknown_round_field_is_rejected_with_its_path(tmp_path: Path) -> None:
 
     with pytest.raises(ProjectStateError, match=r"Invalid completed-round.*0001\.json"):
         store.load_rounds(run.run_id)
+
+
+def test_git_paths_resolve_portable_snapshot_without_layout_work_by_consumer(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path)
+    run = _run(store)
+    namespace = store.portable_namespace(run.run_id, "evolve")
+    namespace.save("population.json", _Cursor(round=2, phase="complete"))
+
+    plan = store.git_integration(run.run_id).resolve_replacement_snapshot(namespace.snapshot())
+
+    assert plan.scope_pathspec == f".vs/runs/{run.run_id}/evolve"
+    assert plan.destination_root == tmp_path / ".vs" / "runs" / run.run_id / "evolve"
+    assert len(plan.files) == 1
+    assert plan.files[0].pathspec == f".vs/runs/{run.run_id}/evolve/population.json"
+    assert plan.files[0].destination == plan.destination_root / "population.json"
+    assert plan.contains_pathspec(plan.files[0].pathspec)
+    assert not plan.contains_pathspec("candidate.py")
+
+
+def test_git_paths_reject_snapshot_from_another_run(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    first = _run(store)
+    second = _run(store, minute=1)
+    snapshot = store.portable_namespace(second.run_id, "evolve").snapshot()
+
+    with pytest.raises(ValueError, match="belongs to run"):
+        store.git_integration(first.run_id).resolve_snapshot(snapshot)
+
+
+def test_git_paths_validate_candidate_worktrees_without_symlink_traversal(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path)
+    run = _run(store)
+    capability = store.git_integration(run.run_id)
+    worktrees = store._worktrees_dir(run.run_id)
+
+    assert capability.validate_candidate_worktree(worktrees / "candidate") == (
+        worktrees / "candidate"
+    )
+    with pytest.raises(ValueError, match="must be below"):
+        capability.validate_candidate_worktree(tmp_path / "candidate")
+    with pytest.raises(ValueError, match="must be below"):
+        capability.validate_candidate_worktree(worktrees / "candidate" / "..")
+
+    outside = tmp_path.parent / "outside-worktree"
+    outside.mkdir(exist_ok=True)
+    worktrees.mkdir(parents=True)
+    (worktrees / "linked").symlink_to(outside, target_is_directory=True)
+    with pytest.raises(ValueError, match="must be below"):
+        capability.validate_candidate_worktree(worktrees / "linked" / "candidate")

@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from vibesys.run import GitTracker
+from vs_project_state import ProjectStore
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -42,7 +43,7 @@ def test_project_excludes_runtime_and_compiled_artifacts(tmp_path):  # noqa: ANN
     tracker.init(existing=False)
 
     excludes = (project / ".git" / "info" / "exclude").read_text().splitlines()
-    assert "/.vs/local/" in excludes
+    assert ProjectStore(project).git_integration("test-run").local_exclude_pattern in excludes
     assert "_mounts/" in excludes
     assert "target/" in excludes
     assert "*.neff" in excludes

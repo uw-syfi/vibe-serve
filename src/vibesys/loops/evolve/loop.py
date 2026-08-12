@@ -145,29 +145,7 @@ def _discard_working_tree(ctx: LoopContext) -> None:
 
 def _candidate_code(ctx: LoopContext, commit: str) -> str:
     """Canonical multi-file patch used as OpenEvolve's program representation."""
-    roots = (
-        ctx.git.run(
-            ["git", "rev-list", "--max-parents=0", "--reverse", commit],
-        )
-        .stdout.decode(errors="replace")
-        .splitlines()
-    )
-    if not roots:
-        raise ValueError(f"cannot resolve workspace baseline for commit {commit}")  # noqa: TRY003  # tracked: #288
-    return ctx.git.run(
-        [
-            "git",
-            "diff",
-            "--no-ext-diff",
-            "--no-renames",
-            "--full-index",
-            roots[0],
-            commit,
-            "--",
-            ".",
-            ":(exclude).vs/**",
-        ]
-    ).stdout.decode(errors="replace")
+    return ctx.git.candidate_patch(commit)
 
 
 def _teardown_candidate_deployment(ctx: LoopContext, deployment: str | None, *, keep: bool) -> None:

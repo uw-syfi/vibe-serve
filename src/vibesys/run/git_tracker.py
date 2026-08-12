@@ -6,15 +6,17 @@ import os
 import re
 import shutil
 import subprocess
+from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from vibesys.run.project_policy import TRUSTED_PROJECT_INPUT_PATHS
+from vs_project_state import ProjectStore
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable, Mapping
+    from collections.abc import Callable, Iterable
 
-    from vs_project_state import StateSnapshot
+    from vs_project_state import ProjectGitIntegration, StateSnapshot
 
 
 def _normalize_project_paths(paths: Iterable[str | Path]) -> tuple[Path, ...]:
@@ -32,12 +34,20 @@ def _normalize_project_paths(paths: Iterable[str | Path]) -> tuple[Path, ...]:
     return tuple(normalized)
 
 
+class FrameworkSnapshotStatus(StrEnum):
+    """Relationship between an expected framework snapshot and Git ``HEAD``."""
+
+    MISSING = "missing"
+    EXACT = "exact"
+    DIFFERENT = "different"
+
+
 class GitTracker:
     """Snapshot tracking for one canonical project repository.
 
     The project root is also the Git worktree root. Each run advances its own
-    ``vibesys/<run-id>`` branch. Framework-local state stays below ``.vs/local``
-    and is excluded through repository-local Git configuration.
+    ``vibesys/<run-id>`` branch. Machine-local framework state is excluded
+    through repository-local Git configuration.
     """
 
     _GIT_ENV_STATIC = {  # noqa: RUF012  # tracked: #288
@@ -64,7 +74,6 @@ class GitTracker:
     _TRUSTED_INPUT_PATHS = TRUSTED_PROJECT_INPUT_PATHS
 
     _PROJECT_LOCAL_EXCLUDE_PATTERNS: tuple[str, ...] = (
-        "/.vs/local/",
         "/.env",
         "/.env.*",
         "/agent.toml",
@@ -101,6 +110,9 @@ class GitTracker:
             )
         )
         self._trusted_input_baseline: str | None = None
+        self._state_integration: ProjectGitIntegration = ProjectStore(self.root).git_integration(
+            run_id
+        )
         self._git_dir: Path | None = None
         self._work_tree: Path | None = None
         self._exclude_file = self.root / ".git" / "info" / "exclude"
@@ -206,28 +218,8 @@ class GitTracker:
         )
 
     def _validate_local_worktree_path(self, worktree_dir: Path) -> Path:
-        """Resolve a worktree path and require it below ``.vs/local``."""
-        local_root_path = self.root / ".vs" / "local"
-        for boundary in (self.root / ".vs", local_root_path):
-            if boundary.is_symlink():
-                raise ValueError(f"candidate worktree boundary must not be a symlink: {boundary}")  # noqa: TRY003  # tracked: #288
-
-        raw_destination = worktree_dir.expanduser()
-        if not raw_destination.is_absolute():
-            raw_destination = self.root / raw_destination
-        destination = raw_destination.resolve()
-        local_root = local_root_path.resolve()
-        if destination == local_root or not destination.is_relative_to(local_root):
-            raise ValueError(  # noqa: TRY003  # tracked: #288
-                f"candidate worktree must be below {local_root}: {worktree_dir}"
-            )
-
-        current = raw_destination
-        while current not in (local_root_path, self.root):
-            if current.is_symlink():
-                raise ValueError(f"candidate worktree path traverses a symlink: {worktree_dir}")  # noqa: TRY003  # tracked: #288
-            current = current.parent
-        return destination
+        """Resolve a candidate worktree path within machine-local state."""
+        return self._state_integration.validate_candidate_worktree(worktree_dir)
 
     def _run_in_worktree(
         self,
@@ -264,6 +256,32 @@ class GitTracker:
         self._add_all()
         self._commit_staged(label)
 
+    def candidate_patch(self, commit: str) -> str:
+        """Return the candidate-owned patch from the repository baseline."""
+        roots = (
+            self.run(
+                ["git", "rev-list", "--max-parents=0", "--reverse", commit],
+            )
+            .stdout.decode(errors="replace")
+            .splitlines()
+        )
+        if not roots:
+            raise ValueError(f"cannot resolve workspace baseline for commit {commit}")  # noqa: TRY003  # tracked: #288
+        return self.run(
+            [
+                "git",
+                "diff",
+                "--no-ext-diff",
+                "--no-renames",
+                "--full-index",
+                roots[0],
+                commit,
+                "--",
+                ".",
+                *self._state_integration.metadata_restore_exclusions,
+            ]
+        ).stdout.decode(errors="replace")
+
     def _commit_staged(self, label: str) -> None:
         """Commit the current index, logging when it contains no changes."""
         # git diff --cached --quiet exits 1 when there are staged changes
@@ -284,30 +302,21 @@ class GitTracker:
         label: str,
         snapshot: StateSnapshot,
     ) -> None:
-        """Commit candidate changes with exact framework-authored ``.vs`` files.
+        """Commit candidate changes with exact framework-authored state files.
 
-        This is the only snapshot API that stages ``.vs``. The
-        framework supplies complete file contents so the tracker can verify
-        existing committed metadata before it writes anything. Local runtime
-        state under ``.vs/local`` is never accepted or staged.
+        The framework supplies complete file contents so the tracker can verify
+        existing committed metadata before it writes anything. Machine-local
+        runtime state is never accepted or staged.
         """
-        destinations = self._framework_metadata_destinations(
-            {
-                (snapshot.namespace_root / state_file.relative_path).as_posix(): (
-                    state_file.contents
-                )
-                for state_file in snapshot.files
-            }
-        )
+        plan = self._state_integration.resolve_snapshot(snapshot)
         pending = self._pending_committed_framework_metadata()
-        supplied = {relative.as_posix(): content for relative, _, content in destinations}
+        supplied = {state_file.pathspec: state_file.contents for state_file in plan.files}
         unexpected = [path for path in pending if path not in supplied]
         mismatched = [
-            relative.as_posix()
-            for relative, destination, content in destinations
-            if relative.as_posix() in pending
-            and destination.read_bytes()
-            != (content.encode("utf-8") if isinstance(content, str) else content)
+            state_file.pathspec
+            for state_file in plan.files
+            if state_file.pathspec in pending
+            and state_file.destination.read_bytes() != state_file.contents
         ]
         if unexpected or mismatched:
             shown = ", ".join(sorted({*unexpected, *mismatched}))
@@ -316,14 +325,27 @@ class GitTracker:
             )
 
         self._add_all()
-        for relative, destination, content in destinations:
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            if isinstance(content, str):
-                destination.write_text(content)
-            else:
-                destination.write_bytes(content)
-            self.run(["git", "add", "--force", "--", relative.as_posix()])
+        for state_file in plan.files:
+            state_file.destination.parent.mkdir(parents=True, exist_ok=True)
+            state_file.destination.write_bytes(state_file.contents)
+            self.run(["git", "add", "--force", "--", state_file.pathspec])
         self._commit_staged(label)
+
+    def framework_snapshot_status(self, snapshot: StateSnapshot) -> FrameworkSnapshotStatus:
+        """Compare an exact typed framework snapshot with the blobs in ``HEAD``."""
+        plan = self._state_integration.resolve_snapshot(snapshot)
+        matches: list[bool | None] = []
+        for state_file in plan.files:
+            result = self.run(
+                ["git", "show", f"HEAD:{state_file.pathspec}"],
+                check=False,
+            )
+            matches.append(None if result.returncode != 0 else result.stdout == state_file.contents)
+        if matches and all(value is None for value in matches):
+            return FrameworkSnapshotStatus.MISSING
+        if all(value is True for value in matches):
+            return FrameworkSnapshotStatus.EXACT
+        return FrameworkSnapshotStatus.DIFFERENT
 
     def snapshot_framework_state(
         self,
@@ -336,21 +358,11 @@ class GitTracker:
         authorizes its deletion. Pending tracked metadata outside the namespace
         remains protected from accidental inclusion or overwrite.
         """
-        relative_root, destination_root = self._framework_state_namespace(
-            snapshot.namespace_root.as_posix()
-        )
-        destinations = self._framework_state_destinations(
-            destination_root,
-            {
-                state_file.relative_path.as_posix(): state_file.contents
-                for state_file in snapshot.files
-            },
-        )
-        prefix = f"{relative_root.as_posix()}/"
+        plan = self._state_integration.resolve_replacement_snapshot(snapshot)
         unexpected = [
             path
             for path in self._pending_committed_framework_metadata()
-            if path != relative_root.as_posix() and not path.startswith(prefix)
+            if not plan.contains_pathspec(path)
         ]
         if unexpected:
             raise ValueError(  # noqa: TRY003  # tracked: #288
@@ -358,25 +370,21 @@ class GitTracker:
                 f"VibeSys metadata has pending changes: {', '.join(unexpected)}"
             )
 
-        tracked = self.run(["git", "ls-files", "--", relative_root.as_posix()]).stdout.strip()
-        if destination_root.exists():
-            if not destination_root.is_dir():
+        tracked = self.run(["git", "ls-files", "--", plan.scope_pathspec]).stdout.strip()
+        if plan.destination_root.exists():
+            if not plan.destination_root.is_dir():
                 raise ValueError(  # noqa: TRY003  # tracked: #288
-                    f"framework state namespace is not a directory: {destination_root}"
+                    f"framework state namespace is not a directory: {plan.destination_root}"
                 )
-            shutil.rmtree(destination_root)
-        for relative, content in destinations:
-            destination = destination_root / relative
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            if isinstance(content, str):
-                destination.write_text(content)
-            else:
-                destination.write_bytes(content)
-        if destinations or tracked:
-            self.run(["git", "add", "--force", "-A", "--", relative_root.as_posix()])
+            shutil.rmtree(plan.destination_root)
+        for state_file in plan.files:
+            state_file.destination.parent.mkdir(parents=True, exist_ok=True)
+            state_file.destination.write_bytes(state_file.contents)
+        if plan.files or tracked:
+            self.run(["git", "add", "--force", "-A", "--", plan.scope_pathspec])
         has_changes = (
             self.run(
-                ["git", "diff", "--cached", "--quiet", "--", relative_root.as_posix()],
+                ["git", "diff", "--cached", "--quiet", "--", plan.scope_pathspec],
                 check=False,
             ).returncode
             != 0
@@ -393,7 +401,7 @@ class GitTracker:
                     "-m",
                     label,
                     "--",
-                    relative_root.as_posix(),
+                    plan.scope_pathspec,
                 ]
             )
         else:
@@ -482,10 +490,16 @@ class GitTracker:
                 "--",
                 ".",
             ]
-            restore_cmd.extend([":(exclude).vs", ":(exclude).vs/**"])
+            restore_cmd.extend(self._state_integration.metadata_restore_exclusions)
             self.run(restore_cmd)
             if clean:
-                clean_cmd = ["git", "clean", "-fd", "-e", ".vs/"]
+                clean_cmd = [
+                    "git",
+                    "clean",
+                    "-fd",
+                    "-e",
+                    self._state_integration.metadata_clean_exclusion,
+                ]
                 clean_cmd.extend(["--", "."])
                 self.run(clean_cmd, check=False)
             self._restore_preserved_paths(preserved)
@@ -701,7 +715,10 @@ class GitTracker:
 
     def _install_project_excludes(self) -> None:
         """Idempotently add local/private paths to ``.git/info/exclude``."""
-        patterns = list(self._PROJECT_LOCAL_EXCLUDE_PATTERNS)
+        patterns = [
+            self._state_integration.local_exclude_pattern,
+            *self._PROJECT_LOCAL_EXCLUDE_PATTERNS,
+        ]
         patterns.extend(
             f"{directory}/" for directory in sorted(self._excluded_dirs) if directory != ".git"
         )
@@ -771,94 +788,10 @@ class GitTracker:
             return None
         return result.stdout.decode(errors="replace").strip()
 
-    def _framework_metadata_destinations(
-        self,
-        metadata: Mapping[str | Path, str | bytes],
-    ) -> list[tuple[Path, Path, str | bytes]]:
-        """Validate metadata keys and resolve their safe project destinations."""
-        vs_root = self.root / ".vs"
-        if vs_root.is_symlink():
-            raise ValueError("framework metadata directory must not be a symlink")  # noqa: TRY003  # tracked: #288
-
-        result: list[tuple[Path, Path, str | bytes]] = []
-        seen: set[Path] = set()
-        for raw_path, content in metadata.items():
-            relative = Path(raw_path)
-            if (
-                relative.is_absolute()
-                or relative == Path()
-                or ".." in relative.parts
-                or relative.parts[:1] != (".vs",)
-                or relative.parts[:2] == (".vs", "local")
-            ):
-                raise ValueError(  # noqa: TRY003  # tracked: #288
-                    f"framework metadata path must be below .vs/ but outside .vs/local/: {raw_path}"
-                )
-            if relative in seen:
-                raise ValueError(f"duplicate framework metadata path: {raw_path}")  # noqa: TRY003  # tracked: #288
-            seen.add(relative)
-
-            destination = self.root / relative
-            for parent in (destination, *destination.parents):
-                if parent == self.root:
-                    break
-                if parent.is_symlink():
-                    raise ValueError(  # noqa: TRY003  # tracked: #288
-                        f"framework metadata path traverses a symlink: {raw_path}"
-                    )
-            result.append((relative, destination, content))
-        return result
-
-    def _framework_state_namespace(self, raw_path: str | Path) -> tuple[Path, Path]:
-        """Validate a dedicated namespace below this run's portable state."""
-        relative = Path(raw_path)
-        expected = (".vs", "runs", self.run_id)
-        if (
-            relative.is_absolute()
-            or relative == Path()
-            or any(part in {"", ".", ".."} for part in relative.parts)
-            or relative.parts[:3] != expected
-            or len(relative.parts) < 4  # noqa: PLR2004  # tracked: #288
-        ):
-            raise ValueError(  # noqa: TRY003  # tracked: #288
-                "framework state namespace must be a dedicated directory below "
-                f".vs/runs/{self.run_id}/: {raw_path}"
-            )
-        destination = self.root / relative
-        for parent in (destination, *destination.parents):
-            if parent == self.root:
-                break
-            if parent.is_symlink():
-                raise ValueError(f"framework state namespace traverses a symlink: {raw_path}")  # noqa: TRY003  # tracked: #288
-        return relative, destination
-
-    @staticmethod
-    def _framework_state_destinations(
-        namespace_root: Path,
-        files: Mapping[str | Path, str | bytes],
-    ) -> list[tuple[Path, str | bytes]]:
-        """Validate exact-state file keys relative to one namespace."""
-        result: list[tuple[Path, str | bytes]] = []
-        seen: set[Path] = set()
-        for raw_path, content in files.items():
-            relative = Path(raw_path)
-            if (
-                relative.is_absolute()
-                or relative == Path()
-                or any(part in {"", ".", ".."} for part in relative.parts)
-            ):
-                raise ValueError(f"framework state file must be namespace-relative: {raw_path}")  # noqa: TRY003  # tracked: #288
-            if relative in seen:
-                raise ValueError(f"duplicate framework state file: {raw_path}")  # noqa: TRY003  # tracked: #288
-            seen.add(relative)
-            destination = namespace_root / relative
-            if destination == namespace_root:
-                raise ValueError(f"framework state file must be namespace-relative: {raw_path}")  # noqa: TRY003  # tracked: #288
-            result.append((relative, content))
-        return result
-
     def _pending_committed_framework_metadata(self) -> list[str]:
-        result = self.run(["git", "diff", "--name-only", "HEAD", "--", ".vs"])
+        result = self.run(
+            ["git", "diff", "--name-only", "HEAD", "--", self._state_integration.metadata_pathspec]
+        )
         return sorted(path for path in result.stdout.decode(errors="replace").splitlines() if path)
 
     # -- snapshot resilience --------------------------------------------------
@@ -966,7 +899,7 @@ class GitTracker:
     def _unstage_project_owned_paths(self) -> None:
         """Remove framework, private, and cache paths from the candidate index."""
         protected = [
-            ".vs",
+            self._state_integration.metadata_pathspec,
             ".env",
             "agent.toml",
         ]

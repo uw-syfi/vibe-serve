@@ -17,6 +17,7 @@ from vibesys.run.project import (
     provision_project,
 )
 from vibesys.run.workspace import Workspace
+from vs_project_state import ProjectStore
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -76,14 +77,14 @@ def test_provision_project_places_source_at_root_and_normalizes_seed(tmp_path: P
         '\n[workspace]\nseed = "../seed"\n',
     )
     (input_root / ".git").mkdir()
-    (input_root / ".vs" / "runs").mkdir(parents=True)
+    ProjectStore(input_root).create_project("input")
     (input_root / "agent.toml").write_text("[model]\nname = 'private'\n")
     (input_root / ".env").write_text("TOKEN=secret\n")
     (input_root / ".env.local").write_text("TOKEN=more-secret\n")
     seed = tmp_path / "seed"
     seed.mkdir()
     (seed / "seed.py").write_text("SEED = True\n")
-    (seed / ".vs").mkdir()
+    ProjectStore(seed).create_project("seed")
     (seed / ".env.seed").write_text("TOKEN=seed-secret\n")
     destination = tmp_path / "runs" / "copy"
 
@@ -102,7 +103,7 @@ def test_provision_project_places_source_at_root_and_normalizes_seed(tmp_path: P
     assert not (result / "workspace").exists()
     assert not (result / "logs").exists()
     assert not (result / ".git").exists()
-    assert not (result / ".vs").exists()
+    assert not ProjectStore.is_project_root(result)
     assert not (result / "agent.toml").exists()
     assert not list(result.rglob(".env*"))
     normalized = InputManifest.model_validate(
@@ -113,7 +114,7 @@ def test_provision_project_places_source_at_root_and_normalizes_seed(tmp_path: P
     assert normalized.benchmark.timeout_seconds == 20
     assert normalized.benchmark.result is not None
     assert normalized.benchmark.result.metric == "throughput"
-    assert (input_root / ".vs").is_dir()
+    assert ProjectStore.is_project_root(input_root)
     assert (input_root / "agent.toml").is_file()
 
 
@@ -178,8 +179,7 @@ def test_provision_project_materializes_git_source_without_nested_metadata(
     repository.mkdir()
     _git(repository, "init", "-q", "-b", "main")
     (repository / "library.py").write_text("VALUE = 2\n")
-    (repository / ".vs" / "runs").mkdir(parents=True)
-    (repository / ".vs" / "runs" / "old.json").write_text("{}\n")
+    ProjectStore(repository).create_project("source repository")
     _git(repository, "add", ".")
     _git(
         repository,
@@ -222,7 +222,7 @@ def test_provision_project_materializes_git_source_without_nested_metadata(
 
     assert (destination / "library" / "library.py").is_file()
     assert not (destination / "library" / ".git").exists()
-    assert not (destination / "library" / ".vs").exists()
+    assert not ProjectStore.is_project_root(destination / "library")
     manifest = InputManifest.model_validate(
         tomllib.loads((destination / "vibesys.input.toml").read_text())
     )

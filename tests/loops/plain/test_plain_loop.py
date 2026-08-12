@@ -18,6 +18,7 @@ from vibesys.agents import AgentRunner
 from vibesys.domains.base import DomainName
 from vibesys.loops.plain.loop import PlainLoopState
 from vibesys.loops.plain.loop import run_plain_loop as _run_plain_loop
+from vibesys.loops.plain.state import PlainStateStore
 from vibesys.schemas import (
     IssueImplementerResponse,
     IssueJudgeResponse,
@@ -27,6 +28,7 @@ from vibesys.schemas import (
     Verdict,
 )
 from vs_issue_board import IssueBoard, IssueStatus
+from vs_project_state import ProjectStore
 
 # ---------------------------------------------------------------------------
 # Helpers — factories and fixtures shared across tests
@@ -111,17 +113,19 @@ def _store_path(exp_dir: Path) -> Path:
 
 
 def _run_id(project_dir: Path) -> str:
-    manifests = list(project_dir.glob(".vs/runs/*/run.json"))
-    assert len(manifests) == 1, manifests
-    return manifests[0].parent.name
+    runs = ProjectStore(project_dir).list_runs()
+    assert len(runs) == 1, runs
+    return runs[0].run_id
 
 
-def _plain_state_dir(project_dir: Path) -> Path:
-    return project_dir / ".vs" / "runs" / _run_id(project_dir) / "plain"
+def _plain_state_store(project_dir: Path) -> PlainStateStore:
+    project = ProjectStore(project_dir)
+    return PlainStateStore(project.portable_namespace(_run_id(project_dir), "plain"))
 
 
 def _plain_local_dir(project_dir: Path) -> Path:
-    return project_dir / ".vs" / "local" / "runs" / _run_id(project_dir) / "plain"
+    project = ProjectStore(project_dir)
+    return project.local_namespace(_run_id(project_dir), "plain").external_directory()
 
 
 @pytest.fixture
@@ -957,14 +961,13 @@ def test_state_json_written_with_bootstrap_done_after_run(  # noqa: ANN201  # tr
         )
 
     exp_dir = _run_exp_dir(tmp_path)
-    state_path = _plain_state_dir(exp_dir) / "state.json"
-    assert state_path.is_file()
-    data = json.loads(state_path.read_text())
-    assert data["bootstrap_done"] is True
-    assert "phase" in data
-    assert "round_idx" in data
-    assert data["version"] == 1
-    assert (_plain_state_dir(exp_dir) / "perf" / "metrics.json").is_file()
+    state_store = _plain_state_store(exp_dir)
+    cursor = state_store.load_cursor()
+    assert cursor is not None
+    assert cursor.bootstrap_done is True
+    assert cursor.phase
+    assert cursor.round_idx >= 0
+    assert state_store.load_performance().records
     assert not (exp_dir / "logs").exists()
     assert not (_plain_local_dir(exp_dir) / "issues.json").exists()
 

@@ -67,7 +67,7 @@ class ProjectPathPolicy:
     file on Linux. Read-only paths remain visible but cannot be modified.
 
     A hidden path may be nested below a read-only path. That supports policies
-    such as a readable ``.vs`` directory with a hidden ``.vs/local`` subtree.
+    such as a readable framework-state directory with a hidden local subtree.
     Other nested or duplicate declarations are rejected because they are
     redundant or assign an unreachable policy to a child path.
     """

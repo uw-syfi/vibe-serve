@@ -76,7 +76,13 @@ from vibesys.sandbox.run_environment import (
     build_run_environment,
     make_run_environment_spec,
 )
-from vs_project_state import ProjectStore, RunConfiguration, StateTransition, generate_run_id
+from vs_project_state import (
+    ProjectStore,
+    RunConfiguration,
+    StateSnapshot,
+    StateTransition,
+    generate_run_id,
+)
 
 if TYPE_CHECKING:
     from vibesys.server.supervisor import RunSupervisor
@@ -91,7 +97,7 @@ You are the read-only investigation agent for a live VibeSys experiment. Answer 
 user's question by examining evidence instead of relying on a precomputed summary.
 
 Your working directory is the current experiment workspace. Relevant evidence is:
-- `_vibesys_chat/trajectory/state/`: the canonical portable `.vs` state for this run.
+- `_vibesys_chat/trajectory/state/`: the canonical portable state for this run.
 - `_vibesys_chat/trajectory/logs/`: machine-local event and run logs for this run.
 - `_vibesys_chat/conversation.jsonl`: successful earlier exchanges in this chat.
 - the rest of the workspace: the current implementation, evaluator inputs, and git
@@ -381,7 +387,7 @@ def _assemble_run_context(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: 
     buffered_logs: list[str] = []
     backend_impl = backends.get(
         backend,
-        log_dir=project_root / ".vs" / "local" / "runs" / run_id / "logs",
+        log_dir=ProjectStore.log_directory_for(project_root, run_id),
         log=buffered_logs.append,
         image=environment.backend_image,
     )
@@ -482,7 +488,7 @@ def _assemble_run_context(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: 
         workspace_files.create()
 
     project_store = ProjectStore(project_root)
-    log_dir = project_store.logs_dir(run_id)
+    log_dir = project_store.log_directory(run_id)
     log_dir.mkdir(parents=True, exist_ok=True)
     from vibesys.server.registry import active_supervisor  # noqa: PLC0415  # tracked: #288
 
@@ -631,7 +637,7 @@ def _assemble_run_context(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: 
             workspace=project_root,
             run_environment=environment,
             project_root=PROJECT_ROOT,
-            model_cache_dir=project_store.local_dir / "cache" / "huggingface",
+            model_cache_dir=project_store.model_cache_directory("huggingface"),
             log=logger.lprint,
         )
         environment_patch = hooks.prepare(environment_context)
@@ -877,7 +883,7 @@ def _assemble_candidate_context(  # noqa: PLR0913  # tracked: #288
 ) -> "_RunContext":
     config = as_config(config)
     candidate_id = f"g{generation}c{child_idx}"
-    workspace = parent.project_store.worktrees_dir(parent.run_id) / candidate_id / "workspace"
+    workspace = parent.project_store.candidate_worktree_directory(parent.run_id, candidate_id)
     log_dir = parent.state.local(RunStateNamespace.EVOLVE).external_directory(
         f"candidates/{candidate_id}/logs"
     )
@@ -914,10 +920,9 @@ def _assemble_candidate_context(  # noqa: PLR0913  # tracked: #288
     project_path_policy = build_project_path_policy(workspace, evaluator_source=None)
     objective_document = None
     if effective_objective is not None:
-        parent_objective = parent.state.portable(RunStateNamespace.RUNTIME).project_relative_path(
-            "effective-objective.md"
-        )
-        objective_document = workspace.joinpath(*parent_objective.parts)
+        objective_document = parent.state.portable(
+            RunStateNamespace.RUNTIME
+        ).equivalent_external_file(workspace, "effective-objective.md")
 
     # Reuse adapter-owned resources provisioned when the parent environment was
     # opened. Candidate sessions do not need to rematerialize reference inputs.
@@ -1356,11 +1361,28 @@ class _RunContext:
                 _EXPERIMENT_CHAT_SYSTEM_PROMPT, encoding="utf-8"
             )
             self.run_log_file.flush()
-            portable_run_dir = self.project_store.run_manifest_path(self.run_id).parent
-            self._copy_chat_trajectory_files(portable_run_dir, trajectory_dir / "state")
+            self._write_chat_trajectory_snapshot(
+                self.project_store.portable_run_export(self.run_id),
+                trajectory_dir / "state",
+            )
             self._copy_chat_trajectory_files(self.log_dir, trajectory_dir / "logs")
         except OSError as exc:
             self.logger.lprint(f"[warn] could not refresh experiment chat trajectory: {exc}")
+
+    @staticmethod
+    def _write_chat_trajectory_snapshot(
+        snapshot: StateSnapshot,
+        destination_root: Path,
+    ) -> None:
+        """Write textual files from an immutable portable-state export."""
+        for state_file in snapshot.files:
+            if state_file.relative_path.suffix not in _CHAT_TRAJECTORY_SUFFIXES:
+                continue
+            destination = destination_root.joinpath(*state_file.relative_path.parts)
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            temporary = destination.with_name(f".{destination.name}.tmp")
+            temporary.write_bytes(state_file.contents)
+            temporary.replace(destination)
 
     @staticmethod
     def _copy_chat_trajectory_files(source_root: Path, destination_root: Path) -> None:

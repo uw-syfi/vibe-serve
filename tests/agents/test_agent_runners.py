@@ -752,8 +752,8 @@ class TestCliAgentRunner:
         build_sandbox = MagicMock(return_value=sandbox)
         monkeypatch.setattr(cli_runner_module, "build_host_sandbox", build_sandbox)
         policy = ProjectPathPolicy(
-            read_only_paths=(".vs",),
-            hidden_paths=(".vs/local",),
+            read_only_paths=(".state",),
+            hidden_paths=(".state/local",),
         )
         runner = CliAgentRunner(
             provider="codex",
@@ -2070,8 +2070,8 @@ class TestBuildAgentRunner:
 
     def test_build_agent_runner_forwards_project_policy_to_cli(self):  # noqa: ANN201  # tracked: #288
         policy = ProjectPathPolicy(
-            read_only_paths=(".vs",),
-            hidden_paths=(".vs/local",),
+            read_only_paths=(".state",),
+            hidden_paths=(".state/local",),
         )
 
         runner = build_agent_runner(

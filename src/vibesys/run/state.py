@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 
 
 class RunStateNamespace(StrEnum):
-    """Framework-owned state namespaces below one ``.vs`` run."""
+    """Framework-owned state namespaces for one run."""
 
     AGENT = "agent"
     EVOLVE = "evolve"

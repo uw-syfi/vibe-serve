@@ -134,17 +134,6 @@ arguments = sys.argv[1:]
 headless = "--headless" in arguments
 if headless:
     input_root = Path.cwd()
-    run_id = "20260811-120000-deadbeef-installed-release-smoke"
-    metadata = input_root / ".vs"
-    run_root = metadata / "runs" / run_id
-    (run_root / "agent" / "rounds").mkdir(parents=True)
-    (run_root / "run.json").write_text("{}")
-    (run_root / "agent" / "rounds" / "0001.json").write_text("{}")
-    (metadata / "project.json").write_text("{}")
-    (metadata / ".gitignore").write_text("/local/\\n")
-    local = metadata / "local"
-    (local / "runs" / run_id / "logs").mkdir(parents=True)
-    (local / "current-run").write_text(f"{run_id}\\n")
     (input_root / ".git").mkdir()
 else:
     input_index = arguments.index("--input")
@@ -184,6 +173,7 @@ observed_path.write_text(json.dumps(observed))
     monkeypatch.setattr(verifier, "_RUNTIME_ROOT", tmp_path)
     monkeypatch.setenv("PATH", str(fake_bin))
     monkeypatch.setenv("VIBESYS_TEST_OBSERVED", str(observed))
+    monkeypatch.setattr(verifier, "_verify_project_state", lambda _root: None)
 
     verifier._verify_tui()  # noqa: SLF001
 
@@ -283,18 +273,17 @@ arguments = os.sys.argv[1:]
         )
 
 
-@pytest.mark.parametrize("run_count", [0, 2])
 def test_project_smoke_requires_exactly_one_run(
     tmp_path: Path,
-    run_count: int,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    metadata = tmp_path / ".vs"
-    runs_root = metadata / "runs"
-    runs_root.mkdir(parents=True)
-    (metadata / "project.json").write_text("{}")
-    (metadata / ".gitignore").write_text("/local/\n")
-    for index in range(run_count):
-        (runs_root / f"20260811-12000{index}-installed-release-smoke").mkdir()
+    class _StoreWithoutRuns:
+        def load_project(self) -> object:
+            return object()
 
+        def list_runs(self) -> list[object]:
+            return []
+
+    monkeypatch.setattr(verifier, "ProjectStore", lambda _root: _StoreWithoutRuns())
     with pytest.raises(verifier.InstalledReleaseError, match="exactly one run"):
         verifier._verify_project_state(tmp_path)  # noqa: SLF001

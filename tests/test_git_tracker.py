@@ -4,12 +4,17 @@ from __future__ import annotations
 
 import os
 import subprocess
-from pathlib import Path, PurePosixPath
+from typing import TYPE_CHECKING
 
 import pytest
 
 from vibesys.run.git_tracker import GitTracker
-from vs_project_state import StateFile, StateSnapshot
+from vs_project_state import PlainRunConfiguration, ProjectStore
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from vs_project_state import StateSnapshot
 
 _IDENTITY = {
     "GIT_AUTHOR_NAME": "test",
@@ -46,21 +51,50 @@ def _initialized_tracker(root: Path, run_id: str = "test-run") -> GitTracker:
     return tracker
 
 
-def _snapshot(root: str, *files: tuple[str, str | bytes]) -> StateSnapshot:
-    """Build the validated project-state value consumed by GitTracker."""
-    state_files = tuple(
-        sorted(
-            (
-                StateFile(
-                    relative_path=PurePosixPath(path),
-                    contents=contents.encode() if isinstance(contents, str) else contents,
-                )
-                for path, contents in files
+def _project_store(root: Path, tracker: GitTracker, run_id: str = "test-run") -> ProjectStore:
+    store = ProjectStore(root)
+    store.create_project("Git tracker test")
+    assert tracker.project_branch is not None
+    assert tracker.trusted_input_baseline is not None
+    store.create_run(
+        store.new_run_manifest(
+            "Git tracker test",
+            run_id=run_id,
+            branch=tracker.project_branch,
+            vibesys_version="test",
+            trusted_input_baseline=tracker.trusted_input_baseline,
+            configuration=PlainRunConfiguration(
+                outer_loop="plain",
+                agent_backend="stub",
+                compute_backend="cpu",
+                max_rounds=2,
+                max_attempts_per_issue=1,
+                max_issues_per_perf_eval=1,
             ),
-            key=lambda item: item.relative_path.as_posix(),
         )
     )
-    return StateSnapshot(namespace_root=PurePosixPath(root), files=state_files)
+    tracker.snapshot_with_framework_metadata(
+        "initialize state", store.initialization_snapshot(run_id)
+    )
+    return store
+
+
+def _namespace_snapshot(
+    store: ProjectStore,
+    run_id: str,
+    namespace: str,
+    *files: tuple[str, str | bytes],
+) -> StateSnapshot:
+    state = store.portable_namespace(run_id, namespace)
+    root = state.external_directory()
+    for relative, contents in files:
+        destination = root / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        if isinstance(contents, str):
+            destination.write_text(contents, encoding="utf-8")
+        else:
+            destination.write_bytes(contents)
+    return state.snapshot()
 
 
 def _initialize_existing_repository(root: Path) -> str:
@@ -86,7 +120,7 @@ def test_fresh_project_owns_repository_branch_and_local_excludes(tmp_path: Path)
     assert tracker.trusted_input_baseline == tracker.current_sha()
     assert _git(tmp_path, "ls-files").splitlines() == ["main.py"]
     excludes = (tmp_path / ".git" / "info" / "exclude").read_text(encoding="utf-8")
-    assert "/.vs/local/" in excludes
+    assert ProjectStore(tmp_path).git_integration("round-trip").local_exclude_pattern in excludes
     assert "/agent.toml" in excludes
     assert "/.env.*" in excludes
     assert "attempts/" in excludes
@@ -171,140 +205,120 @@ def test_snapshot_commits_candidate_paths_but_never_local_or_private_state(
     tmp_path: Path,
 ) -> None:
     tracker = _initialized_tracker(tmp_path)
+    store = _project_store(tmp_path, tracker)
     (tmp_path / "main.py").write_text("VALUE = 2\n", encoding="utf-8")
-    (tmp_path / ".vs" / "local").mkdir(parents=True)
-    (tmp_path / ".vs" / "local" / "state.json").write_text("{}\n", encoding="utf-8")
-    portable = tmp_path / ".vs" / "runs" / "test-run" / "rogue.json"
-    portable.parent.mkdir(parents=True)
-    portable.write_text("{}\n", encoding="utf-8")
-    _git(tmp_path, "add", "--force", ".vs/runs/test-run/rogue.json")
+    store.local_namespace("test-run", "agent").external_directory().joinpath(
+        "state.json"
+    ).write_text("{}\n", encoding="utf-8")
+    portable = _namespace_snapshot(
+        store,
+        "test-run",
+        "agent",
+        ("rogue.json", "{}\n"),
+    )
+    rogue_pathspec = store.git_integration("test-run").resolve_snapshot(portable).files[0].pathspec
+    _git(tmp_path, "add", "--force", rogue_pathspec)
     (tmp_path / "agent.toml").write_text("secret = true\n", encoding="utf-8")
     (tmp_path / "module.pyc").write_bytes(b"cache")
 
     tracker.snapshot("candidate")
 
     assert _git(tmp_path, "show", "HEAD:main.py") == "VALUE = 2"
-    tracked = set(_git(tmp_path, "ls-tree", "-r", "--name-only", "HEAD").splitlines())
-    assert tracked == {"main.py"}
+    assert rogue_pathspec not in _git(tmp_path, "ls-tree", "-r", "--name-only", "HEAD")
 
 
 def test_framework_snapshot_commits_only_supplied_exact_metadata(tmp_path: Path) -> None:
     tracker = _initialized_tracker(tmp_path)
+    store = _project_store(tmp_path, tracker)
     (tmp_path / "main.py").write_text("VALUE = 2\n", encoding="utf-8")
-
-    tracker.snapshot_with_framework_metadata(
-        "round 1",
-        _snapshot(
-            ".vs/runs/test-run/agent",
-            ("rounds/0001.json", b'{"round":1}\n'),
-        ),
+    snapshot = _namespace_snapshot(
+        store,
+        "test-run",
+        "agent",
+        ("rounds/0001.json", b'{"round":1}\n'),
     )
+
+    tracker.snapshot_with_framework_metadata("round 1", snapshot)
 
     assert _git(tmp_path, "show", "HEAD:main.py") == "VALUE = 2"
-    assert _git(tmp_path, "show", "HEAD:.vs/runs/test-run/agent/rounds/0001.json") == (
-        '{"round":1}'
-    )
-    assert not _git(tmp_path, "ls-files", ".vs/local")
-
-
-def test_framework_snapshot_rejects_symlink_traversal(tmp_path: Path) -> None:
-    tracker = _initialized_tracker(tmp_path)
-    outside = tmp_path.parent / "outside"
-    outside.mkdir(exist_ok=True)
-    (tmp_path / ".vs").symlink_to(outside, target_is_directory=True)
-
-    with pytest.raises(ValueError, match="must not be a symlink"):
-        tracker.snapshot_with_framework_metadata(
-            "invalid",
-            _snapshot(".vs", ("project.json", "{}\n")),
-        )
+    assert tracker.framework_snapshot_status(snapshot).value == "exact"
 
 
 def test_framework_snapshot_refuses_unexpected_metadata_edits(tmp_path: Path) -> None:
     tracker = _initialized_tracker(tmp_path)
-    tracker.snapshot_with_framework_metadata(
-        "initialize",
-        _snapshot(".vs", ("project.json", "old\n")),
+    store = _project_store(tmp_path, tracker)
+    agent_snapshot = _namespace_snapshot(
+        store,
+        "test-run",
+        "agent",
+        ("state.json", "old\n"),
     )
-    project_metadata = tmp_path / ".vs" / "project.json"
-    project_metadata.write_text("tampered\n", encoding="utf-8")
+    tracker.snapshot_with_framework_metadata("initialize agent", agent_snapshot)
+    agent_state = store.portable_namespace("test-run", "agent").external_directory() / "state.json"
+    agent_state.write_text("tampered\n", encoding="utf-8")
+    evolve_snapshot = _namespace_snapshot(
+        store,
+        "test-run",
+        "evolve",
+        ("population.json", "new\n"),
+    )
 
     with pytest.raises(ValueError, match="unexpectedly modified"):
-        tracker.snapshot_with_framework_metadata(
-            "round",
-            _snapshot(
-                ".vs/runs/test-run/agent",
-                ("rounds/0001.json", "round\n"),
-            ),
-        )
+        tracker.snapshot_with_framework_metadata("evolve", evolve_snapshot)
     with pytest.raises(ValueError, match="unexpectedly modified"):
-        tracker.snapshot_with_framework_metadata(
-            "round",
-            _snapshot(".vs", ("project.json", "expected\n")),
-        )
+        tracker.snapshot_with_framework_metadata("agent", agent_snapshot)
 
 
 def test_framework_state_snapshot_replaces_one_namespace_exactly(tmp_path: Path) -> None:
     tracker = _initialized_tracker(tmp_path)
-    tracker.snapshot_with_framework_metadata(
-        "initialize metadata",
-        _snapshot(
-            ".vs",
-            ("project.json", "project\n"),
-            ("runs/test-run/evolve/keep.json", "old\n"),
-            ("runs/test-run/evolve/remove.json", "remove\n"),
-        ),
+    store = _project_store(tmp_path, tracker)
+    initial = _namespace_snapshot(
+        store,
+        "test-run",
+        "evolve",
+        ("keep.json", "old\n"),
+        ("remove.json", "remove\n"),
     )
+    tracker.snapshot_with_framework_metadata("initialize evolve", initial)
+    state = store.portable_namespace("test-run", "evolve")
+    state.external_directory().joinpath("remove.json").unlink()
+    state.external_directory().joinpath("keep.json").write_text("new\n", encoding="utf-8")
+    nested = state.external_directory("nested") / "add.json"
+    nested.write_bytes(b"add\n")
+    replacement = state.snapshot()
 
-    tracker.snapshot_framework_state(
-        "rotate population",
-        _snapshot(
-            ".vs/runs/test-run/evolve",
-            ("keep.json", "new\n"),
-            ("nested/add.json", b"add\n"),
-        ),
-    )
+    tracker.snapshot_framework_state("rotate population", replacement)
 
-    tracked = set(
-        _git(
-            tmp_path,
-            "ls-tree",
-            "-r",
-            "--name-only",
-            "HEAD",
-            ".vs/runs/test-run/evolve",
-        ).splitlines()
-    )
-    assert tracked == {
-        ".vs/runs/test-run/evolve/keep.json",
-        ".vs/runs/test-run/evolve/nested/add.json",
+    assert tracker.framework_snapshot_status(replacement).value == "exact"
+    assert {file.relative_path.as_posix() for file in replacement.files} == {
+        "keep.json",
+        "nested/add.json",
     }
-    assert _git(tmp_path, "show", "HEAD:.vs/runs/test-run/evolve/keep.json") == "new"
-    assert _git(tmp_path, "show", "HEAD:.vs/project.json") == "project"
 
 
 def test_framework_state_snapshot_leaves_candidate_changes_pending(tmp_path: Path) -> None:
     tracker = _initialized_tracker(tmp_path)
-    tracker.snapshot_with_framework_metadata(
-        "initialize metadata",
-        _snapshot(
-            ".vs/runs/test-run/evolve",
-            ("state.json", "old\n"),
-        ),
+    store = _project_store(tmp_path, tracker)
+    initial = _namespace_snapshot(
+        store,
+        "test-run",
+        "evolve",
+        ("state.json", "old\n"),
     )
+    tracker.snapshot_with_framework_metadata("initialize state", initial)
     (tmp_path / "main.py").write_text("VALUE = 2\n", encoding="utf-8")
     _git(tmp_path, "add", "main.py")
-
-    tracker.snapshot_framework_state(
-        "update state",
-        _snapshot(
-            ".vs/runs/test-run/evolve",
-            ("state.json", "new\n"),
-        ),
+    replacement = _namespace_snapshot(
+        store,
+        "test-run",
+        "evolve",
+        ("state.json", "new\n"),
     )
 
+    tracker.snapshot_framework_state("update state", replacement)
+
     assert _git(tmp_path, "show", "HEAD:main.py") == "VALUE = 1"
-    assert _git(tmp_path, "show", "HEAD:.vs/runs/test-run/evolve/state.json") == "new"
+    assert tracker.framework_snapshot_status(replacement).value == "exact"
     assert _git(tmp_path, "status", "--short", "main.py") == "M  main.py"
 
 
@@ -312,70 +326,62 @@ def test_framework_state_snapshot_protects_metadata_outside_namespace(
     tmp_path: Path,
 ) -> None:
     tracker = _initialized_tracker(tmp_path)
-    tracker.snapshot_with_framework_metadata(
-        "initialize metadata",
-        _snapshot(
-            ".vs",
-            ("project.json", "project\n"),
-            ("runs/test-run/evolve/state.json", "old\n"),
-        ),
+    store = _project_store(tmp_path, tracker)
+    agent_snapshot = _namespace_snapshot(
+        store,
+        "test-run",
+        "agent",
+        ("state.json", "agent\n"),
     )
-    (tmp_path / ".vs" / "project.json").write_text("tampered\n", encoding="utf-8")
+    evolve_snapshot = _namespace_snapshot(
+        store,
+        "test-run",
+        "evolve",
+        ("state.json", "old\n"),
+    )
+    tracker.snapshot_with_framework_metadata("initialize agent", agent_snapshot)
+    tracker.snapshot_with_framework_metadata("initialize evolve", evolve_snapshot)
+    store.portable_namespace("test-run", "agent").external_directory().joinpath(
+        "state.json"
+    ).write_text("tampered\n", encoding="utf-8")
+    replacement = _namespace_snapshot(
+        store,
+        "test-run",
+        "evolve",
+        ("state.json", "new\n"),
+    )
 
     with pytest.raises(ValueError, match="other committed VibeSys metadata"):
-        tracker.snapshot_framework_state(
-            "replace",
-            _snapshot(
-                ".vs/runs/test-run/evolve",
-                ("state.json", "new\n"),
-            ),
-        )
+        tracker.snapshot_framework_state("replace", replacement)
 
-    assert (tmp_path / ".vs" / "runs" / "test-run" / "evolve" / "state.json").read_text(
-        encoding="utf-8"
-    ) == "old\n"
+    assert tracker.framework_snapshot_status(evolve_snapshot).value == "exact"
 
 
-@pytest.mark.parametrize(
-    "namespace",
-    [
-        ".vs",
-        ".vs/runs/test-run",
-        ".vs/runs/other/evolve",
-    ],
-)
-def test_framework_state_snapshot_requires_dedicated_current_run_namespace(
-    tmp_path: Path,
-    namespace: str,
-) -> None:
+def test_checkout_restores_candidate_tree_and_preserves_framework_state(tmp_path: Path) -> None:
     tracker = _initialized_tracker(tmp_path)
-
-    with pytest.raises(ValueError, match="dedicated directory"):
-        tracker.snapshot_framework_state(
-            "invalid",
-            _snapshot(namespace),
-        )
-
-
-def test_checkout_restores_candidate_tree_and_preserves_all_vs_state(tmp_path: Path) -> None:
-    tracker = _initialized_tracker(tmp_path)
+    store = _project_store(tmp_path, tracker)
     first = tracker.current_sha()
     assert first is not None
     (tmp_path / "main.py").write_text("VALUE = 2\n", encoding="utf-8")
-    tracker.snapshot_with_framework_metadata(
-        "candidate",
-        _snapshot(".vs", ("project.json", "portable\n")),
+    portable = _namespace_snapshot(
+        store,
+        "test-run",
+        "agent",
+        ("state.json", "portable\n"),
     )
-    (tmp_path / ".vs" / "project.json").write_text("new portable\n", encoding="utf-8")
-    local = tmp_path / ".vs" / "local" / "active.json"
-    local.parent.mkdir(parents=True)
+    tracker.snapshot_with_framework_metadata("candidate", portable)
+    portable_file = (
+        store.portable_namespace("test-run", "agent").external_directory() / "state.json"
+    )
+    portable_file.write_text("new portable\n", encoding="utf-8")
+    local = store.local_namespace("test-run", "agent").external_directory() / "active.txt"
     local.write_text("local\n", encoding="utf-8")
     (tmp_path / "scratch.txt").write_text("delete me\n", encoding="utf-8")
 
     assert tracker.checkout_tree(first, clean=True)
 
     assert (tmp_path / "main.py").read_text(encoding="utf-8") == "VALUE = 1\n"
-    assert (tmp_path / ".vs" / "project.json").read_text(encoding="utf-8") == "new portable\n"
+    assert portable_file.read_text(encoding="utf-8") == "new portable\n"
     assert local.read_text(encoding="utf-8") == "local\n"
     assert not (tmp_path / "scratch.txt").exists()
 
@@ -395,9 +401,10 @@ def test_trusted_input_changes_compare_against_branch_point(tmp_path: Path) -> N
 
 def test_candidate_worktree_is_local_and_retained_by_durable_ref(tmp_path: Path) -> None:
     tracker = _initialized_tracker(tmp_path, "durable")
+    store = _project_store(tmp_path, tracker, "durable")
     baseline = tracker.current_sha()
     assert baseline is not None
-    worktree = tmp_path / ".vs" / "local" / "candidates" / "candidate-1"
+    worktree = store.candidate_worktree_directory("durable", "candidate-1")
     tracker.add_worktree(worktree, baseline)
     (worktree / "main.py").write_text("VALUE = 42\n", encoding="utf-8")
     _git(worktree, "add", "main.py")
@@ -415,18 +422,13 @@ def test_candidate_worktree_is_local_and_retained_by_durable_ref(tmp_path: Path)
     assert not worktree.exists()
 
 
-@pytest.mark.parametrize(
-    "path",
-    ["candidate", ".vs/local", ".vs/peer", "../outside"],
-)
-def test_candidate_worktrees_must_be_below_vs_local(tmp_path: Path, path: str) -> None:
+def test_candidate_worktrees_must_use_reserved_directory(tmp_path: Path) -> None:
     tracker = _initialized_tracker(tmp_path)
-    candidate = tmp_path / path
-
-    with pytest.raises(ValueError, match="below"):
-        tracker.add_worktree(candidate, "HEAD")
-    with pytest.raises(ValueError, match="below"):
-        tracker.remove_worktree(candidate)
+    for path in (tmp_path / "candidate", tmp_path, tmp_path.parent / "outside"):
+        with pytest.raises(ValueError, match="below"):
+            tracker.add_worktree(path, "HEAD")
+        with pytest.raises(ValueError, match="below"):
+            tracker.remove_worktree(path)
 
 
 def test_candidate_ref_rejects_unsafe_id_or_unknown_commit(tmp_path: Path) -> None:

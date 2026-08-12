@@ -27,6 +27,7 @@ from vibesys.resource_paths import (
     profiler_support_dir,
     resources_root,
 )
+from vs_project_state import ProjectStateError, ProjectStore
 
 FRAMEWORK_PACKAGES = (
     "vibesys",
@@ -428,29 +429,22 @@ def run_headless_stub_smoke(
 def _verify_project_state(project_root: Path) -> None:
     if (project_root / "agent.toml").exists():
         _fail("Configless headless smoke unexpectedly created agent.toml")
-    metadata_dir = project_root / ".vs"
-    if not (metadata_dir / "project.json").is_file():
-        _fail(f"Project smoke did not create {metadata_dir / 'project.json'}")
-    gitignore = metadata_dir / ".gitignore"
-    if not gitignore.is_file() or "/local/" not in gitignore.read_text().splitlines():
-        _fail(f"Project smoke did not preserve the local-state ignore rule: {gitignore}")
-    runs_dir = metadata_dir / "runs"
-    runs = list(runs_dir.iterdir()) if runs_dir.is_dir() else []
-    if (
-        len(runs) != 1
-        or not runs[0].is_dir()
-        or not runs[0].name.endswith("-installed-release-smoke")
-    ):
-        _fail(f"Project smoke did not create exactly one run under {runs_dir}: {runs}")
-    run_dir = runs[0]
-    committed = (run_dir / "run.json", run_dir / "agent" / "rounds" / "0001.json")
-    if not all(path.is_file() for path in committed):
-        _fail(f"Project smoke did not persist committed run metadata: {committed}")
-    current_run = metadata_dir / "local" / "current-run"
-    if not current_run.is_file() or current_run.read_text().strip() != run_dir.name:
-        _fail(f"Project smoke did not persist its local current-run pointer: {current_run}")
-    if not (metadata_dir / "local" / "runs" / run_dir.name / "logs").is_dir():
-        _fail("Project smoke did not keep logs under .vs/local")
+    try:
+        store = ProjectStore(project_root)
+        store.load_project()
+        runs = store.list_runs()
+    except ProjectStateError as exc:
+        _fail(f"Project smoke did not create valid project state: {exc}")
+    if len(runs) != 1 or not runs[0].run_id.endswith("-installed-release-smoke"):
+        _fail(f"Project smoke did not create exactly one run: {runs}")
+    run = runs[0]
+    completed_rounds = store.load_rounds(run.run_id)
+    if len(completed_rounds) != 1 or completed_rounds[0].round_number != 1:
+        _fail("Project smoke did not persist exactly one completed round")
+    if store.current_run_id() != run.run_id:
+        _fail("Project smoke did not persist its local current-run pointer")
+    if not store.log_directory(run.run_id).is_dir():
+        _fail("Project smoke did not create its machine-local log directory")
     if not (project_root / ".git").is_dir():
         _fail("Project smoke did not initialize Git in the project directory")
 

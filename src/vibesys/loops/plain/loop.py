@@ -348,15 +348,13 @@ def run_plain_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
         local_dir = ctx.state.local(RunStateNamespace.PLAIN).external_directory()
 
         progress_path = _init_progress(local_dir)
-        perf_metrics_location = portable_namespace.project_relative_path(
-            "perf/metrics.json"
-        ).as_posix()
+        perf_metrics_location = portable_namespace.agent_visible_path("perf/metrics.json")
         issues_dir = local_dir / "issues"
 
         # The issue board is deliberately agent-visible project memory. CLI
         # tracker tools run inside the candidate sandbox, where framework state
-        # below .vs is read-only. The framework cursor and performance history
-        # remain committed below the run's portable .vs namespace.
+        # is read-only. The framework cursor and performance history remain in
+        # the run's portable state namespace.
         store_path = ctx.workspace / "issues.json"
 
         # Wire the per-issue markdown renderer as a store on_change hook

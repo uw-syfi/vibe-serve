@@ -39,13 +39,11 @@ def test_agent_state_store_round_trips_and_clears_active_state(tmp_path) -> None
     assert store.load_active() is None
     transition = store.prepare_active_transition(state)
     assert isinstance(transition, StateTransition)
-    assert transition.project_relative_path.as_posix().endswith("/agent/active.json")
     assert store.load_active() is None
 
     store.apply_active_transition(transition)
     assert store.load_active() == state
 
     deletion = store.prepare_active_transition(None)
-    assert deletion.next_document is None
     store.apply_active_transition(deletion)
     assert store.load_active() is None

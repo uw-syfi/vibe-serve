@@ -60,8 +60,7 @@ def test_plain_state_store_distinguishes_missing_from_corrupt(tmp_path) -> None:
     store = _store(tmp_path)
     assert store.load_cursor() is None
 
-    path = tmp_path / ".vs" / "runs" / "run-1" / "plain" / "state.json"
-    path.parent.mkdir(parents=True)
+    path = store.namespace.external_directory() / "state.json"
     path.write_text("not json", encoding="utf-8")
 
     with pytest.raises(ProjectStateError, match=r"state\.json"):
