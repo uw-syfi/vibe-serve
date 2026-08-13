@@ -7,7 +7,8 @@ implementation:
 vibesys --outer-loop evolve \
   --search-policy openevolve \
   --runs-dir /work/vibesys-runs --local \
-  --input examples/data-structures/queue-spsc
+  --project examples/data-structures/repositories/queue-rs \
+  --task spsc
 ```
 
 The Python dependency is pinned to `openevolve==0.3.1`. The adapter imports
@@ -35,7 +36,7 @@ OpenEvolve owns:
 - inspiration sampling;
 - bounded population and elite archive maintenance;
 - island assignment and migration; and
-- persistence in `.vs/runs/<run-id>/evolve/openevolve/`.
+- persistence in `.vibesys/state/runs/<run-id>/evolve/openevolve/`.
 
 VibeSys owns:
 
@@ -73,9 +74,9 @@ project into a fake source file. Program metadata stores the durable VibeSys
 individual ID and commit. Migrated OpenEvolve programs retain that metadata, so
 selection always resolves back to the correct VibeSys tree.
 
-Framework state under `.vs/` is excluded from this patch. Profiler counters,
-benchmark JSON, timestamps, and other runtime output therefore cannot distort
-OpenEvolve's code-complexity and diversity features.
+Framework state under `.vibesys/state/` is excluded from this patch. Profiler
+counters, benchmark JSON, timestamps, and other runtime output therefore
+cannot distort OpenEvolve's code-complexity and diversity features.
 
 ## Metrics and multi-objective runs
 

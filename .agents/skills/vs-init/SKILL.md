@@ -1,90 +1,170 @@
 ---
 name: vs-init
-description: Create or update a VibeSys LLM model-serving example bundle for a new Hugging Face model, hardware target, and optimization workload. Use when the user wants to add an example under examples/model-serving, scaffold reference/accuracy_checker/benchmark inputs, adapt existing checker and HTTP benchmark scripts, or start an optimization run from a natural-language workload goal without adding new reusable framework code.
+description: Create or update a repository-native VibeSys LLM model-serving task for an existing candidate repository, Hugging Face model, hardware target, and optimization workload. Use when the user wants to add a named task below `.vibesys/tasks`, adapt a task-specific reference, accuracy checker, or benchmark, or start an optimization run without adding reusable framework code.
 ---
 
 # VS Init
 
 ## Goal
 
-Create a new `examples/model-serving/<name>/` input bundle using today's VibeSys conventions. Prefer copying and adapting the closest existing example over inventing shared infrastructure.
+Create a named task in an existing candidate repository:
 
-The user should only need to provide:
+```text
+<project>/
+├── .git/
+├── .vibesys/
+│   ├── evaluators.lock              # only when evaluator packages are used
+│   └── tasks/
+│       └── <task-name>/
+│           ├── OBJECTIVE.md
+│           ├── vibesys.input.toml
+│           ├── README.md             # optional
+│           ├── requirements.txt      # optional task-tool dependencies
+│           ├── reference/            # optional reference and evaluation inputs
+│           ├── accuracy_checker/     # optional task-specific checker
+│           └── benchmark/            # optional task-specific benchmark
+└── candidate source
+```
 
-- Hugging Face model id, and revision if important.
-- Hardware target, such as H100, A100, Trainium, MacBook/MLX, CPU.
-- Natural-language workload / optimization goal, for example: "maximize p95 latency for 128-token chat completions at 8 req/s" or "measure prefix caching for long shared prompts."
+The project root is both the candidate repository and the working directory for
+agents, checkers, and benchmarks. Do not create a separate starter workspace or
+declare `workspace.seed`. The model, hardware, and workload belong to the named
+task; the serving implementation remains ordinary source in the existing
+repository.
 
-If the workload goal is missing or vague, ask the user to describe it in plain English before writing files.
-Always infer the model/workload modality and a bundle slug, then ask the user to confirm both before creating files.
+Prefer task-specific files. Create or extend a reusable evaluator package only
+when multiple tasks or repositories share stable evaluator infrastructure.
+
+The user should provide:
+
+- Candidate repository path and serving framework.
+- Hugging Face model id, plus a revision when reproducibility matters.
+- Hardware target, such as H100, A100, Trainium, MacBook/MLX, or CPU.
+- Natural-language workload goal, for example: "maximize output-token
+  throughput for latency-insensitive batch jobs" or "minimize p95 latency for
+  128-token chat completions at 8 requests/s."
+
+If the repository, workload, or public API is unclear, ask a concise question
+before writing files. Infer the model modality and a task name, then confirm
+them when the user's request does not already make them explicit.
 
 ## Workflow
 
-1. Inspect existing examples with `find examples/model-serving -maxdepth 2 -type d | sort`.
-2. Identify the workload's input-to-output modality. Do not assume the Hugging Face model id is sufficient. Use model id, tags/config, README/model card if available, and the user's natural-language goal as clues.
-3. Propose:
-   - Inferred modality/API, such as "text/chat -> text over OpenAI completions".
-   - Source example to copy.
-   - Bundle slug, such as `qwen3-8b-h100-json` or `llama-3-8b-a100-chat`.
-4. Ask the user to confirm or correct both the modality/API and slug before creating files. Keep the question concise:
-   - "I infer this is `<input> -> <output>` via `<API>`, and I would create `examples/model-serving/<slug>/`. Is that right?"
-5. Pick the nearest source example by input-to-output modality and public API first; use hardware as a secondary tie-breaker. The accuracy checker and benchmark are usually tied more tightly to the modality/workload contract than to the accelerator.
-   - Text prompt/chat -> text completion, OpenAI completions/chat API: copy from `Llama-3-8B`.
-   - Text prompt/chat -> text completion on Trainium: copy from `Llama-3-8B-trn2` only when Trainium-specific setup matters; otherwise start from the generic text example and adjust hardware notes.
-   - Text/code input -> edited code output with predicted-output requests: copy from `qwen3-32b-code-edit`.
-   - Text prompt/schema -> constrained JSON text output: copy from `Llama-3.1-8B-Instruct-MLX-8bit`.
-   - Text prompt with long shared prefixes -> text completion with prefix-cache-sensitive benchmark: copy from `olmo-hybrid-prefix-caching`.
-   - Audio stream or WAV input -> transcript text: copy from `moonshine-streaming`.
-   - Text prompt -> image bytes/base64: copy from `show-o2-1.5B-HQ*`.
-   - If no example matches the modality, ask the user which input/output contract to measure and create the smallest checker/benchmark by adapting the closest transport pattern (HTTP, WebSocket, or local `VibeServeModel`).
-6. Create `examples/model-serving/<slug>/` with the same layout:
-   - `OBJECTIVE.md`
-   - `README.md`
-   - `vibesys.input.toml`
-   - `requirements.txt`
-   - optional `config.json`
-   - optional `reference/README.md`, `reference/meta.json`, `reference/config.json`, and `reference/reference.py`
-   - optional `accuracy_checker/README.md` and `accuracy_checker/checker.py`
-   - `benchmark/README.md` and `benchmark/benchmark.py`
-7. Preserve the existing VibeSys contract:
-   - Use `vibesys.input.toml` as the manifest name; VibeSys does not use the
-     removed `--ref`, `--acc-checker`, or `--bench` flags.
-   - Declare the input's domain in `[agent].domain`.
-   - Declare evaluator commands in `[accuracy].command` and
-     `[benchmark].command`, usually as `["uv", "run", "python", ...]` arrays.
-   - Add `[workspace].seed` or `[evaluator].source` only when the target needs
-     a starter workspace or trusted evaluator code.
-   - Run the bundle with `uv run vibesys --input examples/model-serving/<slug> ...` from
-     the repository root.
-   - Checkers should be executable as `python checker.py` and benchmarks as
-     `python benchmark.py --url http://localhost:8000 ...` from their own
-     directories.
-8. Do not add a new shared evaluator library unless the user explicitly asks. This skill is for practical example setup, not refactoring.
+1. Resolve the candidate repository root. It must contain the source the agent
+   will modify and be the root of its Git repository.
+2. Read repository instructions, serving entry points, supported model
+   registry, tests, and existing `.vibesys/tasks/` definitions.
+3. Identify the workload's input-to-output modality and public API. Do not infer
+   these from the model id alone. Use the model config/card, framework support,
+   and the user's workload goal.
+4. Propose, when confirmation is needed:
+   - Inferred modality and API, such as text/chat to streamed text over the
+     OpenAI chat-completions API.
+   - Closest existing task whose checker or benchmark behavior can be adapted.
+   - Task name, such as `qwen3-8b-h100-json` or
+     `llama-3-8b-h100-high-concurrency`.
+5. Select an adaptation source by modality and API first, workload second, and
+   hardware third. Prefer a task already in the target repository.
+6. Create `.vibesys/tasks/<task-name>/` in the candidate repository. Copy only
+   files whose behavior is useful, then adapt every model, path, workload, and
+   metric assumption.
+7. Validate the task from the repository root and run the lightest checker and
+   benchmark smoke tests that do not require an unrequested model download or
+   expensive accelerator work.
+
+Useful repository-native examples in this checkout include:
+
+- `examples/model-serving/repositories/vllm/.vibesys/tasks/llama-3-8b-h100-long-prompts`
+  for long shared prompts and short decode tails.
+- `examples/model-serving/repositories/vllm/.vibesys/tasks/llama-3-8b-h100-high-concurrency`
+  for open-loop concurrency and throughput.
+- `examples/model-serving/repositories/vllm/.vibesys/tasks/llama-3-8b-h100-constrained-json`
+  for schema-constrained output.
+- `examples/model-serving/repositories/vllm/.vibesys/tasks/llama-70b-2xh100-vllm`
+  for a multi-GPU vLLM workload.
+- `examples/model-serving/repositories/vllm-omni/.vibesys/tasks/show-o2-1.5b-hq`
+  for text-to-image HTTP serving.
+
+When no task matches, create the smallest task-specific checker and benchmark
+for the required HTTP, WebSocket, or in-process contract. Do not introduce a
+framework abstraction merely to scaffold one task.
+
+## Task Manifest
+
+Use `vibesys.input.toml` and declare the domain. Direct command arrays are
+relative to the candidate repository root, not the task directory:
+
+```toml
+version = 1
+
+[agent]
+domain = "llm-serving"
+
+[accuracy]
+command = [
+  "uv", "run", "--no-project",
+  "--with-requirements", ".vibesys/tasks/<task-name>/requirements.txt",
+  "python", ".vibesys/tasks/<task-name>/accuracy_checker/checker.py",
+]
+timeout_seconds = 300
+
+[benchmark]
+command = [
+  "uv", "run", "--no-project",
+  "--with-requirements", ".vibesys/tasks/<task-name>/requirements.txt",
+  "python", ".vibesys/tasks/<task-name>/benchmark/benchmark.py",
+]
+timeout_seconds = 600
+
+[benchmark.result]
+json_argument = "--output-json"
+metric = "request_throughput"
+```
+
+Use `uv run --no-project` when task tooling should not modify or depend on the
+candidate repository's environment. Omit `requirements.txt` and simplify the
+command when no extra dependencies are needed.
+
+Add `[benchmark.result]` only when one scalar metric is the authoritative
+optimization objective. Its `metric` must exactly match a finite numeric field
+in the benchmark JSON. Multi-objective tasks may instead define
+`objectives.toml` beside the manifest.
+
+Run and validate with the repository and task explicitly:
+
+```bash
+vibesys validate /path/to/project --task <task-name>
+vibesys --project /path/to/project --task <task-name> \
+  --backend cuda --interface service
+```
+
+The task may be omitted only when the repository has exactly one task.
 
 ## Modality Inference
 
-Treat model modality as a hypothesis, not a fact, until the user confirms it.
+Treat modality as a hypothesis until the workload or user confirms it.
 
 Useful clues:
 
-- `AutoModelForCausalLM`, `text-generation`, `chat`, `instruct`, `code`: usually text -> text.
-- `response_format`, JSON schema, grammar/constrained decoding goal: text/schema -> structured text.
-- `image-to-text`, `vision-language`, `vl`, `vllava`, `qwen-vl`: image+text -> text, which may need a new closest-example adaptation because current examples are mostly text-only and text-to-image.
-- `text-to-image`, diffusion, `StableDiffusion`, `Show-o`: text -> image.
-- `automatic-speech-recognition`, `speech-to-text`, `audio`, `whisper`, `moonshine`: audio -> text.
-- `text-to-speech`, `tts`: text -> audio, currently no direct model-serving source example; ask before adapting.
+- `AutoModelForCausalLM`, `text-generation`, `chat`, `instruct`, or `code`:
+  usually text to text.
+- `response_format`, JSON schema, grammar, or constrained decoding: text and
+  schema to structured text.
+- `image-to-text`, `vision-language`, `vl`, or `qwen-vl`: image and text to
+  text.
+- `text-to-image`, diffusion, or Show-o: text to image.
+- `automatic-speech-recognition`, `speech-to-text`, Whisper, or Moonshine:
+  audio to text.
+- `text-to-speech` or `tts`: text to audio.
 
-Ambiguous cases to clarify:
+Clarify models with multiple routes, base models used for specialized tasks,
+and ids that describe only a format or quantization such as MLX, GGUF, AWQ,
+GPTQ, or Neuron.
 
-- Multimodal generative models that support more than one route, such as text -> text and image+text -> text.
-- Base models where the user's workload is specialized, such as code editing, JSON generation, long-context caching, or chat serving.
-- Model ids that name a framework or hardware format rather than task semantics, such as MLX, GGUF, AWQ, GPTQ, or Neuron.
+## Task Naming
 
-Even when the modality seems obvious, ask for confirmation before writing files. If it is ambiguous, include the uncertainty in the confirmation question: "I think this is probably text -> text, but it may be image+text -> text. Which modality should this benchmark exercise?"
-
-## Slug Naming
-
-Generate a concise lowercase slug with letters, digits, and hyphens only. Prefer:
+Use a stable lowercase name containing letters, digits, dots, underscores, or
+hyphens. Prefer concise hyphenated names:
 
 ```text
 <model-family>-<size>-<hardware-or-workload>
@@ -95,125 +175,177 @@ Examples:
 - `qwen3-8b-h100-chat`
 - `llama-3-8b-trn2`
 - `qwen3-32b-code-edit`
-- `olmo-prefix-caching`
+- `olmo-long-prefix-caching`
 
-Ask the user to confirm the slug before creating `examples/model-serving/<slug>/`. If the user supplies a name, normalize it to hyphen-case and confirm it unless the request explicitly says to use that exact name.
+The name identifies a persistent workload definition, not a generated run.
+Several model-support efforts in one repository should normally be several
+named task directories.
 
 ## Objective
 
 Write `OBJECTIVE.md` from the user's natural-language goal. Include:
 
-- Model name and serving modality.
+- Candidate repository/framework and model.
+- Serving modality and required public API.
 - Hardware target.
+- Workload shape, including request rate, concurrency, prompt/output lengths,
+  batch assumptions, and streaming behavior when relevant.
 - Primary metric and whether higher or lower is better.
-- Required API shape, usually OpenAI-compatible `/v1/completions` and optionally `/v1/chat/completions`.
-- Accuracy requirement, usually "must pass the accuracy checker."
-- Notes about allowed implementation approaches and disallowed shortcuts.
+- Correctness requirement and required checker behavior.
+- Allowed implementation approaches and prohibited shortcuts.
 
-Keep it concrete enough for an optimizer to know what to improve. If the goal says "benchmark X", name X as the headline metric rather than relying on profiler-only timings.
+Optimization presupposes correctness. State the runnable server and checker
+contract first, then the performance objective. If the goal says "benchmark
+X," name X as the headline metric rather than relying on profiler-only timing.
 
-## Reference
+## Reference Inputs
 
-For normal Hugging Face text-generation models, make `reference/meta.json` the source of truth:
+Keep task reference material at
+`.vibesys/tasks/<task-name>/reference/`. VibeSys does not relocate these files,
+and coding agents receive `.vibesys/` read-only. Checker and benchmark scratch
+output must go to `/tmp`, framework-owned runtime state, or a candidate build
+directory outside `.vibesys/`.
+
+For a Hugging Face model, make `reference/meta.json` the source of truth:
 
 ```json
 {
   "model_id": "org/model-name",
-  "revision": null,
+  "revision": "full-revision-if-pinned",
   "task": "text-generation"
 }
 ```
 
-Use `revision` when the user gives one or reproducibility matters. VibeSys already knows how to use `meta.json` to materialize model weights in `reference/model`.
+VibeSys materializes downloaded weights in runtime-owned cache/state and mounts
+them for isolated execution. Do not create or write
+`reference/model` during task setup. If the repository intentionally already
+contains a valid `reference/model`, preserve it unchanged.
 
-For generic causal LMs, adapt `reference/reference.py` from `Llama-3-8B` unless the model requires custom code. Use `AutoTokenizer` and `AutoModelForCausalLM`. Set `trust_remote_code=True` only when the model requires it or the user explicitly accepts it.
-
-For nonstandard models, keep `reference/reference.py` as an explanatory, runnable reference implementation matching the source example's pattern.
+Use `reference/reference.py` only when a runnable oracle or explanatory model
+implementation improves correctness validation. For generic causal LMs, prefer
+`AutoTokenizer` and `AutoModelForCausalLM`. Set `trust_remote_code=True` only
+when required and accepted.
 
 ## Accuracy Checker
 
-For a new HF causal LM, start from `examples/model-serving/Llama-3-8B/accuracy_checker/checker.py`.
+Prefer a task-specific checker. For a causal LM, deterministic comparison
+against Hugging Face outputs is a useful default:
 
-Adapt:
+- Use greedy generation with sampling disabled.
+- Compare generated token ids before decoded text.
+- Print the reference output, candidate output, and first differing token on
+  failure.
+- Exit zero only when every required case passes.
 
-- Model path default (`--model-dir ../model` is usually fine once copied into the bundle).
-- Device and dtype defaults for the hardware target.
-- Prompt suite if the workload is specialized.
-- Chat-template behavior if the model is instruct/chat tuned.
-- Comparator strictness only when justified.
+Match the checker to the actual service API and workload. Add targeted cases
+instead of weakening correctness:
 
-Default text-matching behavior should be strict greedy matching against Hugging Face outputs:
+- Prefix caching: long shared prefixes with divergent suffixes.
+- Code editing: representative buggy inputs and gold fixes or justified
+  similarity thresholds.
+- Constrained decoding: schema validation plus randomized sentinels that catch
+  prompt-ignoring shortcuts.
+- Streaming speech: chunk boundaries, finalization, and transcript semantics.
+- Image or audio output: file/container validity plus task-appropriate semantic
+  checks.
 
-- Use deterministic generation: `do_sample=False`, temperature 0 or unset.
-- Compare generated token ids first.
-- Print decoded reference/custom text and first differing token when failing.
-- Exit 0 only when all required cases pass.
-
-For workload-specific checks, add targeted cases instead of weakening the checker. Examples:
-
-- Prefix caching: include long shared prefixes and divergent suffixes.
-- Code editing: include buggy code and compare against gold fixes or similarity thresholds.
-- JSON/constrained decoding: validate JSON schema and include randomized sentinel text to catch prompt-ignoring shortcuts.
+Expose explicit CLI options such as `--url`, `--model-dir`, or workload inputs
+when useful. Test the checker from the repository root using the same command
+shape declared in the manifest.
 
 ## Benchmark
 
-For a new OpenAI-compatible text-generation server, start from `examples/model-serving/Llama-3-8B/benchmark/benchmark.py`.
+For an OpenAI-compatible text-generation service, preserve useful generic
+controls where relevant:
 
-Keep these reusable behaviors unless the workload says otherwise:
-
-- `--url`, `--endpoint`, `--rate`, `--duration`, `--num-requests`, `--max-tokens`, `--temperature`, `--prompt-len`, `--seed`, `--output-json`.
-- Streaming SSE request handling.
-- TTFT, TPOT, total latency, request throughput, and output token throughput.
+- `--url`, `--endpoint`, `--rate`, `--duration`, and `--num-requests`.
+- `--max-tokens`, `--temperature`, `--prompt-len`, and `--seed`.
+- Streaming SSE handling.
+- TTFT, TPOT, total latency, request throughput, output-token throughput, and
+  structured `--output-json` output.
 - Poisson arrivals for open-loop load.
-- Structured JSON output.
 
-Adapt the prompt pool and metric focus to the natural-language goal:
+Adapt workload generation and the headline metric:
 
-- Throughput workloads: report token throughput as headline.
-- Latency workloads: report p50/p95/p99 total latency or TTFT as headline.
-- Prefix-cache workloads: include repeated shared-prefix prompts.
-- Long-context workloads: add synthetic or dataset-backed long prompts.
-- Code-edit/predicted-output workloads: copy from `qwen3-32b-code-edit` and keep the `prediction` field behavior.
+- Latency-sensitive serving: p50/p95/p99 latency or TTFT under a declared load.
+- Latency-insensitive batch jobs: maximize aggregate or output-token throughput
+  with a declared concurrency/batch regime.
+- Prefix caching: repeated shared prefixes and controlled divergent suffixes.
+- Long context: deterministic synthetic or dataset-backed prompt lengths.
+- Predicted/code-edit output: preserve the request fields and quality contract
+  used by that API.
 
-Do not make benchmark success depend on hidden implementation details. Measure end-to-end behavior through the public API unless the user specifically asks for a local/in-process benchmark.
+Measure end-to-end public behavior unless the user specifically asks for an
+in-process kernel or component benchmark. Do not make success depend on hidden
+implementation details.
+
+## Reusable Evaluator Packages
+
+Keep one-off checker and benchmark code in the task. Use a versioned evaluator
+package only when stable infrastructure is shared by multiple tasks or
+repositories. Package-backed commands use logical entry points and require an
+exact repository lock:
+
+```toml
+[evaluator]
+name = "vibesys-evaluator-example"
+version = "0.1.0"
+
+[accuracy]
+entrypoint = "vibesys-example"
+args = ["check", "--workspace", "${PROJECT_ROOT}"]
+```
+
+Commit the corresponding `.vibesys/evaluators.lock`. Do not create a package
+only to avoid a small task-specific script, and do not copy a reusable package
+implementation into every task.
 
 ## README And Requirements
 
-Write a short `README.md` with the exact paths to use:
+When useful, write a short task README with:
 
-```text
-Use:
-uv run vibesys --input examples/model-serving/<slug> \
-  --exp-name <experiment-name> \
-  --backend <backend> \
-  --interface service
-```
+- The exact `vibesys --project ... --task ...` command.
+- Model credentials, hardware, services, or submodules required.
+- Lightweight checker and benchmark smoke-test commands from the repository
+  root.
+- Any explicit limitations of the correctness or performance measurements.
 
-Explain any required external services, model credentials, hardware, or
-submodules separately. The manifest owns the reference, accuracy, and
-benchmark paths; do not document removed standalone path flags.
-
-Update `requirements.txt` from the copied example. Include only dependencies the checker/reference/benchmark need, such as `torch`, `transformers`, `accelerate`, `httpx`, `datasets`, `jsonschema`, `soundfile`, or `websockets`.
+Keep task-tool dependencies isolated in the task's `requirements.txt`. Include
+only what its reference, checker, and benchmark need, such as `transformers`,
+`torch`, `httpx`, `datasets`, `jsonschema`, `soundfile`, or `websockets`.
 
 ## Validation
 
-After creating or editing the example:
+After creating or editing a task:
 
-1. Run syntax checks on changed Python files with `python3 -m py_compile ...` when dependencies are not installed.
-2. Run lightweight `--help` checks for `accuracy_checker/checker.py` and `benchmark/benchmark.py` if imports allow it.
-3. Verify `reference/meta.json` is valid JSON.
-4. Verify the final layout with `find examples/model-serving/<slug> -maxdepth 3 -type f | sort`.
-5. Run `uv run vibesys validate examples/model-serving/<slug>` to check the manifest,
-   required paths, and optional workspace/evaluator sources without starting an
-   agent or downloading model weights.
-6. Do not download large model weights or run GPU-heavy checks unless the user asks.
+1. Run syntax checks on changed Python files with `python3 -m py_compile ...`
+   when dependencies are unavailable.
+2. Run lightweight `--help` or smoke checks using the manifest's repository-root
+   command shape when imports allow it.
+3. Parse changed JSON and TOML files.
+4. Inspect the final task layout:
+
+   ```bash
+   find /path/to/project/.vibesys/tasks/<task-name> -maxdepth 3 -type f | sort
+   ```
+
+5. Validate without starting an agent or downloading model weights:
+
+   ```bash
+   vibesys validate /path/to/project --task <task-name>
+   ```
+
+6. Do not download large weights or run accelerator-heavy checks unless the
+   user asks.
+7. Check `git diff` and `git status` in the candidate repository. Task setup
+   must not modify generated `.vibesys/state/` or unrelated source.
 
 ## Handoff
 
 End with:
 
-- The new bundle path.
-- The source example copied/adapted.
-- The optimization goal captured in `OBJECTIVE.md`.
-- The exact `uv run vibesys --input examples/model-serving/<slug> ...` command to start
-  optimizing; evaluator paths come from `vibesys.input.toml`.
+- Candidate repository and new task path.
+- Source task or scripts adapted.
+- Model, hardware, modality, workload, and optimization objective captured.
+- Checks run and any checks deferred.
+- Exact `vibesys --project ... --task ...` command to start the run.

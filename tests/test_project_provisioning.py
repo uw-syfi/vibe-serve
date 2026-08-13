@@ -71,21 +71,15 @@ def _git(cwd: Path, *args: str) -> str:
     ).stdout.strip()
 
 
-def test_provision_project_places_source_at_root_and_normalizes_seed(tmp_path: Path) -> None:
-    input_root = _write_input(
-        tmp_path / "input",
-        '\n[workspace]\nseed = "../seed"\n',
-    )
+def test_provision_project_places_source_at_root_and_removes_private_files(
+    tmp_path: Path,
+) -> None:
+    input_root = _write_input(tmp_path / "input")
     (input_root / ".git").mkdir()
     ProjectStore(input_root).create_project("input")
     (input_root / "agent.toml").write_text("[model]\nname = 'private'\n")
     (input_root / ".env").write_text("TOKEN=secret\n")
     (input_root / ".env.local").write_text("TOKEN=more-secret\n")
-    seed = tmp_path / "seed"
-    seed.mkdir()
-    (seed / "seed.py").write_text("SEED = True\n")
-    ProjectStore(seed).create_project("seed")
-    (seed / ".env.seed").write_text("TOKEN=seed-secret\n")
     destination = tmp_path / "runs" / "copy"
 
     result = provision_project(
@@ -93,13 +87,11 @@ def test_provision_project_places_source_at_root_and_normalizes_seed(tmp_path: P
         destination,
         spec=ProjectProvisioningSpec(
             workspace=_workspace(destination, project_root=tmp_path),
-            seed=seed,
         ),
     )
 
     assert result == destination.resolve()
     assert (result / "candidate.py").read_text() == "VALUE = 1\n"
-    assert (result / "seed.py").read_text() == "SEED = True\n"
     assert not (result / "workspace").exists()
     assert not (result / "logs").exists()
     assert not (result / ".git").exists()
@@ -266,23 +258,49 @@ def test_provision_project_preserves_existing_destination(tmp_path: Path) -> Non
 
 
 def test_provision_project_cleans_partial_destination_after_collision(tmp_path: Path) -> None:
+    repository = tmp_path / "source-repository"
+    repository.mkdir()
+    _git(repository, "init", "-q", "-b", "main")
+    (repository / "value.py").write_text("VALUE = 1\n")
+    _git(repository, "add", ".")
+    _git(
+        repository,
+        "-c",
+        "user.name=test",
+        "-c",
+        "user.email=test@example.com",
+        "commit",
+        "-q",
+        "-m",
+        "source",
+    )
+    commit = _git(repository, "rev-parse", "HEAD")
+    source = WorkspaceSource(
+        name="library",
+        repo=str(repository),
+        commit=commit,
+        dest="library",
+    )
     input_root = _write_input(
         tmp_path / "input",
-        '\n[workspace]\nseed = "../seed"\n',
+        (
+            "\n[[workspace.sources]]\n"
+            'name = "library"\n'
+            f'repo = "{repository}"\n'
+            f'commit = "{commit}"\n'
+            'dest = "library"\n'
+        ),
     )
-    (input_root / "shared.py").write_text("INPUT = True\n")
-    seed = tmp_path / "seed"
-    seed.mkdir()
-    (seed / "shared.py").write_text("SEED = True\n")
+    (input_root / "library").mkdir()
     destination = tmp_path / "runs" / "copy"
 
-    with pytest.raises(ValueError, match=r"same paths: shared\.py"):
+    with pytest.raises(ValueError, match=r"same paths: library"):
         provision_project(
             input_root,
             destination,
             spec=ProjectProvisioningSpec(
                 workspace=_workspace(destination, project_root=tmp_path),
-                seed=seed,
+                workspace_sources=(source,),
             ),
         )
 
@@ -292,11 +310,17 @@ def test_provision_project_cleans_partial_destination_after_collision(tmp_path: 
 def test_provision_project_requires_resolved_inputs_to_match_manifest(tmp_path: Path) -> None:
     input_root = _write_input(
         tmp_path / "input",
-        '\n[workspace]\nseed = "../seed"\n',
+        """
+[[workspace.sources]]
+name = "library"
+repo = "https://example.invalid/library.git"
+commit = "0123456"
+dest = "library"
+""",
     )
     destination = tmp_path / "runs" / "copy"
 
-    with pytest.raises(ProjectProvisioningError, match="seed declaration"):
+    with pytest.raises(ProjectProvisioningError, match="source declarations"):
         provision_project(
             input_root,
             destination,
@@ -324,3 +348,50 @@ def test_provision_project_applies_input_overlay_excludes(tmp_path: Path) -> Non
 
     assert not (destination / "model").exists()
     assert (destination / "candidate.py").is_file()
+
+
+def test_provision_project_preserves_repository_task_configuration(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    task = source / ".vibesys" / "tasks" / "latency"
+    task.mkdir(parents=True)
+    (source / "src").mkdir()
+    (source / "src" / "server.py").write_text("VALUE = 1\n", encoding="utf-8")
+    (task / "OBJECTIVE.md").write_text("Reduce latency.\n", encoding="utf-8")
+    (task / "vibesys.input.toml").write_text(
+        """version = 1
+
+[agent]
+domain = "generic"
+
+[accuracy]
+command = ["python", "-c", "print('ok')"]
+
+[benchmark]
+command = ["python", "-c", "print('1')"]
+""",
+        encoding="utf-8",
+    )
+    (source / ".vibesys" / "evaluators.lock").write_text(
+        "schema_version = 1\n",
+        encoding="utf-8",
+    )
+    state = source / ".vibesys" / "state" / "local"
+    state.mkdir(parents=True)
+    (state / "secret.json").write_text("{}\n", encoding="utf-8")
+    destination = tmp_path / "destination"
+
+    provision_project(
+        source,
+        destination,
+        spec=ProjectProvisioningSpec(
+            workspace=_workspace(destination, project_root=tmp_path),
+            task_name="latency",
+            input_project_dir=source,
+        ),
+    )
+
+    assert (destination / "src" / "server.py").is_file()
+    assert (destination / ".vibesys" / "tasks" / "latency" / "OBJECTIVE.md").is_file()
+    assert (destination / ".vibesys" / "evaluators.lock").is_file()
+    assert not (destination / ".vibesys" / "state").exists()
+    assert not (destination / "vibesys.input.toml").exists()

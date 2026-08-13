@@ -6,8 +6,7 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime, timedelta
-from pathlib import PurePosixPath
-from typing import TYPE_CHECKING
+from pathlib import Path, PurePosixPath
 from uuid import UUID
 
 import pytest
@@ -31,9 +30,6 @@ from vs_project_state import (
     is_project_state_path,
     serialize_round,
 )
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 NOW = datetime(2026, 8, 11, 12, 34, 56, tzinfo=UTC)
 UNIQUE = UUID("12345678-1234-5678-1234-567812345678")
@@ -377,7 +373,11 @@ def test_project_discovery_validates_manifests_without_exposing_layout(tmp_path:
     [
         ("src/queue.py", False),
         (".git/HEAD", False),
-        ("nested/.vs/project.json", True),
+        (".vs/project.json", False),
+        (".vibesys/tasks/queue/vibesys.input.toml", False),
+        ("nested/.vibesys/tasks/queue/OBJECTIVE.md", False),
+        (".vibesys/stateful/project.json", False),
+        ("nested/.vibesys/state/project.json", True),
         ("agent.toml", False),
         ("nested/.env.local", False),
     ],
@@ -395,7 +395,7 @@ def test_semantic_runtime_and_sandbox_paths(tmp_path: Path) -> None:
     run_id = "run-1"
 
     assert ProjectStore.log_directory_for(project, run_id) == (
-        project / ".vs" / "local" / "runs" / run_id / "logs"
+        project / ".vibesys/state" / "local" / "runs" / run_id / "logs"
     )
     store = _store(project)
     run = _run(store)
@@ -403,16 +403,24 @@ def test_semantic_runtime_and_sandbox_paths(tmp_path: Path) -> None:
     assert store.log_directory(run.run_id).is_dir()
     assert store.model_cache_directory("huggingface").is_relative_to(project)
     assert store.candidate_worktree_directory(run.run_id, "g1c1").is_relative_to(project)
-    assert store.sandbox_paths().read_only_path is not None
-    assert store.sandbox_paths().hidden_path is not None
+    assert store.sandbox_paths().read_only_path == Path(".vibesys")
+    assert store.sandbox_paths().hidden_path == Path(".vibesys/state/local")
+    git = store.git_integration(run.run_id)
+    assert git.local_exclude_pattern == "/.vibesys/state/local/"
+    assert git.metadata_pathspec == ".vibesys/state"
+    assert git.metadata_restore_exclusions == (
+        ":(exclude).vibesys",
+        ":(exclude).vibesys/**",
+    )
+    assert git.metadata_clean_exclusion == ".vibesys/"
 
 
 def test_log_directory_rejects_symlinked_parent(tmp_path: Path) -> None:
     project = tmp_path / "project"
     outside = tmp_path / "outside"
-    (project / ".vs" / "local").mkdir(parents=True)
+    (project / ".vibesys/state" / "local").mkdir(parents=True)
     outside.mkdir()
-    (project / ".vs" / "local" / "runs").symlink_to(outside, target_is_directory=True)
+    (project / ".vibesys/state" / "local" / "runs").symlink_to(outside, target_is_directory=True)
 
     with pytest.raises(ProjectStateError, match=r"(?:escapes|must not be a symlink)"):
         ProjectStore.log_directory_for(project, "run-1")
@@ -460,8 +468,8 @@ def test_portable_run_export_rejects_symlinked_directories(tmp_path: Path) -> No
 
 
 def test_create_project_preserves_existing_metadata_ignore_rules(tmp_path: Path) -> None:
-    metadata_dir = tmp_path / ".vs"
-    metadata_dir.mkdir()
+    metadata_dir = tmp_path / ".vibesys/state"
+    metadata_dir.mkdir(parents=True)
     (metadata_dir / ".gitignore").write_text("custom.tmp\n", encoding="utf-8")
     store = ProjectStore(tmp_path)
 
@@ -478,9 +486,31 @@ def test_create_project_rejects_symlinked_metadata_root_before_writing(tmp_path:
     outside = tmp_path / "outside"
     outside.mkdir()
     store = ProjectStore(project)
+    store._config_dir.mkdir()
     store._metadata_dir.symlink_to(outside, target_is_directory=True)
 
-    with pytest.raises(ProjectStateError, match=r"metadata root must not be a symlink.*\.vs"):
+    with pytest.raises(
+        ProjectStateError, match=r"metadata root must not be a symlink.*\.vibesys/state"
+    ):
+        store.create_project("Queue SPSC", now=NOW)
+
+    assert list(outside.iterdir()) == []
+
+
+def test_create_project_rejects_symlinked_configuration_root_before_writing(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    store = ProjectStore(project)
+    store._config_dir.symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(
+        ProjectStateError,
+        match=r"configuration root must not be a symlink.*\.vibesys",
+    ):
         store.create_project("Queue SPSC", now=NOW)
 
     assert list(outside.iterdir()) == []
@@ -522,7 +552,7 @@ def test_input_fingerprint_tracks_portable_files_only(tmp_path: Path) -> None:
         tmp_path / ".env.local",
         tmp_path / "agent.toml",
         tmp_path / ".git" / "HEAD",
-        tmp_path / ".vs" / "project.json",
+        tmp_path / ".vibesys/state" / "project.json",
         tmp_path / ".pytest_cache" / "state",
         tmp_path / "__pycache__" / "module.pyc",
     ]
@@ -531,6 +561,15 @@ def test_input_fingerprint_tracks_portable_files_only(tmp_path: Path) -> None:
         path.write_text("secret-or-cache", encoding="utf-8")
 
     assert store.input_fingerprint() == initial
+    task = tmp_path / ".vibesys" / "tasks" / "queue" / "OBJECTIVE.md"
+    task.parent.mkdir(parents=True)
+    task.write_text("Optimize queue throughput.\n", encoding="utf-8")
+    with_task = store.input_fingerprint()
+    assert with_task != initial
+    (tmp_path / ".vibesys/state" / "run.json").write_text("generated", encoding="utf-8")
+    assert store.input_fingerprint() == with_task
+    task.write_text("Optimize queue latency.\n", encoding="utf-8")
+    assert store.input_fingerprint() != with_task
     source.write_text("two", encoding="utf-8")
     assert store.input_fingerprint() != initial
 
@@ -541,27 +580,27 @@ def test_run_manifest_and_local_state_use_separate_trees(tmp_path: Path) -> None
 
     assert store.load_run(manifest.run_id) == manifest
     assert store._run_manifest_path(manifest.run_id) == (
-        tmp_path / ".vs" / "runs" / manifest.run_id / "run.json"
+        tmp_path / ".vibesys/state" / "runs" / manifest.run_id / "run.json"
     )
     assert store.log_directory(manifest.run_id) == (
-        tmp_path / ".vs" / "local" / "runs" / manifest.run_id / "logs"
+        tmp_path / ".vibesys/state" / "local" / "runs" / manifest.run_id / "logs"
     )
     assert store._rounds_dir(manifest.run_id) == (
-        tmp_path / ".vs" / "runs" / manifest.run_id / "agent" / "rounds"
+        tmp_path / ".vibesys/state" / "runs" / manifest.run_id / "agent" / "rounds"
     )
     assert (
         store.local_namespace(manifest.run_id, "agent").agent_visible_path("active.json")
-        == f".vs/local/runs/{manifest.run_id}/agent/active.json"
+        == f".vibesys/state/local/runs/{manifest.run_id}/agent/active.json"
     )
     assert store._round_transaction_path(manifest.run_id) == (
-        tmp_path / ".vs" / "local" / "runs" / manifest.run_id / "round-transaction.json"
+        tmp_path / ".vibesys/state" / "local" / "runs" / manifest.run_id / "round-transaction.json"
     )
     assert store._worktrees_dir(manifest.run_id) == (
-        tmp_path / ".vs" / "local" / "runs" / manifest.run_id / "worktrees"
+        tmp_path / ".vibesys/state" / "local" / "runs" / manifest.run_id / "worktrees"
     )
     assert store.log_directory(manifest.run_id).is_dir()
-    assert not (tmp_path / ".vs" / "runs" / manifest.run_id / "agent").exists()
-    assert not (tmp_path / ".vs" / "local" / "runs" / manifest.run_id / "agent").exists()
+    assert not (tmp_path / ".vibesys/state" / "runs" / manifest.run_id / "agent").exists()
+    assert not (tmp_path / ".vibesys/state" / "local" / "runs" / manifest.run_id / "agent").exists()
     assert not store._worktrees_dir(manifest.run_id).exists()
     committed = store._run_manifest_path(manifest.run_id).read_text(encoding="utf-8")
     assert str(tmp_path) not in committed
@@ -629,6 +668,54 @@ def test_run_manifest_round_trips_each_outer_loop_configuration(
 
     assert type(loaded.configuration) is expected_type
     assert loaded.configuration == configuration
+
+
+def test_run_manifest_round_trips_optional_task_identity(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    manifest = store.new_run_manifest(
+        "queue",
+        branch="vibesys/queue",
+        vibesys_version="0.2.0",
+        configuration=_configuration(),
+        trusted_input_baseline="a" * 40,
+        task_name="queue-spsc",
+        now=NOW,
+        unique=UNIQUE,
+    )
+
+    store.create_run(manifest)
+
+    assert store.load_run(manifest.run_id).task_name == "queue-spsc"
+    raw = json.loads(store._run_manifest_path(manifest.run_id).read_text(encoding="utf-8"))
+    assert raw["task_name"] == "queue-spsc"
+
+
+def test_run_manifest_loads_legacy_state_without_task_identity(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    manifest = _run(store)
+    path = store._run_manifest_path(manifest.run_id)
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    del raw["task_name"]
+    path.write_text(json.dumps(raw), encoding="utf-8")
+
+    assert store.load_run(manifest.run_id).task_name is None
+
+
+@pytest.mark.parametrize("task_name", ["", "Uppercase", "../queue", "queue/spsc"])
+def test_run_manifest_rejects_invalid_task_identity(tmp_path: Path, task_name: str) -> None:
+    store = _store(tmp_path)
+
+    with pytest.raises(ValidationError, match="task_name"):
+        store.new_run_manifest(
+            "queue",
+            branch="vibesys/queue",
+            vibesys_version="0.2.0",
+            configuration=_configuration(),
+            trusted_input_baseline="a" * 40,
+            task_name=task_name,
+            now=NOW,
+            unique=UNIQUE,
+        )
 
 
 @pytest.mark.parametrize("object_id", ["a" * 40, "b" * 64])
@@ -760,7 +847,7 @@ def test_current_and_latest_run_resolution(tmp_path: Path) -> None:
 def test_resolve_run_without_runs_is_actionable(tmp_path: Path) -> None:
     store = _store(tmp_path)
 
-    with pytest.raises(ProjectStateError, match=r"No VibeSys runs.*\.vs"):
+    with pytest.raises(ProjectStateError, match=r"No VibeSys runs.*\.vibesys/state"):
         store.resolve_run()
 
 
@@ -776,7 +863,7 @@ def test_containment_rejects_symlinked_run_directory(tmp_path: Path) -> None:
     store = _store(tmp_path)
     outside = tmp_path / "outside"
     outside.mkdir()
-    runs_dir = tmp_path / ".vs" / "runs"
+    runs_dir = tmp_path / ".vibesys/state" / "runs"
     runs_dir.mkdir(parents=True)
     (runs_dir / "escaped").symlink_to(outside, target_is_directory=True)
 
@@ -786,7 +873,7 @@ def test_containment_rejects_symlinked_run_directory(tmp_path: Path) -> None:
 
 def test_containment_rejects_in_tree_symlinked_run_directory(tmp_path: Path) -> None:
     store = _store(tmp_path)
-    runs_dir = tmp_path / ".vs" / "runs"
+    runs_dir = tmp_path / ".vibesys/state" / "runs"
     target = runs_dir / "target"
     target.mkdir(parents=True)
     (runs_dir / "alias").symlink_to(target, target_is_directory=True)
@@ -819,9 +906,9 @@ def test_state_namespace_rejects_symlink_aliases(tmp_path: Path, *, local: bool)
     outside = tmp_path / "outside"
     outside.mkdir()
     parent = (
-        tmp_path / ".vs" / "local" / "runs" / run.run_id
+        tmp_path / ".vibesys/state" / "local" / "runs" / run.run_id
         if local
-        else tmp_path / ".vs" / "runs" / run.run_id
+        else tmp_path / ".vibesys/state" / "runs" / run.run_id
     )
     parent.mkdir(parents=True, exist_ok=True)
     (parent / "unsafe").symlink_to(outside, target_is_directory=True)
@@ -834,7 +921,7 @@ def test_state_namespace_rejects_symlink_aliases(tmp_path: Path, *, local: bool)
 def test_state_namespace_rejects_in_tree_symlink_alias(tmp_path: Path) -> None:
     store = _store(tmp_path)
     run = _run(store)
-    parent = tmp_path / ".vs" / "runs" / run.run_id
+    parent = tmp_path / ".vibesys/state" / "runs" / run.run_id
     target = parent / "target"
     target.mkdir()
     (parent / "alias").symlink_to(target, target_is_directory=True)
@@ -856,7 +943,7 @@ def test_worktrees_directory_rejects_symlink_alias(tmp_path: Path) -> None:
     run = _run(store)
     outside = tmp_path / "outside"
     outside.mkdir()
-    worktrees = tmp_path / ".vs" / "local" / "runs" / run.run_id / "worktrees"
+    worktrees = tmp_path / ".vibesys/state" / "local" / "runs" / run.run_id / "worktrees"
     worktrees.symlink_to(outside, target_is_directory=True)
 
     with pytest.raises(ProjectStateError, match=r"(?:escapes|must not be a symlink)"):
@@ -868,7 +955,7 @@ def test_completed_round_directory_rejects_symlink_alias(tmp_path: Path) -> None
     run = _run(store)
     outside = tmp_path / "outside"
     outside.mkdir()
-    agent_dir = tmp_path / ".vs" / "runs" / run.run_id / "agent"
+    agent_dir = tmp_path / ".vibesys/state" / "runs" / run.run_id / "agent"
     agent_dir.mkdir()
     (agent_dir / "rounds").symlink_to(outside, target_is_directory=True)
 
@@ -1046,7 +1133,7 @@ def test_state_namespace_revalidates_its_root_before_every_operation(tmp_path: P
     store = _store(tmp_path)
     run = _run(store)
     namespace = store.portable_namespace(run.run_id, "plain")
-    root = tmp_path / ".vs" / "runs" / run.run_id / "plain"
+    root = tmp_path / ".vibesys/state" / "runs" / run.run_id / "plain"
     outside = tmp_path / "outside"
     outside.mkdir()
     root.symlink_to(outside, target_is_directory=True)
@@ -1077,7 +1164,7 @@ def test_portable_state_snapshot_is_deterministic_and_namespace_relative(tmp_pat
 
     root = namespace.external_directory()
     expected = StateSnapshot._create(
-        namespace_root=PurePosixPath(f".vs/runs/{run.run_id}/evolve"),
+        namespace_root=PurePosixPath(f".vibesys/state/runs/{run.run_id}/evolve"),
         files=(
             StateFile(
                 relative_path=PurePosixPath("nested/a.json"),
@@ -1100,7 +1187,7 @@ def test_empty_portable_namespace_has_an_empty_snapshot(tmp_path: Path) -> None:
 
     snapshot = store.portable_namespace(run.run_id, "runtime").snapshot()
 
-    assert snapshot._namespace_root == PurePosixPath(f".vs/runs/{run.run_id}/runtime")
+    assert snapshot._namespace_root == PurePosixPath(f".vibesys/state/runs/{run.run_id}/runtime")
     assert snapshot.files == ()
 
 
@@ -1111,7 +1198,7 @@ def test_initialization_snapshot_contains_only_selected_run_metadata(tmp_path: P
 
     snapshot = store.initialization_snapshot(first.run_id)
 
-    assert snapshot._namespace_root == PurePosixPath(".vs")
+    assert snapshot._namespace_root == PurePosixPath(".vibesys/state")
     assert tuple(file.relative_path for file in snapshot.files) == (
         PurePosixPath(".gitignore"),
         PurePosixPath("project.json"),
@@ -1132,7 +1219,7 @@ def test_run_manifest_snapshot_is_rooted_at_the_selected_run(tmp_path: Path) -> 
     snapshot = store.run_manifest_snapshot(run.run_id)
 
     assert snapshot == StateSnapshot._create(
-        namespace_root=PurePosixPath(f".vs/runs/{run.run_id}"),
+        namespace_root=PurePosixPath(f".vibesys/state/runs/{run.run_id}"),
         files=(
             StateFile(
                 relative_path=PurePosixPath("run.json"),
@@ -1153,7 +1240,7 @@ def test_completed_round_snapshot_contains_one_canonical_round(tmp_path: Path) -
     snapshot = store.completed_round_snapshot(run.run_id, 2)
 
     assert snapshot == StateSnapshot._create(
-        namespace_root=PurePosixPath(f".vs/runs/{run.run_id}/agent"),
+        namespace_root=PurePosixPath(f".vibesys/state/runs/{run.run_id}/agent"),
         files=(
             StateFile(
                 relative_path=PurePosixPath("rounds/0002.json"),
@@ -1192,10 +1279,10 @@ def test_metadata_snapshot_rejects_symlinked_files(tmp_path: Path) -> None:
     "root",
     [
         PurePosixPath("elsewhere"),
-        PurePosixPath(".vs/local"),
-        PurePosixPath(".vs/runs"),
-        PurePosixPath(".vs/runs/Uppercase"),
-        PurePosixPath(".vs/runs/run-1/Uppercase"),
+        PurePosixPath(".vibesys/state/local"),
+        PurePosixPath(".vibesys/state/runs"),
+        PurePosixPath(".vibesys/state/runs/Uppercase"),
+        PurePosixPath(".vibesys/state/runs/run-1/Uppercase"),
     ],
 )
 def test_state_snapshot_rejects_unsafe_or_local_roots(root: PurePosixPath) -> None:
@@ -1218,8 +1305,8 @@ def test_state_snapshot_rejects_local_file_below_metadata_root() -> None:
         contents=b"{}",
     )
 
-    with pytest.raises(ValueError, match=r"must not contain \.vs/local"):
-        StateSnapshot._create(namespace_root=PurePosixPath(".vs"), files=(local_file,))
+    with pytest.raises(ValueError, match=r"must not contain \.vibesys/state/local"):
+        StateSnapshot._create(namespace_root=PurePosixPath(".vibesys/state"), files=(local_file,))
 
 
 def test_machine_local_state_namespace_cannot_be_snapshotted(tmp_path: Path) -> None:
@@ -1479,10 +1566,10 @@ def test_git_paths_resolve_portable_snapshot_without_layout_work_by_consumer(
 
     plan = store.git_integration(run.run_id).resolve_replacement_snapshot(namespace.snapshot())
 
-    assert plan.scope_pathspec == f".vs/runs/{run.run_id}/evolve"
-    assert plan.destination_root == tmp_path / ".vs" / "runs" / run.run_id / "evolve"
+    assert plan.scope_pathspec == f".vibesys/state/runs/{run.run_id}/evolve"
+    assert plan.destination_root == tmp_path / ".vibesys/state" / "runs" / run.run_id / "evolve"
     assert len(plan.files) == 1
-    assert plan.files[0].pathspec == f".vs/runs/{run.run_id}/evolve/population.json"
+    assert plan.files[0].pathspec == f".vibesys/state/runs/{run.run_id}/evolve/population.json"
     assert plan.files[0].destination == plan.destination_root / "population.json"
     assert plan.contains_pathspec(plan.files[0].pathspec)
     assert not plan.contains_pathspec("candidate.py")

@@ -1,7 +1,7 @@
 .PHONY: all clean
 
 CXX ?= c++
-ABI_HEADER := $(firstword $(wildcard ../../evaluators/queue/include/vibesys_queue_abi.h ../_evaluator/queue/include/vibesys_queue_abi.h))
+ABI_HEADER := $(firstword $(wildcard ../../../resources/evaluators/queue/include/vibesys_queue_abi.h ../_evaluator/queue/include/vibesys_queue_abi.h))
 
 ifeq ($(ABI_HEADER),)
 $(error could not locate vibesys_queue_abi.h)

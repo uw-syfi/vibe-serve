@@ -17,7 +17,8 @@ bundles, and the TUI.
 src/vibesys/             Python framework and loop implementation
 clients/tui/             TypeScript terminal client and launcher
 libs/                    Reusable standalone libraries
-examples/                Input bundles, evaluators, and candidate contracts
+examples/                Candidate repositories, tasks, and legacy input bundles
+resources/evaluators/    Reusable versioned evaluator packages
 resources/skills/        Bundled Agent Skills and reference material
 resources/profilers/     Profiler MCP servers and support packages
 docs/                    Contributor and subsystem guides
@@ -30,8 +31,9 @@ The main framework boundaries are:
 - `src/vibesys/agents/` owns the agent-runner abstraction and integrations.
 - `src/vibesys/domains/` owns domain-specific prompt context and hooks.
 - `src/vibesys/backends/` owns compute and execution backends.
-- `examples/` owns target-specific objectives, manifests, evaluators, and
-  candidate contracts.
+- Candidate repositories own target-specific tasks and candidate contracts
+  below `.vibesys/tasks/`. Legacy input bundles remain under `examples/`.
+- `resources/evaluators/` owns reusable versioned evaluator packages.
 
 ## Local development
 
@@ -119,7 +121,7 @@ Use the guide that matches the surface you are adding:
   backend or domain.
 - [Extend profilers](extending-profilers.md) for profiler support packages,
   MCP tools, and profiler prompts.
-- [Create a model-serving input bundle](../.agents/skills/vs-init/SKILL.md)
+- [Create a repository-native model-serving task](../.agents/skills/vs-init/SKILL.md)
   for a new model, hardware target, or workload.
 - [Update CLI flags and combinations](cli-flags.md) when changing the user
   facing command contract.
@@ -131,8 +133,8 @@ standard CLI adapter. It currently supports Claude and Codex on the host path
 only; see the feature-flag guide before enabling it.
 
 Keep target-specific APIs, ABIs, ownership rules, and service protocols in the
-input bundle's `CANDIDATE_CONTRACT.md` or design documentation rather than in
-the neutral framework prompts.
+task's `CANDIDATE_CONTRACT.md` or design documentation rather than in the
+neutral framework prompts.
 
 ## Internal tools and workflows
 

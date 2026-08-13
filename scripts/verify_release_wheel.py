@@ -42,6 +42,7 @@ FRAMEWORK_PACKAGES = (
     "vs_github",
     "vs_issue_board",
     "vs_loop_state",
+    "vs_project_layout",
     "vs_project_state",
     "vs_sandbox",
 )
@@ -51,6 +52,7 @@ _INTERNAL_DISTRIBUTIONS = frozenset(
         "vs-github",
         "vs-issue-board",
         "vs-loop-state",
+        "vs-project-layout",
         "vs-project-state",
         "vs-sandbox",
     }
@@ -61,12 +63,25 @@ _PACKAGE_SOURCE_ROOTS = {
     Path("libs/vs-github/src/vs_github"): PurePosixPath("vs_github"),
     Path("libs/vs-issue-board/src/vs_issue_board"): PurePosixPath("vs_issue_board"),
     Path("libs/vs-loop-state/src/vs_loop_state"): PurePosixPath("vs_loop_state"),
+    Path("libs/vs-project-layout/src/vs_project_layout"): PurePosixPath("vs_project_layout"),
     Path("libs/vs-project-state/src/vs_project_state"): PurePosixPath("vs_project_state"),
     Path("libs/vs-sandbox/src/vs_sandbox"): PurePosixPath("vs_sandbox"),
+    Path("resources/evaluators"): PurePosixPath("vibesys/_resources/evaluators"),
     Path("resources/profilers"): PurePosixPath("vibesys/_resources/profilers"),
     Path("resources/skills"): PurePosixPath("vibesys/_resources/skills"),
 }
-_EXCLUDED_PARTS = frozenset({".git", "__pycache__", "repos"})
+_EXCLUDED_PARTS = frozenset(
+    {
+        ".git",
+        ".pytest_cache",
+        ".ruff_cache",
+        "__pycache__",
+        "build",
+        "dist",
+        "repos",
+        "target",
+    }
+)
 _REPOSITORY_ARCHIVE_ROOTS = frozenset(
     {".git", "clients", "libs", "resources", "sdk", "src", "tests", "third_party"}
 )

@@ -7,6 +7,7 @@ import subprocess
 import tomllib
 from collections.abc import Iterator  # noqa: TC003  # tracked: #288
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -31,14 +32,14 @@ def _queue_evaluator(project_root: Path) -> Path:
     return project_root / "resources" / "evaluators" / "queue"
 
 
-def _task_manifest(repository: Path, task_name: str) -> dict[str, object]:
+def _task_manifest(repository: Path, task_name: str) -> dict[str, Any]:
     manifest_path = repository / ".vibesys" / "tasks" / task_name / "vibesys.input.toml"
     return tomllib.loads(manifest_path.read_text())
 
 
 def _evaluator_command(
     evaluator: Path,
-    manifest: dict[str, object],
+    manifest: dict[str, Any],
     section: str,
     project_root: Path,
 ) -> list[str]:

@@ -125,7 +125,9 @@ def test_interactive_with_non_executable_bundled_runtime_errors(  # noqa: ANN201
 
     with patch("shutil.which", side_effect=AssertionError("must not search system runtimes")):
         assert cli.main([]) == 1
-    assert "bundled Bun runtime" in capsys.readouterr().err
+    error = capsys.readouterr().err
+    assert "bundled Bun runtime" in error
+    assert "--project /path/to/repository --task TASK" in error
 
 
 def test_no_bundle_no_checkout_falls_back_to_headless(monkeypatch, capsys):  # noqa: ANN001, ANN201  # tracked: #288

@@ -1,4 +1,4 @@
-"""Typed filesystem boundary for the ``.vs`` project state directory.
+"""Typed filesystem boundary for project state below ``.vibesys/state``.
 
 Git owns candidate source history. This module owns only portable completed-run
 metadata, machine-local operational paths, and translation into validated Git
@@ -36,7 +36,11 @@ if TYPE_CHECKING:
     from uuid import UUID
 
 PROJECT_SCHEMA_VERSION: Literal[1] = 1
-_STATE_DIRECTORY_NAME = ".vs"
+_CONFIG_DIRECTORY_NAME = ".vibesys"
+_STATE_DIRECTORY_NAME = "state"
+_STATE_DIRECTORY_PARTS = (_CONFIG_DIRECTORY_NAME, _STATE_DIRECTORY_NAME)
+_STATE_DIRECTORY_PATH = Path(*_STATE_DIRECTORY_PARTS)
+_STATE_DIRECTORY_POSIX = PurePosixPath(*_STATE_DIRECTORY_PARTS)
 _IDENTIFIER_PATTERN = r"^[a-z0-9][a-z0-9._-]{0,127}$"
 _DIGEST_PATTERN = r"^[0-9a-f]{64}$"
 _GIT_OBJECT_ID_PATTERN = r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
@@ -50,7 +54,6 @@ _EXCLUDED_NAMES = frozenset(
         ".pytest_cache",
         ".ruff_cache",
         ".tox",
-        _STATE_DIRECTORY_NAME,
         "__pycache__",
         "agent.toml",
         "node_modules",
@@ -76,7 +79,10 @@ def is_project_state_path(relative_path: Path | str) -> bool:
     path = Path(relative_path)
     if path.is_absolute() or path == Path() or ".." in path.parts:
         raise ProjectStateError(f"Project path must be a safe relative path: {relative_path}")
-    return _STATE_DIRECTORY_NAME in path.parts
+    return any(
+        path.parts[index : index + len(_STATE_DIRECTORY_PARTS)] == _STATE_DIRECTORY_PARTS
+        for index in range(len(path.parts) - len(_STATE_DIRECTORY_PARTS) + 1)
+    )
 
 
 @dataclass(frozen=True)
@@ -165,11 +171,11 @@ class StateFile:
 
 @dataclass(frozen=True, init=False)
 class StateSnapshot:
-    """Deterministic, immutable selection of portable ``.vs`` files.
+    """Deterministic, immutable selection of portable project-state files.
 
-    The root is ``.vs``, one run directory, or one run-state namespace. File
+    The root is ``.vibesys/state``, one run directory, or one run-state namespace. File
     paths are relative to that root. The combined paths can never address
-    machine-local state below ``.vs/local``.
+    machine-local state below ``.vibesys/state/local``.
     """
 
     _namespace_root: PurePosixPath
@@ -197,8 +203,10 @@ class StateSnapshot:
             raise ValueError("state snapshot files must have unique relative paths")
         for path in paths:
             combined = namespace_root / path
-            if combined.parts[:2] == (_STATE_DIRECTORY_NAME, "local"):
-                raise ValueError("portable state snapshots must not contain .vs/local files")
+            if combined.parts[:3] == (*_STATE_DIRECTORY_PARTS, "local"):
+                raise ValueError(
+                    "portable state snapshots must not contain .vibesys/state/local files"
+                )
         snapshot = object.__new__(cls)
         object.__setattr__(snapshot, "_namespace_root", namespace_root)
         object.__setattr__(snapshot, "files", files)
@@ -242,25 +250,25 @@ class ProjectGitIntegration:
     @property
     def local_exclude_pattern(self) -> str:
         """Return the repository-local ignore pattern for machine-local state."""
-        return f"/{_STATE_DIRECTORY_NAME}/local/"
+        return f"/{_STATE_DIRECTORY_PATH.as_posix()}/local/"
 
     @property
     def metadata_pathspec(self) -> str:
         """Return the pathspec selecting all framework-owned project state."""
-        return _STATE_DIRECTORY_NAME
+        return _STATE_DIRECTORY_PATH.as_posix()
 
     @property
     def metadata_restore_exclusions(self) -> tuple[str, ...]:
-        """Return pathspecs that preserve framework state during tree restores."""
+        """Return pathspecs that preserve trusted VibeSys files during tree restores."""
         return (
-            f":(exclude){_STATE_DIRECTORY_NAME}",
-            f":(exclude){_STATE_DIRECTORY_NAME}/**",
+            f":(exclude){_CONFIG_DIRECTORY_NAME}",
+            f":(exclude){_CONFIG_DIRECTORY_NAME}/**",
         )
 
     @property
     def metadata_clean_exclusion(self) -> str:
-        """Return the ignore expression that preserves framework state on clean."""
-        return f"{_STATE_DIRECTORY_NAME}/"
+        """Return the ignore expression that preserves trusted VibeSys files on clean."""
+        return f"{_CONFIG_DIRECTORY_NAME}/"
 
     def validate_candidate_worktree(self, path: Path) -> Path:
         """Resolve a candidate worktree below this run's machine-local area."""
@@ -287,8 +295,8 @@ class ProjectGitIntegration:
         ProjectStore(self._project_root)
         namespace_root = snapshot._namespace_root
         parts = namespace_root.parts
-        if parts != (_STATE_DIRECTORY_NAME,) and parts[2] != self._run_id:
-            raise ValueError(f"state snapshot belongs to run {parts[2]!r}, not {self._run_id!r}")
+        if parts != _STATE_DIRECTORY_PARTS and parts[3] != self._run_id:
+            raise ValueError(f"state snapshot belongs to run {parts[3]!r}, not {self._run_id!r}")
         destination_root = _contained_without_symlinks(
             self._project_root,
             self._project_root.joinpath(*namespace_root.parts),
@@ -315,7 +323,7 @@ class ProjectGitIntegration:
     def resolve_replacement_snapshot(self, snapshot: StateSnapshot) -> GitSnapshotPlan:
         """Resolve an exact replacement of one namespace owned by this run."""
         namespace_root = snapshot._namespace_root
-        if len(namespace_root.parts) != 4 or namespace_root.parts[2] != self._run_id:  # noqa: PLR2004
+        if len(namespace_root.parts) != 5 or namespace_root.parts[3] != self._run_id:  # noqa: PLR2004
             raise ValueError(
                 "framework state snapshot must select a dedicated namespace "
                 f"for run {self._run_id!r}"
@@ -770,6 +778,7 @@ class RunManifest(_CommittedManifest):
 
     run_id: Identifier
     project_id: Identifier
+    task_name: Identifier | None = None
     display_name: PortableText
     created_at: AwareDatetime
     input_fingerprint: Sha256Digest
@@ -808,7 +817,7 @@ def generate_run_id(
 
 
 class ProjectStore:
-    """Read and write portable ``.vs`` metadata below one project root."""
+    """Read and write portable state below ``.vibesys/state`` in one project."""
 
     def __init__(self, project_root: Path | str) -> None:
         """Bind the store to an existing project directory."""
@@ -816,7 +825,8 @@ class ProjectStore:
         if not root.is_dir():
             raise ProjectStateError(f"Project root is not a directory: {root}")
         self.project_root = root
-        self._metadata_dir = root / _STATE_DIRECTORY_NAME
+        self._config_dir = root / _CONFIG_DIRECTORY_NAME
+        self._metadata_dir = root / _STATE_DIRECTORY_PATH
         self._project_manifest_path = self._metadata_dir / "project.json"
         self._metadata_gitignore_path = self._metadata_dir / ".gitignore"
         self._local_dir = self._metadata_dir / "local"
@@ -830,9 +840,15 @@ class ProjectStore:
         try:
             if not root.is_dir() or root.is_symlink():
                 return False
-            metadata = root / _STATE_DIRECTORY_NAME
+            config = root / _CONFIG_DIRECTORY_NAME
+            metadata = root / _STATE_DIRECTORY_PATH
             manifest = metadata / "project.json"
-            if metadata.is_symlink() or manifest.is_symlink() or not manifest.is_file():
+            if (
+                config.is_symlink()
+                or metadata.is_symlink()
+                or manifest.is_symlink()
+                or not manifest.is_file()
+            ):
                 return False
             _load_model(manifest, ProjectManifest)
         except (OSError, ProjectStateError):
@@ -865,7 +881,7 @@ class ProjectStore:
         normalized = _validate_run_id(run_id)
         return _contained_without_symlinks(
             root,
-            root / _STATE_DIRECTORY_NAME / "local" / "runs" / normalized / "logs",
+            root / _STATE_DIRECTORY_PATH / "local" / "runs" / normalized / "logs",
             kind="run log directory",
         )
 
@@ -873,10 +889,8 @@ class ProjectStore:
         """Return existing framework paths for an application sandbox policy."""
         self._validate_storage_roots()
         return ProjectSandboxPaths(
-            read_only_path=(Path(_STATE_DIRECTORY_NAME) if self._metadata_dir.exists() else None),
-            hidden_path=(
-                Path(_STATE_DIRECTORY_NAME) / "local" if self._local_dir.exists() else None
-            ),
+            read_only_path=(Path(_CONFIG_DIRECTORY_NAME) if self._config_dir.exists() else None),
+            hidden_path=(_STATE_DIRECTORY_PATH / "local" if self._local_dir.exists() else None),
         )
 
     def log_directory(self, run_id: str) -> Path:
@@ -967,6 +981,7 @@ class ProjectStore:
         vibesys_version: str,
         configuration: RunConfiguration,
         trusted_input_baseline: GitObjectId,
+        task_name: str | None = None,
         run_id: str | None = None,
         now: datetime | None = None,
         unique: UUID | None = None,
@@ -982,6 +997,7 @@ class ProjectStore:
                 else generate_run_id(display_name, now=created_at, unique=unique)
             ),
             project_id=project.project_id,
+            task_name=task_name,
             display_name=display_name,
             created_at=created_at,
             input_fingerprint=self.input_fingerprint(),
@@ -1285,7 +1301,8 @@ class ProjectStore:
         )
 
     def _validate_storage_roots(self) -> None:
-        _validate_storage_root(self._metadata_dir, self.project_root, name="metadata")
+        _validate_storage_root(self._config_dir, self.project_root, name="configuration")
+        _validate_storage_root(self._metadata_dir, self._config_dir, name="metadata")
         _validate_storage_root(self._local_dir, self._metadata_dir, name="local metadata")
 
     def _ensure_local_gitignore(self) -> None:
@@ -1421,8 +1438,8 @@ def _validate_project_state_path(path: PurePosixPath) -> None:
         _validate_state_relative_path(path)
     except ProjectStateError as exc:
         raise ValueError(str(exc)) from exc
-    if path.parts[:1] != (_STATE_DIRECTORY_NAME,) or path == PurePosixPath(_STATE_DIRECTORY_NAME):
-        raise ValueError("state document paths must identify a file below .vs")
+    if path.parts[:2] != _STATE_DIRECTORY_PARTS or path == _STATE_DIRECTORY_POSIX:
+        raise ValueError("state document paths must identify a file below .vibesys/state")
 
 
 def _validate_snapshot_relative_path(path: PurePosixPath) -> None:
@@ -1439,18 +1456,19 @@ def _validate_snapshot_relative_path(path: PurePosixPath) -> None:
 def _validate_snapshot_root(path: PurePosixPath) -> None:
     _validate_snapshot_relative_path(path)
     parts = path.parts
-    if parts == (_STATE_DIRECTORY_NAME,):
+    if parts == _STATE_DIRECTORY_PARTS:
         return
-    if parts[:2] == (_STATE_DIRECTORY_NAME, "local"):
-        raise ValueError("portable state snapshot root must not be below .vs/local")
-    if parts[:2] != (_STATE_DIRECTORY_NAME, "runs") or len(parts) not in {3, 4}:
+    if parts[:3] == (*_STATE_DIRECTORY_PARTS, "local"):
+        raise ValueError("portable state snapshot root must not be below .vibesys/state/local")
+    if parts[:3] != (*_STATE_DIRECTORY_PARTS, "runs") or len(parts) not in {4, 5}:
         raise ValueError(
-            "portable state snapshot root must be .vs, .vs/runs/<run-id>, "
-            "or .vs/runs/<run-id>/<namespace>"
+            "portable state snapshot root must be .vibesys/state, "
+            ".vibesys/state/runs/<run-id>, or "
+            ".vibesys/state/runs/<run-id>/<namespace>"
         )
-    if re.fullmatch(_IDENTIFIER_PATTERN, parts[2]) is None:
+    if re.fullmatch(_IDENTIFIER_PATTERN, parts[3]) is None:
         raise ValueError(f"portable state snapshot root contains an invalid run ID: {path}")
-    if len(parts) == 4 and re.fullmatch(_IDENTIFIER_PATTERN, parts[3]) is None:  # noqa: PLR2004
+    if len(parts) == 5 and re.fullmatch(_IDENTIFIER_PATTERN, parts[4]) is None:  # noqa: PLR2004
         raise ValueError(f"portable state snapshot root contains an invalid namespace: {path}")
 
 
@@ -1587,6 +1605,8 @@ def _validate_storage_root(path: Path, parent: Path, *, name: str) -> None:
 
 
 def _is_excluded(relative: Path) -> bool:
+    if relative.parts == (_CONFIG_DIRECTORY_NAME,) or relative.parts[:2] == _STATE_DIRECTORY_PARTS:
+        return True
     for part in relative.parts:
         if part in _EXCLUDED_NAMES or part == ".env" or part.startswith(".env."):
             return True

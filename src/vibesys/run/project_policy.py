@@ -7,10 +7,11 @@ considers trusted, read-only, or secret.
 
 from pathlib import Path
 
+from vs_project_layout import ProjectLayout
 from vs_project_state import ProjectStore
 from vs_sandbox import ProjectPathPolicy
 
-TRUSTED_PROJECT_INPUT_PATHS: tuple[str, ...] = (
+LEGACY_TRUSTED_PROJECT_INPUT_PATHS: tuple[str, ...] = (
     "OBJECTIVE.md",
     "vibesys.input.toml",
     "objectives.toml",
@@ -20,6 +21,18 @@ TRUSTED_PROJECT_INPUT_PATHS: tuple[str, ...] = (
     "_input_libs",
     "_evaluator",
 )
+
+
+def _authored_project_input_paths(root: Path) -> tuple[Path, ...]:
+    """Return trusted inputs for the project's active authoring model."""
+    layout = ProjectLayout.open(root)
+    if layout.is_initialized():
+        paths = {layout.tasks_root().path.relative_to(root)}
+        evaluator_lock = layout.evaluator_lock().path
+        if evaluator_lock.is_file():
+            paths.add(evaluator_lock.relative_to(root))
+        return _minimal_paths(paths)
+    return tuple(Path(value) for value in LEGACY_TRUSTED_PROJECT_INPUT_PATHS)
 
 
 def build_project_path_policy(
@@ -35,7 +48,7 @@ def build_project_path_policy(
         for path in (
             Path(".git"),
             state_paths.read_only_path,
-            *(Path(value) for value in TRUSTED_PROJECT_INPUT_PATHS),
+            *_authored_project_input_paths(root),
             _project_relative(root, evaluator_source),
         )
         if path is not None and (root / path).exists()
@@ -62,7 +75,7 @@ def trusted_project_input_paths(
 ) -> tuple[Path, ...]:
     """Return Git pathspec roots whose contents agents must not alter."""
     root = project_root.resolve()
-    paths = {Path(value) for value in TRUSTED_PROJECT_INPUT_PATHS}
+    paths = set(_authored_project_input_paths(root))
     evaluator = _project_relative(root, evaluator_source)
     if evaluator is not None:
         paths.add(evaluator)

@@ -3,4 +3,4 @@ schema_version = 1
 [[package]]
 name = "vibesys-evaluator-queue"
 version = "0.1.0"
-digest = "sha256:c8442385ff3bf5851141ac00edc62a0ce363e78e0d2716b3296dd98ccd858b92"
+digest = "sha256:f7941b2319115da317ab479d65eacfacb5ee0faff25d5cf9c4995add92e12257"

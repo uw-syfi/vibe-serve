@@ -41,7 +41,6 @@ def test_synthesize_minimal_bundle_round_trips(tmp_path):  # noqa: ANN001, ANN20
     assert bundle.accuracy_command == ("python", "checker.py")
     assert bundle.benchmark_command == ("python", "benchmark.py")
     assert bundle.reference_path is None
-    assert bundle.workspace_seed_path is None
     assert bundle.benchmark_result is None
 
 
@@ -49,9 +48,6 @@ def test_synthesize_populates_optional_fields(tmp_path):  # noqa: ANN001, ANN201
     reference = tmp_path / "ref"
     reference.mkdir()
     (reference / "golden.txt").write_text("42\n")
-    seed = tmp_path / "seed"
-    seed.mkdir()
-    (seed / "main.py").write_text("# candidate\n")
 
     spec = _minimal_spec(
         accuracy_timeout_seconds=120,
@@ -59,7 +55,6 @@ def test_synthesize_populates_optional_fields(tmp_path):  # noqa: ANN001, ANN201
         benchmark_metric="latency_ms",
         benchmark_result_arg="--result-json",
         reference_dir=reference,
-        workspace_seed_dir=seed,
     )
     root = synthesize_input_bundle(spec, tmp_path / "bundle")
 
@@ -73,7 +68,6 @@ def test_synthesize_populates_optional_fields(tmp_path):  # noqa: ANN001, ANN201
     assert bundle.reference_path == (root / "reference").resolve()
     assert bundle.reference_path is not None
     assert (bundle.reference_path / "golden.txt").read_text() == "42\n"
-    assert bundle.workspace_seed_path == (root / "_seed").resolve()
 
 
 def test_synthesize_copies_evaluator_dir_contents_into_root(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
@@ -248,6 +242,13 @@ def test_input_conflicts_with_standalone_flags(tmp_path):  # noqa: ANN001, ANN20
 def test_removed_hidden_evaluator_flag_is_rejected() -> None:
     with pytest.raises(ConfigurationError) as exc:
         _agent_args(["--input-hidden-evaluator-source", "evaluator"])
+
+    assert exc.value.diagnostic.code == "invalid_arguments"
+
+
+def test_removed_workspace_seed_flag_is_rejected() -> None:
+    with pytest.raises(ConfigurationError) as exc:
+        _agent_args(["--input-workspace-seed", "candidate"])
 
     assert exc.value.diagnostic.code == "invalid_arguments"
 

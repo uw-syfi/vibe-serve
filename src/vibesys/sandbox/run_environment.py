@@ -42,9 +42,12 @@ from vibesys.backends import SandboxKind
 from vibesys.backends.base import ComputeBackendImpl, SetupFn  # noqa: TC001  # tracked: #288
 from vibesys.constants import DEFAULT_AGENT_BACKEND, PROJECT_ROOT
 from vibesys.domains.environment import EnvironmentBindMount  # noqa: TC001  # tracked: #288
+from vibesys.evaluators import PROJECT_ROOT_TOKEN, load_evaluator_package
 from vibesys.input_manifest import WorkspaceSource  # noqa: TC001  # tracked: #288
 from vibesys.profilers import ProfilerKind
 from vs_sandbox import ProjectPathPolicy
+
+_SHELL_COMMAND_ARG_COUNT = 3
 
 
 @dataclass(frozen=True)
@@ -119,6 +122,7 @@ class RunEnvironmentRequest:  # noqa: D101  # tracked: #288
     objective_document: Path | None = None
     accuracy_command: str | None = None
     benchmark_command: str | None = None
+    evaluator_package_root: Path | None = None
     profiler_support_path: str | None = None
     profiler_support_name: str | None = None
     git_history_root: Path | None = None
@@ -247,8 +251,8 @@ class LocalEnvironment(_NoopWorkspaceRecovery):  # noqa: D101  # tracked: #288
                         if objective_document is not None
                         else "OBJECTIVE.md"
                     ),
-                    accuracy_command=request.accuracy_command,
-                    benchmark_command=request.benchmark_command,
+                    accuracy_command=_environment_command(request, request.accuracy_command),
+                    benchmark_command=_environment_command(request, request.benchmark_command),
                     profiler_support=request.profiler_support_path,
                 ),
             ),
@@ -279,6 +283,7 @@ class DockerEnvironment:  # noqa: D101  # tracked: #288
     def open(self, request: RunEnvironmentRequest) -> RunEnvironmentSession:  # noqa: D102  # tracked: #288
         bind_mounts, docker_symlinks, passthrough = _container_mount_plan(request)
         extra_init_commands, cli_provider_env = _cli_container_setup(request)
+        extra_init_commands.extend(_evaluator_container_setup(request))
         cli_provider_env.setdefault("UV_CACHE_DIR", "/workspace/.cache/uv")
         if request.git_history_root is not None:
             cli_provider_env.setdefault("VIBESYS_GIT_HISTORY", "/opt/vibesys-history")
@@ -428,14 +433,21 @@ class ModalEnvironment(_NoopWorkspaceRecovery):  # noqa: D101  # tracked: #288
 
         bind_mounts, docker_symlinks, passthrough = _container_mount_plan(request)
         extra_init_commands, cli_provider_env = _cli_container_setup(request)
+        extra_init_commands.extend(_evaluator_container_setup(request))
         cli_provider_env.setdefault("UV_CACHE_DIR", "/workspace/.cache/uv")
         if request.git_history_root is not None:
             cli_provider_env.setdefault("VIBESYS_GIT_HISTORY", "/opt/vibesys-history")
         app_name = _modal_app_name(request.run_id, fallback=self.config.app)
         cli_provider_env["VIBESYS_MODAL_APP_NAME"] = app_name
         runtime_document = request.log_dir / "runtime-environment.md"
+        reference_path = _reference_container_path(request).removeprefix("/workspace/")
         runtime_document.write_text(
-            _modal_runtime_notes(self.config.gpu, app_name, request.workspace_sources)
+            _modal_runtime_notes(
+                self.config.gpu,
+                app_name,
+                request.workspace_sources,
+                reference_path=reference_path,
+            )
             + _git_history_runtime_notes(request.git_history_root)
         )
         runtime_container_path = "/opt/vibesys-runtime/environment.md"
@@ -495,8 +507,14 @@ class ModalEnvironment(_NoopWorkspaceRecovery):  # noqa: D101  # tracked: #288
                         if request.objective is not None
                         else "OBJECTIVE.md"
                     ),
-                    accuracy_command=_prefix_command(evaluator_prefix, request.accuracy_command),
-                    benchmark_command=_prefix_command(evaluator_prefix, request.benchmark_command),
+                    accuracy_command=_prefix_command(
+                        evaluator_prefix,
+                        _environment_command(request, request.accuracy_command, isolated=True),
+                    ),
+                    benchmark_command=_prefix_command(
+                        evaluator_prefix,
+                        _environment_command(request, request.benchmark_command, isolated=True),
+                    ),
                     profiler_support=(
                         request.profiler_support_name if request.profiler_support_path else None
                     ),
@@ -736,7 +754,11 @@ def _seeded_checkout_modal_note(workspace_sources: tuple[WorkspaceSource, ...]) 
 
 
 def _modal_runtime_notes(
-    gpu: str, app_name: str, workspace_sources: tuple[WorkspaceSource, ...] = ()
+    gpu: str,
+    app_name: str,
+    workspace_sources: tuple[WorkspaceSource, ...] = (),
+    *,
+    reference_path: str = "reference",
 ) -> str:
     """Render the Modal-mode runtime instructions for agent prompts.
 
@@ -822,7 +844,7 @@ def _modal_runtime_notes(
         "  - Model weights are pre-staged in Modal Volumes by the "
         "framework before this round started. Read the model metadata "
         "files in your reference/input directory (typically "
-        "`reference/meta.json`, plus metadata for any optional auxiliary "
+        f"`{reference_path}/meta.json`, plus metadata for any optional auxiliary "
         "model declared by the input) to learn each `model_id`. "
         "The framework normalizes each `model_id` into the volume "
         "name with this exact rule (matches "
@@ -837,10 +859,10 @@ def _modal_runtime_notes(
         "Use `modal.Volume.from_name(<that-name>)` and mount it at "
         "whatever container path you prefer (no fixed convention is "
         "required).\n"
-        "  - **The `reference/` directory (meta.json, config.json, "
+        f"  - **The `{reference_path}/` directory (meta.json, config.json, "
         "reference.py) exists ONLY in this local editor container — it is "
         "NOT present inside the deployed Modal container.** Reading "
-        "`reference/meta.json` or `reference/config.json` from a relative "
+        f"`{reference_path}/meta.json` or `{reference_path}/config.json` from a relative "
         "path at `@app.cls`/module import or `@modal.enter()` time will "
         "crash the container with `FileNotFoundError` before `/health` can "
         "serve, which fails every gate. Do NOT read local `reference/` "
@@ -849,10 +871,10 @@ def _modal_runtime_notes(
         "— `config.json`, tokenizer files, and the safetensors — so load "
         "the model config and tokenizer from the *mounted volume path* at "
         "runtime; and (b) if you need a value only found in "
-        "`reference/meta.json` (e.g. the `model_id`), read it in the editor "
+        f"`{reference_path}/meta.json` (e.g. the `model_id`), read it in the editor "
         "at build time and embed it as a module-level constant, or bake the "
         "file into the image explicitly "
-        "(`image.add_local_file('reference/meta.json', "
+        f"(`image.add_local_file({reference_path + '/meta.json'!r}, "
         "'/root/reference/meta.json')`). Verify startup with "
         "the candidate's declared `modal run` entrypoint or a deploy + "
         "`/health` probe BEFORE "
@@ -937,8 +959,8 @@ def _isolated_paths(request: RunEnvironmentRequest) -> AgentPaths:
         objective=(
             "/opt/vibesys-runtime/objective.md" if request.objective is not None else "OBJECTIVE.md"
         ),
-        accuracy_command=request.accuracy_command,
-        benchmark_command=request.benchmark_command,
+        accuracy_command=_environment_command(request, request.accuracy_command, isolated=True),
+        benchmark_command=_environment_command(request, request.benchmark_command, isolated=True),
         profiler_support=(request.profiler_support_name if request.profiler_support_path else None),
     )
 
@@ -947,6 +969,188 @@ def _prefix_command(prefix: str, command: str | None) -> str | None:
     if not command:
         return None
     return f"{prefix} {command}"
+
+
+def _environment_command(
+    request: RunEnvironmentRequest,
+    command: str | None,
+    *,
+    isolated: bool = False,
+) -> str | None:
+    """Translate semantic paths in argv, then quote the translated command."""
+    if command is None:
+        return None
+    try:
+        arguments = shlex.split(command)
+    except ValueError as exc:
+        raise ValueError(f"invalid evaluator command: {exc}") from exc  # noqa: TRY003
+    project_root = "/workspace" if isolated else str(request.workspace)
+    replacements = [(PROJECT_ROOT_TOKEN, project_root)]
+    if request.evaluator_package_root is not None:
+        replacements.append(
+            (
+                str(request.evaluator_package_root),
+                (
+                    "/opt/vibesys-evaluator-package"
+                    if isolated
+                    else str(request.evaluator_package_root)
+                ),
+            )
+        )
+    _reject_semantic_tokens_in_source(arguments, replacements)
+    arguments = [_translate_command_argument(argument, replacements) for argument in arguments]
+    return shlex.join(arguments)
+
+
+def _translate_command_argument(
+    argument: str,
+    replacements: list[tuple[str, str]],
+) -> str:
+    """Translate paths in one argv item, including serialized nested argv."""
+    if not any(source in argument for source, _ in replacements):
+        return argument
+    try:
+        nested = json.loads(argument)
+    except json.JSONDecodeError:
+        nested = None
+    if isinstance(nested, list) and all(isinstance(item, str) for item in nested):
+        _reject_semantic_tokens_in_source(nested, replacements)
+        translated: list[str] = []
+        for item in nested:
+            translated_item = item
+            for source, destination in replacements:
+                translated_item = translated_item.replace(source, destination)
+            translated.append(translated_item)
+        return json.dumps(translated, separators=(",", ":"))
+    for source, destination in replacements:
+        argument = argument.replace(source, destination)
+    return argument
+
+
+def _reject_semantic_tokens_in_source(
+    arguments: list[str],
+    replacements: list[tuple[str, str]],
+) -> None:
+    """Reject raw path substitution into shell or interpreter source code."""
+    source_index = _executable_source_index(arguments)
+    if source_index is not None and any(
+        source in arguments[source_index] for source, _ in replacements
+    ):
+        raise ValueError(  # noqa: TRY003
+            "semantic path tokens in executable source are unsafe; pass them as "
+            "positional arguments after the source"
+        )
+
+
+def _executable_source_index(arguments: list[str]) -> int | None:
+    """Return the source-code argv index for supported command interpreters."""
+    shell_source_index = _nested_shell_source_index(arguments)
+    if shell_source_index is not None:
+        return shell_source_index
+    command_index, split_string_index = _env_wrapped_command_indexes(arguments)
+    if split_string_index is not None or command_index is None:
+        return split_string_index
+    executable = Path(arguments[command_index]).name
+    if executable in {"node", "nodejs"}:
+        return _option_value_index(
+            arguments,
+            command_index,
+            separate={"-e", "-p", "--eval", "--print"},
+            inline_prefixes=("--eval=", "--print="),
+        )
+    if _is_python_executable(executable):
+        return _option_value_index(arguments, command_index, separate={"-c"})
+    return None
+
+
+def _option_value_index(
+    arguments: list[str],
+    command_index: int,
+    *,
+    separate: set[str],
+    inline_prefixes: tuple[str, ...] = (),
+) -> int | None:
+    for index, argument in enumerate(arguments[command_index + 1 :], start=command_index + 1):
+        if argument in separate:
+            source_index = index + 1
+            return source_index if source_index < len(arguments) else None
+        if inline_prefixes and argument.startswith(inline_prefixes):
+            return index
+    return None
+
+
+def _is_python_executable(executable: str) -> bool:
+    suffix = executable.removeprefix("python")
+    return executable.startswith("python") and (
+        not suffix or all(part.isdigit() for part in suffix.split("."))
+    )
+
+
+def _nested_shell_source_index(arguments: list[str]) -> int | None:
+    """Return the script index for common ``sh`` and ``bash`` command forms."""
+    command_index, split_string_index = _env_wrapped_command_indexes(arguments)
+    if split_string_index is not None:
+        return split_string_index
+    if command_index is None:
+        return None
+    arguments = arguments[command_index:]
+    if len(arguments) < _SHELL_COMMAND_ARG_COUNT or arguments[0] not in {
+        "bash",
+        "sh",
+        "/bin/bash",
+        "/bin/sh",
+        "/usr/bin/bash",
+        "/usr/bin/sh",
+    }:
+        return None
+    for index, argument in enumerate(arguments[1:], start=1):
+        if argument == "--":
+            return None
+        if argument == "-c" or (
+            argument.startswith("-") and not argument.startswith("--") and "c" in argument[1:]
+        ):
+            source_index = index + 1
+            return command_index + source_index if source_index < len(arguments) else None
+    return None
+
+
+def _env_wrapped_command_indexes(arguments: list[str]) -> tuple[int | None, int | None]:
+    """Return command and shell-like split-string indexes for an ``env`` wrapper."""
+    if not arguments or arguments[0] not in {"env", "/bin/env", "/usr/bin/env"}:
+        return 0, None
+    index = 1
+    while index < len(arguments):
+        action, width = _classify_env_argument(arguments[index])
+        if action == "command":
+            return index, None
+        if action == "end-options":
+            index += width
+            return (index if index < len(arguments) else None), None
+        if index + width > len(arguments):
+            return None, None
+        if action == "split-string":
+            return None, index + width - 1
+        index += width
+    return None, None
+
+
+def _classify_env_argument(argument: str) -> tuple[str, int]:
+    """Classify one GNU ``env`` wrapper argument and its argv width."""
+    action = "command"
+    width = 0
+    if argument == "--":
+        action, width = "end-options", 1
+    elif argument in {"-S", "--split-string"}:
+        action, width = "split-string", 2
+    elif argument.startswith("--split-string=") or (argument.startswith("-S") and argument != "-S"):
+        action, width = "split-string", 1
+    elif argument in {"-C", "-u", "--argv0", "--chdir", "--unset"}:
+        action, width = "option", 2
+    elif argument.startswith("-"):
+        action, width = "option", 1
+    elif "=" in argument and argument.partition("=")[0]:
+        action, width = "assignment", 1
+    return action, width
 
 
 def _docker_workspace_run(
@@ -975,7 +1179,7 @@ def _docker_workspace_run(
     )
 
 
-def _container_mount_plan(
+def _container_mount_plan(  # noqa: C901  # tracked: #288
     request: RunEnvironmentRequest,
     *,
     include_cli_provider_mounts: bool = True,
@@ -997,9 +1201,10 @@ def _container_mount_plan(
     }
 
     if ref_dir is not None:
+        reference_container_path = _reference_container_path(request)
         _collect_symlink_mounts(
             ref_dir,
-            "/workspace/reference",
+            reference_container_path,
             bind_mounts=bind_mounts,
             symlinks=symlinks,
             skip=skip_environment_mount_symlinks,
@@ -1007,7 +1212,7 @@ def _container_mount_plan(
         if ref_dir.parent != ref_dir:
             _collect_symlink_mounts(
                 ref_dir.parent,
-                "/workspace",
+                str(Path(reference_container_path).parent),
                 bind_mounts=bind_mounts,
                 symlinks=symlinks,
                 skip=skip_environment_mount_symlinks,
@@ -1044,6 +1249,15 @@ def _container_mount_plan(
             )
         )
 
+    if request.evaluator_package_root is not None:
+        bind_mounts.append(
+            (
+                str(request.evaluator_package_root),
+                "/opt/vibesys-evaluator-package",
+                True,
+            )
+        )
+
     bind_mounts.extend(_container_project_policy_mounts(request))
 
     if (
@@ -1057,6 +1271,22 @@ def _container_mount_plan(
         bind_mounts.append((str(request.framework_root), "/opt/vibesys", True))
 
     return bind_mounts, symlinks, passthrough_paths
+
+
+def _reference_container_path(request: RunEnvironmentRequest) -> str:
+    """Return the reference path inside an isolated workspace.
+
+    Normal project references retain their repository-relative location. An
+    external reference directory uses the legacy ``/workspace/reference``
+    location while its external symlink targets are mounted separately.
+    """
+    if request.ref_dir is None:
+        return "/workspace/reference"
+    try:
+        relative = request.ref_dir.resolve().relative_to(request.workspace.resolve())
+    except ValueError:
+        return "/workspace/reference"
+    return f"/workspace/{relative.as_posix()}"
 
 
 def _container_project_policy_mounts(
@@ -1136,6 +1366,43 @@ def _cli_container_setup(
     env = dict(DOCKER_PROVIDER_ENV.get(provider, {}))
     commands = [*auth_copy_commands(provider), *docker_init_commands(provider)]
     return commands, env
+
+
+def _evaluator_container_setup(request: RunEnvironmentRequest) -> list[str]:
+    """Install the toolchain required by bundled evaluator packages."""
+    if request.evaluator_package_root is None:
+        return []
+    toolchains = set(load_evaluator_package(request.evaluator_package_root).metadata.toolchains)
+    if not toolchains:
+        return []
+    commands = [
+        "command -v curl >/dev/null && command -v tar >/dev/null || "
+        "{ apt-get update -qq && apt-get install -y -qq curl ca-certificates tar; }",
+    ]
+    if "go" in toolchains:
+        commands.append(
+            "go_version=$(go env GOVERSION 2>/dev/null || true); "
+            'case "$go_version" in go1.2[1-9]*|go1.[3-9][0-9]*) ;; *) '
+            'arch=$(uname -m); case "$arch" in x86_64) go_arch=amd64 ;; '
+            "aarch64|arm64) go_arch=arm64 ;; *) "
+            'echo "unsupported Go architecture: $arch" >&2; exit 1 ;; esac; '
+            "curl -fsSL --retry 5 --retry-delay 5 "
+            "https://go.dev/dl/go1.23.12.linux-${go_arch}.tar.gz -o /tmp/go.tgz && "
+            "rm -rf /usr/local/go && tar -C /usr/local -xzf /tmp/go.tgz && "
+            "ln -sf /usr/local/go/bin/go /usr/local/bin/go && rm -f /tmp/go.tgz ;; esac"
+        )
+    if "rust" in toolchains:
+        commands.append(
+            "if command -v cargo >/dev/null; then "
+            "rust_version=$(rustc --version 2>/dev/null | awk '{print $2}'); "
+            "else rust_version=missing; fi; "
+            'case "$rust_version" in 1.7[89].*|1.[89][0-9].*|1.[1-9][0-9][0-9].*) ;; *) '
+            "curl -fsSL --retry 5 --retry-delay 5 "
+            "https://sh.rustup.rs -o /tmp/rustup-init.sh && "
+            "sh /tmp/rustup-init.sh -y --profile minimal --default-toolchain 1.92.0 && "
+            "ln -sf /root/.cargo/bin/* /usr/local/bin/ && rm -f /tmp/rustup-init.sh ;; esac"
+        )
+    return commands
 
 
 def _dedupe_mounts(

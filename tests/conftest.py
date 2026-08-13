@@ -3,8 +3,14 @@ from pathlib import Path
 
 import pytest
 
-from vibesys.input_manifest import MANIFEST_NAME
+from vibesys.input_manifest import (
+    MANIFEST_NAME,
+    InputBundle,
+    load_input_bundle,
+    load_project_task,
+)
 from vibesys.render import HeadlessRenderer, output_sink
+from vs_project_layout import ProjectLayout, ProjectNotInitializedError
 
 
 @pytest.fixture(autouse=True)
@@ -30,9 +36,19 @@ def repo_root() -> Path:
 
 
 @pytest.fixture(scope="session")
-def example_input_bundles(repo_root: Path) -> tuple[Path, ...]:
-    bundles = tuple(
-        sorted(manifest.parent for manifest in (repo_root / "examples").glob(f"**/{MANIFEST_NAME}"))
-    )
+def example_input_bundles(repo_root: Path) -> tuple[InputBundle, ...]:
+    manifests = sorted((repo_root / "examples").glob(f"**/{MANIFEST_NAME}"))
+    bundles: list[InputBundle] = []
+    for manifest in manifests:
+        try:
+            layout = ProjectLayout.discover(manifest)
+        except ProjectNotInitializedError:
+            bundles.append(load_input_bundle(manifest.parent))
+            continue
+        task = next(
+            task for task in layout.discover_tasks() if task.manifest_path == manifest.resolve()
+        )
+        bundles.append(load_project_task(layout, task))
+
     assert bundles, f"No example input bundles found under {repo_root / 'examples'}"
-    return bundles
+    return tuple(bundles)

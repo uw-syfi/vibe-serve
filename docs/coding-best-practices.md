@@ -12,10 +12,15 @@ path.
 - Put prompt, loop, and domain behavior in the package that owns that surface.
 - Put long-form serving knowledge under `resources/skills/`, not in framework
   code or prompt skeletons.
-- Keep example targets in the standard bundle shape: `OBJECTIVE.md`,
-  `vibesys.input.toml`, optional `reference/`, evaluator source directories,
-  and `README.md`. Evaluator commands are declared by the manifest and may be
-  problem-specific.
+- Keep reusable targets in their candidate repository under
+  `.vibesys/tasks/<name>/`: `OBJECTIVE.md`, `vibesys.input.toml`, optional
+  `reference/`, task-owned checker/benchmark programs, and an optional
+  `README.md`.
+  Evaluator commands run from the repository root. Reusable evaluator
+  implementations belong in versioned packages, not copied task directories.
+- Access `.vibesys` paths through `vs-project-layout`; access generated state
+  through `vs-project-state`. Do not reconstruct either layout in CLI or loop
+  code.
 - Put nontrivial candidate-facing APIs, ABIs, ownership rules, and service
   protocols in `CANDIDATE_CONTRACT.md`; keep evaluator internals and trust-model
   discussion in a separate design document.

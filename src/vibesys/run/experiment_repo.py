@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 from collections.abc import Callable  # noqa: TC003  # tracked: #288
 from dataclasses import dataclass, field
@@ -10,6 +11,12 @@ from pathlib import Path
 
 from vibesys.repository import REPOSITORY_SLUG, RepositoryVisibility
 from vs_github import GitHubCLI
+
+_RUN_BRANCH_PREFIXES = ("vibesys-runs/", "vibesys/")
+_GITHUB_ORIGIN = re.compile(
+    r"^(?:https://github\.com/|ssh://git@github\.com/|git@github\.com:)"
+    r"(?P<slug>[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+?)(?:\.git)?/?$"
+)
 
 
 @dataclass(frozen=True)
@@ -58,6 +65,33 @@ class ExperimentRepository:
         )
         return result.returncode == 0
 
+    def origin_matches(self, repository: str) -> bool:
+        """Return whether ``origin`` addresses the requested GitHub slug."""
+        if not REPOSITORY_SLUG.fullmatch(repository):
+            return False
+        result = self._run(
+            ["git", "remote", "get-url", "origin"],
+            check=False,
+            tool="git",
+        )
+        if result.returncode != 0:
+            return False
+        match = _GITHUB_ORIGIN.fullmatch(result.stdout.strip())
+        return match is not None and match.group("slug") == repository
+
+    def current_run_branch_tracks_origin(self) -> bool:
+        """Return whether the current run branch already tracks ``origin``."""
+        try:
+            branch = self._current_run_branch()
+        except ValueError:
+            return False
+        result = self._run(
+            ["git", "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"],
+            check=False,
+            tool="git",
+        )
+        return result.returncode == 0 and result.stdout.strip() == f"origin/{branch}"
+
     def push(self) -> None:
         """Push the already-committed current VibeSys run branch."""
         if not self.has_origin():
@@ -65,7 +99,11 @@ class ExperimentRepository:
         self._require_project_root()
         branch = self._current_run_branch()
         ref = f"refs/heads/{branch}"
-        run_id = branch.removeprefix("vibesys/")
+        run_id = next(
+            branch.removeprefix(prefix)
+            for prefix in _RUN_BRANCH_PREFIXES
+            if branch.startswith(prefix)
+        )
         candidate_prefix = f"refs/vibesys/{run_id}/candidates/"
         candidate_refs = self._run(
             ["git", "for-each-ref", "--format=%(refname)", candidate_prefix],
@@ -86,7 +124,10 @@ class ExperimentRepository:
             tool="git",
         )
         branch = result.stdout.strip() if result.returncode == 0 else ""
-        if not branch.startswith("vibesys/") or not branch.removeprefix("vibesys/"):
+        if not any(
+            branch.startswith(prefix) and branch.removeprefix(prefix)
+            for prefix in _RUN_BRANCH_PREFIXES
+        ):
             raise ValueError(  # noqa: TRY003  # tracked: #288
                 "remote publication requires the current VibeSys run branch"
             )

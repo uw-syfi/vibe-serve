@@ -1,11 +1,16 @@
 # vs-project-state
 
-Typed persistence for the `.vs` directory in an in-place VibeSys project.
+Typed persistence for `.vibesys/state` in an in-place VibeSys project.
 
 The library owns the physical project-state layout, portable project and run
 manifests, completed-round records, input fingerprints, and machine-local
-operational paths. Code outside this package uses semantic operations and
-typed capabilities. It does not construct or interpret paths within `.vs`.
+operational paths. Code outside this package uses semantic operations and typed
+capabilities. It does not construct or interpret paths within `.vibesys/state`.
+
+Human-authored task definitions and package locks live elsewhere below
+`.vibesys/`. They are trusted project input, not run state. The input
+fingerprint includes those files while excluding the generated `state/`
+subtree.
 
 The library does not invoke Git, construct agents, resolve compute backends,
 or read provider credentials. Those application concerns remain in VibeSys.
@@ -15,23 +20,26 @@ or read provider credentials. Those application concerns remain in VibeSys.
 `ProjectStore` separates portable state from machine-local state:
 
 ```text
-.vs/
-├── .gitignore
-├── project.json
-├── runs/<run-id>/
-│   ├── run.json
-│   └── agent/rounds/NNNN.json
-└── local/
-    ├── current-run
-    └── runs/<run-id>/
-        ├── agent/active.json
-        ├── logs/
-        ├── transaction/round.json
-        └── worktrees/
+.vibesys/
+├── tasks/                              # Authored, outside this library
+└── state/
+    ├── .gitignore
+    ├── project.json
+    ├── runs/<run-id>/
+    │   ├── run.json
+    │   └── agent/rounds/NNNN.json
+    └── local/
+        ├── current-run
+        └── runs/<run-id>/
+            ├── agent/active.json
+            ├── logs/
+            ├── round-transaction.json
+            └── worktrees/
 ```
 
-The `.vs/.gitignore` contract excludes `local/`. Callers decide whether to
-commit the remaining portable metadata. This library never invokes Git.
+The `.vibesys/state/.gitignore` contract excludes `local/`. Callers decide
+whether to commit the remaining portable metadata. This library never invokes
+Git.
 
 Loop and subsystem code acquire a typed `StateNamespace` through
 `portable_namespace(run_id, namespace)` or
@@ -49,20 +57,20 @@ values for application-level Git integration. Machine-local namespaces cannot
 be snapshotted. Directory-returning methods are reserved for explicit
 path-based integrations such as an external search library.
 
-`ProjectStore` also produces typed metadata snapshots without exposing path to
-bytes mappings:
+`ProjectStore` also produces typed metadata snapshots without exposing
+path-to-bytes mappings:
 
-- `initialization_snapshot(run_id)` contains `.vs/.gitignore`, `project.json`,
-  and that run's `run.json`.
+- `initialization_snapshot(run_id)` contains `.vibesys/state/.gitignore`,
+  `project.json`, and that run's `run.json`.
 - `run_manifest_snapshot(run_id)` contains one current `run.json`.
 - `completed_round_snapshot(run_id, round_number)` contains one validated
   completed-round record.
 
 These snapshots are portable selections for the application Git layer. Their
 physical roots and relative files are validated inside this package, and no
-snapshot can address machine-local state. `ProjectGitIntegration` converts them into
-validated Git pathspec and destination capabilities. The Git adapter consumes
-those capabilities without knowing the project-state layout.
+snapshot can address machine-local state. `ProjectGitIntegration` converts
+them into validated Git pathspec and destination capabilities. The Git adapter
+consumes those capabilities without knowing the project-state layout.
 
 ## Run configuration
 
@@ -75,4 +83,6 @@ those capabilities without knowing the project-state layout.
 Each variant is immutable, rejects unknown fields, and records only sanitized
 configuration needed to reproduce its loop. Construct a concrete variant in
 application code. Pydantic discriminates the union when it loads a
-`RunManifest`.
+`RunManifest`. A run manifest also records its optional `task_name`, binding
+repository-native runs to the selected `.vibesys/tasks/<name>` definition while
+remaining compatible with older standalone runs.

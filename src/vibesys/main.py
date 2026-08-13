@@ -35,7 +35,7 @@ from vibesys.constants import (
 )
 from vibesys.domains.base import DomainName
 from vibesys.errors import ConfigurationDiagnostic, ConfigurationError
-from vibesys.input_manifest import InputBundle, load_input_bundle
+from vibesys.input_manifest import InputBundle, load_input_bundle, load_project_task
 from vibesys.profilers import CLI_PROFILER_CHOICES, ProfilerKind, coerce_profiler_kind
 from vibesys.repository import (
     REPOSITORY_SLUG,
@@ -46,6 +46,7 @@ from vibesys.repository import (
     validate_experiment_name,
 )
 from vibesys.resource_paths import default_skill_roots
+from vibesys.run.experiment_repo import ExperimentRepository
 from vibesys.run.git_tracker import GitTracker
 from vibesys.sandbox.run_environment import (
     RunEnvironmentSpec,
@@ -55,6 +56,7 @@ from vibesys.sandbox.run_environment import (
 from vibesys.skills import resolve_skill_source_dirs
 from vibesys.tui import KNOWN_TUI_THEMES, TuiTheme
 from vs_github import GitHubCLI, GitHubCLIError
+from vs_project_layout import ProjectLayout, ProjectLayoutError
 from vs_project_state import (
     AgentRunConfiguration,
     PlainRunConfiguration,
@@ -256,7 +258,6 @@ _STANDALONE_INPUT_DESTS = (
     "input_benchmark_result_arg",
     "input_reference",
     "input_evaluator_dir",
-    "input_workspace_seed",
     "input_evaluator_source",
 )
 
@@ -358,13 +359,6 @@ def _add_standalone_input_args(parser: argparse.ArgumentParser) -> None:
         help="Directory whose contents are copied into the bundle root (evaluator scripts, etc.).",
     )
     group.add_argument(
-        "--input-workspace-seed",
-        type=Path,
-        default=None,
-        metavar="DIR",
-        help="Directory copied in as the candidate workspace seed (manifest [workspace].seed).",
-    )
-    group.add_argument(
         "--input-evaluator-source",
         type=Path,
         default=None,
@@ -376,13 +370,21 @@ def _add_standalone_input_args(parser: argparse.ArgumentParser) -> None:
 def _add_common_args(parser: argparse.ArgumentParser) -> None:
     """Add CLI arguments shared across every outer-loop parser."""
     parser.add_argument(
+        "--project",
         "--input",
+        dest="input",
         type=Path,
         default=None,
         help=(
-            "Project directory containing OBJECTIVE.md, vibesys.input.toml, and the "
-            "candidate source. Defaults to the launch working directory."
+            "Candidate repository containing .vibesys/tasks. --input remains as a "
+            "compatibility alias. Defaults to the launch working directory."
         ),
+    )
+    parser.add_argument(
+        "--task",
+        default=None,
+        metavar="NAME",
+        help="Task under .vibesys/tasks. May be omitted when the project defines one task.",
     )
     parser.add_argument(
         "--runs-dir",
@@ -934,52 +936,25 @@ def _resolve_project_root(project_arg: str, runs_dir: Path) -> Path:
 
 def _is_remote_project(value: str) -> bool:
     return bool(
-        REPOSITORY_SLUG.fullmatch(value) or value.startswith(("https://", "ssh://", "git@"))
+        REPOSITORY_SLUG.fullmatch(value)
+        or value.startswith(("file://", "https://", "ssh://", "git@"))
     )
+
+
+@dataclass(frozen=True)
+class _RemoteRunBranch:
+    created_at: float
+    run_id: str
+    remote_branch: str
+    branch: str
 
 
 def _clone_project(remote: str, runs_dir: Path) -> Path:
     """Clone a remote project into *runs_dir* and return its root."""
-    repository_name = remote.rstrip("/").rsplit("/", 1)[-1]
-    if ":" in repository_name:
-        repository_name = repository_name.rsplit(":", 1)[-1]
-    repository_name = repository_name.removesuffix(".git")
-    if not repository_name:
-        _configuration_error(
-            f"Cannot determine a local directory name from --resume {remote!r}",
-            code="resume_clone_failed",
-            stage="resume_resolution",
-        )
-
-    destination = runs_dir / repository_name
+    destination = runs_dir / _remote_repository_name(remote)
     destination.parent.mkdir(parents=True, exist_ok=True)
     if destination.exists():
-        if not destination.is_dir():
-            _configuration_error(
-                f"Cannot clone project: destination is not a directory: {destination}",
-                code="resume_clone_failed",
-                stage="resume_resolution",
-            )
-        existing_origin = subprocess.run(  # noqa: PLW1510  # tracked: #288
-            ["git", "remote", "get-url", "origin"],  # noqa: S607  # tracked: #288
-            cwd=destination,
-            capture_output=True,
-            text=True,
-        )
-        expected_suffix = remote.removesuffix(".git").rstrip("/")
-        origin = existing_origin.stdout.strip().removesuffix(".git").rstrip("/")
-        if existing_origin.returncode == 0 and (
-            origin == expected_suffix  # noqa: PIE810  # tracked: #288
-            or origin.endswith(f"/{expected_suffix}")
-            or origin.endswith(f":{expected_suffix}")
-        ):
-            return destination.resolve()
-        _configuration_error(
-            f"Cannot clone {remote!r}: destination already exists with a different origin: "
-            f"{destination}",
-            code="resume_clone_failed",
-            stage="resume_resolution",
-        )
+        return _reuse_cloned_project(remote, destination)
     if REPOSITORY_SLUG.fullmatch(remote):
         try:
             GitHubCLI().clone_repository(remote, destination)
@@ -989,26 +964,191 @@ def _clone_project(remote: str, runs_dir: Path) -> Path:
                 code="resume_clone_failed",
                 stage="resume_resolution",
             )
-        return destination.resolve()
+        return _select_cloned_run_branch(destination.resolve())
 
-    command = ["git", "clone", remote, str(destination)]
     try:
-        result = subprocess.run(command, capture_output=True, text=True)  # noqa: PLW1510, S603  # tracked: #288
+        result = _resume_git(runs_dir, "clone", remote, str(destination))
     except FileNotFoundError as exc:
-        tool = command[0]
         _configuration_error(
-            f"Cannot clone {remote!r}: required command {tool!r} is not installed ({exc})",
+            f"Cannot clone {remote!r}: required command 'git' is not installed ({exc})",
             code="resume_clone_failed",
             stage="resume_resolution",
         )
-    if result.returncode != 0:
-        detail = result.stderr.strip() or result.stdout.strip() or "unknown error"
+    _require_resume_git(result, f"Cannot clone project repository {remote!r}")
+    return _select_cloned_run_branch(destination.resolve())
+
+
+def _remote_repository_name(remote: str) -> str:
+    repository_name = remote.rstrip("/").rsplit("/", 1)[-1]
+    if ":" in repository_name:
+        repository_name = repository_name.rsplit(":", 1)[-1]
+    repository_name = repository_name.removesuffix(".git")
+    if repository_name in {"", ".", ".."}:
         _configuration_error(
-            f"Cannot clone project repository {remote!r}: {detail}",
+            f"Cannot determine a safe local directory name from --resume {remote!r}",
             code="resume_clone_failed",
             stage="resume_resolution",
         )
-    return destination.resolve()
+    return repository_name
+
+
+def _reuse_cloned_project(remote: str, destination: Path) -> Path:
+    if not destination.is_dir():
+        _configuration_error(
+            f"Cannot clone project: destination is not a directory: {destination}",
+            code="resume_clone_failed",
+            stage="resume_resolution",
+        )
+    existing_origin = _resume_git(destination, "remote", "get-url", "origin")
+    expected_origin = remote.removesuffix(".git").rstrip("/")
+    actual_origin = existing_origin.stdout.strip().removesuffix(".git").rstrip("/")
+    origin_matches = existing_origin.returncode == 0 and (
+        ExperimentRepository(destination, lambda _message: None).origin_matches(remote)
+        if REPOSITORY_SLUG.fullmatch(remote)
+        else actual_origin == expected_origin
+    )
+    if not origin_matches:
+        _configuration_error(
+            f"Cannot clone {remote!r}: destination already exists with a different origin: "
+            f"{destination}",
+            code="resume_clone_failed",
+            stage="resume_resolution",
+        )
+    fetched = _resume_git(destination, "fetch", "--prune", "origin")
+    _require_resume_git(fetched, f"Cannot update cloned project {destination}")
+    return _select_cloned_run_branch(destination.resolve())
+
+
+def _select_cloned_run_branch(project_root: Path) -> Path:
+    """Select the newest valid portable run after cloning its repository."""
+    listed = _resume_git(
+        project_root,
+        "for-each-ref",
+        "--format=%(refname:short)",
+        "refs/remotes/origin/vibesys-runs/",
+        "refs/remotes/origin/vibesys/",
+    )
+    _require_resume_git(listed, f"Cannot inspect VibeSys run branches in {project_root}")
+    candidates = _remote_run_candidates(project_root, listed.stdout.splitlines())
+    if not candidates:
+        _configuration_error(
+            f"No valid VibeSys run branches were found in cloned project {project_root}.",
+            code="resume_not_found",
+            stage="resume_resolution",
+        )
+
+    selected = max(candidates, key=lambda candidate: (candidate.created_at, candidate.run_id))
+    _checkout_remote_run_branch(project_root, selected)
+    ProjectStore(project_root).set_current_run(selected.run_id)
+    return project_root
+
+
+def _remote_run_candidates(
+    project_root: Path,
+    remote_branches: list[str],
+) -> list[_RemoteRunBranch]:
+    candidates: list[_RemoteRunBranch] = []
+    for remote_branch in remote_branches:
+        identity = _remote_run_identity(remote_branch)
+        if identity is None:
+            continue
+        branch, run_id = identity
+        switched = _resume_git(project_root, "switch", "--detach", "--quiet", remote_branch)
+        if switched.returncode != 0 or not ProjectStore.is_project_root(project_root):
+            continue
+        try:
+            manifest = ProjectStore(project_root).load_run(run_id)
+        except ProjectStateError:
+            continue
+        if manifest.branch == branch:
+            candidates.append(
+                _RemoteRunBranch(
+                    created_at=manifest.created_at.timestamp(),
+                    run_id=manifest.run_id,
+                    remote_branch=remote_branch,
+                    branch=branch,
+                )
+            )
+    return candidates
+
+
+def _remote_run_identity(remote_branch: str) -> tuple[str, str] | None:
+    branch = remote_branch.removeprefix("origin/")
+    for prefix in ("vibesys-runs/", "vibesys/"):
+        if branch.startswith(prefix) and (run_id := branch.removeprefix(prefix)):
+            return branch, run_id
+    return None
+
+
+def _checkout_remote_run_branch(project_root: Path, selected: _RemoteRunBranch) -> None:
+    local_exists = _resume_git(
+        project_root,
+        "show-ref",
+        "--verify",
+        "--quiet",
+        f"refs/heads/{selected.branch}",
+    )
+    switch_arguments = (
+        ("switch", "--quiet", selected.branch)
+        if local_exists.returncode == 0
+        else (
+            "switch",
+            "--quiet",
+            "--track",
+            "-c",
+            selected.branch,
+            selected.remote_branch,
+        )
+    )
+    switched = _resume_git(project_root, *switch_arguments)
+    _require_resume_git(switched, f"Cannot select VibeSys run branch {selected.branch!r}")
+    if local_exists.returncode == 0:
+        advanced = _resume_git(
+            project_root,
+            "merge",
+            "--quiet",
+            "--ff-only",
+            selected.remote_branch,
+        )
+        _require_resume_git(
+            advanced,
+            f"Cannot fast-forward VibeSys run branch {selected.branch!r}",
+        )
+    upstream = _resume_git(project_root, "rev-parse", "--abbrev-ref", "@{upstream}")
+    if upstream.returncode == 0 and upstream.stdout.strip() == selected.remote_branch:
+        return
+    tracked = _resume_git(
+        project_root,
+        "branch",
+        "--set-upstream-to",
+        selected.remote_branch,
+        selected.branch,
+    )
+    _require_resume_git(tracked, f"Cannot track VibeSys run branch {selected.remote_branch!r}")
+
+
+def _resume_git(project_root: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
+    """Run a non-shell Git command during remote resume resolution."""
+    return subprocess.run(  # noqa: PLW1510, S603  # tracked: #288
+        ["git", *arguments],  # noqa: S607  # tracked: #288
+        cwd=project_root,
+        capture_output=True,
+        text=True,
+    )
+
+
+def _require_resume_git(
+    result: subprocess.CompletedProcess[str],
+    message: str,
+) -> None:
+    if result.returncode == 0:
+        return
+    detail = result.stderr.strip() or result.stdout.strip() or "unknown error"
+    _configuration_error(
+        f"{message}: {detail}",
+        code="resume_clone_failed",
+        stage="resume_resolution",
+    )
 
 
 def _restore_resume_budget(
@@ -1229,6 +1369,14 @@ def _resolve_resume_args(args: argparse.Namespace, *, loop_kind: str) -> None:
     args.resume = run_id
     args.exp_name = run_id
     args.input = project_root
+    if run_manifest.task_name is not None:
+        if args.task is not None and args.task != run_manifest.task_name:
+            _configuration_error(
+                f"Run uses task {run_manifest.task_name!r}, not {args.task!r}",
+                code="project_resume_configuration_mismatch",
+                stage="resume_resolution",
+            )
+        args.task = run_manifest.task_name
     args.project_run_configuration = run_manifest.configuration
     _restore_project_resume_cli_args(args, run_manifest.configuration, loop_kind=loop_kind)
 
@@ -1309,14 +1457,20 @@ def _run_tui_defaults(argv: list[str]) -> None:
 def _build_validate_parser() -> argparse.ArgumentParser:
     parser = _RunArgumentParser(
         prog="vibesys validate",
-        description="Validate an input-bundle harness contract without starting a run.",
+        description="Validate a repository-native VibeSys task without starting a run.",
     )
     parser.add_argument(
-        "input_bundle",
+        "project",
         type=Path,
         nargs="?",
         default=None,
-        help="Path to the input bundle (default: current directory).",
+        help="Path to the candidate repository (default: current directory).",
+    )
+    parser.add_argument(
+        "--task",
+        default=None,
+        metavar="NAME",
+        help="Task name; optional when the project defines exactly one task.",
     )
     return parser
 
@@ -1324,25 +1478,25 @@ def _build_validate_parser() -> argparse.ArgumentParser:
 def _run_validate(argv: list[str]) -> None:
     """Validate one input-bundle contract, then report its resolved paths."""
     args = _build_validate_parser().parse_args(argv)
-    input_path = (args.input_bundle or Path.cwd()).expanduser().resolve()
+    input_path = (args.project or Path.cwd()).expanduser().resolve()
 
     try:
-        bundle = load_input_bundle(input_path)
-    except (FileNotFoundError, ValueError) as exc:
+        bundle = _load_selected_input(input_path, args.task)
+    except (FileNotFoundError, ProjectLayoutError, ValueError) as exc:
         _configuration_error(
-            f"Validation failed for input bundle {input_path}: {exc}",
+            f"Validation failed for VibeSys project {input_path}: {exc}",
             code="validation_failed",
             stage="input_validation",
             exit_code=1,
         )
 
-    print("VibeSys validation passed: input bundle is valid.")  # noqa: T201  # tracked: #288
-    print(f"  input bundle: {bundle.root}")  # noqa: T201  # tracked: #288
+    print("VibeSys validation passed: task is valid.")  # noqa: T201  # tracked: #288
+    print(f"  project: {bundle.root}")  # noqa: T201  # tracked: #288
+    if bundle.task_name is not None:
+        print(f"  task: {bundle.task_name}")  # noqa: T201  # tracked: #288
     print(f"  objective: {bundle.objective_path}")  # noqa: T201  # tracked: #288
     print(f"  accuracy command: {bundle.accuracy_command_display}")  # noqa: T201  # tracked: #288
     print(f"  benchmark command: {bundle.benchmark_command_display}")  # noqa: T201  # tracked: #288
-    if bundle.workspace_seed_path is not None:
-        print(f"  workspace seed: {bundle.workspace_seed_path}")  # noqa: T201  # tracked: #288
     for source in bundle.workspace_sources:
         print(f"  workspace source: {source.name} -> {source.dest} @ {source.commit}")  # noqa: T201  # tracked: #288
     if bundle.evaluator_path is not None:
@@ -1354,6 +1508,16 @@ def _run_validate(argv: list[str]) -> None:
 # ---------------------------------------------------------------------------
 # Shared input-bundle discovery
 # ---------------------------------------------------------------------------
+
+
+def _load_selected_input(project_root: Path, task_name: str | None) -> InputBundle:
+    """Select repository-native input, with legacy bundle compatibility."""
+    layout = ProjectLayout.open(project_root)
+    if layout.is_initialized():
+        return load_project_task(layout, layout.select_task(task_name))
+    if task_name is not None:
+        raise ValueError("--task requires a project with .vibesys/tasks")  # noqa: TRY003
+    return load_input_bundle(project_root)
 
 
 def _load_objective(bundle: InputBundle) -> str:
@@ -1545,7 +1709,6 @@ def _synthesize_standalone_input(args: argparse.Namespace) -> Path:
         benchmark_result_arg=args.input_benchmark_result_arg,
         reference_dir=args.input_reference,
         evaluator_dir=args.input_evaluator_dir,
-        workspace_seed_dir=args.input_workspace_seed,
         evaluator_source_dir=args.input_evaluator_source,
     )
 
@@ -1570,6 +1733,7 @@ def _validate_target_inputs(args: argparse.Namespace) -> None:
             )
 
     input_arg = getattr(args, "input", None)
+    task_name = getattr(args, "task", None)
     standalone = _standalone_input_dests_set(args)
 
     if input_arg is not None and standalone:
@@ -1581,38 +1745,43 @@ def _validate_target_inputs(args: argparse.Namespace) -> None:
         )
 
     if input_arg is None:
-        if not standalone:
-            current = Path.cwd().resolve()
-            markers = (current / "OBJECTIVE.md", current / "vibesys.input.toml")
-            if not all(marker.is_file() for marker in markers):
-                missing = ", ".join(marker.name for marker in markers if not marker.is_file())
-                _configuration_error(
-                    "Current directory is not a VibeSys project "
-                    f"({current}; missing {missing}). Launch VibeSys from the input "
-                    "project or pass --input PATH.",
-                    code="missing_input",
-                    stage="input_loading",
-                )
-            input_arg = current
-            args.input = current
-        else:
-            input_arg = _synthesize_standalone_input(args)
-            args.input = input_arg
+        input_arg = _resolve_implicit_input(args, standalone)
+        args.input = input_arg
 
     try:
-        args.input_bundle = load_input_bundle(input_arg)
-    except (FileNotFoundError, ValueError) as exc:
+        args.input_bundle = _load_selected_input(input_arg, task_name)
+        args.task = args.input_bundle.task_name
+    except (FileNotFoundError, ProjectLayoutError, ValueError) as exc:
         _configuration_error(str(exc), code="invalid_input", stage="input_loading")
 
     if args.resume is None and args.runs_dir is None:
         workspace = args.input_bundle.manifest.workspace
-        if workspace is not None and (workspace.seed is not None or workspace.sources):
+        if workspace is not None and workspace.sources:
             _configuration_error(
                 "A direct project run requires candidate source at the project root. "
                 "Use --runs-dir to provision [workspace] inputs into a copied project.",
                 code="direct_project_materialization_unsupported",
                 stage="input_validation",
             )
+
+
+def _resolve_implicit_input(args: argparse.Namespace, standalone: list[str]) -> Path:
+    """Resolve cwd project discovery or the legacy standalone synthesizer."""
+    if standalone:
+        return _synthesize_standalone_input(args)
+    current = Path.cwd().resolve()
+    legacy_markers = (current / "OBJECTIVE.md", current / "vibesys.input.toml")
+    repository_native = ProjectLayout.open(current).is_initialized()
+    if repository_native or all(marker.is_file() for marker in legacy_markers):
+        return current
+    missing = ", ".join(marker.name for marker in legacy_markers if not marker.is_file())
+    _configuration_error(
+        "Current directory is not a VibeSys project "
+        f"({current}; missing .vibesys/tasks or legacy {missing}). "
+        "Launch VibeSys from the project or pass --project PATH.",
+        code="missing_input",
+        stage="input_loading",
+    )
 
 
 def _validate_agent(args: argparse.Namespace) -> None:
@@ -1649,17 +1818,19 @@ def _run_agent(args: argparse.Namespace) -> None:
         exp_name=exp_name,
         runs_dir=args.runs_dir,
         input_path=str(bundle.root),
+        task_name=bundle.task_name,
+        task_root=bundle.task_root,
         accuracy_command=bundle.accuracy_command_display,
         benchmark_command=bundle.benchmark_command_display,
-        workspace_seed=bundle.workspace_seed_path,
         workspace_sources=bundle.workspace_sources,
         evaluator_path=bundle.evaluator_path,
+        evaluator_package_root=bundle.evaluator_package_root,
         benchmark_result=bundle.benchmark_result,
         accuracy_timeout_seconds=bundle.manifest.accuracy.timeout_seconds,
         benchmark_timeout_seconds=bundle.manifest.benchmark.timeout_seconds,
         objective=objective,
-        objectives=_load_objectives_toml(bundle.root),
-        pareto_relative_noise=_load_pareto_relative_noise_toml(bundle.root),
+        objectives=_load_objectives_toml(bundle.task_root),
+        pareto_relative_noise=_load_pareto_relative_noise_toml(bundle.task_root),
         max_rounds=args.max_rounds,
         max_retries_per_round=args.max_retries_per_round,
         judge_every=args.judge_every,
@@ -1766,7 +1937,7 @@ def _load_pareto_relative_noise_toml(input_path: Path) -> float:
 def _resolve_objectives(args: argparse.Namespace) -> list[Objective]:
     if args.objective:
         return list(args.objective)
-    return _load_objectives_toml(args.input_bundle.root)
+    return _load_objectives_toml(args.input_bundle.task_root)
 
 
 def _build_evolve_parser() -> argparse.ArgumentParser:
@@ -1954,11 +2125,13 @@ def _run_evolve(args: argparse.Namespace) -> None:
         exp_name=exp_name,
         runs_dir=args.runs_dir,
         input_path=str(bundle.root),
+        task_name=bundle.task_name,
+        task_root=bundle.task_root,
         accuracy_command=bundle.accuracy_command_display,
         benchmark_command=bundle.benchmark_command_display,
-        workspace_seed=bundle.workspace_seed_path,
         workspace_sources=bundle.workspace_sources,
         evaluator_path=bundle.evaluator_path,
+        evaluator_package_root=bundle.evaluator_package_root,
         accuracy_timeout_seconds=bundle.manifest.accuracy.timeout_seconds,
         objective=objective,
         max_generations=args.max_generations,
@@ -2040,11 +2213,13 @@ def _run_plain(args: argparse.Namespace) -> None:
         exp_name=exp_name,
         runs_dir=args.runs_dir,
         input_path=str(bundle.root),
+        task_name=bundle.task_name,
+        task_root=bundle.task_root,
         accuracy_command=bundle.accuracy_command_display,
         benchmark_command=bundle.benchmark_command_display,
-        workspace_seed=bundle.workspace_seed_path,
         workspace_sources=bundle.workspace_sources,
         evaluator_path=bundle.evaluator_path,
+        evaluator_package_root=bundle.evaluator_package_root,
         max_rounds=args.max_rounds,
         max_attempts_per_issue=args.max_attempts_per_issue,
         max_issues_per_perf_eval=args.max_issues_per_perf_eval,

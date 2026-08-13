@@ -1,7 +1,7 @@
 """Canonical project materialization for VibeSys runs.
 
 ``Workspace`` owns the canonical project root and all of its setup
-logic: seed/input/evaluator/skills/profiler-harness copies, exclusion
+logic: input/evaluator/skills/profiler-harness copies, exclusion
 rules, external-symlink handling, gitignore-respecting copies, collision
 rejection, and resume behavior.  The per-source copy policies are built as
 declarative :class:`CopySpec` / :class:`InputProjectSpec` records first
@@ -145,7 +145,6 @@ class Workspace:
         self,
         *,
         existing: bool,
-        seed: Path | None,
         input_dir: Path,
         evaluator_source: Path | None,
         skill_sources: list[Path],
@@ -181,15 +180,13 @@ class Workspace:
                     steps.append(CopySpec(src=src, dest=cli_target, prune_platforms=True))
 
         if not existing:
-            if seed is not None:
-                steps.append(CopySpec(src=seed, dest=self.root, respect_gitignore=True))
             for source in workspace_sources:
                 steps.append(GitSourceSpec(source=source))  # noqa: PERF401  # tracked: #288
-            # When the project is pre-populated (seed and/or Git sources),
+            # When the project is pre-populated with Git sources,
             # the input copy must not clear existing children: copy_dir wipes
             # the destination unless collisions are rejected, which would
             # silently delete the just-materialized sources.
-            if seed is not None or workspace_sources:
+            if workspace_sources:
                 steps.append(
                     CopySpec(
                         src=input_dir,
@@ -422,7 +419,9 @@ class Workspace:
             )
             if collisions:
                 paths = ", ".join(collisions)
-                raise ValueError(f"workspace seed and input bundle contain the same paths: {paths}")  # noqa: TRY003  # tracked: #288
+                raise ValueError(  # noqa: TRY003  # tracked: #288
+                    f"workspace source and input bundle contain the same paths: {paths}"
+                )
 
         if dst.exists() and not reject_collisions:
             # Remove children individually so we can skip mount points and
@@ -494,7 +493,7 @@ class Workspace:
         )
         if result.returncode != 0:
             detail = result.stderr.decode(errors="replace").strip()
-            raise RuntimeError(f"could not evaluate Git ignores for workspace.seed: {detail}")  # noqa: TRY003  # tracked: #288
+            raise RuntimeError(f"could not evaluate source Git ignores: {detail}")  # noqa: TRY003  # tracked: #288
         return frozenset(
             Path(os.fsdecode(raw).rstrip("/")).parts for raw in result.stdout.split(b"\0") if raw
         )

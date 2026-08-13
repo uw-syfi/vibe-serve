@@ -49,3 +49,12 @@ def default_skill_roots() -> tuple[Path, ...]:
         return ()
     skills = root / "skills"
     return (skills,) if skills.is_dir() else ()
+
+
+def evaluator_packages_dir() -> Path | None:
+    """Return the bundled evaluator package collection, or ``None``."""
+    root = resources_root()
+    if root is None:
+        return None
+    evaluators = root / "evaluators"
+    return evaluators if evaluators.is_dir() else None

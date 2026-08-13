@@ -21,11 +21,10 @@ from pydantic import ValidationError
 from vibesys.domains.base import DomainName  # noqa: TC001  # tracked: #288
 from vibesys.input_manifest import MANIFEST_NAME, InputManifest
 
-#: Bundle-relative directory names used to stage trusted sources supplied by
-#: standalone flags. They live inside the synthesized bundle so the bundle is
-#: self-contained; ``load_input_bundle(...)``
-#: permits sources that resolve here.
-SEED_DIRNAME = "_seed"
+#: Bundle-relative directory name used to stage trusted evaluator source
+#: supplied by standalone flags. It lives inside the synthesized bundle so the
+#: bundle is self-contained; ``load_input_bundle(...)`` permits sources that
+#: resolve here.
 EVALUATOR_SRC_DIRNAME = "_evaluator_src"
 
 #: Top-level entries the synthesizer owns. An ``--evaluator-dir`` whose contents
@@ -35,7 +34,6 @@ _RESERVED_ROOT_ENTRIES = frozenset(
         "OBJECTIVE.md",
         MANIFEST_NAME,
         "reference",
-        SEED_DIRNAME,
         EVALUATOR_SRC_DIRNAME,
     }
 )
@@ -63,7 +61,6 @@ class SynthesizedInputSpec:
     benchmark_result_arg: str | None = None
     reference_dir: Path | None = None
     evaluator_dir: Path | None = None
-    workspace_seed_dir: Path | None = None
     evaluator_source_dir: Path | None = None
 
 
@@ -118,8 +115,6 @@ def _build_manifest_dict(spec: SynthesizedInputSpec) -> dict[str, object]:
         "accuracy": accuracy,
         "benchmark": benchmark,
     }
-    if spec.workspace_seed_dir is not None:
-        manifest["workspace"] = {"seed": SEED_DIRNAME}
     if spec.evaluator_source_dir is not None:
         manifest["evaluator"] = {"source": EVALUATOR_SRC_DIRNAME}
     return manifest
@@ -157,14 +152,10 @@ def _render_manifest_toml(spec: SynthesizedInputSpec) -> str:
         lines.append(f"metric = {_toml_string(spec.benchmark_metric)}")
         lines.append("")
 
-    for present, table, key, value in (
-        (spec.workspace_seed_dir is not None, "workspace", "seed", SEED_DIRNAME),
-        (spec.evaluator_source_dir is not None, "evaluator", "source", EVALUATOR_SRC_DIRNAME),
-    ):
-        if present:
-            lines.append(f"[{table}]")
-            lines.append(f"{key} = {_toml_string(value)}")
-            lines.append("")
+    if spec.evaluator_source_dir is not None:
+        lines.append("[evaluator]")
+        lines.append(f"source = {_toml_string(EVALUATOR_SRC_DIRNAME)}")
+        lines.append("")
 
     return "\n".join(lines).rstrip("\n") + "\n"
 
@@ -209,11 +200,6 @@ def synthesize_input_bundle(spec: SynthesizedInputSpec, destination: Path) -> Pa
         if spec.evaluator_dir is not None
         else None
     )
-    seed_dir = (
-        _require_source_dir(spec.workspace_seed_dir, "--input-workspace-seed")
-        if spec.workspace_seed_dir is not None
-        else None
-    )
     evaluator_source_dir = (
         _require_source_dir(spec.evaluator_source_dir, "--input-evaluator-source")
         if spec.evaluator_source_dir is not None
@@ -235,8 +221,6 @@ def synthesize_input_bundle(spec: SynthesizedInputSpec, destination: Path) -> Pa
 
     if reference_dir is not None:
         _copy_tree_into(reference_dir, root / "reference")
-    if seed_dir is not None:
-        _copy_tree_into(seed_dir, root / SEED_DIRNAME)
     if evaluator_source_dir is not None:
         _copy_tree_into(evaluator_source_dir, root / EVALUATOR_SRC_DIRNAME)
 

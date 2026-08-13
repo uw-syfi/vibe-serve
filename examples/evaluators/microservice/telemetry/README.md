@@ -144,9 +144,8 @@ collector listens for OTLP, Jaeger, and Zipkin traffic and appends spans as
 OTLP NDJSON to a bind-mounted file under the metrics dir, which
 `cmd/otelcapture --settle-seconds 5` normalizes after the measured trials.
 
-`examples/microservices/hotel-reservation` is the reference wiring: see the
-`[benchmark]` run command in its `vibesys.input.toml` and
-`benchmark/otel/telemetry.toml`.
+Repository-native telemetry wiring now lives in the DeathStarBench fork task at
+`examples/microservices/repositories/deathstarbench/.vibesys/tasks/hotel-reservation`.
 
 Configured telemetry fails closed when the collector exits unsuccessfully,
 times out, writes malformed data, or reports no spans inside the measured

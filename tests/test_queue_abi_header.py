@@ -13,7 +13,7 @@ def test_queue_abi_header_supports_cpp_linkage(tmp_path):  # noqa: ANN001, ANN20
         pytest.skip("a C++ compiler is required to check the queue ABI header")
 
     project_root = Path(__file__).parents[1]
-    include_dir = project_root / "examples" / "evaluators" / "queue" / "include"
+    include_dir = project_root / "resources" / "evaluators" / "queue" / "include"
     source = tmp_path / "candidate.cpp"
     source.write_text(
         '#include "vibesys_queue_abi.h"\n'

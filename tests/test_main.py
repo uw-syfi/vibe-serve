@@ -76,6 +76,27 @@ command = ["uv", "run", "python", "benchmark/benchmark.py"]
     return project
 
 
+def _write_repository_task(project: Path, name: str) -> Path:
+    task = project / ".vibesys" / "tasks" / name
+    task.mkdir(parents=True)
+    (task / "OBJECTIVE.md").write_text(f"Optimize {name}.\n")
+    (task / "vibesys.input.toml").write_text(
+        """\
+version = 1
+
+[agent]
+domain = "generic"
+
+[accuracy]
+command = ["python", "-c", "print('ok')"]
+
+[benchmark]
+command = ["python", "-c", "print('1')"]
+"""
+    )
+    return task
+
+
 class _CommonConfiguration(TypedDict):
     model: str
     agent_backend: str
@@ -157,23 +178,25 @@ def _evolve_configuration(*, max_generations: int = 5) -> EvolveRunConfiguration
     )
 
 
-def _write_project_run(
+def _write_project_run(  # noqa: PLR0913
     project: Path,
     run_id: str,
     *,
     configuration: RunConfiguration,
     created_at: datetime,
     make_current: bool = True,
+    task_name: str | None = None,
 ) -> ProjectStore:
     store = ProjectStore(project)
     store.create_project(project.name)
     manifest = store.new_run_manifest(
         project.name,
         run_id=run_id,
-        branch=f"vibesys/{run_id}",
+        branch=f"vibesys-runs/{run_id}",
         vibesys_version="0.2.0-test",
         configuration=configuration,
         trusted_input_baseline="0" * 40,
+        task_name=task_name,
         now=created_at,
     )
     store.create_run(manifest, make_current=make_current)
@@ -243,6 +266,60 @@ def test_current_directory_is_the_default_direct_project(
     assert invocation.args.input_bundle.root == project.resolve()
 
 
+def test_repository_native_project_selects_a_named_task(tmp_path: Path) -> None:
+    project = tmp_path / "repository"
+    project.mkdir()
+    selected = _write_repository_task(project, "latency")
+    _write_repository_task(project, "throughput")
+
+    invocation = parse_cli_invocation(["--project", str(project), "--task", "latency"])
+
+    assert invocation.args.input == project
+    assert invocation.args.task == "latency"
+    assert invocation.args.input_bundle.root == project.resolve()
+    assert invocation.args.input_bundle.task_root == selected.resolve()
+
+
+def test_repository_native_project_implicitly_selects_its_only_task(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project = tmp_path / "repository"
+    project.mkdir()
+    _write_repository_task(project, "latency")
+    monkeypatch.chdir(project)
+
+    invocation = parse_cli_invocation([])
+
+    assert invocation.args.input == project.resolve()
+    assert invocation.args.task == "latency"
+
+
+def test_repository_native_project_requires_task_when_ambiguous(tmp_path: Path) -> None:
+    project = tmp_path / "repository"
+    project.mkdir()
+    _write_repository_task(project, "latency")
+    _write_repository_task(project, "throughput")
+
+    with pytest.raises(ConfigurationError) as exc:
+        parse_cli_invocation(["--project", str(project)])
+
+    assert "latency, throughput" in exc.value.diagnostic.message
+
+
+def test_repository_native_project_supports_isolated_materialization(tmp_path: Path) -> None:
+    project = tmp_path / "repository"
+    project.mkdir()
+    _write_repository_task(project, "latency")
+
+    invocation = parse_cli_invocation(
+        ["--project", str(project), "--runs-dir", str(tmp_path / "runs")]
+    )
+
+    assert invocation.args.input_bundle.task_name == "latency"
+    assert invocation.args.runs_dir == tmp_path / "runs"
+
+
 def test_runs_dir_is_an_absolute_project_collection(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -282,18 +359,23 @@ def test_direct_project_rejects_materialization_inputs_but_copy_accepts_them(
     tmp_path: Path,
 ) -> None:
     project = _write_input_project(tmp_path)
-    seed = project / "seed"
-    seed.mkdir()
-    (seed / "candidate.py").write_text("value = 1\n")
     with (project / "vibesys.input.toml").open("a") as manifest:
-        manifest.write('\n[workspace]\nseed = "seed"\n')
+        manifest.write(
+            """
+[[workspace.sources]]
+name = "library"
+repo = "https://example.invalid/library.git"
+commit = "0123456"
+dest = "library"
+"""
+        )
 
     with pytest.raises(ConfigurationError) as exc:
         parse_cli_invocation(["--input", str(project)])
     assert exc.value.diagnostic.code == "direct_project_materialization_unsupported"
 
     copied = parse_cli_invocation(["--input", str(project), "--runs-dir", str(tmp_path / "runs")])
-    assert copied.args.input_bundle.workspace_seed_path == seed.resolve()
+    assert [source.name for source in copied.args.input_bundle.workspace_sources] == ["library"]
 
 
 def test_direct_runs_default_to_local_and_copied_runs_default_to_a_remote(
@@ -490,7 +572,7 @@ def test_target_validation_explains_an_invalid_launch_directory(
         _validate_target_inputs(args)
 
     assert "Current directory is not a VibeSys project" in exc.value.diagnostic.message
-    assert "Launch VibeSys from the input project or pass --input PATH" in (
+    assert "Launch VibeSys from the project or pass --project PATH" in (
         exc.value.diagnostic.message
     )
 
@@ -630,7 +712,7 @@ def test_validate_command_checks_the_current_project(
 
     output = capsys.readouterr().out
     assert "VibeSys validation passed" in output
-    assert f"input bundle: {project}" in output
+    assert f"project: {project}" in output
 
 
 def test_validate_command_reports_an_invalid_project_without_running_a_loop(
@@ -673,6 +755,52 @@ def test_direct_resume_selects_an_explicit_run_id(
     assert invocation.args.exp_name == run_id
     assert invocation.args.input == project.resolve()
     assert invocation.args.input_bundle.root == project.resolve()
+
+
+def test_repository_resume_restores_the_recorded_task(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project = tmp_path / "repository"
+    project.mkdir()
+    selected = _write_repository_task(project, "latency")
+    _write_repository_task(project, "throughput")
+    run_id = "20260811-120000-11111111-agent"
+    _write_project_run(
+        project,
+        run_id,
+        configuration=_agent_configuration(),
+        created_at=datetime(2026, 8, 11, 12, tzinfo=UTC),
+        task_name="latency",
+    )
+    monkeypatch.chdir(project)
+
+    invocation = parse_cli_invocation(["--resume", run_id])
+
+    assert invocation.args.task == "latency"
+    assert invocation.args.input_bundle.task_root == selected.resolve()
+
+
+def test_repository_resume_rejects_a_different_task(tmp_path: Path) -> None:
+    project = tmp_path / "repository"
+    project.mkdir()
+    _write_repository_task(project, "latency")
+    _write_repository_task(project, "throughput")
+    run_id = "20260811-120000-11111111-agent"
+    _write_project_run(
+        project,
+        run_id,
+        configuration=_agent_configuration(),
+        created_at=datetime(2026, 8, 11, 12, tzinfo=UTC),
+        task_name="latency",
+    )
+
+    with pytest.raises(ConfigurationError) as exc:
+        parse_cli_invocation(
+            ["--project", str(project), "--task", "throughput", "--resume", run_id]
+        )
+
+    assert exc.value.diagnostic.code == "project_resume_configuration_mismatch"
 
 
 def test_direct_resume_prefers_current_then_latest_run(
@@ -721,6 +849,186 @@ def test_collection_resume_selects_the_project_root_and_its_current_run(
     assert invocation.args.resume == current
     assert invocation.args.input == project.resolve()
     assert invocation.args.input_bundle.root == project.resolve()
+
+
+def test_remote_resume_selects_run_branch_before_reading_project_state(
+    tmp_path: Path,
+) -> None:
+    source = _write_input_project(tmp_path, "source")
+    _git(source, "init", "-q", "-b", "main")
+    _git(source, "add", ".")
+    _git(
+        source,
+        "-c",
+        "user.name=test",
+        "-c",
+        "user.email=test@example.com",
+        "commit",
+        "-q",
+        "-m",
+        "initial",
+    )
+    run_id = "20260811-120000-11111111-agent"
+    _git(source, "switch", "-q", "-c", f"vibesys-runs/{run_id}")
+    _write_project_run(
+        source,
+        run_id,
+        configuration=_agent_configuration(),
+        created_at=datetime(2026, 8, 11, 12, tzinfo=UTC),
+    )
+    _git(source, "add", ".vibesys/state")
+    _git(
+        source,
+        "-c",
+        "user.name=test",
+        "-c",
+        "user.email=test@example.com",
+        "commit",
+        "-q",
+        "-m",
+        "run state",
+    )
+
+    remote = tmp_path / "remote.git"
+    _git(
+        tmp_path,
+        "init",
+        "--bare",
+        "-q",
+        "--initial-branch=main",
+        str(remote),
+    )
+    _git(source, "remote", "add", "origin", str(remote))
+    _git(source, "push", "-q", "origin", "main", f"vibesys-runs/{run_id}")
+
+    runs_dir = tmp_path / "runs"
+    invocation = parse_cli_invocation(["--runs-dir", str(runs_dir), "--resume", remote.as_uri()])
+
+    project = runs_dir / "remote"
+    assert invocation.args.input == project.resolve()
+    assert invocation.args.resume == run_id
+    branch = subprocess.run(
+        ["git", "branch", "--show-current"],  # noqa: S607
+        cwd=project,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    upstream = subprocess.run(
+        ["git", "rev-parse", "--abbrev-ref", "@{upstream}"],  # noqa: S607
+        cwd=project,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    assert branch == f"vibesys-runs/{run_id}"
+    assert upstream == f"origin/vibesys-runs/{run_id}"
+
+    ProjectStore(source).update_run_configuration(
+        run_id,
+        _agent_configuration(max_rounds=8),
+    )
+    _git(source, "add", ".vibesys/state")
+    _git(
+        source,
+        "-c",
+        "user.name=test",
+        "-c",
+        "user.email=test@example.com",
+        "commit",
+        "-q",
+        "-m",
+        "advance run state",
+    )
+    _git(source, "push", "-q", "origin", f"vibesys-runs/{run_id}")
+
+    advanced = parse_cli_invocation(["--runs-dir", str(runs_dir), "--resume", remote.as_uri()])
+
+    assert advanced.args.resume == run_id
+    assert advanced.args.max_rounds == 8
+    assert (
+        subprocess.run(
+            ["git", "rev-parse", "HEAD"],  # noqa: S607
+            cwd=project,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout
+        == subprocess.run(  # noqa: S603
+            ["git", "rev-parse", "origin/vibesys-runs/" + run_id],  # noqa: S607
+            cwd=project,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout
+    )
+
+    ProjectStore(project).set_current_run(run_id)
+
+    newer_run_id = "20260811-130000-22222222-agent"
+    _git(source, "switch", "-q", "-c", f"vibesys-runs/{newer_run_id}")
+    _write_project_run(
+        source,
+        newer_run_id,
+        configuration=_agent_configuration(),
+        created_at=datetime(2026, 8, 11, 13, tzinfo=UTC),
+    )
+    _git(source, "add", ".vibesys/state")
+    _git(
+        source,
+        "-c",
+        "user.name=test",
+        "-c",
+        "user.email=test@example.com",
+        "commit",
+        "-q",
+        "-m",
+        "newer run state",
+    )
+    _git(source, "push", "-q", "origin", f"vibesys-runs/{newer_run_id}")
+
+    resumed = parse_cli_invocation(["--runs-dir", str(runs_dir), "--resume", remote.as_uri()])
+
+    assert resumed.args.input == project.resolve()
+    assert resumed.args.resume == newer_run_id
+    selected = subprocess.run(
+        ["git", "branch", "--show-current"],  # noqa: S607
+        cwd=project,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    assert selected == f"vibesys-runs/{newer_run_id}"
+
+
+def test_remote_resume_rejects_non_github_origin_lookalike(tmp_path: Path) -> None:
+    runs_dir = tmp_path / "runs"
+    destination = runs_dir / "project"
+    destination.mkdir(parents=True)
+    _git(destination, "init", "-q")
+    _git(
+        destination,
+        "remote",
+        "add",
+        "origin",
+        "https://evil.example/example/project.git",
+    )
+
+    with pytest.raises(ConfigurationError) as caught:
+        parse_cli_invocation(["--runs-dir", str(runs_dir), "--resume", "example/project"])
+
+    assert caught.value.diagnostic.code == "resume_clone_failed"
+    assert "different origin" in caught.value.diagnostic.message
+
+
+def test_remote_resume_rejects_parent_directory_as_clone_name(tmp_path: Path) -> None:
+    runs_dir = tmp_path / "runs"
+
+    with pytest.raises(ConfigurationError) as caught:
+        parse_cli_invocation(["--runs-dir", str(runs_dir), "--resume", "file:///tmp/.."])
+
+    assert caught.value.diagnostic.code == "resume_clone_failed"
+    assert "safe local directory name" in caught.value.diagnostic.message
 
 
 def test_collection_latest_considers_only_canonical_projects(tmp_path: Path) -> None:
@@ -772,7 +1080,7 @@ def test_resume_switches_to_the_recorded_run_branch(
         "initial",
     )
     run_id = "20260811-120000-11111111-agent"
-    _git(project, "switch", "-q", "-c", f"vibesys/{run_id}")
+    _git(project, "switch", "-q", "-c", f"vibesys-runs/{run_id}")
     (project / "OBJECTIVE.md").write_text("Objective on the run branch.\n")
     store = _write_project_run(
         project,
@@ -810,7 +1118,7 @@ def test_resume_switches_to_the_recorded_run_branch(
         capture_output=True,
         text=True,
     ).stdout.strip()
-    assert branch == f"vibesys/{run_id}"
+    assert branch == f"vibesys-runs/{run_id}"
 
 
 def test_agent_resume_restores_its_configuration(

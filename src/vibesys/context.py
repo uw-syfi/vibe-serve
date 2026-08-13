@@ -223,9 +223,11 @@ def create_run_context(  # noqa: PLR0913  # tracked: #288
     benchmark_command: str,
     *,
     runs_dir: Path | None,
-    workspace_seed: Path | None = None,
+    task_name: str | None = None,
+    task_root: Path | None = None,
     workspace_sources: tuple[WorkspaceSource, ...] = (),
     evaluator_path: Path | None = None,
+    evaluator_package_root: Path | None = None,
     objective: str | None = None,
     existing: bool = False,
     project_configuration: RunConfiguration,
@@ -261,9 +263,11 @@ def create_run_context(  # noqa: PLR0913  # tracked: #288
             accuracy_command=accuracy_command,
             benchmark_command=benchmark_command,
             runs_dir=runs_dir,
-            workspace_seed=workspace_seed,
+            task_name=task_name,
+            task_root=task_root,
             workspace_sources=workspace_sources,
             evaluator_path=evaluator_path,
+            evaluator_package_root=evaluator_package_root,
             objective=objective,
             existing=existing,
             project_configuration=project_configuration,
@@ -308,9 +312,11 @@ def _assemble_run_context(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: 
     accuracy_command: str,
     benchmark_command: str,
     runs_dir: Path | None,
-    workspace_seed: Path | None,
+    task_name: str | None,
+    task_root: Path | None,
     workspace_sources: tuple[WorkspaceSource, ...],
     evaluator_path: Path | None,
+    evaluator_package_root: Path | None,
     objective: str | None,
     existing: bool,
     project_configuration: RunConfiguration,
@@ -355,16 +361,15 @@ def _assemble_run_context(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: 
         project_root = collection_root / run_id
     else:
         project_root = input_dir
-    workspace_seed_path = _coerce_dir(workspace_seed, "workspace.seed")
     evaluator_source = _coerce_dir(evaluator_path, "evaluator.source")
 
-    if not copied_project and (workspace_seed_path is not None or workspace_sources):
+    if not copied_project and workspace_sources:
         raise ConfigurationError(
             ConfigurationDiagnostic(
                 code="project_materialization_required",
                 stage="workspace_setup",
                 message=(
-                    "the input project declares starter source that must be materialized; "
+                    "the input project declares workspace sources that must be materialized; "
                     "pass --runs-dir to provision a self-contained project"
                 ),
             )
@@ -423,12 +428,6 @@ def _assemble_run_context(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: 
 
     skill_source_paths = _coerce_skills_dirs(skills_dirs)
     input_project_dir = input_dir if (input_dir / "pyproject.toml").is_file() else None
-    if (
-        input_project_dir is None
-        and workspace_seed_path is not None
-        and (workspace_seed_path / "pyproject.toml").is_file()
-    ):
-        input_project_dir = workspace_seed_path
 
     hooks = environment_hooks or NoopEnvironmentHooks()
     hook_log: list[Callable[[str], None]] = [buffered_logs.append]
@@ -459,13 +458,18 @@ def _assemble_run_context(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: 
                 shutil.rmtree(project_root)
 
         teardown_stack.callback(_remove_incomplete_project)
-        source_reference = input_dir / "reference"
+        source_reference = (task_root or input_dir) / "reference"
         environment_context = EnvironmentContext(
             reference_path=source_reference,
             workspace=project_root,
             run_environment=environment,
             project_root=PROJECT_ROOT,
             model_cache_dir=collection_root / ".cache" / "huggingface",
+            runtime_artifact_dir=(
+                source_reference
+                if task_name is None
+                else collection_root / ".cache" / "llm-serving" / run_id
+            ),
             log=buffered_logs.append,
         )
         environment_patch = hooks.prepare(environment_context)
@@ -475,9 +479,9 @@ def _assemble_run_context(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: 
             project_root,
             spec=ProjectProvisioningSpec(
                 workspace=workspace_files,
-                seed=workspace_seed_path,
                 workspace_sources=workspace_sources,
                 evaluator_source=evaluator_source,
+                task_name=task_name,
                 input_project_dir=input_project_dir,
                 input_excludes=environment_patch.copy_excludes,
             ),
@@ -559,6 +563,17 @@ def _assemble_run_context(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: 
                     ),
                 )
             )
+        if run_manifest.task_name != task_name:
+            raise ConfigurationError(
+                ConfigurationDiagnostic(
+                    code="project_task_mismatch",
+                    stage="resume_resolution",
+                    message=(
+                        f"run {run_id!r} records task {run_manifest.task_name!r}, "
+                        f"but task {task_name!r} was selected"
+                    ),
+                )
+            )
         configuration_update = _resume_configuration_update(
             run_manifest.configuration,
             effective_configuration,
@@ -594,6 +609,7 @@ def _assemble_run_context(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: 
             )
         run_manifest = project_store.new_run_manifest(
             exp_name,
+            task_name=task_name,
             run_id=run_id,
             branch=git.project_branch,
             vibesys_version=_installed_vibesys_version(),
@@ -623,11 +639,18 @@ def _assemble_run_context(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: 
             if recovery is not RoundRecoveryOutcome.NO_TRANSACTION:
                 logger.lprint(f"[project] recovered round transaction: {recovery.value}")
 
-    project_ref_dir = project_root / "reference"
+    project_ref_dir = (
+        project_root / task_root.relative_to(input_dir) / "reference"
+        if task_root is not None and copied_project
+        else (task_root or project_root) / "reference"
+    )
     ref_dir = project_ref_dir if project_ref_dir.is_dir() else None
     if ref_dir is not None:
         reference_py = sorted(ref_dir.glob("*.py"))
-        ref_name = f"reference/{reference_py[0].name}" if len(reference_py) == 1 else "reference"
+        reference_root = ref_dir.relative_to(project_root).as_posix()
+        ref_name = (
+            f"{reference_root}/{reference_py[0].name}" if len(reference_py) == 1 else reference_root
+        )
     else:
         ref_name = "."
 
@@ -638,6 +661,7 @@ def _assemble_run_context(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: 
             run_environment=environment,
             project_root=PROJECT_ROOT,
             model_cache_dir=project_store.model_cache_directory("huggingface"),
+            runtime_artifact_dir=project_store.model_cache_directory("llm-serving"),
             log=logger.lprint,
         )
         environment_patch = hooks.prepare(environment_context)
@@ -646,7 +670,6 @@ def _assemble_run_context(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: 
 
     plan = workspace_files.plan_setup(
         existing=True,
-        seed=None,
         input_dir=project_root,
         evaluator_source=None,
         skill_sources=skill_source_paths,
@@ -677,8 +700,27 @@ def _assemble_run_context(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: 
     tracked_experiment_repository: ExperimentRepository | None = None
     experiment_repository = ExperimentRepository(project_root, logger.lprint)
     origin_exists = experiment_repository.has_origin()
+    if (
+        remote_repo is not None
+        and origin_exists
+        and not experiment_repository.origin_matches(remote_repo)
+    ):
+        raise ConfigurationError(
+            ConfigurationDiagnostic(
+                code="repository_setup_failed",
+                stage="repository_setup",
+                message=(
+                    f"Project origin does not match requested repository {remote_repo!r}: "
+                    f"{project_root}"
+                ),
+            )
+        )
     should_publish = remote_repo is not None or (
-        existing and collection_root is not None and origin_exists
+        existing
+        and origin_exists
+        and (
+            collection_root is not None or experiment_repository.current_run_branch_tracks_origin()
+        )
     )
     if should_publish:
         try:
@@ -723,6 +765,7 @@ def _assemble_run_context(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: 
                 objective_document=objective_document,
                 accuracy_command=accuracy_command,
                 benchmark_command=benchmark_command,
+                evaluator_package_root=evaluator_package_root,
                 profiler_support_path=profiler_support_path,
                 profiler_support_name=profiler_support_name,
                 git_history_root=git.history_root,
@@ -794,9 +837,9 @@ def _assemble_run_context(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: 
         model=model,
         model_name=model_name,
         input_path=input_path_str,
-        workspace_seed_path=workspace_seed_path,
         workspace_sources=(),
         evaluator_path=evaluator_source,
+        evaluator_package_root=evaluator_package_root,
         effective_objective=objective,
         accuracy_command=accuracy_command,
         benchmark_command=benchmark_command,
@@ -908,6 +951,10 @@ def _assemble_candidate_context(  # noqa: PLR0913  # tracked: #288
         run_id=parent.run_id,
         log=logger.lprint,
         excluded_dirs=parent.EXCLUDED_WORKSPACE_DIRS,
+        trusted_input_paths=trusted_project_input_paths(
+            workspace,
+            evaluator_source=None,
+        ),
     )
     workspace_files = Workspace(
         workspace,
@@ -941,6 +988,7 @@ def _assemble_candidate_context(  # noqa: PLR0913  # tracked: #288
                 objective_document=objective_document,
                 accuracy_command=parent.accuracy_command,
                 benchmark_command=parent.benchmark_command,
+                evaluator_package_root=parent.evaluator_package_root,
                 profiler_support_path=parent.profiler_support_path,
                 profiler_support_name=parent.profiler_support_name,
                 git_history_root=parent.git.history_root,
@@ -999,9 +1047,9 @@ def _assemble_candidate_context(  # noqa: PLR0913  # tracked: #288
         model=parent.model,
         model_name=parent.model_name,
         input_path=parent.input_path,
-        workspace_seed_path=None,
         workspace_sources=parent.workspace_sources,
         evaluator_path=parent.evaluator_path,
+        evaluator_package_root=parent.evaluator_package_root,
         effective_objective=effective_objective,
         accuracy_command=parent.accuracy_command,
         benchmark_command=parent.benchmark_command,
@@ -1058,9 +1106,9 @@ class _RunContext:
         model: Any,  # noqa: ANN401  # tracked: #288
         model_name: str,
         input_path: str | None,
-        workspace_seed_path: Path | None,
         workspace_sources: tuple[WorkspaceSource, ...],
         evaluator_path: Path | None,
+        evaluator_package_root: Path | None,
         effective_objective: str | None,
         accuracy_command: str,
         benchmark_command: str,
@@ -1095,9 +1143,9 @@ class _RunContext:
         self.model = model
         self.model_name = model_name
         self.input_path = input_path
-        self.workspace_seed_path = workspace_seed_path
         self.workspace_sources = workspace_sources
         self.evaluator_path = evaluator_path
+        self.evaluator_package_root = evaluator_package_root
         self.effective_objective = effective_objective
         self.accuracy_command = accuracy_command
         self.benchmark_command = benchmark_command

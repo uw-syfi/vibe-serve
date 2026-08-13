@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Never, cast
 
 from vibesys.cli import bundled_tui
+from vibesys.evaluators import EvaluatorPackageRequirement, resolve_evaluator_package
 from vibesys.input_project import materialize_input_project
 from vibesys.profilers import ACTIVE_PROFILER_KINDS
 from vibesys.resource_paths import (
@@ -35,6 +36,7 @@ FRAMEWORK_PACKAGES = (
     "vs_github",
     "vs_issue_board",
     "vs_loop_state",
+    "vs_project_layout",
     "vs_project_state",
     "vs_sandbox",
 )
@@ -211,6 +213,12 @@ def _verify_resources() -> None:
         support = profiler_support_dir(kind.value)
         if support is None or "site-packages" not in str(support.resolve()):
             _fail(f"Installed profiler resources did not resolve for {kind.value}: {support}")
+    for name in ("vibesys-evaluator-microservice", "vibesys-evaluator-queue"):
+        package = resolve_evaluator_package(
+            EvaluatorPackageRequirement(name=name, version="0.1.0")
+        )
+        if "site-packages" not in str(package.root.resolve()):
+            _fail(f"Installed evaluator package did not resolve for {name}: {package.root}")
 
 
 def _verify_materialized_sdk() -> None:

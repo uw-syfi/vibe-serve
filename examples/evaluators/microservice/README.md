@@ -216,8 +216,10 @@ configuration is accepted only by the selected adapter.
 See the checked-in workloads for complete examples:
 
 - `../../microservices/train-ticket/benchmark/workload.toml`
-- `../../microservices/social-network-read-timeline/benchmark/workload.toml`
-- `../../microservices/hotel-reservation/benchmark/workload.toml`
+
+Repository-native DeathStarBench tasks use the versioned evaluator package in
+`resources/evaluators/microservice`; this directory remains only for legacy
+source-evaluator inputs such as Train Ticket.
 
 ## Running the evaluator
 
@@ -262,7 +264,7 @@ output path:
 
 ```bash
 go -C examples/evaluators/microservice run ./cmd/servicebench \
-  --workload "$PWD/examples/microservices/hotel-reservation/benchmark/workload.toml" \
+  --workload "$PWD/examples/microservices/train-ticket/benchmark/workload.toml" \
   --telemetry-command-json '["go","run","./cmd/otelcapture","--input-json","/tmp/otel-spans.json"]' \
   --telemetry-output /tmp/otel-report.json \
   --output-json /tmp/result.json

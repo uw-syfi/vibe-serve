@@ -24,6 +24,11 @@ def _make_fake_repo(root: Path) -> Path:
     (root / "resources" / "profilers" / "nsys" / "server.py").write_text("# server")
     (root / "resources" / "profilers" / "nsys" / "__pycache__").mkdir()
     (root / "resources" / "profilers" / "nsys" / "__pycache__" / "server.pyc").write_text("x")
+    evaluator = root / "resources" / "evaluators" / "queue"
+    evaluator.mkdir(parents=True)
+    (evaluator / "vibesys.evaluator.toml").write_text("schema_version = 1\n")
+    (evaluator / "native_runner" / "target" / "debug").mkdir(parents=True)
+    (evaluator / "native_runner" / "target" / "debug" / "runner").write_text("build output")
     skill = root / "resources" / "skills" / "serving-systems"
     skill.mkdir(parents=True)
     (skill / "SKILL.md").write_text("---\nname: serving-systems\ndescription: d\n---\n")
@@ -41,6 +46,8 @@ def test_stage_resources_copies_trees_and_drops_vendored_checkouts(tmp_path):  #
     assert (dest / "profilers" / "nsys" / "server.py").is_file()
     assert (dest / "skills" / "serving-systems" / "SKILL.md").is_file()
     assert (dest / "skills" / "serving-systems" / ".vibesys.toml").is_file()
+    assert (dest / "evaluators" / "queue" / "vibesys.evaluator.toml").is_file()
+    assert not (dest / "evaluators" / "queue" / "native_runner" / "target").exists()
     assert not (dest / "skills" / "serving-systems" / "repos").exists()
     assert not (dest / "profilers" / "nsys" / "__pycache__").exists()
 
@@ -115,10 +122,15 @@ def test_default_skill_roots_point_at_the_resources_tree():  # noqa: ANN201  # t
     assert roots == (PROJECT_ROOT / "resources" / "skills",)
 
 
+def test_evaluator_packages_dir_points_at_the_resources_tree() -> None:
+    assert resource_paths.evaluator_packages_dir() == PROJECT_ROOT / "resources" / "evaluators"
+
+
 def test_resources_root_falls_back_to_the_staged_wheel_copy(tmp_path, monkeypatch):  # noqa: ANN001, ANN201  # tracked: #288
     fake_checkout = tmp_path / "no-checkout"
     fake_package = tmp_path / "site-packages" / "vibesys"
     staged = fake_package / "_resources"
+    (staged / "evaluators").mkdir(parents=True)
     (staged / "profilers" / "nsys").mkdir(parents=True)
     (staged / "profilers" / "nsys" / "server.py").write_text("# server")
     (staged / "skills").mkdir()
@@ -127,6 +139,7 @@ def test_resources_root_falls_back_to_the_staged_wheel_copy(tmp_path, monkeypatc
     monkeypatch.setattr(resource_paths, "files", lambda _package: fake_package)
 
     assert resource_paths.resources_root() == staged
+    assert resource_paths.evaluator_packages_dir() == staged / "evaluators"
     support = resource_paths.profiler_support_dir("nsys")
     assert support == staged / "profilers" / "nsys"
     assert resource_paths.default_skill_roots() == (staged / "skills",)

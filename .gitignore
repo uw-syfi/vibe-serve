@@ -233,15 +233,6 @@ agent.toml
 
 # Experiment environments
 exp_env/
-examples/microservices/hotel-reservation/hotelReservation/
-
-# Per-run telemetry output under microservice scenarios — keep only the
-# .gitkeep placeholders (pre-created dirs avoid root-owned Docker mounts)
-examples/microservices/*/metrics/*
-!examples/microservices/*/metrics/.gitkeep
-!examples/microservices/*/metrics/otel
-examples/microservices/*/metrics/otel/*
-!examples/microservices/*/metrics/otel/.gitkeep
 
 # HuggingFace model cache
 .hf_cache/

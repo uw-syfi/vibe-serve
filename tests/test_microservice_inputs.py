@@ -1,24 +1,37 @@
+import json
 import tomllib
+from itertools import pairwise
 from pathlib import Path
 
 import pytest
 
-from vibesys.input_manifest import load_input_bundle
+from vibesys.evaluators import PROJECT_ROOT_TOKEN
+from vibesys.input_manifest import InputBundle, load_input_bundle, load_project_task
+from vs_project_layout import ProjectLayout, ProjectLayoutError
 
 PROJECT_ROOT = Path(__file__).parents[1]
 MICROSERVICE_ROOT = PROJECT_ROOT / "examples" / "microservices"
-MICROSERVICE_SCENARIOS = tuple(
-    sorted(manifest.parent for manifest in MICROSERVICE_ROOT.glob("*/vibesys.input.toml"))
-)
+DEATHSTAR_ROOT = MICROSERVICE_ROOT / "repositories" / "deathstarbench"
+try:
+    DEATHSTAR_LAYOUT = ProjectLayout.open(DEATHSTAR_ROOT)
+    DEATHSTAR_LAYOUT.discover_tasks()
+except ProjectLayoutError:
+    pytest.skip("DeathStarBench repository example is not initialized", allow_module_level=True)
+DEATHSTAR_TASKS = {task.name.value: task for task in DEATHSTAR_LAYOUT.discover_tasks()}
+LEGACY_SCENARIOS = (MICROSERVICE_ROOT / "train-ticket",)
+HOTEL_TEMP_ROOT = Path("/") / "tmp" / "vibesys-hotel-reservation" / "otel"
 
 
-@pytest.mark.parametrize(
-    "scenario_path",
-    MICROSERVICE_SCENARIOS,
-    ids=lambda path: path.name,
-)
-def test_microservice_scenario_uses_shared_evaluator(scenario_path: Path) -> None:
-    bundle = load_input_bundle(scenario_path)
+def _deathstar_bundle(task_name: str) -> InputBundle:
+    return load_project_task(DEATHSTAR_LAYOUT, DEATHSTAR_TASKS[task_name])
+
+
+def _adjacent_pairs(command: tuple[str, ...]) -> set[tuple[str, str]]:
+    return set(pairwise(command))
+
+
+def test_legacy_microservice_scenario_uses_source_evaluator() -> None:
+    bundle = load_input_bundle(MICROSERVICE_ROOT / "train-ticket")
 
     assert bundle.evaluator_path == PROJECT_ROOT / "examples" / "evaluators" / "microservice"
     assert bundle.benchmark_command[:5] == (
@@ -31,28 +44,42 @@ def test_microservice_scenario_uses_shared_evaluator(scenario_path: Path) -> Non
     assert bundle.benchmark_result is not None
     assert bundle.benchmark_result.json_argument == "--output-json"
     assert bundle.benchmark_result.metric == "primary_value"
-    assert ("--fixture-seed", "random") in zip(
-        bundle.benchmark_command,
-        bundle.benchmark_command[1:],
-        strict=False,
+    assert ("--seed", "random") in _adjacent_pairs(bundle.benchmark_command)
+    assert ("--fixture-seed", "random") in _adjacent_pairs(bundle.benchmark_command)
+
+
+@pytest.mark.parametrize(
+    "task_name",
+    ["hotel-reservation", "social-network-read-timeline"],
+)
+def test_deathstar_tasks_use_locked_packaged_evaluator(task_name: str) -> None:
+    bundle = _deathstar_bundle(task_name)
+
+    assert bundle.root == DEATHSTAR_ROOT.resolve()
+    assert bundle.task_name == task_name
+    assert bundle.evaluator_path is None
+    assert bundle.evaluator_package_digest is not None
+    assert bundle.benchmark_command[:5] == (
+        "go",
+        "-C",
+        str(PROJECT_ROOT / "resources" / "evaluators" / "microservice"),
+        "run",
+        "./cmd/servicebench",
     )
-    if scenario_path.name == "train-ticket":
-        assert ("--seed", "random") in zip(
-            bundle.benchmark_command,
-            bundle.benchmark_command[1:],
-            strict=False,
-        )
+    assert bundle.benchmark_result is not None
+    assert bundle.benchmark_result.json_argument == "--output-json"
+    assert bundle.benchmark_result.metric == "primary_value"
 
 
 def test_microservice_scenarios_are_discovered() -> None:
-    assert {path.name for path in MICROSERVICE_SCENARIOS} == {
+    assert set(DEATHSTAR_TASKS) == {
         "hotel-reservation",
         "social-network-read-timeline",
-        "train-ticket",
     }
+    assert {path.name for path in LEGACY_SCENARIOS} == {"train-ticket"}
 
 
-def test_train_ticket_accuracy_uses_shared_evaluator() -> None:
+def test_train_ticket_accuracy_uses_source_evaluator() -> None:
     bundle = load_input_bundle(MICROSERVICE_ROOT / "train-ticket")
 
     assert bundle.accuracy_command[:5] == (
@@ -65,108 +92,66 @@ def test_train_ticket_accuracy_uses_shared_evaluator() -> None:
     assert bundle.accuracy_command[5:7] == ("--mode", "accuracy")
 
 
-def test_hotel_accuracy_uses_shared_evaluator_with_random_cases() -> None:
-    bundle = load_input_bundle(MICROSERVICE_ROOT / "hotel-reservation")
-
-    assert bundle.accuracy_command[:7] == (
+def test_hotel_accuracy_and_benchmark_preserve_randomized_stateful_workload() -> None:
+    bundle = _deathstar_bundle("hotel-reservation")
+    accuracy_pairs = _adjacent_pairs(bundle.accuracy_command)
+    benchmark_pairs = _adjacent_pairs(bundle.benchmark_command)
+    assert bundle.accuracy_command[:5] == (
         "go",
         "-C",
-        "_evaluator/microservice",
+        str(PROJECT_ROOT / "resources" / "evaluators" / "microservice"),
         "run",
         "./cmd/servicebench",
-        "--mode",
-        "accuracy",
     )
-    assert ("--seed", "random") in zip(
-        bundle.accuracy_command,
-        bundle.accuracy_command[1:],
-        strict=False,
-    )
-    assert ("--seed", "random") in zip(
-        bundle.benchmark_command,
-        bundle.benchmark_command[1:],
-        strict=False,
-    )
-    assert ("--fixture-seed", "random") in zip(
-        bundle.benchmark_command,
-        bundle.benchmark_command[1:],
-        strict=False,
-    )
-    assert ("--candidate-dir", "../../hotelReservation") in zip(
-        bundle.accuracy_command,
-        bundle.accuracy_command[1:],
-        strict=False,
-    )
+    assert ("--mode", "accuracy") in accuracy_pairs
+    assert ("--seed", "random") in accuracy_pairs
+    assert ("--seed", "random") in benchmark_pairs
+    assert ("--fixture-seed", "random") in benchmark_pairs
+    assert (
+        "--candidate-dir",
+        f"{PROJECT_ROOT_TOKEN}/hotelReservation",
+    ) in accuracy_pairs
+    assert (
+        "--workload",
+        f"{PROJECT_ROOT_TOKEN}/.vibesys/tasks/hotel-reservation/benchmark/workload.toml",
+    ) in benchmark_pairs
     assert (
         "--run-command-json",
         '["docker","compose","up","-d","--build"]',
-    ) in zip(bundle.accuracy_command, bundle.accuracy_command[1:], strict=False)
+    ) in accuracy_pairs
     assert (
         "--stop-command-json",
         '["docker","compose","stop","-t","10","frontend","geo","profile","rate",'
         '"recommendation","reservation","search","user"]',
-    ) in zip(bundle.accuracy_command, bundle.accuracy_command[1:], strict=False)
+    ) in accuracy_pairs
     assert (
         "--cleanup-command-json",
         '["docker","compose","down","-v","--remove-orphans"]',
-    ) in zip(bundle.accuracy_command, bundle.accuracy_command[1:], strict=False)
-    assert ("--candidate-dir", "../../hotelReservation") in zip(
-        bundle.benchmark_command,
-        bundle.benchmark_command[1:],
-        strict=False,
-    )
+    ) in accuracy_pairs
+    assert ("--telemetry-output", str(HOTEL_TEMP_ROOT / "telemetry.json")) in (benchmark_pairs)
     assert (
-        "--run-command-json",
-        '["sh","-c","go -C ../_evaluator/microservice run ./cmd/otelinject'
-        " --compose ../../hotelReservation/docker-compose.yml"
-        " --config ../../benchmark/otel/telemetry.toml"
-        " --metrics-dir ../../metrics/otel"
-        " --output ../../metrics/otel/compose.telemetry.yaml"
-        " && docker compose -f docker-compose.yml"
-        ' -f ../metrics/otel/compose.telemetry.yaml up -d --build"]',
-    ) in zip(bundle.benchmark_command, bundle.benchmark_command[1:], strict=False)
-    assert (
-        "--stop-command-json",
-        '["docker","compose","stop","-t","10","frontend","geo","profile","rate",'
-        '"recommendation","reservation","search","user"]',
-    ) in zip(bundle.benchmark_command, bundle.benchmark_command[1:], strict=False)
-    assert (
-        "--cleanup-command-json",
-        '["docker","compose","down","-v","--remove-orphans"]',
-    ) in zip(bundle.benchmark_command, bundle.benchmark_command[1:], strict=False)
-    assert (
-        "--telemetry-command-json",
-        '["go","run","./cmd/otelcapture",'
-        '"--input-json","../../metrics/otel/traces.otlp.ndjson",'
-        '"--settle-seconds","5"]',
-    ) in zip(bundle.benchmark_command, bundle.benchmark_command[1:], strict=False)
-    assert ("--telemetry-output", "../../metrics/telemetry.json") in zip(
-        bundle.benchmark_command,
-        bundle.benchmark_command[1:],
-        strict=False,
-    )
-    assert ("./cmd/servicebench", "trace") in zip(
-        bundle.benchmark_command,
-        bundle.benchmark_command[1:],
-        strict=False,
-    )
-    assert ("--trace-graph-json", "../../metrics/trace-graph.json") in zip(
-        bundle.benchmark_command,
-        bundle.benchmark_command[1:],
-        strict=False,
-    )
-    assert ("--telemetry-timeout", "60") in zip(
-        bundle.benchmark_command,
-        bundle.benchmark_command[1:],
-        strict=False,
-    )
+        "--trace-graph-json",
+        str(HOTEL_TEMP_ROOT / "trace-graph.json"),
+    ) in benchmark_pairs
+    assert ("--telemetry-timeout", "60") in benchmark_pairs
     assert "--telemetry-command-json" not in bundle.accuracy_command
+
+    run_command = bundle.benchmark_command[bundle.benchmark_command.index("--run-command-json") + 1]
+    run_argv = json.loads(run_command)
+    assert run_argv[:2] == ["sh", "-c"]
+    assert 'go -C "$1" run ./cmd/otelinject' in run_argv[2]
+    assert run_argv[4] == str(PROJECT_ROOT / "resources" / "evaluators" / "microservice")
+    assert run_argv[5] == f"{PROJECT_ROOT_TOKEN}/hotelReservation/docker-compose.yml"
 
 
 @pytest.mark.parametrize(
     "scenario_path",
-    MICROSERVICE_SCENARIOS,
-    ids=lambda path: path.name,
+    [
+        MICROSERVICE_ROOT / "train-ticket",
+        DEATHSTAR_TASKS["hotel-reservation"].path,
+        DEATHSTAR_TASKS["social-network-read-timeline"].path,
+    ],
+    ids=("train-ticket", "hotel-reservation", "social-network-read-timeline"),
 )
 def test_microservice_scenario_has_no_embedded_legacy_generator(
     scenario_path: Path,
@@ -183,7 +168,7 @@ def test_microservice_scenario_has_no_embedded_legacy_generator(
 
 def test_social_network_workload_uses_stateful_semantic_operation() -> None:
     workload_path = (
-        MICROSERVICE_ROOT / "social-network-read-timeline" / "benchmark" / "workload.toml"
+        DEATHSTAR_TASKS["social-network-read-timeline"].path / "benchmark" / "workload.toml"
     )
     with workload_path.open("rb") as file:
         workload = tomllib.load(file)
@@ -211,7 +196,7 @@ def test_social_network_workload_uses_stateful_semantic_operation() -> None:
 
 
 def test_hotel_workload_preserves_canonical_mix_and_stateful_gate() -> None:
-    workload_path = MICROSERVICE_ROOT / "hotel-reservation" / "benchmark" / "workload.toml"
+    workload_path = DEATHSTAR_TASKS["hotel-reservation"].path / "benchmark" / "workload.toml"
     with workload_path.open("rb") as file:
         workload = tomllib.load(file)
 

@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from vibesys.run.git_tracker import GitTracker
+from vibesys.run.project_policy import trusted_project_input_paths
 from vs_project_state import PlainRunConfiguration, ProjectStore
 
 if TYPE_CHECKING:
@@ -115,7 +116,7 @@ def test_fresh_project_owns_repository_branch_and_local_excludes(tmp_path: Path)
 
     assert tracker.root == tmp_path.resolve()
     assert tracker.history_root == tmp_path.resolve()
-    assert tracker.project_branch == "vibesys/round-trip"
+    assert tracker.project_branch == "vibesys-runs/round-trip"
     assert _git(tmp_path, "branch", "--show-current") == tracker.project_branch
     assert tracker.trusted_input_baseline == tracker.current_sha()
     assert _git(tmp_path, "ls-files").splitlines() == ["main.py"]
@@ -135,7 +136,7 @@ def test_existing_repository_starts_from_clean_baseline(tmp_path: Path) -> None:
 
     assert tracker.trusted_input_baseline == baseline
     assert tracker.current_sha() == baseline
-    assert _git(tmp_path, "branch", "--show-current") == "vibesys/test-run"
+    assert _git(tmp_path, "branch", "--show-current") == "vibesys-runs/test-run"
 
 
 def test_existing_repository_rejects_dirty_or_unborn_history(tmp_path: Path) -> None:
@@ -174,9 +175,29 @@ def test_resume_selects_existing_run_branch_and_baseline(tmp_path: Path) -> None
     resumed = _tracker(tmp_path)
     resumed.init(existing=True, trusted_input_baseline=baseline)
 
-    assert _git(tmp_path, "branch", "--show-current") == "vibesys/test-run"
+    assert _git(tmp_path, "branch", "--show-current") == "vibesys-runs/test-run"
     assert resumed.current_sha() == expected
     assert resumed.trusted_input_baseline == baseline
+
+
+def test_run_branch_does_not_conflict_with_repository_vibesys_branch(tmp_path: Path) -> None:
+    _initialize_existing_repository(tmp_path)
+    _git(tmp_path, "branch", "vibesys")
+
+    tracker = _tracker(tmp_path)
+    tracker.init(existing=False)
+
+    assert _git(tmp_path, "branch", "--show-current") == "vibesys-runs/test-run"
+
+
+def test_resume_accepts_legacy_vibesys_run_branch(tmp_path: Path) -> None:
+    baseline = _initialize_existing_repository(tmp_path)
+    _git(tmp_path, "switch", "-q", "-c", "vibesys/test-run")
+
+    tracker = _tracker(tmp_path)
+    tracker.init(existing=True, trusted_input_baseline=baseline)
+
+    assert tracker.project_branch == "vibesys/test-run"
 
 
 def test_resume_requires_repository_and_existing_run_branch(tmp_path: Path) -> None:
@@ -397,6 +418,33 @@ def test_trusted_input_changes_compare_against_branch_point(tmp_path: Path) -> N
     assert tracker.trusted_input_changes() == ["OBJECTIVE.md"]
     tracker.snapshot("changed trusted input")
     assert tracker.trusted_input_changes() == ["OBJECTIVE.md"]
+
+
+def test_repository_tasks_are_trusted_but_generated_state_is_not(tmp_path: Path) -> None:
+    task = tmp_path / ".vibesys" / "tasks" / "latency"
+    task.mkdir(parents=True)
+    objective = task / "OBJECTIVE.md"
+    objective.write_text("original\n", encoding="utf-8")
+    (task / "vibesys.input.toml").write_text("version = 1\n", encoding="utf-8")
+    (tmp_path / "main.py").write_text("VALUE = 1\n", encoding="utf-8")
+    tracker = GitTracker(
+        tmp_path,
+        run_id="repository-task",
+        log=lambda _message: None,
+        trusted_input_paths=trusted_project_input_paths(
+            tmp_path,
+            evaluator_source=None,
+        ),
+    )
+    tracker.init(existing=False)
+    _project_store(tmp_path, tracker, "repository-task")
+
+    assert tracker.trusted_input_changes() == []
+
+    objective.write_text("changed\n", encoding="utf-8")
+    assert tracker.trusted_input_changes() == [".vibesys/tasks/latency/OBJECTIVE.md"]
+    tracker.snapshot("changed trusted input")
+    assert tracker.trusted_input_changes() == [".vibesys/tasks/latency/OBJECTIVE.md"]
 
 
 def test_candidate_worktree_is_local_and_retained_by_durable_ref(tmp_path: Path) -> None:

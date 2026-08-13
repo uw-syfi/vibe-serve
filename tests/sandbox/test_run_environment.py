@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import shlex
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -9,12 +11,15 @@ from vibesys.agents import cli_docker
 from vibesys.agents.cli_docker import DockerAuthPath
 from vibesys.backends import SandboxKind
 from vibesys.domains.environment import EnvironmentBindMount
+from vibesys.evaluators import EvaluatorPackageRequirement, resolve_evaluator_package
+from vibesys.input_manifest import load_project_task
 from vibesys.sandbox.run_environment import (
     RunEnvironmentRequest,
     RunEnvironmentSpec,
     build_run_environment,
     make_run_environment_spec,
 )
+from vs_project_layout import ProjectLayout
 from vs_sandbox import ProjectPathPolicy
 
 
@@ -31,7 +36,7 @@ class FakeBackend:
 
 
 def _request(tmp_path: Path, backend: FakeBackend, **overrides):  # noqa: ANN003, ANN202  # tracked: #288
-    workspace = tmp_path / "workspace"
+    workspace = overrides.pop("workspace", tmp_path / "workspace")
     workspace.mkdir(exist_ok=True)
     values = dict(  # noqa: C408  # tracked: #288
         log_dir=tmp_path / "logs",
@@ -131,6 +136,184 @@ def test_docker_environment_opens_one_started_sandbox_with_agent_paths(tmp_path)
 
     session.close()
     backend.sandbox.stop.assert_called_once()
+
+
+def test_isolated_environment_mounts_and_translates_evaluator_package(tmp_path: Path) -> None:
+    backend = FakeBackend()
+    env = build_run_environment(RunEnvironmentSpec("docker"))
+    package = resolve_evaluator_package(
+        EvaluatorPackageRequirement(name="vibesys-evaluator-queue", version="0.1.0")
+    )
+    command = shlex.join(
+        package.command(
+            "vibesys-queue",
+            "check",
+            "--workspace",
+            "${PROJECT_ROOT}",
+            "--nested-json",
+            f'["go","-C","{package.root}"]',
+        )
+    )
+
+    session = env.open(
+        _request(
+            tmp_path,
+            backend,
+            accuracy_command=command,
+            benchmark_command=command,
+            evaluator_package_root=package.root,
+        )
+    )
+
+    translated = session.view.paths.accuracy_command
+    assert translated is not None
+    assert str(package.root) not in translated
+    assert "${PROJECT_ROOT}" not in translated
+    assert "/opt/vibesys-evaluator-package" in translated
+    assert "/workspace" in translated
+    assert (
+        str(package.root),
+        "/opt/vibesys-evaluator-package",
+        True,
+    ) in backend.calls[0][1]["bind_mounts"]
+    init_commands = backend.calls[0][1]["extra_init_commands"]
+    assert any("go1.23.12" in item for item in init_commands)
+    assert any("rustup.rs" in item for item in init_commands)
+    assert any("command -v cargo" in item for item in init_commands)
+
+
+def test_environment_quotes_project_root_after_token_expansion(tmp_path: Path) -> None:
+    backend = FakeBackend()
+    workspace = tmp_path / "candidate's; touch injected"
+    workspace.mkdir()
+    env = build_run_environment(RunEnvironmentSpec("local"))
+
+    request = _request(
+        tmp_path,
+        backend,
+        workspace=workspace,
+        accuracy_command="python checker.py --workspace '${PROJECT_ROOT}'",
+        benchmark_command="true",
+    )
+    session = env.open(request)
+
+    command = session.view.paths.accuracy_command
+    assert command is not None
+    assert shlex.split(command) == [
+        "python",
+        "checker.py",
+        "--workspace",
+        str(request.workspace),
+    ]
+
+
+def test_environment_quotes_hotel_nested_shell_paths(tmp_path: Path) -> None:
+    backend = FakeBackend()
+    workspace = tmp_path / "candidate's; touch injected"
+    workspace.mkdir()
+    project = Path("examples/microservices/repositories/deathstarbench").resolve()
+    layout = ProjectLayout.open(project)
+    bundle = load_project_task(layout, layout.select_task("hotel-reservation"))
+    env = build_run_environment(RunEnvironmentSpec("local"))
+
+    session = env.open(
+        _request(
+            tmp_path,
+            backend,
+            workspace=workspace,
+            accuracy_command=bundle.accuracy_command_display,
+            benchmark_command=bundle.benchmark_command_display,
+            evaluator_package_root=bundle.evaluator_package_root,
+        )
+    )
+
+    command = session.view.paths.benchmark_command
+    assert command is not None
+    outer = shlex.split(command)
+    nested = json.loads(outer[outer.index("--run-command-json") + 1])
+    assert nested[5] == str(workspace / "hotelReservation" / "docker-compose.yml")
+    assert "${PROJECT_ROOT}" not in json.dumps(nested)
+
+
+@pytest.mark.parametrize(
+    "nested",
+    [
+        '["sh","-c","printf \\"%s\\" \\"${PROJECT_ROOT}\\""]',
+        '["bash","-ec","printf %s ${PROJECT_ROOT}"]',
+        '["bash","-o","pipefail","-c","printf %s ${PROJECT_ROOT}"]',
+        '["/usr/bin/bash","-c","printf %s ${PROJECT_ROOT}"]',
+        '["env","sh","-c","printf %s ${PROJECT_ROOT}"]',
+        '["/usr/bin/env","-i","MODE=test","bash","-ec","printf %s ${PROJECT_ROOT}"]',
+        '["env","-S","sh -c \'printf %s ${PROJECT_ROOT}\'"]',
+    ],
+)
+def test_environment_rejects_semantic_tokens_in_nested_shell_source(
+    tmp_path: Path,
+    nested: str,
+) -> None:
+    backend = FakeBackend()
+    env = build_run_environment(RunEnvironmentSpec("local"))
+
+    with pytest.raises(ValueError, match="positional arguments"):
+        env.open(
+            _request(
+                tmp_path,
+                backend,
+                accuracy_command=shlex.join(["checker", "--run-command-json", nested]),
+                benchmark_command="true",
+            )
+        )
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        ["sh", "-c", "printf %s ${PROJECT_ROOT}"],
+        ["python", "-c", "print('${PROJECT_ROOT}')"],
+        ["node", "--eval", "console.log('${PROJECT_ROOT}')"],
+    ],
+)
+def test_environment_rejects_semantic_tokens_in_top_level_executable_source(
+    tmp_path: Path,
+    command: list[str],
+) -> None:
+    backend = FakeBackend()
+    env = build_run_environment(RunEnvironmentSpec("local"))
+
+    with pytest.raises(ValueError, match="positional arguments"):
+        env.open(
+            _request(
+                tmp_path,
+                backend,
+                accuracy_command=shlex.join(command),
+                benchmark_command="true",
+            )
+        )
+
+
+def test_microservice_package_does_not_install_rust(tmp_path: Path) -> None:
+    backend = FakeBackend()
+    env = build_run_environment(RunEnvironmentSpec("docker"))
+    package = resolve_evaluator_package(
+        EvaluatorPackageRequirement(
+            name="vibesys-evaluator-microservice",
+            version="0.1.0",
+        )
+    )
+
+    env.open(
+        _request(
+            tmp_path,
+            backend,
+            accuracy_command="true",
+            benchmark_command="true",
+            evaluator_package_root=package.root,
+        )
+    )
+
+    init_commands = backend.calls[0][1]["extra_init_commands"]
+    assert any("go1.23.12" in item for item in init_commands)
+    assert not any("rustup.rs" in item for item in init_commands)
 
 
 def test_docker_environment_mounts_effective_objective_read_only(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288

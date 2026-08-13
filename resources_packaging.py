@@ -1,8 +1,9 @@
 """Stage bundled framework resources for inclusion in the Python wheel.
 
-Profiler support packages (``resources/profilers``) and the preset skills
-library (``resources/skills``) are resolved from the repository checkout at
-run time. An installed wheel has no checkout, so the wheel build copies both
+Profiler support packages (``resources/profilers``), evaluator packages
+(``resources/evaluators``), and the preset skills library (``resources/skills``)
+are resolved from the repository checkout at run time. An installed wheel has
+no checkout, so the wheel build copies these
 trees into the ``vibesys._resources`` package directory; ``setup.py`` calls
 :func:`stage_resources` from the same custom ``build_py`` step that stages the
 TUI. ``vibesys.resource_paths`` resolves the checkout first and falls back to
@@ -22,10 +23,21 @@ import shutil
 from pathlib import Path  # noqa: TC003  # tracked: #288
 
 #: Subtrees of ``resources/`` staged into the wheel.
-STAGED_TREES: tuple[str, ...] = ("profilers", "skills")
+STAGED_TREES: tuple[str, ...] = ("evaluators", "profilers", "skills")
 
 #: Directory names never copied, at any depth.
-EXCLUDED_NAMES: frozenset[str] = frozenset({".git", "__pycache__", "repos"})
+EXCLUDED_NAMES: frozenset[str] = frozenset(
+    {
+        ".git",
+        ".pytest_cache",
+        ".ruff_cache",
+        "__pycache__",
+        "build",
+        "dist",
+        "repos",
+        "target",
+    }
+)
 
 
 class PackagingError(RuntimeError):
@@ -40,9 +52,7 @@ class PackagingError(RuntimeError):
 
 def _ignore(_directory: str, names: list[str]) -> set[str]:
     return {
-        name
-        for name in names
-        if name in EXCLUDED_NAMES or name.endswith((".pyc", ".egg-info"))
+        name for name in names if name in EXCLUDED_NAMES or name.endswith((".pyc", ".egg-info"))
     }
 
 

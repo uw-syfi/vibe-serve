@@ -104,7 +104,7 @@ def _bundled_runtime_missing_message() -> str:
     return (
         "vibesys: the bundled Bun runtime or TUI launcher is missing or not executable.\n"
         "Reinstall the platform wheel, or run headless instead:\n"
-        "  vibesys --headless --input <bundle> ..."
+        "  vibesys --headless --project /path/to/repository --task TASK ..."
     )
 
 

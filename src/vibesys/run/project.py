@@ -18,7 +18,8 @@ from vibesys.input_manifest import (
     render_input_manifest,
 )
 from vibesys.run.workspace import CopySpec, GitSourceSpec, InputProjectSpec, Workspace
-from vs_project_state import is_project_state_path
+from vs_project_layout import ProjectLayout
+from vs_project_state import ProjectStore, is_project_state_path
 
 _PRIVATE_PROJECT_ENTRY_NAMES = frozenset({".git", "agent.toml"})
 
@@ -37,9 +38,9 @@ class ProjectProvisioningSpec:
     """
 
     workspace: Workspace
-    seed: Path | None = None
     workspace_sources: tuple[WorkspaceSource, ...] = ()
     evaluator_source: Path | None = None
+    task_name: str | None = None
     input_project_dir: Path | None = None
     input_excludes: frozenset[str] = frozenset()
 
@@ -57,13 +58,23 @@ def provision_project(
     copy, source checkout, or manifest rewrite fails, the newly created
     destination is removed.
     """
-    source = _require_input_root(input_root)
+    source = _require_input_root(
+        input_root,
+        require_legacy_objective=spec.task_name is None,
+    )
     destination = destination_root.expanduser().resolve()
     _validate_destination(source, destination, workspace=spec.workspace)
-    manifest = _load_manifest(source)
+    repository_task = spec.task_name is not None
+    manifest_root = (
+        ProjectLayout.open(source).select_task(spec.task_name).path if repository_task else source
+    )
+    manifest = _load_manifest(manifest_root)
     _validate_materialization_contract(manifest, spec)
 
-    copy_excludes = _project_copy_excludes(source)
+    copy_excludes = _project_copy_excludes(
+        source,
+        preserve_configuration=repository_task,
+    )
     primary_steps = _primary_steps(source, destination, spec, copy_excludes)
 
     try:
@@ -76,17 +87,18 @@ def provision_project(
             spec,
         )
         _remove_private_entries(destination)
-        normalized = manifest.model_copy(
-            update={
-                "workspace": None,
-                "evaluator": (
-                    EvaluatorInput(source=evaluator_relative)
-                    if evaluator_relative is not None
-                    else None
-                ),
-            }
-        )
-        (destination / MANIFEST_NAME).write_text(render_input_manifest(normalized))
+        if not repository_task:
+            normalized = manifest.model_copy(
+                update={
+                    "workspace": None,
+                    "evaluator": (
+                        EvaluatorInput(source=evaluator_relative)
+                        if evaluator_relative is not None
+                        else None
+                    ),
+                }
+            )
+            (destination / MANIFEST_NAME).write_text(render_input_manifest(normalized))
     except BaseException as exc:
         try:
             _remove_path(destination)
@@ -99,13 +111,13 @@ def provision_project(
     return destination
 
 
-def _require_input_root(path: Path) -> Path:
+def _require_input_root(path: Path, *, require_legacy_objective: bool) -> Path:
     root = path.expanduser().resolve()
     if not root.exists():
         raise ProjectProvisioningError(f"input project does not exist: {root}")  # noqa: TRY003
     if not root.is_dir():
         raise ProjectProvisioningError(f"input project is not a directory: {root}")  # noqa: TRY003
-    if not (root / "OBJECTIVE.md").is_file():
+    if require_legacy_objective and not (root / "OBJECTIVE.md").is_file():
         raise ProjectProvisioningError(  # noqa: TRY003
             f"OBJECTIVE.md not found: {root / 'OBJECTIVE.md'}"
         )
@@ -144,11 +156,6 @@ def _validate_materialization_contract(
     manifest: InputManifest,
     spec: ProjectProvisioningSpec,
 ) -> None:
-    declared_seed = manifest.workspace is not None and manifest.workspace.seed is not None
-    if declared_seed != (spec.seed is not None):
-        raise ProjectProvisioningError(  # noqa: TRY003
-            "workspace seed declaration and resolved provisioning seed do not match"
-        )
     declared_sources = manifest.workspace.sources if manifest.workspace is not None else ()
     if declared_sources != spec.workspace_sources:
         raise ProjectProvisioningError(  # noqa: TRY003
@@ -158,17 +165,26 @@ def _validate_materialization_contract(
         raise ProjectProvisioningError(  # noqa: TRY003
             "copied projects require workspace sources with strip_git = true"
         )
-    declared_evaluator = manifest.evaluator is not None
+    declared_evaluator = manifest.evaluator is not None and manifest.evaluator.source is not None
     if declared_evaluator != (spec.evaluator_source is not None):
         raise ProjectProvisioningError(  # noqa: TRY003
             "evaluator declaration and resolved provisioning source do not match"
         )
 
 
-def _project_copy_excludes(source: Path) -> frozenset[str]:
-    return frozenset(
+def _project_copy_excludes(
+    source: Path,
+    *,
+    preserve_configuration: bool = False,
+) -> frozenset[str]:
+    excluded = {
         child.name for child in source.iterdir() if not _should_copy_project_entry(Path(child.name))
-    )
+    }
+    if not preserve_configuration:
+        configuration = ProjectStore(source).sandbox_paths().read_only_path
+        if configuration is not None and len(configuration.parts) == 1:
+            excluded.add(configuration.name)
+    return frozenset(excluded)
 
 
 def _primary_steps(
@@ -178,21 +194,12 @@ def _primary_steps(
     copy_excludes: frozenset[str],
 ) -> tuple[CopySpec | GitSourceSpec | InputProjectSpec, ...]:
     steps: list[CopySpec | GitSourceSpec | InputProjectSpec] = []
-    if spec.seed is not None:
-        steps.append(
-            CopySpec(
-                src=spec.seed,
-                dest=destination,
-                respect_gitignore=_is_git_worktree(spec.seed),
-                extra_excludes=_project_copy_excludes(spec.seed),
-            )
-        )
     steps.extend(GitSourceSpec(source=item) for item in spec.workspace_sources)
     steps.append(
         CopySpec(
             src=source,
             dest=destination,
-            reject_collisions=spec.seed is not None or bool(spec.workspace_sources),
+            reject_collisions=bool(spec.workspace_sources),
             extra_excludes=copy_excludes | spec.input_excludes,
         )
     )
