@@ -1,0 +1,26 @@
+version = 1
+
+[agent]
+domain = "llm-serving"
+
+[accuracy]
+command = ["uv", "run", "python", "accuracy_checker/checker.py"]
+timeout_seconds = 600
+
+[benchmark]
+command = ["uv", "run", "python", "benchmark/benchmark.py"]
+timeout_seconds = 1200
+
+[workspace]
+seed = "../../starters/sglang-b200"
+
+[[workspace.sources]]
+name = "sglang"
+repo = "https://github.com/sgl-project/sglang.git"
+commit = "29481685462732237d80d86076d6563e1f658102"
+dest = "sglang"
+strip_git = true
+
+[benchmark.result]
+json_argument = "--output-json"
+metric = "aggregate_throughput"

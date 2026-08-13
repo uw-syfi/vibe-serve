@@ -1,0 +1,76 @@
+# Objective - Kimi-K3 SGLang 8xB200 Serving
+
+Optimize an SGLang-based OpenAI-compatible server for `moonshotai/Kimi-K3` on
+8x NVIDIA B200 192GB GPUs.
+
+The candidate workspace starts from a pinned SGLang source checkout declared
+in `vibesys.input.toml`. Modify SGLang internals, server launch code, or
+runtime configuration as needed, while preserving the public API and
+correctness gates.
+
+Kimi-K3 is a frontier-scale sparse MoE model: 2.8T total parameters, ~104B
+activated per token, across an extreme 896-expert pool (16 routed + 2 shared
+per token). It replaces standard attention with Kimi Delta Attention plus
+Attention Residuals, a linear-attention-family design with recurrent state
+rather than a growing KV cache. Weights are natively MXFP4 with MXFP8
+activations from quantization-aware training. The model is natively
+multimodal and agentic with up to 1M tokens of context; this task serves the
+text-only `/v1/completions` path.
+
+At ~4 bits, the weights are ~1.4TB, which fits in 8xB200's 1536GB of HBM, but
+headroom for KV/state cache and activations is tight. Single-node 8xB200 is
+at the edge of this model's footprint; a multi-node deployment (e.g. 16xB200)
+may be required to serve long-context requests with adequate cache headroom.
+The candidate must serve the model across all 8 GPUs (expert parallelism,
+tensor parallelism, or any other strategy) and may extend to multiple nodes
+if needed.
+
+This is a decode-heavy, memory-bandwidth-bound workload. The relevant
+optimization surface: MXFP4-weight/MXFP8-activation dequantization fused into
+the MoE grouped-GEMM path on Blackwell, Kimi Delta Attention linear-attention
+state management, routing and load balancing across the 896-expert pool, and
+all-to-all dispatch efficiency for large-scale expert parallelism across 8
+GPUs.
+
+## Workload
+
+Run the benchmark exactly as written unless the evaluator passes a different
+`--url` or `--output-json`:
+
+```bash
+uv run python benchmark/benchmark.py --url <SERVER_URL> --output-json <PATH>
+```
+
+Default load:
+
+- `/v1/completions`
+- streaming responses
+- closed-loop concurrency 32
+- 120 second duration
+- long synthetic prompts (~4096 tokens)
+- `max_tokens = 2048`
+- `temperature = 0`
+
+This benchmark stresses the MoE dispatch path across 896 experts, Kimi Delta
+Attention state management, KV/state cache capacity, scheduler overhead, and
+sustained long-decode throughput under concurrency. Candidates must not
+reduce prompt length, duration, concurrency, or max output tokens to improve
+the score.
+
+## Metrics
+
+Pareto axes:
+
+- `aggregate_throughput`: output tokens per second, maximize.
+- `p99_latency_ms`: end-to-end request latency in milliseconds, minimize.
+
+The scalar fallback/headline metric is `aggregate_throughput`.
+
+## Correctness
+
+The accuracy checker drives the running server over HTTP with three
+reference-free gates: sentinel echo, known-answer, and greedy determinism. It
+requires a real prompt-conditioned Kimi-K3 forward pass. Canned responses,
+prompt echoing, skipped model execution, or non-deterministic temperature-0
+decoding fail the task. The greedy-determinism gate uses a short `max_tokens`
+to keep the check fast.
