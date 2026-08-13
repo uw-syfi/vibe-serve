@@ -43,3 +43,8 @@
 	url = https://github.com/vibesys-playground/vllm.git
 	branch = vibesys
 	shallow = true
+[submodule "examples/model-serving/repositories/sglang"]
+	path = examples/model-serving/repositories/sglang
+	url = https://github.com/vibesys-playground/sglang.git
+	branch = vibesys
+	shallow = true
