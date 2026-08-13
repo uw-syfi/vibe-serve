@@ -9,13 +9,15 @@ import pytest
 from vibesys.context import _RunContext, create_candidate_context, create_run_context
 from vibesys.domains.base import DomainName
 from vibesys.domains.environment import EnvironmentPatch, NoopEnvironmentHooks
+from vibesys.domains.llm_serving.hooks import LLMServingEnvironmentHooks
 from vibesys.errors import ConfigurationError
+from vibesys.input_manifest import WorkspaceSource
 from vibesys.loops.agent.model import ActiveHypothesis
 from vibesys.profilers import ProfilerKind, ProfilerPreflightResult
 from vibesys.run import RunLogger, RunPaths, RunStateNamespace
 from vibesys.sandbox.run_environment import RunEnvironmentSpec
 from vs_loop_state import PlainLoopCursor
-from vs_project_state import AgentRunConfiguration, ProjectStore
+from vs_project import AgentRunConfiguration, Project
 
 
 class _FakeBackend:
@@ -99,6 +101,33 @@ source = "checker"
     return evaluator
 
 
+def _write_serving_task(root: Path, name: str = "latency") -> Path:
+    task = root / ".vibesys" / "tasks" / name
+    reference = task / "reference"
+    reference.mkdir(parents=True)
+    (task / "OBJECTIVE.md").write_text("Reduce latency.\n", encoding="utf-8")
+    (task / "vibesys.input.toml").write_text(
+        """\
+version = 1
+
+[agent]
+domain = "llm-serving"
+
+[accuracy]
+command = ["python", "checker.py"]
+
+[benchmark]
+command = ["python", "benchmark.py"]
+""",
+        encoding="utf-8",
+    )
+    (reference / "meta.json").write_text(
+        '{"model_id": "org/model", "revision": "abc"}',
+        encoding="utf-8",
+    )
+    return task
+
+
 def _create_context(  # noqa: PLR0913
     project: Path,
     *,
@@ -108,6 +137,9 @@ def _create_context(  # noqa: PLR0913
     existing: bool = False,
     configuration: AgentRunConfiguration | None = None,
     objective: str = "Make the queue faster.\n",
+    task_name: str | None = None,
+    task_root: Path | None = None,
+    remote_repo: str | None = None,
     hooks=None,  # noqa: ANN001
 ) -> _RunContext:
     return create_run_context(
@@ -117,6 +149,8 @@ def _create_context(  # noqa: PLR0913
         input_path=str(project),
         accuracy_command="python _evaluator/checker/check.py",
         benchmark_command="python _evaluator/checker/check.py",
+        task_name=task_name,
+        task_root=task_root,
         evaluator_path=evaluator,
         objective=objective,
         existing=existing,
@@ -126,6 +160,7 @@ def _create_context(  # noqa: PLR0913
         run_environment=RunEnvironmentSpec("local"),
         agent_backend="stub",
         environment_hooks=hooks or NoopEnvironmentHooks(),
+        remote_repo=remote_repo,
         active_state_model_type=ActiveHypothesis,
     )
 
@@ -148,8 +183,8 @@ def test_direct_run_uses_one_project_root_and_canonical_state(tmp_path):  # noqa
         with _create_context(project, evaluator=evaluator) as ctx:
             assert ctx.project_root == project
             assert ctx.workspace == project
-            assert ctx.project_store.project_root == project
-            assert ctx.log_dir == ctx.project_store.log_directory(ctx.run_id)
+            assert ctx.project.root == project
+            assert ctx.log_dir == ctx.project.state.log_directory(ctx.run_id)
             assert (
                 ctx.state.local(RunStateNamespace.AGENT)
                 .agent_visible_path("active.json")
@@ -157,21 +192,95 @@ def test_direct_run_uses_one_project_root_and_canonical_state(tmp_path):  # noqa
             )
             objective_path = Path(ctx.objective_location)
             assert objective_path == (
-                ctx.project_store.portable_namespace(ctx.run_id, "runtime").external_directory()
+                ctx.project.state.portable_namespace(ctx.run_id, "runtime").external_directory()
                 / "effective-objective.md"
             )
             assert objective_path.read_text() == "Make the queue faster.\n"
             assert objective_path.is_relative_to(ctx.workspace)
 
         policy = build_runner.call_args.kwargs["project_path_policy"]
-        state_paths = ProjectStore(project).sandbox_paths()
+        state_paths = Project.open(project).state.sandbox_paths()
         assert state_paths.read_only_path in policy.read_only_paths
         assert state_paths.hidden_path in policy.hidden_paths
 
-    manifest = ProjectStore(project).load_run(ctx.run_id)
-    assert manifest.branch == f"vibesys/{ctx.run_id}"
+    manifest = Project.open(project).state.load_run(ctx.run_id)
+    assert manifest.branch == f"vibesys-runs/{ctx.run_id}"
     assert _git(project, "branch", "--show-current") == manifest.branch
     assert _git(project, "status", "--porcelain") == ""
+
+
+def test_repository_task_exposes_its_actual_reference_path(tmp_path: Path) -> None:
+    project = tmp_path / "queue"
+    evaluator = _write_project(project)
+    task = project / ".vibesys" / "tasks" / "latency"
+    reference = task / "reference"
+    reference.mkdir(parents=True)
+    (task / "OBJECTIVE.md").write_text("Reduce latency.\n", encoding="utf-8")
+    (task / "vibesys.input.toml").write_text("version = 1\n", encoding="utf-8")
+    (reference / "baseline.py").write_text("VALUE = 1\n", encoding="utf-8")
+
+    with _create_context(
+        project,
+        evaluator=evaluator,
+        task_name="latency",
+        task_root=task,
+    ) as ctx:
+        assert ctx.ref_name == ".vibesys/tasks/latency/reference/baseline.py"
+
+
+def test_copied_repository_task_materializes_model_outside_authored_inputs(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "serving"
+    _write_project(project)
+    task = _write_serving_task(project)
+    reference = task / "reference"
+    downloaded = tmp_path / "downloaded"
+    downloaded.mkdir()
+    runs_dir = tmp_path / "runs"
+
+    with patch("huggingface_hub.snapshot_download", return_value=str(downloaded)):
+        with _create_context(
+            project,
+            runs_dir=runs_dir,
+            task_name="latency",
+            task_root=task,
+            hooks=LLMServingEnvironmentHooks(),
+        ) as ctx:
+            runtime_model = runs_dir / ".cache" / "llm-serving" / ctx.run_id / "model"
+            copied_reference = ctx.project_root / ".vibesys" / "tasks" / "latency" / "reference"
+
+            assert not (reference / "model").exists()
+            assert not (copied_reference / "model").exists()
+            assert runtime_model.resolve() == downloaded
+            assert ctx.trusted_input_changes() == []
+
+        assert _git(ctx.project_root, "status", "--porcelain") == ""
+
+
+def test_direct_repository_task_materializes_model_in_local_state(tmp_path: Path) -> None:
+    project = tmp_path / "serving"
+    evaluator = _write_project(project)
+    task = _write_serving_task(project)
+    reference = task / "reference"
+    downloaded = tmp_path / "downloaded"
+    downloaded.mkdir()
+
+    with patch("huggingface_hub.snapshot_download", return_value=str(downloaded)):
+        with _create_context(
+            project,
+            evaluator=evaluator,
+            task_name="latency",
+            task_root=task,
+            hooks=LLMServingEnvironmentHooks(),
+        ) as ctx:
+            runtime_model = ctx.project.state.model_cache_directory("llm-serving") / "model"
+
+            assert not (reference / "model").exists()
+            assert runtime_model.resolve() == downloaded
+            assert ctx.trusted_input_changes() == []
+
+        assert _git(project, "status", "--porcelain") == ""
 
 
 def test_copied_run_provisions_self_contained_project_in_collection(tmp_path):  # noqa: ANN001, ANN201
@@ -190,7 +299,7 @@ def test_copied_run_provisions_self_contained_project_in_collection(tmp_path):  
         manifest_text = (project / "vibesys.input.toml").read_text()
         assert 'source = "_evaluator/checker"' in manifest_text
         assert "[workspace]" not in manifest_text
-        assert ctx.log_dir == ctx.project_store.log_directory(ctx.run_id)
+        assert ctx.log_dir == ctx.project.state.log_directory(ctx.run_id)
 
     assert _git(project, "status", "--porcelain") == ""
 
@@ -211,9 +320,9 @@ def test_resume_reuses_project_and_run_id_and_only_increases_limit(tmp_path):  #
         assert resumed.project_root == project
         assert resumed.run_id == run_id
 
-    stored = ProjectStore(project).load_run(run_id)
+    stored = Project.open(project).state.load_run(run_id)
     assert stored.configuration.max_rounds == 2
-    assert _git(project, "branch", "--show-current") == f"vibesys/{run_id}"
+    assert _git(project, "branch", "--show-current") == f"vibesys-runs/{run_id}"
 
 
 def test_collection_resume_pushes_existing_origin_on_teardown(tmp_path):  # noqa: ANN001, ANN201
@@ -245,19 +354,115 @@ def test_collection_resume_pushes_existing_origin_on_teardown(tmp_path):  # noqa
         pass
 
     branch = subprocess.run(  # noqa: S603
-        ["git", "--git-dir", str(remote), "branch", "--list", f"vibesys/{run_id}"],  # noqa: S607
+        ["git", "--git-dir", str(remote), "branch", "--list", f"vibesys-runs/{run_id}"],  # noqa: S607
         check=True,
         capture_output=True,
         text=True,
     ).stdout
-    assert f"vibesys/{run_id}" in branch
+    assert f"vibesys-runs/{run_id}" in branch
 
 
-def test_direct_run_rejects_unmaterialized_starter_source(tmp_path):  # noqa: ANN001, ANN201
+def test_direct_resume_republishes_an_already_published_run(tmp_path):  # noqa: ANN001, ANN201
     project = tmp_path / "queue"
     evaluator = _write_project(project)
-    seed = tmp_path / "seed"
-    seed.mkdir()
+    with _create_context(project, evaluator=evaluator) as first:
+        run_id = first.run_id
+
+    remote = tmp_path / "remote.git"
+    subprocess.run(  # noqa: S603
+        ["git", "init", "--bare", "-q", str(remote)],  # noqa: S607
+        check=True,
+    )
+    subprocess.run(  # noqa: S603
+        ["git", "remote", "add", "origin", str(remote)],  # noqa: S607
+        cwd=project,
+        check=True,
+    )
+    subprocess.run(  # noqa: S603
+        ["git", "push", "-q", "-u", "origin", f"vibesys-runs/{run_id}"],  # noqa: S607
+        cwd=project,
+        check=True,
+    )
+
+    with (
+        patch("vibesys.context.ExperimentRepository.push") as push,
+        _create_context(
+            project,
+            evaluator=evaluator,
+            exp_name=run_id,
+            existing=True,
+        ),
+    ):
+        pass
+
+    push.assert_called_once_with()
+
+
+def test_direct_resume_does_not_publish_an_untracked_source_origin(tmp_path):  # noqa: ANN001, ANN201
+    project = tmp_path / "queue"
+    evaluator = _write_project(project)
+    with _create_context(project, evaluator=evaluator) as first:
+        run_id = first.run_id
+
+    remote = tmp_path / "remote.git"
+    subprocess.run(  # noqa: S603
+        ["git", "init", "--bare", "-q", str(remote)],  # noqa: S607
+        check=True,
+    )
+    _git(project, "remote", "add", "origin", str(remote))
+
+    with (
+        patch("vibesys.context.ExperimentRepository.push") as push,
+        _create_context(
+            project,
+            evaluator=evaluator,
+            exp_name=run_id,
+            existing=True,
+        ),
+    ):
+        pass
+
+    push.assert_not_called()
+
+
+def test_explicit_repository_rejects_a_different_existing_origin(tmp_path):  # noqa: ANN001, ANN201
+    project = tmp_path / "queue"
+    evaluator = _write_project(project)
+    _git(project, "init", "-q", "-b", "main")
+    _git(project, "add", ".")
+    _git(
+        project,
+        "-c",
+        "user.name=test",
+        "-c",
+        "user.email=test@example.com",
+        "commit",
+        "-q",
+        "-m",
+        "initial",
+    )
+    _git(project, "remote", "add", "origin", "https://github.com/example/source.git")
+
+    with pytest.raises(ConfigurationError) as caught:
+        _create_context(
+            project,
+            evaluator=evaluator,
+            remote_repo="example/destination",
+        )
+
+    assert caught.value.diagnostic.code == "repository_setup_failed"
+    assert "does not match" in caught.value.diagnostic.message
+
+
+def test_direct_run_rejects_unmaterialized_workspace_source(tmp_path):  # noqa: ANN001, ANN201
+    project = tmp_path / "queue"
+    evaluator = _write_project(project)
+    source = WorkspaceSource(
+        name="library",
+        repo="https://example.invalid/library.git",
+        commit="0123456",
+        dest="library",
+    )
 
     with pytest.raises(ConfigurationError, match="pass --runs-dir"):
         create_run_context(
@@ -267,7 +472,7 @@ def test_direct_run_rejects_unmaterialized_starter_source(tmp_path):  # noqa: AN
             input_path=str(project),
             accuracy_command="true",
             benchmark_command="true",
-            workspace_seed=seed,
+            workspace_sources=(source,),
             evaluator_path=evaluator,
             project_configuration=_configuration(),
             profiler_kind=ProfilerKind.NONE,
@@ -291,12 +496,12 @@ def test_portable_state_snapshot_replaces_namespace_exactly(tmp_path):  # noqa: 
         ctx.state.commit("state 2", state)
 
     tree = _git(project, "ls-tree", "-r", "--name-only", "HEAD")
-    portable = ctx.project_store.portable_namespace(ctx.run_id, "evolve")
+    portable = ctx.project.state.portable_namespace(ctx.run_id, "evolve")
     assert portable.agent_visible_path("new.json") in tree
     assert portable.agent_visible_path("old.json") not in tree
 
 
-def test_candidate_context_uses_project_store_worktree_directory(tmp_path):  # noqa: ANN001, ANN201
+def test_candidate_context_uses_project_worktree_directory(tmp_path):  # noqa: ANN001, ANN201
     project = tmp_path / "queue"
     evaluator = _write_project(project)
 
@@ -312,7 +517,7 @@ def test_candidate_context_uses_project_store_worktree_directory(tmp_path):  # n
             agent_backend="stub",
         )
         candidate_root = candidate.workspace
-        assert candidate_root == parent.project_store.candidate_worktree_directory(
+        assert candidate_root == parent.project.state.candidate_worktree_directory(
             parent.run_id,
             "g2c3",
         )

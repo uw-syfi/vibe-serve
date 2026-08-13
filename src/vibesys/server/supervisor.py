@@ -31,20 +31,20 @@ from vibesys.server.events import (
 from vibesys.server.protocol import RunSnapshot
 
 if TYPE_CHECKING:
-    from vs_project_state import ProjectStore, StateSnapshot
+    from vs_project import Project, StateSnapshot
 
 
 @dataclass(frozen=True)
 class ProjectRunState:
     """Typed access to one run's canonical project state."""
 
-    store: ProjectStore
+    project: Project
     run_id: str
 
     def history_snapshots(self) -> tuple[StateSnapshot, ...]:
         """Return immutable snapshots used by read-only run inspection."""
         return tuple(
-            self.store.portable_namespace(self.run_id, namespace).snapshot()
+            self.project.state.portable_namespace(self.run_id, namespace).snapshot()
             for namespace in ("agent", "plain", "evolve")
         )
 
@@ -84,23 +84,23 @@ class RunSupervisor:
         self,
         log_dir: Path,
         *,
-        project_store: ProjectStore | None = None,
+        project: Project | None = None,
         run_id: str | None = None,
     ) -> None:
         """Attach event logging, optionally with canonical project-run state.
 
         The headless server first attaches a bootstrap event directory before
         CLI parsing creates a project. The run context later supplies both the
-        project store and run ID, which readers use for persisted run metadata.
+        project and run ID, which readers use for persisted run metadata.
         """
-        if (project_store is None) != (run_id is None):
-            raise ValueError("project_store and run_id must be provided together")  # noqa: TRY003  # tracked: #288
+        if (project is None) != (run_id is None):
+            raise ValueError("project and run_id must be provided together")  # noqa: TRY003  # tracked: #288
         log_dir.mkdir(parents=True, exist_ok=True)
         self.log_dir = log_dir
         events_path = log_dir / "run-events.jsonl"
         with self._condition:
-            if project_store is not None and run_id is not None:
-                self._project_run = ProjectRunState(project_store, run_id)
+            if project is not None and run_id is not None:
+                self._project_run = ProjectRunState(project, run_id)
             store = self._store
             if store is not None and run_id is not None:
                 store.run_id = run_id

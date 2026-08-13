@@ -37,17 +37,18 @@ from vibesys.server.schema import ProtocolDocument
 from vibesys.server.service import SupervisionService
 from vibesys.server.transport import SupervisionSocketServer
 from vs_loop_state import RoundRecord
-from vs_project_state import AgentRunConfiguration, ProjectStore
+from vs_project import AgentRunConfiguration, Project
 
 
 def _events(path):  # noqa: ANN001, ANN202  # tracked: #288
     return [json.loads(line) for line in path.read_text().splitlines()]
 
 
-def _project_run(project: Path) -> tuple[ProjectStore, str]:
+def _project_run(project: Path) -> tuple[Project, str]:
     project.mkdir()
     (project / "OBJECTIVE.md").write_text("Make the queue fast.\n", encoding="utf-8")
-    store = ProjectStore(project)
+    vibesys_project = Project.open(project)
+    store = vibesys_project.state
     store.create_project("queue")
     manifest = store.new_run_manifest(
         "queue",
@@ -70,7 +71,7 @@ def _project_run(project: Path) -> tuple[ProjectStore, str]:
         trusted_input_baseline="0" * 40,
     )
     store.create_run(manifest)
-    return store, manifest.run_id
+    return vibesys_project, manifest.run_id
 
 
 def _round(
@@ -197,13 +198,13 @@ def test_invocation_audit_contains_prompts_and_result(tmp_path):  # noqa: ANN001
 
 def test_inspector_answers_round_and_failure_queries(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     store, run_id = _project_run(tmp_path / "project")
-    store.save_round(run_id, _round(1, metric=1200.0, passed=True))
-    store.save_round(
+    store.state.save_round(run_id, _round(1, metric=1200.0, passed=True))
+    store.state.save_round(
         run_id,
         _round(2, metric=1100.0, passed=False, reason="Judge FAIL: latency regressed"),
     )
     supervisor = RunSupervisor()
-    supervisor.attach(store.log_directory(run_id), project_store=store, run_id=run_id)
+    supervisor.attach(store.state.log_directory(run_id), project=store, run_id=run_id)
     inspector = RunInspector(supervisor)
     assert '"round": 2' in inspector.round_detail(2)
     assert "latency regressed" in inspector.answer("why did the judge fail?")
@@ -239,16 +240,16 @@ def test_side_channel_chat_output_is_tagged_without_changing_active_agent(tmp_pa
 
 def test_bootstrap_events_migrate_to_run_audit_without_replacing_history(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     store, run_id = _project_run(tmp_path / "project")
-    logs = store.log_directory(run_id)
+    logs = store.state.log_directory(run_id)
     historical = RunSupervisor()
-    historical.attach(logs, project_store=store, run_id=run_id)
+    historical.attach(logs, project=store, run_id=run_id)
     historical.record(EventType.RUN_FINISHED, "previous invocation", status="completed")
 
     bootstrap = tmp_path / "session"
     supervisor = RunSupervisor()
     supervisor.attach(bootstrap)
     supervisor.record(EventType.SERVER_READY, status="active")
-    supervisor.attach(logs, project_store=store, run_id=run_id)
+    supervisor.attach(logs, project=store, run_id=run_id)
     supervisor.record(EventType.RUN_STARTED, status="active")
 
     audited = _events(logs / "run-events.jsonl")
@@ -272,7 +273,7 @@ def test_bootstrap_events_migrate_to_run_audit_without_replacing_history(tmp_pat
         "run_started",
     ]
     assert supervisor.project_run is not None
-    assert supervisor.project_run.store is store
+    assert supervisor.project_run.project is store
     assert supervisor.project_run.run_id == run_id
     assert supervisor.snapshot().run_id == run_id
     assert supervisor.read_events()[-1].run_id == run_id
@@ -280,14 +281,14 @@ def test_bootstrap_events_migrate_to_run_audit_without_replacing_history(tmp_pat
 
 def test_history_query_reads_prior_and_current_session_events(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     store, run_id = _project_run(tmp_path / "project")
-    logs = store.log_directory(run_id)
+    logs = store.state.log_directory(run_id)
     historical = RunSupervisor()
-    historical.attach(logs, project_store=store, run_id=run_id)
+    historical.attach(logs, project=store, run_id=run_id)
     historical.record(EventType.ROUND_FINISHED, status="completed", round_label="round-1")
 
     supervisor = RunSupervisor()
     supervisor.attach(tmp_path / "session")
-    supervisor.attach(logs, project_store=store, run_id=run_id)
+    supervisor.attach(logs, project=store, run_id=run_id)
     supervisor.record(EventType.ROUND_FINISHED, status="completed", round_label="round-2")
 
     response = SupervisionService(supervisor).execute(HistoryQuery())
@@ -301,14 +302,14 @@ def test_history_query_reads_prior_and_current_session_events(tmp_path):  # noqa
 
 def test_performance_query_reads_canonical_completed_rounds(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     store, run_id = _project_run(tmp_path / "project")
-    store.save_round(run_id, _round(1, metric=1200.0, passed=True))
-    store.save_round(run_id, _round(2, metric=None, passed=False))
-    store.save_round(run_id, _round(3, metric=2400.0, passed=True))
+    store.state.save_round(run_id, _round(1, metric=1200.0, passed=True))
+    store.state.save_round(run_id, _round(2, metric=None, passed=False))
+    store.state.save_round(run_id, _round(3, metric=2400.0, passed=True))
     supervisor = RunSupervisor()
-    supervisor.attach(store.log_directory(run_id))
+    supervisor.attach(store.state.log_directory(run_id))
     assert SupervisionService(supervisor).execute(PerformanceQuery()).performance == []
 
-    supervisor.attach(store.log_directory(run_id), project_store=store, run_id=run_id)
+    supervisor.attach(store.state.log_directory(run_id), project=store, run_id=run_id)
 
     response = SupervisionService(supervisor).execute(PerformanceQuery())
 
@@ -353,11 +354,11 @@ def test_inspector_searches_portable_loop_state(
     relative = Path(relative_path)
     parent = None if relative.parent == Path() else relative.parent.as_posix()
     state_path = (
-        store.portable_namespace(run_id, namespace).external_directory(parent) / relative.name
+        store.state.portable_namespace(run_id, namespace).external_directory(parent) / relative.name
     )
     state_path.write_text(contents, encoding="utf-8")
     supervisor = RunSupervisor()
-    supervisor.attach(store.log_directory(run_id), project_store=store, run_id=run_id)
+    supervisor.attach(store.state.log_directory(run_id), project=store, run_id=run_id)
 
     answer = RunInspector(supervisor).answer(question)
 
@@ -366,11 +367,11 @@ def test_inspector_searches_portable_loop_state(
 
 def test_inspector_searches_canonical_local_run_log(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     store, run_id = _project_run(tmp_path / "project")
-    (store.log_directory(run_id) / "run-20260812-120000.log").write_text(
+    (store.state.log_directory(run_id) / "run-20260812-120000.log").write_text(
         "Benchmark throughput reached 2400 ops/s.", encoding="utf-8"
     )
     supervisor = RunSupervisor()
-    supervisor.attach(store.log_directory(run_id), project_store=store, run_id=run_id)
+    supervisor.attach(store.state.log_directory(run_id), project=store, run_id=run_id)
 
     answer = RunInspector(supervisor).answer("what is the latest benchmark result?")
 
@@ -490,25 +491,25 @@ def test_chat_explains_configuration_failure_without_a_run_context(tmp_path):  #
 def test_run_context_chat_exposes_trajectory_without_inlining_it_in_prompt(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     store, run_id = _project_run(tmp_path / "project")
     portable_metrics = (
-        store.portable_namespace(run_id, "plain").external_directory("perf") / "metrics.json"
+        store.state.portable_namespace(run_id, "plain").external_directory("perf") / "metrics.json"
     )
     portable_metrics.write_text(
         '{"iteration": 2, "throughput_trend": "improved"}', encoding="utf-8"
     )
-    run_log = store.log_directory(run_id) / "run-20260812-120000.log"
+    run_log = store.state.log_directory(run_id) / "run-20260812-120000.log"
     run_log.write_text("Round 2 improved throughput.", encoding="utf-8")
     supervisor = RunSupervisor()
-    supervisor.attach(store.log_directory(run_id), project_store=store, run_id=run_id)
+    supervisor.attach(store.state.log_directory(run_id), project=store, run_id=run_id)
     ctx = _RunContext.__new__(_RunContext)
     ctx.supervisor = supervisor
     ctx.agent_runner = Mock()
     ctx.agent_runner.invoke_text.return_value = "It improved in round 2."
     ctx._paths = RunPaths(  # noqa: SLF001  # tracked: #288
-        project_root=store.project_root,
-        log_dir=store.log_directory(run_id),
+        project_root=store.root,
+        log_dir=store.state.log_directory(run_id),
         run_log_path=run_log,
     )
-    ctx.project_store = store
+    ctx.project = store
     ctx.run_id = run_id
     ctx.gpu_env = dict
     ctx._progress_stack = []  # noqa: SLF001  # tracked: #288
@@ -527,13 +528,13 @@ def test_run_context_chat_exposes_trajectory_without_inlining_it_in_prompt(tmp_p
     assert "Round 2 improved throughput." not in invocation["user_prompt"]
     assert "_vibesys_chat/trajectory/" in invocation["system_prompt"]
     assert "read-only investigation agent" in invocation["system_prompt"]
-    trajectory = store.project_root / "_vibesys_chat" / "trajectory"
+    trajectory = store.root / "_vibesys_chat" / "trajectory"
     assert json.loads((trajectory / "state/plain/perf/metrics.json").read_text()) == {
         "iteration": 2,
         "throughput_trend": "improved",
     }
     assert (trajectory / "logs" / run_log.name).read_text() == "Round 2 improved throughput."
-    transcript = store.project_root / "_vibesys_chat" / "conversation.jsonl"
+    transcript = store.root / "_vibesys_chat" / "conversation.jsonl"
     assert json.loads(transcript.read_text()) == {
         "question": "what improved?",
         "answer": "It improved in round 2.",

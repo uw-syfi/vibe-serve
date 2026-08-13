@@ -19,6 +19,6 @@ Performance timestamps require timezone information. The `serialize_*`
 functions return JSON-compatible dictionaries, and matching `parse_*`
 functions validate those dictionaries without reading files.
 
-The library does not read or write files. `vs-project-state` owns `.vs` project
-layout and persistence. VibeSys owns Git operations, orchestration, and the
+The library does not read or write files. `vs-project` owns
+`.vibesys/state` project layout and persistence. VibeSys owns Git operations, orchestration, and the
 application-specific vocabularies stored in string fields.

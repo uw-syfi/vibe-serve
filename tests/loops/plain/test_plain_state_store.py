@@ -6,13 +6,13 @@ import pytest
 
 from vibesys.loops.plain.state import PlainStateStore
 from vs_loop_state import PlainLoopCursor, PlainPerformanceRecord
-from vs_project_state import PlainRunConfiguration, ProjectStateError, ProjectStore
+from vs_project import PlainRunConfiguration, Project, ProjectStateError
 
 
 def _store(tmp_path) -> PlainStateStore:  # noqa: ANN001
-    project = ProjectStore(tmp_path)
-    project.create_project("test")
-    run = project.new_run_manifest(
+    project = Project.open(tmp_path)
+    project.state.create_project("test")
+    run = project.state.new_run_manifest(
         "test",
         run_id="run-1",
         branch="vibesys/run-1",
@@ -27,8 +27,8 @@ def _store(tmp_path) -> PlainStateStore:  # noqa: ANN001
             max_issues_per_perf_eval=1,
         ),
     )
-    project.create_run(run)
-    namespace = project.portable_namespace("run-1", "plain")
+    project.state.create_run(run)
+    namespace = project.state.portable_namespace("run-1", "plain")
     return PlainStateStore(namespace)
 
 

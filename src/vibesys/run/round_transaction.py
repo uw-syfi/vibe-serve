@@ -1,6 +1,6 @@
 """Recoverable application transaction for one completed optimization round.
 
-``ProjectStore`` owns the portable state filesystem contract and
+``Project.state`` owns the portable state filesystem contract and
 ``GitTracker`` owns project history. This module composes them at the
 application boundary where one completed round must update both stores while
 also advancing machine-local active-hypothesis state.
@@ -29,7 +29,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 
 from vibesys.run.git_tracker import FrameworkSnapshotStatus
 from vs_loop_state import RoundRecord, parse_round_record
-from vs_project_state import (
+from vs_project import (
     ProjectStateError,
     StateSlot,
     StateTransition,
@@ -38,7 +38,7 @@ from vs_project_state import (
 
 if TYPE_CHECKING:
     from vibesys.run.git_tracker import GitTracker
-    from vs_project_state import ProjectStore
+    from vs_project import Project
 
 _JOURNAL_SCHEMA_VERSION: Literal[3] = 3
 _GIT_OBJECT_ID_PATTERN = r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
@@ -138,32 +138,32 @@ class RoundTransactionCoordinator:
 
     def __init__(
         self,
-        store: ProjectStore,
+        project: Project,
         git: GitTracker,
         run_id: str,
         *,
         active_state_model_type: type[BaseModel],
     ) -> None:
-        """Validate and bind the store, Git tracker, and run identity."""
-        project_root = store.project_root.resolve()
+        """Validate and bind the project, Git tracker, and run identity."""
+        project_root = project.root.resolve()
         if git.root.resolve() != project_root:
             raise RoundTransactionError(
-                "Round transaction store and Git tracker must use the same project root"
+                "Round transaction project and Git tracker must use the same project root"
             )
         if git.run_id != run_id:
             raise RoundTransactionError(
                 f"Round transaction run {run_id!r} does not match Git tracker run {git.run_id!r}"
             )
 
-        store.load_run(run_id)
-        self._store = store
+        project.state.load_run(run_id)
+        self._project = project
         self._git = git
         self.run_id = run_id
-        self._active_state_slot: StateSlot[BaseModel] = store.local_namespace(
+        self._active_state_slot: StateSlot[BaseModel] = project.state.local_namespace(
             run_id,
             "agent",
         ).slot("active.json", active_state_model_type)
-        self._journal_slot = store.local_namespace(run_id, "transaction").slot(
+        self._journal_slot = project.state.local_namespace(run_id, "transaction").slot(
             "round.json",
             _RoundJournal,
         )
@@ -184,12 +184,14 @@ class RoundTransactionCoordinator:
                 "beginning another"
             )
 
-        completed_rounds = self._store.load_rounds(self.run_id)
+        completed_rounds = self._project.state.load_rounds(self.run_id)
         if round_number <= len(completed_rounds):
             raise RoundTransactionError(
                 f"Completed round {round_number} already exists for run {self.run_id!r}"
             )
-        expected_snapshot = self._store.prepare_completed_round_snapshot(self.run_id, record)
+        expected_snapshot = self._project.state.prepare_completed_round_snapshot(
+            self.run_id, record
+        )
         if (
             self._git.framework_snapshot_status(expected_snapshot)
             is not FrameworkSnapshotStatus.MISSING
@@ -255,16 +257,18 @@ class RoundTransactionCoordinator:
                 f"Round transaction journal payload is for round {record.round_number}, "
                 f"not round {journal.round_number}"
             )
-        expected_snapshot = self._store.prepare_completed_round_snapshot(self.run_id, record)
+        expected_snapshot = self._project.state.prepare_completed_round_snapshot(
+            self.run_id, record
+        )
         status = self._git.framework_snapshot_status(expected_snapshot)
         if status is FrameworkSnapshotStatus.DIFFERENT:
             raise RoundTransactionError(
                 "Committed round metadata differs from the transaction journal"
             )
         if status is FrameworkSnapshotStatus.EXACT:
-            snapshot = self._store.restore_completed_round(self.run_id, record)
+            snapshot = self._project.state.restore_completed_round(self.run_id, record)
         else:
-            snapshot = self._store.save_round(self.run_id, record)
+            snapshot = self._project.state.save_round(self.run_id, record)
             self._git.snapshot_with_framework_metadata(
                 f"vibesys(round {journal.round_number}): record result",
                 snapshot,

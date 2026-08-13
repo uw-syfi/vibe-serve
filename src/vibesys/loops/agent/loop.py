@@ -69,7 +69,7 @@ from vibesys.skills import (
     resolve_skill_selections,
 )
 from vs_loop_state.agent import RoundHistory, RoundRecord
-from vs_project_state import AgentRunConfiguration
+from vs_project import AgentRunConfiguration
 
 # Candidate process boundaries selected by ``--interface``. Language, tooling,
 # and artifact requirements belong to the selected domain and input bundle.
@@ -1974,11 +1974,13 @@ def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
     objective: str,
     *,
     runs_dir: Path | None,
+    task_name: str | None = None,
+    task_root: Path | None = None,
     objectives: list[Objective] | None = None,
     pareto_relative_noise: float = _DEFAULT_PARETO_RELATIVE_NOISE,
-    workspace_seed: Path | None = None,
     workspace_sources: tuple[WorkspaceSource, ...] = (),
     evaluator_path: Path | None = None,
+    evaluator_package_root: Path | None = None,
     benchmark_result: BenchmarkResult | None = None,
     accuracy_timeout_seconds: int | None = None,
     benchmark_timeout_seconds: int | None = None,
@@ -2099,9 +2101,11 @@ def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
         input_path=input_path,
         accuracy_command=accuracy_command,
         benchmark_command=benchmark_command,
-        workspace_seed=workspace_seed,
+        task_name=task_name,
+        task_root=task_root,
         workspace_sources=workspace_sources,
         evaluator_path=evaluator_path,
+        evaluator_package_root=evaluator_package_root,
         objective=objective,
         existing=existing,
         project_configuration=project_configuration,

@@ -2,7 +2,7 @@
 
 The public surface contains strict persisted-state records and pure codecs for
 all three loops. Project layout and filesystem persistence belong to
-``vs-project-state``.
+``vs-project``.
 """
 
 from vs_loop_state.agent import (

@@ -20,6 +20,7 @@ class ProfilerKind(StrEnum):
     NEURON = "neuron"
     MACOS_CPU = "macos_cpu"
     LINUX_CPU = "linux_cpu"
+    HEADROOM = "headroom"
 
 
 @dataclass(frozen=True)
@@ -83,6 +84,13 @@ PROFILER_DEFINITIONS: dict[ProfilerKind, ProfilerDefinition] = {
         ProfilerDefinition(ProfilerKind.NEURON, frozenset({DomainName.LLM_SERVING})),
         ProfilerDefinition(ProfilerKind.MACOS_CPU, frozenset({DomainName.GENERIC})),
         ProfilerDefinition(ProfilerKind.LINUX_CPU, frozenset({DomainName.GENERIC})),
+        # Analyzes a target-captured kernel headroom report (observed vs
+        # roofline speed-of-light per kernel). Scoped to LLM serving, where
+        # kernel-level roofline analysis drives the optimization loop.
+        ProfilerDefinition(
+            ProfilerKind.HEADROOM,
+            frozenset({DomainName.LLM_SERVING}),
+        ),
     )
 }
 

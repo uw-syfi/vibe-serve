@@ -1,0 +1,8 @@
+schema_version = 1
+name = "vibesys-evaluator-queue"
+version = "0.1.0"
+protocol_version = 1
+toolchains = ["go", "rust"]
+
+[entrypoints]
+vibesys-queue = ["go", "-C", "${PACKAGE_ROOT}", "run", "."]

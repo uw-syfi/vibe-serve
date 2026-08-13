@@ -14,7 +14,9 @@ from unittest.mock import MagicMock
 import pytest
 
 from vibesys.constants import ComputeBackend
+from vibesys.input_manifest import WorkspaceSource
 from vibesys.run import CopySpec, InputProjectSpec, Workspace
+from vibesys.run.workspace import GitSourceSpec
 
 
 def _make_workspace(root, *, isolated=False, excluded_dirs=None, compute_backend=None):  # noqa: ANN001, ANN202  # tracked: #288
@@ -103,7 +105,6 @@ def test_every_skill_copy_step_is_marked_for_pruning(tmp_path):  # noqa: ANN001,
 
     plan = ws.plan_setup(
         existing=False,
-        seed=None,
         input_dir=tmp_path / "input",
         evaluator_source=None,
         skill_sources=skills,
@@ -120,19 +121,24 @@ def test_every_skill_copy_step_is_marked_for_pruning(tmp_path):  # noqa: ANN001,
     ]
 
 
-def test_fresh_plan_with_seed_overlays_input_and_rejects_collisions(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+def test_fresh_plan_with_git_source_rejects_input_collisions(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     ws = _make_workspace(tmp_path / "ws")
-    seed = tmp_path / "seed"
     input_dir = tmp_path / "input"
     evaluator = tmp_path / "evaluators" / "queue"
     skills = [tmp_path / "skills" / "serving-systems"]
+    source = WorkspaceSource(
+        name="library",
+        repo="https://example.invalid/library.git",
+        commit="0123456",
+        dest="library",
+    )
 
     plan = ws.plan_setup(
         existing=False,
-        seed=seed,
         input_dir=input_dir,
         evaluator_source=evaluator,
         skill_sources=skills,
+        workspace_sources=(source,),
         input_project_dir=input_dir,
         profiler_support_path=str(tmp_path / "profilers" / "nsys"),
         profiler_support_name="nsys_profiler",
@@ -140,7 +146,7 @@ def test_fresh_plan_with_seed_overlays_input_and_rejects_collisions(tmp_path):  
     )
 
     assert plan == (
-        CopySpec(src=seed, dest=ws.root, respect_gitignore=True),
+        GitSourceSpec(source=source),
         CopySpec(
             src=input_dir,
             dest=ws.root,
@@ -162,13 +168,12 @@ def test_fresh_plan_with_seed_overlays_input_and_rejects_collisions(tmp_path):  
     )
 
 
-def test_fresh_plan_without_seed_does_not_reject_collisions(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+def test_fresh_plan_without_sources_does_not_reject_collisions(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     ws = _make_workspace(tmp_path / "ws")
     input_dir = tmp_path / "input"
 
     plan = ws.plan_setup(
         existing=False,
-        seed=None,
         input_dir=input_dir,
         evaluator_source=None,
         skill_sources=[],
@@ -191,7 +196,6 @@ def test_resume_plan_only_refreshes_skills_and_missing_profiler(tmp_path):  # no
     ws = _make_workspace(root)
     plan = ws.plan_setup(
         existing=True,
-        seed=tmp_path / "seed",
         input_dir=tmp_path / "input",
         evaluator_source=tmp_path / "evaluator",
         skill_sources=[skill],
@@ -200,7 +204,7 @@ def test_resume_plan_only_refreshes_skills_and_missing_profiler(tmp_path):  # no
         profiler_support_name="nsys_profiler",
     )
 
-    # No seed/input/evaluator/input-project copies on resume.
+    # No input/evaluator/input-project copies on resume.
     assert plan == (
         CopySpec(src=skill, dest=root / "serving-systems", prune_platforms=True),
         CopySpec(
@@ -217,7 +221,6 @@ def test_resume_plan_skips_profiler_already_present(tmp_path):  # noqa: ANN001, 
     ws = _make_workspace(root)
     plan = ws.plan_setup(
         existing=True,
-        seed=None,
         input_dir=tmp_path / "input",
         evaluator_source=None,
         skill_sources=[],
@@ -240,7 +243,6 @@ def test_setup_rejects_preexisting_evaluator_dir(tmp_path):  # noqa: ANN001, ANN
     ws = _make_workspace(root)
     plan = ws.plan_setup(
         existing=False,
-        seed=None,
         input_dir=tmp_path / "input",
         evaluator_source=evaluator,
         skill_sources=[],

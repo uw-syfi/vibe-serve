@@ -1,0 +1,17 @@
+Optimize a single-producer, single-consumer bounded FIFO queue.
+
+Headline metric: `total_ops_per_sec` (maximize).
+
+Preserve the required interface:
+- Provide a native shared library named `./queue-candidate.so`.
+- Export the evaluator's copying C ABI.
+- Implement enqueue and dequeue for copied byte values using the capacity and
+  value size supplied by the trusted runner.
+
+The candidate may use any language or combination of languages. The queue must
+remain linearizable, must not fabricate or duplicate items, and must respect
+capacity. Maximize trusted end-to-end operation throughput for the SPSC
+workload.
+
+Start from the editable Rust implementation in `src/lib.rs`. It is an
+intentionally naive correctness baseline, not part of the trusted evaluator.

@@ -96,6 +96,14 @@ def otel_server_mod():  # noqa: ANN201  # tracked: #288
     )
 
 
+@pytest.fixture(scope="module")
+def headroom_server_mod():  # noqa: ANN201  # tracked: #288
+    return _load_module(
+        "_headroom_server",
+        _REPO / "resources" / "profilers" / "headroom" / "server.py",
+    )
+
+
 async def _list_tool_names(server) -> set[str]:  # noqa: ANN001  # tracked: #288
     tools = await server.list_tools()
     return {t.name for t in tools}
@@ -689,3 +697,117 @@ class TestTorchMcpServer:
         out = asyncio.run(_call_tool(server, "kernels", report=str(prof), top=5))
         # flash_fwd_kernel is the bigger one and should appear first.
         assert out.index("flash_fwd_kernel") < out.index("rms_norm_kernel")
+
+
+# ---------------------------------------------------------------------------
+# Headroom MCP server
+# ---------------------------------------------------------------------------
+
+
+def _headroom_report(observed_copy: float = 10.9) -> dict:
+    return {
+        "schema_version": 1,
+        "gpu_spec_matched": "B200-SXM-180GB",
+        "meta": {"walk": "image_gen"},
+        "buckets_ms_per_step": {
+            "observed": 21.5,
+            "speed_of_light": 9.9,
+            "estimated_floor": 4.7,
+        },
+        "definitions": {"observed": "measured device time per step"},
+        "kernels": [
+            {
+                "kernel": "big_copy_kernel",
+                "kind": "eager",
+                "class": "movement",
+                "observed_ms_step": observed_copy,
+                "sol_ms_step": 2.4,
+                "opportunity_ms_step": observed_copy,
+                "calls_per_step": 144,
+                "source": [{"loc": "utils.py:273", "code": "set_kv_cache(...)"}],
+            },
+            {
+                "kernel": "nvjet_gemm",
+                "kind": "gemm",
+                "class": "quality",
+                "observed_ms_step": 1.9,
+                "sol_ms_step": 0.8,
+                "opportunity_ms_step": 1.1,
+            },
+        ],
+        "caveats": ["bytes assume bf16 elements"],
+    }
+
+
+class TestHeadroomMcpServer:
+    def test_registers_expected_tools(self, headroom_server_mod):  # noqa: ANN001, ANN201  # tracked: #288
+        server = headroom_server_mod.build_server()
+        names = asyncio.run(_list_tool_names(server))
+        assert names == {
+            "waterfall",
+            "top",
+            "kernel",
+            "subgraphs",
+            "compare",
+            "summary",
+        }
+
+    def test_waterfall_reports_buckets_and_definitions(self, headroom_server_mod, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+        report = tmp_path / "report.json"
+        report.write_text(json.dumps(_headroom_report()))
+
+        server = headroom_server_mod.build_server()
+        out = asyncio.run(_call_tool(server, "waterfall", report=str(report)))
+        assert "observed" in out
+        assert "estimated_floor" in out
+        assert "measured device time per step" in out
+
+    def test_top_ranks_by_opportunity_and_filters_by_class(self, headroom_server_mod, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+        report = tmp_path / "report.json"
+        report.write_text(json.dumps(_headroom_report()))
+
+        server = headroom_server_mod.build_server()
+        out = asyncio.run(_call_tool(server, "top", report=str(report)))
+        # The copy has the larger opportunity and must rank above the GEMM.
+        assert out.index("big_copy_kernel") < out.index("nvjet_gemm")
+        assert "utils.py:273" in out
+
+        only_quality = asyncio.run(
+            _call_tool(server, "top", report=str(report), klass="quality"),
+        )
+        assert "nvjet_gemm" in only_quality
+        assert "big_copy_kernel" not in only_quality
+
+    def test_kernel_tool_matches_substring(self, headroom_server_mod, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+        report = tmp_path / "report.json"
+        report.write_text(json.dumps(_headroom_report()))
+
+        server = headroom_server_mod.build_server()
+        # The tool's own argument is called ``name``, which collides with the
+        # ``_call_tool`` helper's positional; call the server directly.
+        _, structured = asyncio.run(
+            server.call_tool("kernel", {"report": str(report), "name": "nvjet"})
+        )
+        out = structured["result"]
+        assert "nvjet_gemm" in out
+        assert "big_copy_kernel" not in out
+
+    def test_compare_reports_per_kernel_delta(self, headroom_server_mod, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+        old = tmp_path / "old.json"
+        new = tmp_path / "new.json"
+        old.write_text(json.dumps(_headroom_report(observed_copy=10.9)))
+        new.write_text(json.dumps(_headroom_report(observed_copy=2.0)))
+
+        server = headroom_server_mod.build_server()
+        out = asyncio.run(_call_tool(server, "compare", old=str(old), new=str(new)))
+        assert "big_copy_kernel" in out
+        assert "-8.900" in out
+
+    def test_malformed_report_is_a_structured_error(self, headroom_server_mod, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+        bogus = tmp_path / "bogus.json"
+        bogus.write_text(json.dumps({"not_kernels": []}))
+
+        server = headroom_server_mod.build_server()
+        out = asyncio.run(_call_tool(server, "summary", report=str(bogus)))
+        assert out.startswith("error:")
+        assert "not a headroom report" in out

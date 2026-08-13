@@ -27,6 +27,7 @@ Verify the harness end-to-end against the seed: `examples/kv-store/run_test.sh`.
 
 ```bash
 vibesys --outer-loop agent \
+  --headless \
   --input examples/kv-store \
   --runs-dir /work/vibesys-runs --local \
   --exp-name kv-store-opt \
@@ -40,7 +41,7 @@ vibesys --outer-loop agent \
 
 `--interface service` judges the store only over its RESP2 socket, so the agent
 may implement it in any language. The copied project, including candidate
-source and `.vs/` state, is created at
+source and `.vibesys/state/` state, is created at
 `/work/vibesys-runs/<run-id>/`. Its evolution is recorded in Git. Only rounds
 that pass the accuracy checker advance.
 

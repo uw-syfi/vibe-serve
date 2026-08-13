@@ -4,7 +4,7 @@ version = 1
 domain = "microservices"
 
 [evaluator]
-source = "../../evaluators/microservice"
+source = "../../../resources/evaluators/microservice"
 
 [accuracy]
 command = [

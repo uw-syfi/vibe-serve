@@ -88,11 +88,11 @@ class SupervisionService:
         project_run = self.supervisor.project_run
         if project_run is None:
             return []
-        manifest = project_run.store.load_run(project_run.run_id)
+        manifest = project_run.project.state.load_run(project_run.run_id)
         if manifest.configuration.outer_loop != "agent":
             return []
         rounds: list[PerformanceRound] = []
-        for record in project_run.store.load_rounds(project_run.run_id):
+        for record in project_run.project.state.load_rounds(project_run.run_id):
             if record.perf_metric is None or record.perf_unit is None:
                 continue
             rounds.append(

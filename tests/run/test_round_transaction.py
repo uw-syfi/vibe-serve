@@ -15,7 +15,7 @@ from vibesys.run import (
     RoundTransactionError,
 )
 from vs_loop_state import RoundRecord
-from vs_project_state import AgentRunConfiguration, ProjectStore, StateTransition
+from vs_project import AgentRunConfiguration, Project, StateTransition
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -44,15 +44,15 @@ def _configuration() -> AgentRunConfiguration:
     )
 
 
-def _project(tmp_path: Path) -> tuple[ProjectStore, GitTracker, RoundTransactionCoordinator]:
+def _project(tmp_path: Path) -> tuple[Project, GitTracker, RoundTransactionCoordinator]:
     (tmp_path / "main.py").write_text("VALUE = 1\n", encoding="utf-8")
-    store = ProjectStore(tmp_path)
-    store.create_project("transaction test", now=datetime(2026, 8, 11, tzinfo=UTC))
+    project = Project.open(tmp_path)
+    project.state.create_project("transaction test", now=datetime(2026, 8, 11, tzinfo=UTC))
     tracker = GitTracker(tmp_path, log=lambda _message: None, run_id=_RUN_ID)
     tracker.init(existing=False)
     assert tracker.trusted_input_baseline is not None
     assert tracker.project_branch is not None
-    manifest = store.new_run_manifest(
+    manifest = project.state.new_run_manifest(
         "transaction test",
         run_id=_RUN_ID,
         branch=tracker.project_branch,
@@ -61,15 +61,17 @@ def _project(tmp_path: Path) -> tuple[ProjectStore, GitTracker, RoundTransaction
         trusted_input_baseline=tracker.trusted_input_baseline,
         now=datetime(2026, 8, 11, 0, 1, tzinfo=UTC),
     )
-    store.create_run(manifest)
+    project.state.create_run(manifest)
     tracker.snapshot_with_framework_metadata(
         "initialize run",
-        store.initialization_snapshot(_RUN_ID),
+        project.state.initialization_snapshot(_RUN_ID),
     )
     return (
-        store,
+        project,
         tracker,
-        RoundTransactionCoordinator(store, tracker, _RUN_ID, active_state_model_type=_ActiveState),
+        RoundTransactionCoordinator(
+            project, tracker, _RUN_ID, active_state_model_type=_ActiveState
+        ),
     )
 
 
@@ -85,24 +87,24 @@ def _record(tracker: GitTracker, round_number: int = 1) -> RoundRecord:
     )
 
 
-def _active_transition(store: ProjectStore, hypothesis: str | None) -> StateTransition:
+def _active_transition(project: Project, hypothesis: str | None) -> StateTransition:
     model = None if hypothesis is None else _ActiveState(hypothesis=hypothesis)
-    return store.local_namespace(_RUN_ID, "agent").transition("active.json", model)
+    return project.state.local_namespace(_RUN_ID, "agent").transition("active.json", model)
 
 
-def _apply_active(store: ProjectStore, transition: StateTransition) -> None:
-    store.local_namespace(_RUN_ID, "agent").apply(transition)
+def _apply_active(project: Project, transition: StateTransition) -> None:
+    project.state.local_namespace(_RUN_ID, "agent").apply(transition)
 
 
-def _save_active(store: ProjectStore, hypothesis: str) -> None:
-    store.local_namespace(_RUN_ID, "agent").save(
+def _save_active(project: Project, hypothesis: str) -> None:
+    project.state.local_namespace(_RUN_ID, "agent").save(
         "active.json",
         _ActiveState(hypothesis=hypothesis),
     )
 
 
-def _load_active(store: ProjectStore) -> _ActiveState | None:
-    return store.local_namespace(_RUN_ID, "agent").load_optional(
+def _load_active(project: Project) -> _ActiveState | None:
+    return project.state.local_namespace(_RUN_ID, "agent").load_optional(
         "active.json",
         _ActiveState,
     )
@@ -121,7 +123,7 @@ def test_complete_commits_candidate_and_typed_round_state(tmp_path: Path) -> Non
 
     assert completed.checkpoint == tracker.current_sha()
     assert tracker.run(["git", "show", "HEAD:main.py"]).stdout == b"VALUE = 2\n"
-    assert store.load_rounds(_RUN_ID) == [record]
+    assert store.state.load_rounds(_RUN_ID) == [record]
     assert _load_active(store) == _ActiveState(hypothesis="after")
     assert coordinator.recover() is RoundRecoveryOutcome.NO_TRANSACTION
 
@@ -141,7 +143,7 @@ def test_recovery_rolls_prepared_round_forward(tmp_path: Path) -> None:
     )
 
     assert restarted.recover() is RoundRecoveryOutcome.COMMITTED
-    assert store.load_rounds(_RUN_ID) == [record]
+    assert store.state.load_rounds(_RUN_ID) == [record]
     assert _load_active(store) is None
     assert tracker.run(["git", "show", "HEAD:main.py"]).stdout == b"VALUE = 2\n"
     assert restarted.recover() is RoundRecoveryOutcome.NO_TRANSACTION
@@ -163,12 +165,12 @@ def test_recovery_preserves_an_already_applied_active_transition(tmp_path: Path)
 
     assert restarted.recover() is RoundRecoveryOutcome.COMMITTED
     assert _load_active(store) == _ActiveState(hypothesis="next hypothesis")
-    assert store.load_rounds(_RUN_ID) == [record]
+    assert store.state.load_rounds(_RUN_ID) == [record]
 
 
 def test_recovery_translates_corrupt_journal_state(tmp_path: Path) -> None:
     store, _tracker, coordinator = _project(tmp_path)
-    journal_directory = store.local_namespace(_RUN_ID, "transaction").external_directory()
+    journal_directory = store.state.local_namespace(_RUN_ID, "transaction").external_directory()
     (journal_directory / "round.json").write_text("{not-json", encoding="utf-8")
 
     with pytest.raises(RoundTransactionError, match="Invalid round transaction journal"):
@@ -177,7 +179,7 @@ def test_recovery_translates_corrupt_journal_state(tmp_path: Path) -> None:
 
 def test_begin_translates_corrupt_journal_state(tmp_path: Path) -> None:
     store, tracker, coordinator = _project(tmp_path)
-    journal_directory = store.local_namespace(_RUN_ID, "transaction").external_directory()
+    journal_directory = store.state.local_namespace(_RUN_ID, "transaction").external_directory()
     (journal_directory / "round.json").write_text("{not-json", encoding="utf-8")
 
     with pytest.raises(RoundTransactionError, match="Invalid round transaction journal"):
@@ -204,7 +206,7 @@ def test_snapshot_failure_remains_recoverable(
     monkeypatch.setattr(tracker, "snapshot_with_framework_metadata", original_snapshot)
 
     assert coordinator.recover() is RoundRecoveryOutcome.COMMITTED
-    assert store.load_rounds(_RUN_ID) == [record]
+    assert store.state.load_rounds(_RUN_ID) == [record]
     assert _load_active(store) == _ActiveState(hypothesis="after")
 
 
@@ -225,7 +227,7 @@ def test_recovery_after_commit_does_not_create_a_duplicate_commit(
     with pytest.raises(OSError, match="simulated process failure"):
         transaction.complete()
     committed_head = tracker.current_sha()
-    completed_round_directory = store.portable_namespace(
+    completed_round_directory = store.state.portable_namespace(
         _RUN_ID,
         "agent",
     ).external_directory("rounds")
@@ -239,7 +241,7 @@ def test_recovery_after_commit_does_not_create_a_duplicate_commit(
     )
     assert restarted.recover() is RoundRecoveryOutcome.COMMITTED
     assert tracker.current_sha() == committed_head
-    assert store.load_rounds(_RUN_ID) == [record]
+    assert store.state.load_rounds(_RUN_ID) == [record]
 
 
 def test_begin_rejects_staged_changes_without_leaving_a_transaction(tmp_path: Path) -> None:
@@ -256,7 +258,7 @@ def test_begin_rejects_staged_changes_without_leaving_a_transaction(tmp_path: Pa
 
 def test_begin_rejects_a_transition_from_another_namespace(tmp_path: Path) -> None:
     store, tracker, coordinator = _project(tmp_path)
-    wrong_transition = store.local_namespace(_RUN_ID, "plain").transition(
+    wrong_transition = store.state.local_namespace(_RUN_ID, "plain").transition(
         "cursor.json",
         _ActiveState(hypothesis="after"),
     )

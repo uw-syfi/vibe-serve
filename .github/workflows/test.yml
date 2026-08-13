@@ -134,10 +134,10 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: examples/evaluators/queue/go.mod
+          go-version-file: resources/evaluators/queue/go.mod
           cache-dependency-path: |
-            examples/evaluators/queue/go.sum
-            examples/evaluators/microservice/go.sum
+            resources/evaluators/queue/go.sum
+            resources/evaluators/microservice/go.sum
 
       - name: Install managed-candidate containment dependency
         run: |
@@ -151,48 +151,51 @@ jobs:
           components: clippy, rustfmt
 
       - name: Check native runner formatting
-        working-directory: examples/evaluators/queue/native_runner
+        working-directory: resources/evaluators/queue/native_runner
         run: cargo fmt -- --check
 
       - name: Lint native runner
-        working-directory: examples/evaluators/queue/native_runner
+        working-directory: resources/evaluators/queue/native_runner
         run: cargo clippy --locked --all-targets -- -D warnings
 
       - name: Test native runner
-        working-directory: examples/evaluators/queue/native_runner
+        working-directory: resources/evaluators/queue/native_runner
         run: cargo test --locked
 
-      - name: Check starter formatting
-        working-directory: examples/starters/queue-rs
+      - name: Check queue candidate formatting
+        working-directory: examples/data-structures/repositories/queue-rs
         run: cargo fmt -- --check
 
-      - name: Lint starter
-        working-directory: examples/starters/queue-rs
+      - name: Lint queue candidate
+        working-directory: examples/data-structures/repositories/queue-rs
         run: cargo clippy --locked --all-targets -- -D warnings
 
-      - name: Test starter
-        working-directory: examples/starters/queue-rs
+      - name: Test queue candidate
+        working-directory: examples/data-structures/repositories/queue-rs
         run: cargo test --locked
 
       - name: Test queue evaluator
-        working-directory: examples/evaluators/queue
+        working-directory: resources/evaluators/queue
         run: go test -race ./...
 
       - name: Test microservice evaluator
-        working-directory: examples/evaluators/microservice
+        working-directory: resources/evaluators/microservice
         env:
           VIBESYS_REQUIRE_MANAGED_CANDIDATE_TESTS: "1"
         run: go test -race ./...
 
+      - name: Initialize repository-native microservice examples
+        run: git submodule update --init --depth 1 examples/microservices/repositories/deathstarbench
+
       - name: Validate microservice workloads
-        working-directory: examples/evaluators/microservice
+        working-directory: resources/evaluators/microservice
         run: |
-          go run ./cmd/servicebench --workload ../../microservices/train-ticket/benchmark/workload.toml --validate-only
-          go run ./cmd/servicebench --mode accuracy --workload ../../microservices/train-ticket/benchmark/workload.toml --validate-only
-          go run ./cmd/servicebench --workload ../../microservices/train-ticket/benchmark/workload.toml --profile offered-load --validate-only
-          go run ./cmd/servicebench --workload ../../microservices/social-network-read-timeline/benchmark/workload.toml --validate-only
-          go run ./cmd/servicebench --workload ../../microservices/hotel-reservation/benchmark/workload.toml --telemetry-command-json '["go","run","./cmd/otelcapture","--input-json","../../metrics/otel/traces.otlp.ndjson","--settle-seconds","5"]' --telemetry-output ../../metrics/telemetry.json --telemetry-timeout 60 --validate-only
-          go run ./cmd/servicebench --mode accuracy --workload ../../microservices/hotel-reservation/benchmark/workload.toml --validate-only
+          go run ./cmd/servicebench --workload "$GITHUB_WORKSPACE/examples/microservices/train-ticket/benchmark/workload.toml" --validate-only
+          go run ./cmd/servicebench --mode accuracy --workload "$GITHUB_WORKSPACE/examples/microservices/train-ticket/benchmark/workload.toml" --validate-only
+          go run ./cmd/servicebench --workload "$GITHUB_WORKSPACE/examples/microservices/train-ticket/benchmark/workload.toml" --profile offered-load --validate-only
+          go run ./cmd/servicebench --workload "$GITHUB_WORKSPACE/examples/microservices/repositories/deathstarbench/.vibesys/tasks/social-network-read-timeline/benchmark/workload.toml" --validate-only
+          go run ./cmd/servicebench --workload "$GITHUB_WORKSPACE/examples/microservices/repositories/deathstarbench/.vibesys/tasks/hotel-reservation/benchmark/workload.toml" --telemetry-command-json '["go","run","./cmd/otelcapture","--input-json","/tmp/vibesys-hotel-traces.otlp.ndjson","--settle-seconds","5"]' --telemetry-output /tmp/vibesys-hotel-telemetry.json --telemetry-timeout 60 --validate-only
+          go run ./cmd/servicebench --mode accuracy --workload "$GITHUB_WORKSPACE/examples/microservices/repositories/deathstarbench/.vibesys/tasks/hotel-reservation/benchmark/workload.toml" --validate-only
 
   test:
     runs-on: ubuntu-latest
@@ -204,6 +207,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+
+      - name: Initialize repository-native microservice examples
+        run: git submodule update --init --depth 1 examples/microservices/repositories/deathstarbench
 
       - name: Install uv
         uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0

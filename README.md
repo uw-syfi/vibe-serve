@@ -79,12 +79,13 @@ Install and authenticate a supported coding-agent CLI. For Codex CLI, run
 `codex login`; see the [CLI reference](docs/cli-flags.md) for other supported
 agents.
 
-From the root of the project you want to optimize, add these VibeSys files:
+From the root of the project you want to optimize, add a named task under
+`.vibesys/tasks/`:
 
-- `OBJECTIVE.md` describes what to optimize and the constraints the result must
-  preserve.
-- `vibesys.input.toml` identifies the problem domain and the programs that check
-  correctness and benchmark performance.
+- `.vibesys/tasks/<task>/OBJECTIVE.md` describes what to optimize and the
+  constraints the result must preserve.
+- `.vibesys/tasks/<task>/vibesys.input.toml` identifies the problem domain and
+  the programs that check correctness and benchmark performance.
 - `agent.toml` optionally selects the coding agent, model, and hardware backend.
   Keep it untracked.
 
@@ -109,14 +110,14 @@ Run from the project root:
 
 ```bash
 cd /path/to/my-project
-vibesys validate
-vibesys --max-rounds 4
+vibesys validate --task my-task
+vibesys --task my-task --max-rounds 4
 ```
 
 The directory must be its Git repository root, or outside Git so VibeSys can
 initialize a repository. An existing repository needs a baseline commit and a
 clean worktree. See [Running VibeSys](docs/running-vibesys.md) for copied
-projects, seeded inputs, Docker, Modal, remote repositories, resume, and
+projects, legacy input bundles, Docker, Modal, remote repositories, resume, and
 alternate search loops. The [CLI reference](docs/cli-flags.md) documents every
 flag. Contributor setup belongs in [`docs/development.md`](docs/development.md).
 

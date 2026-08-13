@@ -10,13 +10,12 @@ from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from vibesys.run.project_policy import TRUSTED_PROJECT_INPUT_PATHS
-from vs_project_state import ProjectStore
+from vs_project import Project
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
 
-    from vs_project_state import ProjectGitIntegration, StateSnapshot
+    from vs_project import ProjectGitIntegration, StateSnapshot
 
 
 def _normalize_project_paths(paths: Iterable[str | Path]) -> tuple[Path, ...]:
@@ -46,7 +45,7 @@ class GitTracker:
     """Snapshot tracking for one canonical project repository.
 
     The project root is also the Git worktree root. Each run advances its own
-    ``vibesys/<run-id>`` branch. Machine-local framework state is excluded
+    ``vibesys-runs/<run-id>`` branch. Machine-local framework state is excluded
     through repository-local Git configuration.
     """
 
@@ -70,8 +69,6 @@ class GitTracker:
         "neuroncc_compile_workdir/",
         "neuron-compile-cache/",
     )
-
-    _TRUSTED_INPUT_PATHS = TRUSTED_PROJECT_INPUT_PATHS
 
     _PROJECT_LOCAL_EXCLUDE_PATTERNS: tuple[str, ...] = (
         "/.env",
@@ -102,17 +99,13 @@ class GitTracker:
         self._excluded_dirs = frozenset(excluded_dirs)
         self.run_id = run_id
         self._trusted_input_paths = tuple(
-            dict.fromkeys(
-                (
-                    *_normalize_project_paths(self._TRUSTED_INPUT_PATHS),
-                    *_normalize_project_paths(trusted_input_paths),
-                )
-            )
+            dict.fromkeys(_normalize_project_paths(trusted_input_paths))
         )
         self._trusted_input_baseline: str | None = None
-        self._state_integration: ProjectGitIntegration = ProjectStore(self.root).git_integration(
-            run_id
-        )
+        self._project_branch = f"vibesys-runs/{run_id}"
+        self._state_integration: ProjectGitIntegration = Project.open(
+            self.root
+        ).state.git_integration(run_id)
         self._git_dir: Path | None = None
         self._work_tree: Path | None = None
         self._exclude_file = self.root / ".git" / "info" / "exclude"
@@ -614,7 +607,7 @@ class GitTracker:
     @property
     def project_branch(self) -> str:
         """Return the canonical branch name for this run."""
-        return f"vibesys/{self.run_id}"
+        return self._project_branch
 
     def _init_project(
         self,
@@ -629,6 +622,10 @@ class GitTracker:
         self._install_project_excludes()
         self._require_private_inputs_absent_from_history()
         if existing:
+            legacy_branch = f"vibesys/{self.run_id}"
+            if not self._branch_exists(branch) and self._branch_exists(legacy_branch):
+                self._project_branch = legacy_branch
+                branch = legacy_branch
             self._resume_user_project(branch, trusted_input_baseline)
             return
 

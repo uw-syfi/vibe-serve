@@ -3,13 +3,13 @@
 from vibesys.loops.agent.model import ActiveHypothesis
 from vibesys.loops.agent.state import AgentStateStore
 from vibesys.schemas import OrchestratorPlan
-from vs_project_state import PlainRunConfiguration, ProjectStore, StateTransition
+from vs_project import PlainRunConfiguration, Project, StateTransition
 
 
 def test_agent_state_store_round_trips_and_clears_active_state(tmp_path) -> None:  # noqa: ANN001
-    project = ProjectStore(tmp_path)
-    project.create_project("test")
-    run = project.new_run_manifest(
+    project = Project.open(tmp_path)
+    project.state.create_project("test")
+    run = project.state.new_run_manifest(
         "test",
         run_id="run-1",
         branch="vibesys/run-1",
@@ -24,8 +24,8 @@ def test_agent_state_store_round_trips_and_clears_active_state(tmp_path) -> None
             max_issues_per_perf_eval=1,
         ),
     )
-    project.create_run(run)
-    namespace = project.local_namespace("run-1", "agent")
+    project.state.create_run(run)
+    namespace = project.state.local_namespace("run-1", "agent")
     store = AgentStateStore(namespace)
     state = ActiveHypothesis(
         plan=OrchestratorPlan(

@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from vibesys.run.git_tracker import GitTracker
     from vs_loop_state import RoundRecord
-    from vs_project_state import ProjectStore, StateNamespace
+    from vs_project import Project, StateNamespace
 
 
 class RunStateNamespace(StrEnum):
@@ -25,21 +25,34 @@ class RunStateNamespace(StrEnum):
 class RunState:
     """Typed access to one run's portable and machine-local state.
 
-    ``ProjectStore`` owns path resolution and filesystem serialization.
+    ``Project.state`` owns path resolution and filesystem serialization.
     ``GitTracker`` receives only immutable snapshots produced by that store.
     """
 
-    store: ProjectStore
+    project: Project
     git: GitTracker
     run_id: str
 
+    def __post_init__(self) -> None:
+        """Require state persistence and Git history to identify the same run."""
+        if self.project.root != self.git.history_root:
+            raise ValueError(  # noqa: TRY003  # tracked: #288
+                "run state project root does not match Git history root: "
+                f"{self.project.root} != {self.git.history_root}"
+            )
+        if self.run_id != self.git.run_id:
+            raise ValueError(  # noqa: TRY003  # tracked: #288
+                f"run state ID does not match Git history run ID: {self.run_id!r} != "
+                f"{self.git.run_id!r}"
+            )
+
     def portable(self, namespace: RunStateNamespace) -> StateNamespace:
         """Return the portable state handle for ``namespace``."""
-        return self.store.portable_namespace(self.run_id, namespace.value)
+        return self.project.state.portable_namespace(self.run_id, namespace.value)
 
     def local(self, namespace: RunStateNamespace) -> StateNamespace:
         """Return the machine-local state handle for ``namespace``."""
-        return self.store.local_namespace(self.run_id, namespace.value)
+        return self.project.state.local_namespace(self.run_id, namespace.value)
 
     def commit(self, label: str, namespace: StateNamespace) -> None:
         """Commit the exact current contents of one portable namespace."""
@@ -47,4 +60,4 @@ class RunState:
 
     def completed_rounds(self) -> list[RoundRecord]:
         """Load the validated completed-round history for this run."""
-        return self.store.load_rounds(self.run_id)
+        return self.project.state.load_rounds(self.run_id)

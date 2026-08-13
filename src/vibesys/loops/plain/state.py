@@ -11,7 +11,7 @@ from vs_loop_state import (
 )
 
 if TYPE_CHECKING:
-    from vs_project_state import StateNamespace, StateSlot
+    from vs_project import StateNamespace, StateSlot
 
 _CURSOR_FILE = "state.json"
 _PERFORMANCE_FILE = "perf/metrics.json"

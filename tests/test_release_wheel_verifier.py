@@ -21,7 +21,7 @@ FRAMEWORK_PACKAGES = (
     "vs_github",
     "vs_issue_board",
     "vs_loop_state",
-    "vs_project_state",
+    "vs_project",
     "vs_sandbox",
 )
 PLATLIB = ""
@@ -49,7 +49,7 @@ dependencies = ["example>=1"]
         "vs_github": "libs/vs-github/src/vs_github",
         "vs_issue_board": "libs/vs-issue-board/src/vs_issue_board",
         "vs_loop_state": "libs/vs-loop-state/src/vs_loop_state",
-        "vs_project_state": "libs/vs-project-state/src/vs_project_state",
+        "vs_project": "libs/vs-project/src/vs_project",
         "vs_sandbox": "libs/vs-sandbox/src/vs_sandbox",
     }
     for package, source in roots.items():
@@ -57,6 +57,11 @@ dependencies = ["example>=1"]
         if package != "vibesys":
             _source_file(root, f"{source}/py.typed", b"")
 
+    _source_file(
+        root,
+        "resources/evaluators/queue/vibesys.evaluator.toml",
+        b"schema_version = 1\n",
+    )
     _source_file(root, "resources/profilers/nsys/server.py", b"# profiler\n")
     _source_file(root, "resources/skills/demo/SKILL.md", b"# demo skill\n")
     _source_file(root, "resources/skills/demo/scripts/check.py", b"# helper\n")
@@ -79,8 +84,9 @@ def _packaged_source_files(source_root: Path) -> dict[str, bytes]:
         "libs/vs-github/src/vs_github": "vs_github",
         "libs/vs-issue-board/src/vs_issue_board": "vs_issue_board",
         "libs/vs-loop-state/src/vs_loop_state": "vs_loop_state",
-        "libs/vs-project-state/src/vs_project_state": "vs_project_state",
+        "libs/vs-project/src/vs_project": "vs_project",
         "libs/vs-sandbox/src/vs_sandbox": "vs_sandbox",
+        "resources/evaluators": "vibesys/_resources/evaluators",
         "resources/profilers": "vibesys/_resources/profilers",
         "resources/skills": "vibesys/_resources/skills",
         "sdk/vs-bench": "vibesys/_sdk/vs-bench",
@@ -330,6 +336,10 @@ def test_rejects_an_internal_distribution_dependency(release_fixture: tuple[Path
 @pytest.mark.parametrize(
     ("missing", "message"),
     [
+        (
+            f"{PLATLIB}vibesys/_resources/evaluators/queue/vibesys.evaluator.toml",
+            "resources/evaluators",
+        ),
         (f"{PLATLIB}vibesys/_resources/skills/demo/SKILL.md", "resources/skills"),
         (f"{PLATLIB}vibesys/_sdk/vs-bench/pyproject.toml", "sdk/vs-bench"),
         (f"{PLATLIB}vibesys/_tui/licenses/BUN-LICENSE.md", "BUN-LICENSE"),

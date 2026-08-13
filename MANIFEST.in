@@ -13,7 +13,7 @@ graft libs/vs-feature-flags/src
 graft libs/vs-github/src
 graft libs/vs-issue-board/src
 graft libs/vs-loop-state/src
-graft libs/vs-project-state/src
+graft libs/vs-project/src
 graft libs/vs-sandbox/src
 
 # Include the TypeScript TUI sources in the sdist for development source builds.
@@ -30,8 +30,10 @@ prune libs/*/src/*.egg-info
 
 # Include the resource trees so a source build can stage them into
 # vibesys/_resources. Vendored skill repo checkouts stay out of the sdist.
+graft resources/evaluators
 graft resources/profilers
 graft resources/skills
+prune resources/evaluators/queue/native_runner/target
 prune resources/skills/serving-systems/repos
 
 # Bundle the installable input SDK source without its tests or local artifacts.

@@ -1,53 +1,106 @@
 # Running VibeSys
 
-Every VibeSys run operates on one canonical project. The project root contains
-the candidate source, `OBJECTIVE.md`, `vibesys.input.toml`, `.git/`, and `.vs/`.
-The project root is the agent's working directory.
+A repository-native VibeSys run operates on one candidate repository and one
+named task. The repository root is the agent and evaluator working directory.
+Human-authored task inputs live below `.vibesys/tasks`; generated state lives
+below `.vibesys/state`.
 
 ```text
 project/
 ├── .git/
-├── .vs/
-│   ├── project.json
-│   ├── runs/<run-id>/          # committed run metadata and loop state
-│   └── local/runs/<run-id>/    # logs and machine-local state
-├── OBJECTIVE.md
-├── vibesys.input.toml
+├── .vibesys/
+│   ├── evaluators.lock              # exact package pins, when packages are used
+│   ├── tasks/
+│   │   └── <task>/
+│   │       ├── OBJECTIVE.md
+│   │       ├── vibesys.input.toml
+│   │       ├── accuracy_checker/    # optional task-owned program
+│   │       ├── benchmark/           # optional task-owned program
+│   │       └── reference/           # optional held-out inputs
+│   └── state/
+│       ├── project.json
+│       ├── runs/<run-id>/          # committed run metadata and loop state
+│       └── local/runs/<run-id>/    # logs and machine-local state
 └── candidate source
 ```
 
-VibeSys commits candidate evolution and portable `.vs/runs/` metadata on a
-`vibesys/<run-id>` branch. `.vs/local/`, `agent.toml`, and root `.env*` files
-stay uncommitted and are hidden from coding agents.
+VibeSys commits candidate evolution and portable `.vibesys/state/runs/`
+metadata on a `vibesys-runs/<run-id>` branch. `.vibesys/state/local/`, `agent.toml`,
+and root `.env*` files stay uncommitted and are hidden from coding agents. The
+entire `.vibesys/` directory is read-only to coding agents.
 
-## Start from the Current Project
+## Start a Task
 
-Launch from a self-contained project root when its candidate source is already
-present:
+Launch from the candidate repository. Select the task explicitly when the
+repository defines more than one:
 
 ```bash
 cd /path/to/project
-vibesys validate
-vibesys --max-rounds 4
+vibesys validate --task latency
+vibesys --task latency --max-rounds 4
 ```
 
-`--input` selects the same project explicitly:
+`--project` selects the repository explicitly. `--input` remains a compatibility
+alias during migration:
 
 ```bash
-vibesys --input /path/to/project --config /path/to/project/agent.toml
+vibesys --project /path/to/project --task latency \
+  --config /path/to/project/agent.toml
 ```
 
-The directory must be its Git repository root, or outside Git so VibeSys can
-initialize a repository. An existing repository needs a baseline commit and a
-clean worktree. Keep `agent.toml` and root `.env*` files out of Git history.
+The task name may be omitted when `.vibesys/tasks` contains exactly one task.
+The repository must be its Git root, or outside any Git repository so VibeSys
+can initialize one. An existing repository needs a baseline commit and a clean
+worktree. Keep `agent.toml` and root `.env*` files out of Git history.
 
-The `agent`, `plain`, and `evolve` outer loops all use this project model. Local,
-Docker, and Modal execution change where commands run, not the on-disk layout.
+The `agent`, `plain`, and `evolve` outer loops all use this model. Local, Docker,
+and Modal execution change where commands run, not the task layout. Task
+commands always start in the repository root. `.vibesys` is mounted read-only
+for coding agents; `.vibesys/state/local` is also hidden from them.
 
-## Create a Copied Project
+Modal tasks may set a project-relative deployment file. Omit this block to use
+the legacy `main.py` default:
 
-Pass `--runs-dir` when the input should remain unchanged or its manifest uses a
-workspace seed or Git-pinned sources:
+```toml
+[environment.modal]
+entrypoint = "examples/deployment/service.py"
+```
+
+Accuracy and benchmark commands may be task-owned argv arrays, or stable entry
+points supplied by an exact evaluator package:
+
+```toml
+version = 1
+
+[agent]
+domain = "generic"
+
+[evaluator]
+name = "vibesys-evaluator-queue"
+version = "0.1.0"
+
+[accuracy]
+entrypoint = "vibesys-queue"
+args = ["check", "--workspace", "${PROJECT_ROOT}", "--scenario", "spsc"]
+
+[benchmark]
+entrypoint = "vibesys-queue"
+args = ["benchmark", "--workspace", "${PROJECT_ROOT}", "--scenario", "spsc"]
+```
+
+Commit `.vibesys/evaluators.lock` when a task uses a package. VibeSys verifies
+its exact version and content digest before a run.
+
+## Legacy Input Bundles
+
+Root-level `OBJECTIVE.md` plus `vibesys.input.toml`, `[workspace]`,
+`evaluator.source`, standalone `--input-*` flags, and `--runs-dir` copied
+projects remain temporarily supported for examples that have not migrated.
+New integrations should use repository-native tasks. A task in a standalone
+repository runs in place. A repository-shaped example nested below another Git
+root uses `--runs-dir` to materialize an isolated project.
+
+For example:
 
 ```bash
 vibesys \
@@ -56,28 +109,12 @@ vibesys \
   --input /path/to/input
 ```
 
-VibeSys provisions a self-contained project at
-`/work/vibesys-runs/<generated-run-id>/`. Candidate source is at that directory's
-root. The copied manifest no longer depends on the original seed or source
-paths, and a declared evaluator is copied below `_evaluator/`.
-
-The source input's `.git/`, `.vs/`, `agent.toml`, and `.env*` files are never
-copied. Agent configuration continues to come from the launch directory or an
-explicit `--config` path.
-
-Without `--local`, a fresh copied project is published to GitHub. Authenticate
-the GitHub CLI first, then optionally select the repository name:
-
-```bash
-gh auth login
-vibesys \
-  --runs-dir /work/vibesys-runs \
-  --repo my-org/my-experiment \
-  --input /path/to/input
-```
-
-Publication pushes the existing `vibesys/<run-id>` history and retained evolve
-candidate refs. It does not create an additional synchronization commit.
+VibeSys provisions a self-contained project below the runs directory. Candidate
+source is at the copied project's root, and a declared evaluator is copied
+below `_evaluator/`. The source input's `.git/`, `.vibesys/`, `agent.toml`, and
+`.env*` files are not copied. Omit `--local` to publish the copied project using
+the authenticated GitHub CLI. See [Legacy bundles](cli-flags.md#legacy-bundles)
+for the source, evaluator, and publication contracts.
 
 ## Resume
 
@@ -90,9 +127,9 @@ vibesys --resume
 vibesys --resume <run-id>
 ```
 
-With `--runs-dir`, the resume argument selects a project in the collection. It
-may be a directory name, a local path, a GitHub `OWNER/NAME`, or a cloneable
-URL. VibeSys then resumes that project's current or newest run.
+With `--runs-dir`, the resume argument selects a legacy copied project in the
+collection. It may be a directory name, a local path, a GitHub `OWNER/NAME`, or
+a cloneable URL. VibeSys then resumes that project's current or newest run.
 
 ```bash
 vibesys --runs-dir /work/vibesys-runs --resume <project-directory-name>
@@ -101,9 +138,9 @@ vibesys --runs-dir /work/vibesys-runs --resume my-org/my-experiment
 vibesys --runs-dir /work/vibesys-runs --resume https://github.com/my-org/my-experiment.git
 ```
 
-Omitted configuration flags are restored from `.vs/runs/<run-id>/run.json`.
-The total round or generation limit may increase. Other recorded settings
-cannot change during a resume.
+Omitted configuration flags and the selected task are restored from
+`.vibesys/state/runs/<run-id>/run.json`. The total round or generation limit
+may increase. Other recorded settings cannot change during a resume.
 
 ## Supply an Input with CLI Flags
 
@@ -121,8 +158,7 @@ vibesys \
   --input-benchmark-command "python benchmark.py" \
   --input-benchmark-metric throughput \
   --input-benchmark-result-arg=--output-json \
-  --input-evaluator-dir ./evaluation \
-  --input-workspace-seed ./candidate
+  --input-evaluator-dir ./evaluation
 ```
 
 Use this form for CI or programmatic integrations. Checked-in
@@ -134,8 +170,10 @@ maintained by people.
 - `vibesys` launches the TUI when attached to a terminal.
 - `vibesys --headless` disables the TUI.
 - Non-interactive execution runs headless automatically.
-- `vibesys validate [INPUT]` checks the static input contract without starting
-  an agent or executing the checker and benchmark.
+- `vibesys validate [PROJECT] --task NAME` checks the static task contract
+  without starting an agent or executing the checker and benchmark.
+
+Legacy root input bundles remain valid positional arguments without `--task`.
 
 See the [CLI reference](cli-flags.md) for every flag and
 [`examples/`](../examples/) for complete objectives and manifests.

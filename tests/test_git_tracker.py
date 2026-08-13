@@ -9,12 +9,13 @@ from typing import TYPE_CHECKING
 import pytest
 
 from vibesys.run.git_tracker import GitTracker
-from vs_project_state import PlainRunConfiguration, ProjectStore
+from vibesys.run.project_policy import trusted_project_input_paths
+from vs_project import PlainRunConfiguration, Project
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from vs_project_state import StateSnapshot
+    from vs_project import StateSnapshot
 
 _IDENTITY = {
     "GIT_AUTHOR_NAME": "test",
@@ -51,13 +52,13 @@ def _initialized_tracker(root: Path, run_id: str = "test-run") -> GitTracker:
     return tracker
 
 
-def _project_store(root: Path, tracker: GitTracker, run_id: str = "test-run") -> ProjectStore:
-    store = ProjectStore(root)
-    store.create_project("Git tracker test")
+def _project(root: Path, tracker: GitTracker, run_id: str = "test-run") -> Project:
+    project = Project.open(root)
+    project.state.create_project("Git tracker test")
     assert tracker.project_branch is not None
     assert tracker.trusted_input_baseline is not None
-    store.create_run(
-        store.new_run_manifest(
+    project.state.create_run(
+        project.state.new_run_manifest(
             "Git tracker test",
             run_id=run_id,
             branch=tracker.project_branch,
@@ -74,18 +75,18 @@ def _project_store(root: Path, tracker: GitTracker, run_id: str = "test-run") ->
         )
     )
     tracker.snapshot_with_framework_metadata(
-        "initialize state", store.initialization_snapshot(run_id)
+        "initialize state", project.state.initialization_snapshot(run_id)
     )
-    return store
+    return project
 
 
 def _namespace_snapshot(
-    store: ProjectStore,
+    project: Project,
     run_id: str,
     namespace: str,
     *files: tuple[str, str | bytes],
 ) -> StateSnapshot:
-    state = store.portable_namespace(run_id, namespace)
+    state = project.state.portable_namespace(run_id, namespace)
     root = state.external_directory()
     for relative, contents in files:
         destination = root / relative
@@ -115,12 +116,14 @@ def test_fresh_project_owns_repository_branch_and_local_excludes(tmp_path: Path)
 
     assert tracker.root == tmp_path.resolve()
     assert tracker.history_root == tmp_path.resolve()
-    assert tracker.project_branch == "vibesys/round-trip"
+    assert tracker.project_branch == "vibesys-runs/round-trip"
     assert _git(tmp_path, "branch", "--show-current") == tracker.project_branch
     assert tracker.trusted_input_baseline == tracker.current_sha()
     assert _git(tmp_path, "ls-files").splitlines() == ["main.py"]
     excludes = (tmp_path / ".git" / "info" / "exclude").read_text(encoding="utf-8")
-    assert ProjectStore(tmp_path).git_integration("round-trip").local_exclude_pattern in excludes
+    assert (
+        Project.open(tmp_path).state.git_integration("round-trip").local_exclude_pattern in excludes
+    )
     assert "/agent.toml" in excludes
     assert "/.env.*" in excludes
     assert "attempts/" in excludes
@@ -135,7 +138,7 @@ def test_existing_repository_starts_from_clean_baseline(tmp_path: Path) -> None:
 
     assert tracker.trusted_input_baseline == baseline
     assert tracker.current_sha() == baseline
-    assert _git(tmp_path, "branch", "--show-current") == "vibesys/test-run"
+    assert _git(tmp_path, "branch", "--show-current") == "vibesys-runs/test-run"
 
 
 def test_existing_repository_rejects_dirty_or_unborn_history(tmp_path: Path) -> None:
@@ -174,9 +177,29 @@ def test_resume_selects_existing_run_branch_and_baseline(tmp_path: Path) -> None
     resumed = _tracker(tmp_path)
     resumed.init(existing=True, trusted_input_baseline=baseline)
 
-    assert _git(tmp_path, "branch", "--show-current") == "vibesys/test-run"
+    assert _git(tmp_path, "branch", "--show-current") == "vibesys-runs/test-run"
     assert resumed.current_sha() == expected
     assert resumed.trusted_input_baseline == baseline
+
+
+def test_run_branch_does_not_conflict_with_repository_vibesys_branch(tmp_path: Path) -> None:
+    _initialize_existing_repository(tmp_path)
+    _git(tmp_path, "branch", "vibesys")
+
+    tracker = _tracker(tmp_path)
+    tracker.init(existing=False)
+
+    assert _git(tmp_path, "branch", "--show-current") == "vibesys-runs/test-run"
+
+
+def test_resume_accepts_legacy_vibesys_run_branch(tmp_path: Path) -> None:
+    baseline = _initialize_existing_repository(tmp_path)
+    _git(tmp_path, "switch", "-q", "-c", "vibesys/test-run")
+
+    tracker = _tracker(tmp_path)
+    tracker.init(existing=True, trusted_input_baseline=baseline)
+
+    assert tracker.project_branch == "vibesys/test-run"
 
 
 def test_resume_requires_repository_and_existing_run_branch(tmp_path: Path) -> None:
@@ -205,9 +228,9 @@ def test_snapshot_commits_candidate_paths_but_never_local_or_private_state(
     tmp_path: Path,
 ) -> None:
     tracker = _initialized_tracker(tmp_path)
-    store = _project_store(tmp_path, tracker)
+    store = _project(tmp_path, tracker)
     (tmp_path / "main.py").write_text("VALUE = 2\n", encoding="utf-8")
-    store.local_namespace("test-run", "agent").external_directory().joinpath(
+    store.state.local_namespace("test-run", "agent").external_directory().joinpath(
         "state.json"
     ).write_text("{}\n", encoding="utf-8")
     portable = _namespace_snapshot(
@@ -216,7 +239,9 @@ def test_snapshot_commits_candidate_paths_but_never_local_or_private_state(
         "agent",
         ("rogue.json", "{}\n"),
     )
-    rogue_pathspec = store.git_integration("test-run").resolve_snapshot(portable).files[0].pathspec
+    rogue_pathspec = (
+        store.state.git_integration("test-run").resolve_snapshot(portable).files[0].pathspec
+    )
     _git(tmp_path, "add", "--force", rogue_pathspec)
     (tmp_path / "agent.toml").write_text("secret = true\n", encoding="utf-8")
     (tmp_path / "module.pyc").write_bytes(b"cache")
@@ -229,7 +254,7 @@ def test_snapshot_commits_candidate_paths_but_never_local_or_private_state(
 
 def test_framework_snapshot_commits_only_supplied_exact_metadata(tmp_path: Path) -> None:
     tracker = _initialized_tracker(tmp_path)
-    store = _project_store(tmp_path, tracker)
+    store = _project(tmp_path, tracker)
     (tmp_path / "main.py").write_text("VALUE = 2\n", encoding="utf-8")
     snapshot = _namespace_snapshot(
         store,
@@ -246,7 +271,7 @@ def test_framework_snapshot_commits_only_supplied_exact_metadata(tmp_path: Path)
 
 def test_framework_snapshot_refuses_unexpected_metadata_edits(tmp_path: Path) -> None:
     tracker = _initialized_tracker(tmp_path)
-    store = _project_store(tmp_path, tracker)
+    store = _project(tmp_path, tracker)
     agent_snapshot = _namespace_snapshot(
         store,
         "test-run",
@@ -254,7 +279,9 @@ def test_framework_snapshot_refuses_unexpected_metadata_edits(tmp_path: Path) ->
         ("state.json", "old\n"),
     )
     tracker.snapshot_with_framework_metadata("initialize agent", agent_snapshot)
-    agent_state = store.portable_namespace("test-run", "agent").external_directory() / "state.json"
+    agent_state = (
+        store.state.portable_namespace("test-run", "agent").external_directory() / "state.json"
+    )
     agent_state.write_text("tampered\n", encoding="utf-8")
     evolve_snapshot = _namespace_snapshot(
         store,
@@ -271,7 +298,7 @@ def test_framework_snapshot_refuses_unexpected_metadata_edits(tmp_path: Path) ->
 
 def test_framework_state_snapshot_replaces_one_namespace_exactly(tmp_path: Path) -> None:
     tracker = _initialized_tracker(tmp_path)
-    store = _project_store(tmp_path, tracker)
+    store = _project(tmp_path, tracker)
     initial = _namespace_snapshot(
         store,
         "test-run",
@@ -280,7 +307,7 @@ def test_framework_state_snapshot_replaces_one_namespace_exactly(tmp_path: Path)
         ("remove.json", "remove\n"),
     )
     tracker.snapshot_with_framework_metadata("initialize evolve", initial)
-    state = store.portable_namespace("test-run", "evolve")
+    state = store.state.portable_namespace("test-run", "evolve")
     state.external_directory().joinpath("remove.json").unlink()
     state.external_directory().joinpath("keep.json").write_text("new\n", encoding="utf-8")
     nested = state.external_directory("nested") / "add.json"
@@ -298,7 +325,7 @@ def test_framework_state_snapshot_replaces_one_namespace_exactly(tmp_path: Path)
 
 def test_framework_state_snapshot_leaves_candidate_changes_pending(tmp_path: Path) -> None:
     tracker = _initialized_tracker(tmp_path)
-    store = _project_store(tmp_path, tracker)
+    store = _project(tmp_path, tracker)
     initial = _namespace_snapshot(
         store,
         "test-run",
@@ -326,7 +353,7 @@ def test_framework_state_snapshot_protects_metadata_outside_namespace(
     tmp_path: Path,
 ) -> None:
     tracker = _initialized_tracker(tmp_path)
-    store = _project_store(tmp_path, tracker)
+    store = _project(tmp_path, tracker)
     agent_snapshot = _namespace_snapshot(
         store,
         "test-run",
@@ -341,7 +368,7 @@ def test_framework_state_snapshot_protects_metadata_outside_namespace(
     )
     tracker.snapshot_with_framework_metadata("initialize agent", agent_snapshot)
     tracker.snapshot_with_framework_metadata("initialize evolve", evolve_snapshot)
-    store.portable_namespace("test-run", "agent").external_directory().joinpath(
+    store.state.portable_namespace("test-run", "agent").external_directory().joinpath(
         "state.json"
     ).write_text("tampered\n", encoding="utf-8")
     replacement = _namespace_snapshot(
@@ -359,7 +386,7 @@ def test_framework_state_snapshot_protects_metadata_outside_namespace(
 
 def test_checkout_restores_candidate_tree_and_preserves_framework_state(tmp_path: Path) -> None:
     tracker = _initialized_tracker(tmp_path)
-    store = _project_store(tmp_path, tracker)
+    store = _project(tmp_path, tracker)
     first = tracker.current_sha()
     assert first is not None
     (tmp_path / "main.py").write_text("VALUE = 2\n", encoding="utf-8")
@@ -371,10 +398,10 @@ def test_checkout_restores_candidate_tree_and_preserves_framework_state(tmp_path
     )
     tracker.snapshot_with_framework_metadata("candidate", portable)
     portable_file = (
-        store.portable_namespace("test-run", "agent").external_directory() / "state.json"
+        store.state.portable_namespace("test-run", "agent").external_directory() / "state.json"
     )
     portable_file.write_text("new portable\n", encoding="utf-8")
-    local = store.local_namespace("test-run", "agent").external_directory() / "active.txt"
+    local = store.state.local_namespace("test-run", "agent").external_directory() / "active.txt"
     local.write_text("local\n", encoding="utf-8")
     (tmp_path / "scratch.txt").write_text("delete me\n", encoding="utf-8")
 
@@ -399,12 +426,39 @@ def test_trusted_input_changes_compare_against_branch_point(tmp_path: Path) -> N
     assert tracker.trusted_input_changes() == ["OBJECTIVE.md"]
 
 
+def test_repository_tasks_are_trusted_but_generated_state_is_not(tmp_path: Path) -> None:
+    task = tmp_path / ".vibesys" / "tasks" / "latency"
+    task.mkdir(parents=True)
+    objective = task / "OBJECTIVE.md"
+    objective.write_text("original\n", encoding="utf-8")
+    (task / "vibesys.input.toml").write_text("version = 1\n", encoding="utf-8")
+    (tmp_path / "main.py").write_text("VALUE = 1\n", encoding="utf-8")
+    tracker = GitTracker(
+        tmp_path,
+        run_id="repository-task",
+        log=lambda _message: None,
+        trusted_input_paths=trusted_project_input_paths(
+            tmp_path,
+            evaluator_source=None,
+        ),
+    )
+    tracker.init(existing=False)
+    _project(tmp_path, tracker, "repository-task")
+
+    assert tracker.trusted_input_changes() == []
+
+    objective.write_text("changed\n", encoding="utf-8")
+    assert tracker.trusted_input_changes() == [".vibesys/tasks/latency/OBJECTIVE.md"]
+    tracker.snapshot("changed trusted input")
+    assert tracker.trusted_input_changes() == [".vibesys/tasks/latency/OBJECTIVE.md"]
+
+
 def test_candidate_worktree_is_local_and_retained_by_durable_ref(tmp_path: Path) -> None:
     tracker = _initialized_tracker(tmp_path, "durable")
-    store = _project_store(tmp_path, tracker, "durable")
+    store = _project(tmp_path, tracker, "durable")
     baseline = tracker.current_sha()
     assert baseline is not None
-    worktree = store.candidate_worktree_directory("durable", "candidate-1")
+    worktree = store.state.candidate_worktree_directory("durable", "candidate-1")
     tracker.add_worktree(worktree, baseline)
     (worktree / "main.py").write_text("VALUE = 42\n", encoding="utf-8")
     _git(worktree, "add", "main.py")

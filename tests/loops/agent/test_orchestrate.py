@@ -46,7 +46,7 @@ from vibesys.schemas import (
     Verdict,
 )
 from vs_loop_state.agent import RoundRecord
-from vs_project_state import ProjectStore, serialize_round
+from vs_project import Project, serialize_round
 
 # ---------------------------------------------------------------------------
 # Fixtures & helpers
@@ -269,26 +269,26 @@ def _created_project(tmp_path: Path) -> Path:
     assert len(projects) == 1
     project = projects[0]
     assert (project / ".git").is_dir()
-    assert ProjectStore.is_project_root(project)
+    assert Project.is_state_initialized(project)
     return project
 
 
 def _run_id(project: Path) -> str:
-    runs = ProjectStore(project).list_runs()
+    runs = Project.open(project).state.list_runs()
     assert len(runs) == 1
     return runs[0].run_id
 
 
 def _round_payloads(tmp_path: Path) -> list[dict[str, object]]:
     project = _created_project(tmp_path)
-    records = ProjectStore(project).load_rounds(_run_id(project))
+    records = Project.open(project).state.load_rounds(_run_id(project))
     assert records
     return [json.loads(serialize_round(record)) for record in records]
 
 
 def _active_hypothesis(tmp_path: Path) -> _ActiveHypothesis | None:
     project = _created_project(tmp_path)
-    store = ProjectStore(project)
+    store = Project.open(project).state
     return AgentStateStore(store.local_namespace(_run_id(project), "agent")).load_active()
 
 
@@ -1738,7 +1738,9 @@ def test_agent_roles_reference_framework_owned_effective_objective(tmp_path, ref
 
     project = _created_project(tmp_path)
     objective_path = (
-        ProjectStore(project).portable_namespace(_run_id(project), "runtime").external_directory()
+        Project.open(project)
+        .state.portable_namespace(_run_id(project), "runtime")
+        .external_directory()
         / "effective-objective.md"
     )
     assert objective_path.read_text() == effective

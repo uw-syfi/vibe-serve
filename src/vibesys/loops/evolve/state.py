@@ -8,7 +8,7 @@ from vibesys.loops.evolve.population import Individual, Population
 from vs_loop_state import IndividualRecord, PopulationSnapshot
 
 if TYPE_CHECKING:
-    from vs_project_state import StateNamespace, StateSlot
+    from vs_project import StateNamespace, StateSlot
 
 _POPULATION_FILE = "population.json"
 

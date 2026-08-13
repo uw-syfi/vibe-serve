@@ -281,3 +281,15 @@ def test_linux_cpu_preflight_accepts_perf_with_nonblocking_symbol_restrictions(m
 
     assert result.usable
     assert result.diagnostics == ("kernel_symbols_restricted",)
+
+
+def test_headroom_profiler_domains_and_preflight():  # noqa: ANN201  # tracked: #288
+    definition = PROFILER_DEFINITIONS[ProfilerKind.HEADROOM]
+
+    assert definition.domains == frozenset({DomainName.LLM_SERVING})
+    assert not definition.requires_domain_torch_support
+    assert ProfilerKind.HEADROOM in allowed_profiler_kinds(DomainName.LLM_SERVING)
+    assert ProfilerKind.HEADROOM not in allowed_profiler_kinds(DomainName.GENERIC)
+    assert ProfilerKind.HEADROOM not in allowed_profiler_kinds(DomainName.MICROSERVICES)
+    # Capture is target-owned; the analysis side needs no host tooling.
+    assert preflight_profiler_kind(ProfilerKind.HEADROOM).usable

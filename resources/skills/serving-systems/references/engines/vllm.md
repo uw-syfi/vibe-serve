@@ -166,7 +166,7 @@ export SETUPTOOLS_SCM_PRETEND_VERSION_FOR_VLLM="0.10.0"
 pip install -e ./vllm
 ```
 
-Derive the version from `vllm/vllm/version.py` (`__version__`) or from the pinned dependency in `pyproject.toml` rather than hardcoding it. The VibeSys vLLM starter's `scripts/install_local_vllm.sh` handles this automatically.
+Derive the version from `vllm/vllm/version.py` (`__version__`) or from the pinned dependency in `pyproject.toml` rather than hardcoding it.
 
 ## See also
 

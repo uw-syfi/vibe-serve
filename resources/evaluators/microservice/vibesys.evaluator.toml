@@ -1,0 +1,10 @@
+schema_version = 1
+name = "vibesys-evaluator-microservice"
+version = "0.1.0"
+protocol_version = 1
+toolchains = ["go"]
+
+[entrypoints]
+servicebench = ["go", "-C", "${PACKAGE_ROOT}", "run", "./cmd/servicebench"]
+otelinject = ["go", "-C", "${PACKAGE_ROOT}", "run", "./cmd/otelinject"]
+otelcapture = ["go", "-C", "${PACKAGE_ROOT}", "run", "./cmd/otelcapture"]
