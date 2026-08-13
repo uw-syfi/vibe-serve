@@ -33,8 +33,12 @@ const config: Config = {
       'classic',
       {
         docs: {
+          // Serve the repository's docs/ directly so there is a single copy
+          // of these Markdown files (no duplication under website/).
+          path: '../docs',
           sidebarPath: './sidebars.ts',
-          editUrl: 'https://github.com/uw-syfi/vibesys/tree/main/website/',
+          editUrl: ({docPath}) =>
+            `https://github.com/uw-syfi/vibesys/tree/main/docs/${docPath}`,
         },
         blog: false,
         theme: {
@@ -45,16 +49,11 @@ const config: Config = {
   ],
 
   themeConfig: {
-    image: 'img/vibesys-social-card.jpg',
     colorMode: {
       respectPrefersColorScheme: true,
     },
     navbar: {
       title: 'VibeSys',
-      logo: {
-        alt: 'VibeSys Logo',
-        src: 'img/logo.svg',
-      },
       items: [
         {
           type: 'docSidebar',
@@ -80,7 +79,7 @@ const config: Config = {
         {
           title: 'Docs',
           items: [
-            {label: 'Introduction', to: '/docs/intro'},
+            {label: 'Running VibeSys', to: '/docs/running-vibesys'},
             {label: 'Development', to: '/docs/development'},
             {label: 'CLI flags', to: '/docs/cli-flags'},
           ],

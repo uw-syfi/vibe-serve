@@ -30,3 +30,17 @@
   gap: 1rem;
   flex-wrap: wrap;
 }
+
+.architecture {
+  padding: 2rem 0 4rem;
+}
+
+.architectureCaption {
+  max-width: 720px;
+  margin: 0 auto 1.5rem;
+}
+
+.architectureImg {
+  max-width: 100%;
+  height: auto;
+}
