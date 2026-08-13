@@ -1,4 +1,0 @@
-interface:
-  display_name: "VibeSys Init"
-  short_description: "Add repository-native model-serving tasks"
-  default_prompt: "Use $vs-init to add a repository-native LLM serving task to an existing candidate repository."

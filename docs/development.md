@@ -121,8 +121,6 @@ Use the guide that matches the surface you are adding:
   backend or domain.
 - [Extend profilers](extending-profilers.md) for profiler support packages,
   MCP tools, and profiler prompts.
-- [Create a repository-native model-serving task](../.agents/skills/vs-init/SKILL.md)
-  for a new model, hardware target, or workload.
 - [Update CLI flags and combinations](cli-flags.md) when changing the user
   facing command contract.
 - [Update feature flags](../src/vibesys/FEATURE_FLAGS.md) for opt-in
