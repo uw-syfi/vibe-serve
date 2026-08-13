@@ -186,7 +186,15 @@ class CliAgentRunner:
         )
         if native_schema_supported:
             try:
-                native_schema_path = materialize_native_output_schema(workspace, response_cls)
+                native_schema_path = materialize_native_output_schema(
+                    workspace,
+                    response_cls,
+                    allow_arbitrary_keys=getattr(
+                        self._provider_cls,
+                        "native_output_schema_allows_arbitrary_keys",
+                        False,
+                    ),
+                )
             except (OSError, TypeError, ValueError) as exc:
                 log_and_print(
                     f"[structured-output] native schema unavailable for "

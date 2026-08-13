@@ -73,17 +73,40 @@ _UNSUPPORTED_NATIVE_SCHEMA_KEYWORDS = frozenset(
 )
 
 
-def _validate_native_output_schema(schema: object) -> dict[str, object]:  # noqa: C901  # tracked: #288
-    """Normalize and validate the strict JSON Schema subset used by Codex.
+def _validate_native_output_schema(  # noqa: C901  # tracked: #288
+    schema: object,
+    *,
+    allow_arbitrary_keys: bool = False,
+) -> dict[str, object]:
+    """Normalize and validate the JSON Schema subset a provider accepts natively.
 
-    Native structured output requires every declared object property and
-    forbids undeclared keys. Pydantic omits defaulted properties from
-    ``required`` and represents arbitrary mappings with a schema-valued
-    ``additionalProperties``; the former is normalized here while the latter
-    falls back to the portable prompt contract.
+    The default (strict) profile is Codex's: every declared object property is
+    required and undeclared keys are forbidden. Pydantic omits defaulted
+    properties from ``required`` and represents arbitrary mappings with a
+    schema-valued ``additionalProperties``; the former is normalized here while
+    the latter is rejected so the caller can fall back to the portable prompt
+    contract.
+
+    *allow_arbitrary_keys* selects the permissive profile used by providers
+    whose CLI accepts open-ended object maps (see
+    :attr:`~vibesys._agent_cli.base.CodingAgent.native_output_schema_allows_arbitrary_keys`).
+    An existing ``additionalProperties`` is then preserved verbatim, and a
+    schema-valued one is still traversed so nested subschemas obey the same
+    rules. Objects that do not declare one are still closed with ``False``.
     """
     if not isinstance(schema, dict) or schema.get("type") != "object":
         raise ValueError("native output schema must have an object root")  # noqa: TRY003  # tracked: #288
+
+    def close_object(node: dict[str, object], location: str) -> None:
+        """Apply the profile's undeclared-key rule to one object node."""
+        additional = node.get("additionalProperties")
+        if additional in (None, False):
+            node["additionalProperties"] = False
+            return
+        if not allow_arbitrary_keys:
+            raise ValueError(f"native output schema uses arbitrary object keys at {location}")  # noqa: TRY003  # tracked: #288
+        # Preserved verbatim; a schema-valued map is traversed by the generic
+        # key walk below so nested subschemas obey the same rules.
 
     def visit(node: object, location: str) -> None:  # noqa: C901, PLR0912  # tracked: #288
         if isinstance(node, list):
@@ -106,16 +129,10 @@ def _validate_native_output_schema(schema: object) -> dict[str, object]:  # noqa
         if properties is not None:
             if not isinstance(properties, dict):
                 raise ValueError(f"native output schema {location}/properties must be an object")  # noqa: TRY003  # tracked: #288
-            additional = node.get("additionalProperties")
-            if additional not in (None, False):
-                raise ValueError(f"native output schema uses arbitrary object keys at {location}")  # noqa: TRY003  # tracked: #288
-            node["additionalProperties"] = False
+            close_object(node, location)
             node["required"] = list(properties)
         elif node.get("type") == "object":
-            additional = node.get("additionalProperties")
-            if additional not in (None, False):
-                raise ValueError(f"native output schema uses arbitrary object keys at {location}")  # noqa: TRY003  # tracked: #288
-            node["additionalProperties"] = False
+            close_object(node, location)
             node["required"] = []
         for key, value in node.items():
             if key in {"properties", "$defs", "definitions"}:
@@ -134,9 +151,22 @@ def _validate_native_output_schema(schema: object) -> dict[str, object]:  # noqa
     return schema
 
 
-def materialize_native_output_schema(workspace: Path, response_cls: type[BaseModel]) -> str:
-    """Atomically write a validated schema and return its relative CLI path."""
-    schema = _validate_native_output_schema(response_cls.model_json_schema())
+def materialize_native_output_schema(
+    workspace: Path,
+    response_cls: type[BaseModel],
+    *,
+    allow_arbitrary_keys: bool = False,
+) -> str:
+    """Atomically write a validated schema and return its relative CLI path.
+
+    *allow_arbitrary_keys* is the calling provider's
+    ``native_output_schema_allows_arbitrary_keys`` capability; it selects the
+    permissive validation profile for mapping-bearing response models.
+    """
+    schema = _validate_native_output_schema(
+        response_cls.model_json_schema(),
+        allow_arbitrary_keys=allow_arbitrary_keys,
+    )
     encoded = (json.dumps(schema, indent=2, sort_keys=True, allow_nan=False) + "\n").encode()
     digest = hashlib.sha256(encoded).hexdigest()[:16]
     relative = _NATIVE_SCHEMA_DIR / f"{response_cls.__name__}-{digest}.json"

@@ -66,6 +66,10 @@ class ClaudeCodeCodingAgent(CLICodingAgent[ClaudeGenerationSession]):
     # host and container execution paths, where the workspace is bind-mounted)
     # rather than the workspace-relative path Codex resolves against its cwd.
     native_output_schema_wants_absolute_path = True
+    # Unlike Codex's strict subset, ``--json-schema`` accepts open-ended object
+    # maps, so ``dict[str, T]`` fields (e.g. ``ImplementerResponse.metrics``)
+    # stay on the native path instead of degrading to the prompt hint.
+    native_output_schema_allows_arbitrary_keys = True
 
     def __init__(  # noqa: ANN204  # tracked: #288
         self,

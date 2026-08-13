@@ -18,6 +18,7 @@ from vibesys.agents.progress import RoundProgress
 from vibesys.config import Config
 from vibesys.constants import ComputeBackend
 from vibesys.schemas import (
+    ImplementerResponse,
     IssueJudgeResponse,
     JudgeResponse,
     Verdict,
@@ -28,6 +29,10 @@ from vs_sandbox import HostResource, ProjectPathPolicy
 def _agent_config(**agent) -> Config:  # noqa: ANN003  # tracked: #288
     """Minimal valid Config carrying just an ``[agent]`` section for runner tests."""
     return Config.model_validate({"model": {"name": "m"}, "agent": agent})
+
+
+def _implementer_fallback() -> ImplementerResponse:
+    return ImplementerResponse(summary="fallback", expected_behavior="fallback")
 
 
 def _judge_fallback() -> JudgeResponse:
@@ -1245,6 +1250,82 @@ class TestCliAgentRunner:
         assert Path(passed).is_file()
         assert Path(passed).parent == workspace / ".cache/vibesys/response-schemas"
         assert "Schema for JudgeResponse" not in agent.generate_calls[0]["prompt"]
+
+    def test_mapping_response_stays_native_on_a_permissive_provider(self, monkeypatch, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+        """``ImplementerResponse.metrics`` is a ``dict[str, float]``; Claude's
+        ``--json-schema`` accepts that, so the native path must be kept."""
+        captured: list = []
+        fake_cls = _make_fake_agent_class(
+            generate_returns='{"summary": "ok", "expected_behavior": "faster"}',
+            captured=captured,
+        )
+        fake_cls.supports_native_output_schema = True
+        fake_cls.native_output_schema_wants_absolute_path = True
+        fake_cls.native_output_schema_allows_arbitrary_keys = True
+        monkeypatch.setitem(
+            __import__(  # noqa: SLF001  # tracked: #288
+                "vibesys.agents.cli_runner",
+                fromlist=["_PROVIDER_CLASSES"],
+            )._PROVIDER_CLASSES,
+            "claude",
+            fake_cls,
+        )
+        workspace = tmp_path / "ws"
+        workspace.mkdir()
+        runner = CliAgentRunner(provider="claude", model="m", run_log_file=None)
+
+        runner.invoke(
+            kind="implementer",
+            workspace=workspace,
+            system_prompt="THE-SYSTEM-PROMPT",
+            user_prompt="usr",
+            response_cls=ImplementerResponse,
+            fallback_factory=_implementer_fallback,
+            round_label="implementer #1",
+        )
+
+        agent = captured[0]
+        passed = agent.output_schema_paths[-1]
+        assert passed is not None
+        schema = json.loads(Path(passed).read_text())
+        assert schema["properties"]["metrics"]["additionalProperties"] == {"type": "number"}
+        assert "Schema for ImplementerResponse" not in agent.generate_calls[0]["prompt"]
+
+    def test_mapping_response_falls_back_on_a_strict_provider(self, monkeypatch, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+        """Codex's subset cannot express the mapping, so the prompt hint stays."""
+        captured: list = []
+        fake_cls = _make_fake_agent_class(
+            generate_returns='{"summary": "ok", "expected_behavior": "faster"}',
+            captured=captured,
+        )
+        fake_cls.supports_native_output_schema = True
+        monkeypatch.setitem(
+            __import__(  # noqa: SLF001  # tracked: #288
+                "vibesys.agents.cli_runner",
+                fromlist=["_PROVIDER_CLASSES"],
+            )._PROVIDER_CLASSES,
+            "codex",
+            fake_cls,
+        )
+        workspace = tmp_path / "ws"
+        workspace.mkdir()
+        log = StringIO()
+        runner = CliAgentRunner(provider="codex", model="m", run_log_file=log)
+
+        runner.invoke(
+            kind="implementer",
+            workspace=workspace,
+            system_prompt="THE-SYSTEM-PROMPT",
+            user_prompt="usr",
+            response_cls=ImplementerResponse,
+            fallback_factory=_implementer_fallback,
+            round_label="implementer #1",
+        )
+
+        agent = captured[0]
+        assert agent.output_schema_paths == [None]
+        assert "Schema for ImplementerResponse" in agent.generate_calls[0]["prompt"]
+        assert "using prompt fallback" in log.getvalue()
 
     def test_cli_runner_chat_returns_plain_text_in_a_fresh_session_per_turn(  # noqa: ANN201  # tracked: #288
         self,

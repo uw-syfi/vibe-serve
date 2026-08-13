@@ -87,6 +87,18 @@ class CodingAgent(ABC):
     subprocess working directory.
     """
 
+    native_output_schema_allows_arbitrary_keys = False
+    """Whether this provider's schema dialect accepts open-ended object maps.
+
+    The default is the strict subset (e.g. Codex's ``--output-schema``), which
+    requires every object to declare its properties and forbids undeclared keys,
+    so a Pydantic ``dict[str, T]`` field cannot be expressed natively. Providers
+    whose CLI accepts a schema-valued (or ``true``) ``additionalProperties``
+    (e.g. Claude Code's ``--json-schema``) set this ``True`` so mapping-bearing
+    response models keep the native structured-output path instead of falling
+    back to the prompt-level schema instruction.
+    """
+
     # Declared (not assigned) here: every concrete provider sets these in its
     # ``__init__``.  ``env`` is the subprocess environment the CLI is spawned
     # with; ``executor`` is the agentshim ``CommandExecutor`` (host, docker,

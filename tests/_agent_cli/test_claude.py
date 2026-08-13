@@ -16,6 +16,17 @@ _SCHEMA = {
     "additionalProperties": False,
 }
 
+# Shape produced by a ``dict[str, float]`` field (e.g.
+# ``ImplementerResponse.metrics``): arbitrary keys with a constrained value type.
+_MAPPING_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "metrics": {"type": "object", "additionalProperties": {"type": "number"}},
+    },
+    "required": ["metrics"],
+    "additionalProperties": False,
+}
+
 
 class _MockCommandExecutor:
     """CommandExecutor that avoids real binary lookups."""
@@ -125,6 +136,35 @@ class TestClaudeNativeOutputSchema:
         # ``--json-schema`` is read inline at build time, so the schema file
         # path must be resolvable independent of the subprocess cwd.
         assert ClaudeCodeCodingAgent.native_output_schema_wants_absolute_path is True
+
+    def test_allows_arbitrary_object_keys(self):  # noqa: ANN202  # tracked: #288
+        # ``--json-schema`` accepts open-ended maps (verified against Claude
+        # Code 2.1.221), unlike Codex's strict ``--output-schema`` subset.
+        assert ClaudeCodeCodingAgent.native_output_schema_allows_arbitrary_keys is True
+
+    def test_mapping_schema_reaches_the_session_and_yields_structured_output(  # noqa: ANN202  # tracked: #288
+        self,
+        agent,  # noqa: ANN001  # tracked: #288
+        tmp_path,  # noqa: ANN001  # tracked: #288
+    ):
+        """A ``dict[str, float]`` field stays native: inlined, then captured back."""
+        schema_file = tmp_path / "schema.json"
+        schema_file.write_text(json.dumps(_MAPPING_SCHEMA), encoding="utf-8")
+        agent.set_output_schema_path(str(schema_file))
+        payload = {"metrics": {"latency_ms": 12.5, "throughput": 3.0}}
+        agent.executor = _ReplayExecutor(
+            [json.dumps({"type": "result", "result": "done", "structured_output": payload}) + "\n"]
+        )
+
+        cmd = agent._get_command("test prompt")  # noqa: SLF001  # tracked: #288
+        session = agent._create_session(cmd=cmd)  # noqa: SLF001  # tracked: #288
+        result = session.run("test prompt")
+
+        # The mapping survives into argv rather than being flattened away.
+        inline = json.loads(cmd[cmd.index("--json-schema") + 1])
+        assert inline == _MAPPING_SCHEMA
+        assert inline["properties"]["metrics"]["additionalProperties"] == {"type": "number"}
+        assert json.loads(result) == payload
 
     def test_command_omits_json_schema_when_unset(self, agent):  # noqa: ANN001, ANN202  # tracked: #288
         cmd = agent._get_command("test prompt")  # noqa: SLF001  # tracked: #288
