@@ -158,7 +158,6 @@ extend-exclude = [
     "examples/microservices/repositories/deathstarbench",
     "examples/model-serving/repositories/vllm",
     "examples/model-serving/repositories/vllm-omni",
-    "examples/model-serving/repositories/qwen3-coder-vllm-modal/.vibesys/tasks/qwen3-coder-tracelab-h100/benchmark/tracelab-replay/tracelab",
 ]
 
 [tool.ruff.lint]

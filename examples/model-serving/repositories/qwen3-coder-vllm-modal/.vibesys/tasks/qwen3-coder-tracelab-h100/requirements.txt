@@ -1,6 +1,0 @@
-httpx
-modal
-transformers
-huggingface_hub
-duckdb
-numpy

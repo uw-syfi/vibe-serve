@@ -28,10 +28,6 @@
 	path = examples/model-serving/show-o2-1.5B-HQ/reference/Show-o
 	url = https://github.com/showlab/Show-o.git
 	update = none
-[submodule "examples/model-serving/repositories/qwen3-coder-vllm-modal/.vibesys/tasks/qwen3-coder-tracelab-h100/benchmark/tracelab-replay/tracelab"]
-	path = examples/model-serving/repositories/qwen3-coder-vllm-modal/.vibesys/tasks/qwen3-coder-tracelab-h100/benchmark/tracelab-replay/tracelab
-	url = https://github.com/uw-syfi/TraceLab.git
-	update = none
 [submodule "examples/model-serving/repositories/vllm-omni"]
 	path = examples/model-serving/repositories/vllm-omni
 	url = https://github.com/vibesys-playground/vllm-omni.git
