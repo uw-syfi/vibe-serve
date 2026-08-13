@@ -1,0 +1,13 @@
+.features {
+  display: flex;
+  align-items: center;
+  padding: 2rem 0;
+  width: 100%;
+}
+
+.featureIcon {
+  font-size: 3.5rem;
+  line-height: 1;
+  display: inline-block;
+  margin-bottom: 0.5rem;
+}
