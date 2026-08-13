@@ -2,7 +2,7 @@
 
 Build an OpenAI-compatible serving system for `zai-org/GLM-5.2` from scratch
 across 8x NVIDIA B200 192GB GPUs. No serving engine is provided: no vLLM or
-SGLang checkout, no starter workspace. Implement the whole stack yourself:
+SGLang checkout. Implement the whole stack yourself:
 weight loading and sharding across all 8 GPUs (tensor/expert/pipeline
 parallelism or a hybrid), FP8 grouped-GEMM MoE experts and dequant, expert
 routing/top-k dispatch and the all-to-all communication it requires, the

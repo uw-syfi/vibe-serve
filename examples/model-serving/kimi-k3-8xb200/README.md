@@ -8,7 +8,7 @@ Use:
 - `--interface service`
 - `--modal` for B200-backed runs
 
-This input provides no serving engine and no starter workspace: the candidate
+This input provides no serving engine and no pre-cloned engine source: the candidate
 builds the frontier-scale MoE serving stack for `moonshotai/Kimi-K3` (2.8T
 total / ~104B active MXFP4 MoE, 896 experts) from scratch and distributes it
 across 8xB200. It is the from-scratch counterpart to `kimi-k3-8xb200-sglang`.

@@ -11,9 +11,6 @@ timeout_seconds = 300
 command = ["uv", "run", "python", "benchmark/benchmark.py"]
 timeout_seconds = 600
 
-[workspace]
-seed = "../../starters/vllm-h100"
-
 [[workspace.sources]]
 name = "vllm"
 repo = "https://github.com/vllm-project/vllm.git"

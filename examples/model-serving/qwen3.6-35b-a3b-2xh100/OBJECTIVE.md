@@ -2,8 +2,7 @@
 
 Build an OpenAI-compatible serving system for `Qwen/Qwen3.6-35B-A3B` from
 scratch across 2 NVIDIA H100 80GB GPUs. No serving engine is provided: unlike
-the `-vllm` variant, there is no vLLM or SGLang checkout and no starter
-workspace. Implement the whole stack yourself: weight loading and sharding,
+the `-vllm` variant, there is no vLLM or SGLang checkout. Implement the whole stack yourself: weight loading and sharding,
 expert routing and top-k dispatch, the fused grouped-GEMM MoE experts, the KV
 cache, a request scheduler, and the HTTP server. `torch` and `transformers` are
 available as utilities (weight loading, tokenizer, reference ops), not as a

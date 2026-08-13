@@ -3,7 +3,7 @@
 Build an OpenAI-compatible serving system for `deepseek-ai/DeepSeek-V3.2` from
 scratch across 8x NVIDIA B200 GPUs (192 GB each, 1536 GB total). No serving
 engine is provided: unlike the `-sglang` variant, there is no vLLM or SGLang
-checkout and no starter workspace. `torch` and `transformers` are available as
+checkout. `torch` and `transformers` are available as
 utilities (weight loading, tokenizer, reference ops), not as a serving engine.
 
 DeepSeek-V3.2 is a 685B-parameter MoE model (256 experts, ~37B active per

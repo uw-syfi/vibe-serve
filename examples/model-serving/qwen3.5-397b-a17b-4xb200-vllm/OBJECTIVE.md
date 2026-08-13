@@ -3,8 +3,8 @@
 Optimize a vLLM-based OpenAI-compatible server for `Qwen/Qwen3.5-397B-A17B` on
 4x NVIDIA B200 192GB GPUs.
 
-This input is sources-only: `vibesys.input.toml` seeds no starter workspace,
-only a pinned vLLM source checkout via `workspace.sources`. The candidate
+This input is sources-only: `vibesys.input.toml` declares only a pinned vLLM
+source checkout via `workspace.sources`. The candidate
 authors the Modal serving app and server launch code from that checkout, and
 may modify vLLM internals, flags, and pins, while preserving the OpenAI API
 and correctness gates.

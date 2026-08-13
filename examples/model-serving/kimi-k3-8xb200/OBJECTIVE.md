@@ -2,8 +2,7 @@
 
 Build an OpenAI-compatible serving system for `moonshotai/Kimi-K3` from
 scratch on 8x NVIDIA B200 192GB GPUs. No serving engine is provided: unlike
-the `-sglang` variant, there is no vLLM or SGLang checkout and no starter
-workspace. Implement the whole stack yourself: weight loading and sharding
+the `-sglang` variant, there is no vLLM or SGLang checkout. Implement the whole stack yourself: weight loading and sharding
 across the 8 (or more) B200s, expert routing and top-k dispatch with the
 all-to-all communication across 896 experts, the MXFP4-weight/MXFP8-activation
 dequantization fused into the MoE grouped-GEMM path, Kimi Delta Attention

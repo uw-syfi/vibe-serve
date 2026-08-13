@@ -11,9 +11,6 @@ timeout_seconds = 600
 command = ["uv", "run", "python", "benchmark/benchmark.py"]
 timeout_seconds = 1200
 
-[workspace]
-seed = "../../starters/sglang-b200"
-
 [[workspace.sources]]
 name = "sglang"
 repo = "https://github.com/sgl-project/sglang.git"

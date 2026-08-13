@@ -2,7 +2,7 @@
 
 Build an OpenAI-compatible serving system for `Qwen/Qwen3.5-397B-A17B` from
 scratch across 4 NVIDIA B200 192GB GPUs. No serving engine is provided: there
-is no vLLM or SGLang checkout and no starter workspace. Implement the whole
+is no vLLM or SGLang checkout. Implement the whole
 stack yourself: weight loading and sharding across the 4 GPUs (tensor
 parallelism, expert parallelism, pipeline parallelism, or a hybrid), FP8
 grouped-GEMM MoE experts and dequant, expert routing/top-k dispatch and the

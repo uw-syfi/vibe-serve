@@ -8,7 +8,7 @@ Use:
 - `--interface service`
 - `--modal` for B200-backed runs
 
-This input provides no serving engine and no starter workspace: the candidate
+This input provides no serving engine and no pre-cloned engine source: the candidate
 builds the FP8 MoE serving stack for `deepseek-ai/DeepSeek-V3.2` (MLA +
 DeepSeek Sparse Attention) from scratch and distributes it across 8xB200. It
 is the from-scratch counterpart to `deepseek-v3.2-8xb200-sglang`. The

@@ -9,8 +9,8 @@ Use:
 - `--modal` for B200-backed runs
 
 This input materializes a pinned vLLM source checkout into the candidate
-workspace through `workspace.sources` (sources-only: no starter app is
-seeded), which the candidate uses to author a Modal serving app for the large
+workspace through `workspace.sources` (sources-only), which the candidate uses
+to author a Modal serving app for the large
 hybrid Gated-DeltaNet/MoE model `Qwen/Qwen3.5-397B-A17B`. The optimization
 target is fitting the model in FP8 across 4xB200 and maximizing MoE/decode
 throughput under the standard completion workload.
