@@ -18,8 +18,9 @@ path.
   `README.md`.
   Evaluator commands run from the repository root. Reusable evaluator
   implementations belong in versioned packages, not copied task directories.
-- Access `.vibesys` paths through `vs-project-layout`; access generated state
-  through `vs-project-state`. Do not reconstruct either layout in CLI or loop
+- Access the `.vibesys` layout and generated state through `vs-project`. Open one
+  `Project` per repository root and use its state interface rather than
+  reconstructing paths or creating independent project objects in CLI or loop
   code.
 - Put nontrivial candidate-facing APIs, ABIs, ownership rules, and service
   protocols in `CANDIDATE_CONTRACT.md`; keep evaluator internals and trust-model

@@ -16,16 +16,18 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Self
 
-_CONFIGURATION_DIRECTORY_NAME = ".vibesys"
-_TASKS_DIRECTORY_NAME = "tasks"
-_STATE_DIRECTORY_NAME = "state"
-_EVALUATOR_LOCK_FILE_NAME = "evaluators.lock"
-_OBJECTIVE_FILE_NAME = "OBJECTIVE.md"
-_MANIFEST_FILE_NAME = "vibesys.input.toml"
+import vs_project._paths as project_paths
+from vs_project.errors import ProjectError
+
+_CONFIGURATION_DIRECTORY_NAME = project_paths.CONFIGURATION_DIRECTORY_NAME
+_TASKS_DIRECTORY_NAME = project_paths.TASKS_DIRECTORY_NAME
+_EVALUATOR_LOCK_FILE_NAME = project_paths.EVALUATOR_LOCK_FILE_NAME
+_OBJECTIVE_FILE_NAME = project_paths.OBJECTIVE_FILE_NAME
+_MANIFEST_FILE_NAME = project_paths.MANIFEST_FILE_NAME
 _TASK_NAME_PATTERN = re.compile(r"^[a-z0-9][a-z0-9._-]{0,127}$")
 
 
-class ProjectLayoutError(RuntimeError):
+class ProjectLayoutError(ProjectError):
     """Base class for invalid or unavailable VibeSys project layouts."""
 
 
@@ -126,17 +128,6 @@ class TasksRoot:
 
 
 @dataclass(frozen=True)
-class StateRootCapability:
-    """Location reserved for generated project and campaign state.
-
-    This capability describes only the ownership boundary. The state library
-    owns all contents below ``path`` and decides when to create them.
-    """
-
-    path: Path
-
-
-@dataclass(frozen=True)
 class EvaluatorLockCapability:
     """Location of the repository-wide evaluator dependency lock file."""
 
@@ -211,29 +202,6 @@ class ProjectLayout:
         """Return the normalized candidate project root."""
         return self._project_root
 
-    def initialize(self) -> None:
-        """Create the authored configuration and task roots if absent.
-
-        The operation is idempotent and does not create generated state or an
-        evaluator lock file.
-        """
-        configuration_path = self._configuration_path()
-        self._validate_non_escaping_path(configuration_path, must_exist=False)
-        try:
-            configuration_path.mkdir(exist_ok=True)
-        except OSError as exc:
-            raise ProjectLayoutError(
-                f"Could not create VibeSys configuration root: {configuration_path}"
-            ) from exc
-        configuration = self.configuration_root()
-        tasks_path = configuration.path / _TASKS_DIRECTORY_NAME
-        self._validate_non_escaping_path(tasks_path, must_exist=False)
-        try:
-            tasks_path.mkdir(exist_ok=True)
-        except OSError as exc:
-            raise ProjectLayoutError(f"Could not create VibeSys tasks root: {tasks_path}") from exc
-        self.tasks_root()
-
     def is_initialized(self) -> bool:
         """Return whether authored task configuration exists, independent of state."""
         configuration_path = self._configuration_path()
@@ -263,14 +231,6 @@ class ProjectLayout:
             boundary=configuration.path,
         )
         return TasksRoot(path)
-
-    def state_root(self) -> StateRootCapability:
-        """Return the reserved generated-state root without creating it."""
-        configuration = self.configuration_root()
-        path = configuration.resolve(_STATE_DIRECTORY_NAME, must_exist=False)
-        if path.exists() and not path.is_dir():
-            raise ProjectLayoutError(f"VibeSys state root is not a directory: {path}")
-        return StateRootCapability(path)
 
     def evaluator_lock(self) -> EvaluatorLockCapability:
         """Return the evaluator lock-file location without creating it."""
@@ -343,6 +303,8 @@ class ProjectLayout:
         boundary: Path | None = None,
     ) -> Path:
         try:
+            if lexical_path.is_symlink():
+                raise UnsafeProjectPathError(f"{description} must not be a symlink: {lexical_path}")
             path = lexical_path.resolve(strict=True)
         except OSError as exc:
             raise ProjectNotInitializedError(
@@ -352,14 +314,6 @@ class ProjectLayout:
         _require_contained(path, containment_root, description)
         if not path.is_dir():
             raise ProjectNotInitializedError(f"{description} is not a directory: {path}")
-        return path
-
-    def _validate_non_escaping_path(self, lexical_path: Path, *, must_exist: bool) -> Path:
-        try:
-            path = lexical_path.resolve(strict=must_exist)
-        except OSError as exc:
-            raise ProjectLayoutError(f"Could not resolve VibeSys path: {lexical_path}") from exc
-        _require_contained(path, self._project_root.path, "VibeSys project path")
         return path
 
 

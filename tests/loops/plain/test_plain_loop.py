@@ -28,7 +28,7 @@ from vibesys.schemas import (
     Verdict,
 )
 from vs_issue_board import IssueBoard, IssueStatus
-from vs_project_state import ProjectStore
+from vs_project import Project
 
 # ---------------------------------------------------------------------------
 # Helpers — factories and fixtures shared across tests
@@ -113,19 +113,19 @@ def _store_path(exp_dir: Path) -> Path:
 
 
 def _run_id(project_dir: Path) -> str:
-    runs = ProjectStore(project_dir).list_runs()
+    runs = Project.open(project_dir).state.list_runs()
     assert len(runs) == 1, runs
     return runs[0].run_id
 
 
 def _plain_state_store(project_dir: Path) -> PlainStateStore:
-    project = ProjectStore(project_dir)
-    return PlainStateStore(project.portable_namespace(_run_id(project_dir), "plain"))
+    project = Project.open(project_dir)
+    return PlainStateStore(project.state.portable_namespace(_run_id(project_dir), "plain"))
 
 
 def _plain_local_dir(project_dir: Path) -> Path:
-    project = ProjectStore(project_dir)
-    return project.local_namespace(_run_id(project_dir), "plain").external_directory()
+    project = Project.open(project_dir)
+    return project.state.local_namespace(_run_id(project_dir), "plain").external_directory()
 
 
 @pytest.fixture

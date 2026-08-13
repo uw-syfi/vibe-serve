@@ -19,7 +19,7 @@ from vibesys.evaluators import (
 )
 
 if TYPE_CHECKING:
-    from vs_project_layout import ProjectLayout, TaskDirectory
+    from vs_project import Project, TaskDirectory
 
 MANIFEST_NAME = "vibesys.input.toml"
 
@@ -410,10 +410,10 @@ def load_input_bundle(path: Path) -> InputBundle:
     return _load_input_bundle(project_root=root, task_root=root, task_name=None)
 
 
-def load_project_task(project: ProjectLayout, task: TaskDirectory) -> InputBundle:
+def load_project_task(project: Project, task: TaskDirectory) -> InputBundle:
     """Load one repository-native task against its candidate project root."""
     return _load_input_bundle(
-        project_root=project.project_root.path,
+        project_root=project.root,
         task_root=task.path,
         task_name=str(task.name),
         evaluator_lock_path=project.evaluator_lock().path,

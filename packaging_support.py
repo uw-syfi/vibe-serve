@@ -12,8 +12,7 @@ PACKAGE_SOURCE_ROOTS = (
     Path("libs/vs-github/src"),
     Path("libs/vs-issue-board/src"),
     Path("libs/vs-loop-state/src"),
-    Path("libs/vs-project-layout/src"),
-    Path("libs/vs-project-state/src"),
+    Path("libs/vs-project/src"),
     Path("libs/vs-sandbox/src"),
 )
 _BUILD_AND_CACHE_DIRECTORIES = frozenset(

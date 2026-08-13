@@ -76,8 +76,8 @@ from vibesys.sandbox.run_environment import (
     build_run_environment,
     make_run_environment_spec,
 )
-from vs_project_state import (
-    ProjectStore,
+from vs_project import (
+    Project,
     RunConfiguration,
     StateSnapshot,
     StateTransition,
@@ -392,7 +392,7 @@ def _assemble_run_context(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: 
     buffered_logs: list[str] = []
     backend_impl = backends.get(
         backend,
-        log_dir=ProjectStore.log_directory_for(project_root, run_id),
+        log_dir=Project.log_directory_for(project_root, run_id),
         log=buffered_logs.append,
         image=environment.backend_image,
     )
@@ -491,8 +491,9 @@ def _assemble_run_context(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: 
     else:
         workspace_files.create()
 
-    project_store = ProjectStore(project_root)
-    log_dir = project_store.log_directory(run_id)
+    project = Project.open(project_root)
+    project_state = project.state
+    log_dir = project_state.log_directory(run_id)
     log_dir.mkdir(parents=True, exist_ok=True)
     from vibesys.server.registry import active_supervisor  # noqa: PLC0415  # tracked: #288
 
@@ -536,8 +537,8 @@ def _assemble_run_context(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: 
     )
     round_transaction_coordinator: RoundTransactionCoordinator | None = None
     if existing:
-        project_store.load_project()
-        run_manifest = project_store.load_run(run_id)
+        project_state.load_project()
+        run_manifest = project_state.load_run(run_id)
         if git.trusted_input_baseline is None:
             git.configure_trusted_input_baseline(run_manifest.trusted_input_baseline)
         elif git.trusted_input_baseline != run_manifest.trusted_input_baseline:
@@ -591,14 +592,14 @@ def _assemble_run_context(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: 
                         ),
                     )
                 )
-            project_store.update_run_configuration(run_id, configuration_update)
+            project_state.update_run_configuration(run_id, configuration_update)
             git.snapshot_with_framework_metadata(
                 "vibesys: increase run limit",
-                project_store.run_manifest_snapshot(run_id),
+                project_state.run_manifest_snapshot(run_id),
             )
-        project_store.set_current_run(run_id)
+        project_state.set_current_run(run_id)
     else:
-        project_store.create_project(project_root.name)
+        project_state.create_project(project_root.name)
         if git.trusted_input_baseline is None:
             raise ConfigurationError(
                 ConfigurationDiagnostic(
@@ -607,7 +608,7 @@ def _assemble_run_context(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: 
                     message="Git did not provide the project run branch-point commit",
                 )
             )
-        run_manifest = project_store.new_run_manifest(
+        run_manifest = project_state.new_run_manifest(
             exp_name,
             task_name=task_name,
             run_id=run_id,
@@ -616,20 +617,20 @@ def _assemble_run_context(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: 
             configuration=effective_configuration,
             trusted_input_baseline=git.trusted_input_baseline,
         )
-        project_store.create_run(run_manifest)
+        project_state.create_run(run_manifest)
         git.snapshot_with_framework_metadata(
             f"vibesys: initialize run {run_id}",
-            project_store.initialization_snapshot(run_id),
+            project_state.initialization_snapshot(run_id),
         )
 
     if supervisor is not None:
-        supervisor.attach(log_dir, project_store=project_store, run_id=run_id)
+        supervisor.attach(log_dir, project=project, run_id=run_id)
 
     if project_configuration.outer_loop == "agent":
         if active_state_model_type is None:
             raise ValueError("agent runs require an active state model type")  # noqa: TRY003  # tracked: #288
         round_transaction_coordinator = RoundTransactionCoordinator(
-            project_store,
+            project,
             git,
             run_id,
             active_state_model_type=active_state_model_type,
@@ -660,8 +661,8 @@ def _assemble_run_context(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: 
             workspace=project_root,
             run_environment=environment,
             project_root=PROJECT_ROOT,
-            model_cache_dir=project_store.model_cache_directory("huggingface"),
-            runtime_artifact_dir=project_store.model_cache_directory("llm-serving"),
+            model_cache_dir=project_state.model_cache_directory("huggingface"),
+            runtime_artifact_dir=project_state.model_cache_directory("llm-serving"),
             log=logger.lprint,
         )
         environment_patch = hooks.prepare(environment_context)
@@ -681,7 +682,7 @@ def _assemble_run_context(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: 
     )
     workspace_files.setup(plan, existing=True)
 
-    runtime_state = project_store.portable_namespace(run_id, "runtime")
+    runtime_state = project_state.portable_namespace(run_id, "runtime")
     objective_document: Path | None = None
     if objective is not None:
         objective_document = runtime_state.external_directory() / "effective-objective.md"
@@ -859,8 +860,8 @@ def _assemble_run_context(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: 
         commands=commands,
         device=device,
         agent_runner=agent_runner,
-        project_store=project_store,
-        state=RunState(project_store, git, run_id),
+        project=project,
+        state=RunState(project, git, run_id),
         run_id=run_id,
         round_transaction_coordinator=round_transaction_coordinator,
     )
@@ -926,7 +927,7 @@ def _assemble_candidate_context(  # noqa: PLR0913  # tracked: #288
 ) -> "_RunContext":
     config = as_config(config)
     candidate_id = f"g{generation}c{child_idx}"
-    workspace = parent.project_store.candidate_worktree_directory(parent.run_id, candidate_id)
+    workspace = parent.project.state.candidate_worktree_directory(parent.run_id, candidate_id)
     log_dir = parent.state.local(RunStateNamespace.EVOLVE).external_directory(
         f"candidates/{candidate_id}/logs"
     )
@@ -1071,7 +1072,7 @@ def _assemble_candidate_context(  # noqa: PLR0913  # tracked: #288
         commands=commands,
         device=parent.device,  # shared under the environment's parallel contract
         agent_runner=agent_runner,
-        project_store=parent.project_store,
+        project=parent.project,
         state=parent.state,
         run_id=parent.run_id,
     )
@@ -1128,7 +1129,7 @@ class _RunContext:
         commands: RunCommands,
         device: DeviceLease,
         agent_runner: AgentRunner,
-        project_store: ProjectStore,
+        project: Project,
         state: RunState,
         run_id: str,
         round_transaction_coordinator: RoundTransactionCoordinator | None = None,
@@ -1161,7 +1162,7 @@ class _RunContext:
         self.workspace_files = workspace_files
         self.EXCLUDED_WORKSPACE_DIRS = workspace_files.excluded_dirs
         self.git = git
-        self.project_store = project_store
+        self.project = project
         self.state = state
         self.run_id = run_id
         self._round_transaction_coordinator = round_transaction_coordinator
@@ -1410,7 +1411,7 @@ class _RunContext:
             )
             self.run_log_file.flush()
             self._write_chat_trajectory_snapshot(
-                self.project_store.portable_run_export(self.run_id),
+                self.project.state.portable_run_export(self.run_id),
                 trajectory_dir / "state",
             )
             self._copy_chat_trajectory_files(self.log_dir, trajectory_dir / "logs")

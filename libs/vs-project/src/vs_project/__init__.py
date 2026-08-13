@@ -1,6 +1,21 @@
-"""Portable, typed persistence for VibeSys project and run state."""
+"""Repository-native VibeSys project layout and typed state persistence."""
 
-from vs_project_state.store import (
+from vs_project._layout import (
+    AmbiguousTaskError,
+    ConfigurationRoot,
+    EvaluatorLockCapability,
+    InvalidTaskDefinitionError,
+    InvalidTaskNameError,
+    ProjectLayoutError,
+    ProjectNotInitializedError,
+    ProjectRootNotFoundError,
+    TaskDirectory,
+    TaskName,
+    TaskNotFoundError,
+    TasksRoot,
+    UnsafeProjectPathError,
+)
+from vs_project._state import (
     PROJECT_SCHEMA_VERSION,
     AgentRunConfiguration,
     EvolveRunConfiguration,
@@ -12,7 +27,6 @@ from vs_project_state.store import (
     ProjectManifest,
     ProjectSandboxPaths,
     ProjectStateError,
-    ProjectStore,
     RunConfiguration,
     RunManifest,
     StateFile,
@@ -25,20 +39,31 @@ from vs_project_state.store import (
     is_project_state_path,
     serialize_round,
 )
+from vs_project.errors import ProjectError
+from vs_project.project import Project
 
 __all__ = [
     "PROJECT_SCHEMA_VERSION",
     "AgentRunConfiguration",
+    "AmbiguousTaskError",
+    "ConfigurationRoot",
+    "EvaluatorLockCapability",
     "EvolveRunConfiguration",
     "GitObjectId",
     "GitSnapshotFile",
     "GitSnapshotPlan",
+    "InvalidTaskDefinitionError",
+    "InvalidTaskNameError",
     "PlainRunConfiguration",
+    "Project",
+    "ProjectError",
     "ProjectGitIntegration",
+    "ProjectLayoutError",
     "ProjectManifest",
+    "ProjectNotInitializedError",
+    "ProjectRootNotFoundError",
     "ProjectSandboxPaths",
     "ProjectStateError",
-    "ProjectStore",
     "RunConfiguration",
     "RunManifest",
     "StateFile",
@@ -47,6 +72,11 @@ __all__ = [
     "StateSlot",
     "StateSnapshot",
     "StateTransition",
+    "TaskDirectory",
+    "TaskName",
+    "TaskNotFoundError",
+    "TasksRoot",
+    "UnsafeProjectPathError",
     "generate_run_id",
     "is_project_state_path",
     "serialize_round",

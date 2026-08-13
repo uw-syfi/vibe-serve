@@ -18,8 +18,7 @@ from vibesys.input_manifest import (
     render_input_manifest,
 )
 from vibesys.run.workspace import CopySpec, GitSourceSpec, InputProjectSpec, Workspace
-from vs_project_layout import ProjectLayout
-from vs_project_state import ProjectStore, is_project_state_path
+from vs_project import Project, is_project_state_path
 
 _PRIVATE_PROJECT_ENTRY_NAMES = frozenset({".git", "agent.toml"})
 
@@ -66,7 +65,7 @@ def provision_project(
     _validate_destination(source, destination, workspace=spec.workspace)
     repository_task = spec.task_name is not None
     manifest_root = (
-        ProjectLayout.open(source).select_task(spec.task_name).path if repository_task else source
+        Project.open(source).select_task(spec.task_name).path if repository_task else source
     )
     manifest = _load_manifest(manifest_root)
     _validate_materialization_contract(manifest, spec)
@@ -181,7 +180,7 @@ def _project_copy_excludes(
         child.name for child in source.iterdir() if not _should_copy_project_entry(Path(child.name))
     }
     if not preserve_configuration:
-        configuration = ProjectStore(source).sandbox_paths().read_only_path
+        configuration = Project.open(source).state.sandbox_paths().read_only_path
         if configuration is not None and len(configuration.parts) == 1:
             excluded.add(configuration.name)
     return frozenset(excluded)

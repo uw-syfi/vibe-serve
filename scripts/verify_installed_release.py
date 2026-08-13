@@ -28,7 +28,7 @@ from vibesys.resource_paths import (
     profiler_support_dir,
     resources_root,
 )
-from vs_project_state import ProjectStateError, ProjectStore
+from vs_project import Project, ProjectError
 
 FRAMEWORK_PACKAGES = (
     "vibesys",
@@ -36,8 +36,7 @@ FRAMEWORK_PACKAGES = (
     "vs_github",
     "vs_issue_board",
     "vs_loop_state",
-    "vs_project_layout",
-    "vs_project_state",
+    "vs_project",
     "vs_sandbox",
 )
 REQUIRED_SYSTEM_TOOLS = ("git",)
@@ -214,9 +213,7 @@ def _verify_resources() -> None:
         if support is None or "site-packages" not in str(support.resolve()):
             _fail(f"Installed profiler resources did not resolve for {kind.value}: {support}")
     for name in ("vibesys-evaluator-microservice", "vibesys-evaluator-queue"):
-        package = resolve_evaluator_package(
-            EvaluatorPackageRequirement(name=name, version="0.1.0")
-        )
+        package = resolve_evaluator_package(EvaluatorPackageRequirement(name=name, version="0.1.0"))
         if "site-packages" not in str(package.root.resolve()):
             _fail(f"Installed evaluator package did not resolve for {name}: {package.root}")
 
@@ -438,10 +435,10 @@ def _verify_project_state(project_root: Path) -> None:
     if (project_root / "agent.toml").exists():
         _fail("Configless headless smoke unexpectedly created agent.toml")
     try:
-        store = ProjectStore(project_root)
+        store = Project.open(project_root).state
         store.load_project()
         runs = store.list_runs()
-    except ProjectStateError as exc:
+    except ProjectError as exc:
         _fail(f"Project smoke did not create valid project state: {exc}")
     if len(runs) != 1 or not runs[0].run_id.endswith("-installed-release-smoke"):
         _fail(f"Project smoke did not create exactly one run: {runs}")

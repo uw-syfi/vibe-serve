@@ -7,8 +7,7 @@ considers trusted, read-only, or secret.
 
 from pathlib import Path
 
-from vs_project_layout import ProjectLayout
-from vs_project_state import ProjectStore
+from vs_project import Project
 from vs_sandbox import ProjectPathPolicy
 
 LEGACY_TRUSTED_PROJECT_INPUT_PATHS: tuple[str, ...] = (
@@ -25,10 +24,10 @@ LEGACY_TRUSTED_PROJECT_INPUT_PATHS: tuple[str, ...] = (
 
 def _authored_project_input_paths(root: Path) -> tuple[Path, ...]:
     """Return trusted inputs for the project's active authoring model."""
-    layout = ProjectLayout.open(root)
-    if layout.is_initialized():
-        paths = {layout.tasks_root().path.relative_to(root)}
-        evaluator_lock = layout.evaluator_lock().path
+    project = Project.open(root)
+    if project.is_initialized():
+        paths = {project.tasks_root().path.relative_to(root)}
+        evaluator_lock = project.evaluator_lock().path
         if evaluator_lock.is_file():
             paths.add(evaluator_lock.relative_to(root))
         return _minimal_paths(paths)
@@ -42,7 +41,7 @@ def build_project_path_policy(
 ) -> ProjectPathPolicy:
     """Return the agent sandbox policy for one canonical project."""
     root = project_root.resolve()
-    state_paths = ProjectStore(root).sandbox_paths()
+    state_paths = Project.open(root).state.sandbox_paths()
     read_only = {
         path
         for path in (

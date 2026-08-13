@@ -69,7 +69,7 @@ from vibesys.skills import (
     resolve_skill_selections,
 )
 from vs_loop_state.agent import RoundHistory, RoundRecord
-from vs_project_state import AgentRunConfiguration
+from vs_project import AgentRunConfiguration
 
 # Candidate process boundaries selected by ``--interface``. Language, tooling,
 # and artifact requirements belong to the selected domain and input bundle.

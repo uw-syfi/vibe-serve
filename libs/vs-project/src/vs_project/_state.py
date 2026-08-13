@@ -30,17 +30,18 @@ from typing import TYPE_CHECKING, Annotated, Literal, Protocol, Self
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, ValidationError, model_validator
 
+import vs_project._paths as project_paths
 from vs_loop_state import RoundRecord, parse_round_record, serialize_round_record
+from vs_project.errors import ProjectError
 
 if TYPE_CHECKING:
     from uuid import UUID
 
 PROJECT_SCHEMA_VERSION: Literal[1] = 1
-_CONFIG_DIRECTORY_NAME = ".vibesys"
-_STATE_DIRECTORY_NAME = "state"
-_STATE_DIRECTORY_PARTS = (_CONFIG_DIRECTORY_NAME, _STATE_DIRECTORY_NAME)
-_STATE_DIRECTORY_PATH = Path(*_STATE_DIRECTORY_PARTS)
-_STATE_DIRECTORY_POSIX = PurePosixPath(*_STATE_DIRECTORY_PARTS)
+_CONFIG_DIRECTORY_NAME = project_paths.CONFIGURATION_DIRECTORY_NAME
+_STATE_DIRECTORY_PARTS = project_paths.STATE_DIRECTORY_PARTS
+_STATE_DIRECTORY_PATH = project_paths.STATE_DIRECTORY_PATH
+_STATE_DIRECTORY_POSIX = project_paths.STATE_DIRECTORY_POSIX
 _IDENTIFIER_PATTERN = r"^[a-z0-9][a-z0-9._-]{0,127}$"
 _DIGEST_PATTERN = r"^[0-9a-f]{64}$"
 _GIT_OBJECT_ID_PATTERN = r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
@@ -66,7 +67,7 @@ GitObjectId = Annotated[str, Field(pattern=_GIT_OBJECT_ID_PATTERN)]
 PortableText = Annotated[str, Field(min_length=1, max_length=256)]
 
 
-class ProjectStateError(RuntimeError):
+class ProjectStateError(ProjectError):
     """Raised when project metadata is missing, unsafe, or invalid."""
 
 
@@ -272,7 +273,7 @@ class ProjectGitIntegration:
 
     def validate_candidate_worktree(self, path: Path) -> Path:
         """Resolve a candidate worktree below this run's machine-local area."""
-        store = ProjectStore(self._project_root)
+        store = ProjectState(self._project_root)
         worktrees_root = store._worktrees_dir(self._run_id)
         raw_destination = path.expanduser()
         if not raw_destination.is_absolute():
@@ -292,7 +293,7 @@ class ProjectGitIntegration:
 
     def resolve_snapshot(self, snapshot: StateSnapshot) -> GitSnapshotPlan:
         """Resolve a validated portable snapshot into opaque Git capabilities."""
-        ProjectStore(self._project_root)
+        ProjectState(self._project_root)
         namespace_root = snapshot._namespace_root
         parts = namespace_root.parts
         if parts != _STATE_DIRECTORY_PARTS and parts[3] != self._run_id:
@@ -334,7 +335,7 @@ class ProjectGitIntegration:
 class StateNamespace:
     """Opaque, safe filesystem boundary for one run-state namespace.
 
-    Instances are created by :class:`ProjectStore`. Callers address files only
+    Instances are created through :attr:`vs_project.Project.state`. Callers address files only
     by namespace-relative portable paths and exchange validated Pydantic models.
     Machine-local namespaces support the same model operations but cannot be
     converted into portable snapshots.
@@ -816,8 +817,8 @@ def generate_run_id(
     return f"{timestamp:%Y%m%d-%H%M%S}-{suffix}-{slug}"
 
 
-class ProjectStore:
-    """Read and write portable state below ``.vibesys/state`` in one project."""
+class ProjectState:
+    """Internal persistence implementation exposed through ``Project.state``."""
 
     def __init__(self, project_root: Path | str) -> None:
         """Bind the store to an existing project directory."""

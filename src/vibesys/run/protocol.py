@@ -21,7 +21,7 @@ from vibesys.profilers import ProfilerKind
 from vibesys.run.git_tracker import GitTracker
 from vibesys.run.state import RunState
 from vs_loop_state import RoundRecord
-from vs_project_state import ProjectStore, StateTransition
+from vs_project import Project, StateTransition
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -42,7 +42,7 @@ class LoopContext(Protocol):  # noqa: D101  # tracked: #288
     run_environment_view: Any
     git: GitTracker
     state: RunState
-    project_store: ProjectStore
+    project: Project
     run_id: str
 
     # -- paths ----------------------------------------------------------------

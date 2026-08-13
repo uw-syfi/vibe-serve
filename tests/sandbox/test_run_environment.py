@@ -19,7 +19,7 @@ from vibesys.sandbox.run_environment import (
     build_run_environment,
     make_run_environment_spec,
 )
-from vs_project_layout import ProjectLayout
+from vs_project import Project
 from vs_sandbox import ProjectPathPolicy
 
 
@@ -212,8 +212,8 @@ def test_environment_quotes_hotel_nested_shell_paths(tmp_path: Path) -> None:
     workspace = tmp_path / "candidate's; touch injected"
     workspace.mkdir()
     project = Path("examples/microservices/repositories/deathstarbench").resolve()
-    layout = ProjectLayout.open(project)
-    bundle = load_project_task(layout, layout.select_task("hotel-reservation"))
+    vibesys_project = Project.open(project)
+    bundle = load_project_task(vibesys_project, vibesys_project.select_task("hotel-reservation"))
     env = build_run_environment(RunEnvironmentSpec("local"))
 
     session = env.open(

@@ -57,7 +57,7 @@ from vs_issue_board import (
     IssueType,
 )
 from vs_loop_state import PlainLoopCursor, PlainPerformanceRecord
-from vs_project_state import PlainRunConfiguration
+from vs_project import PlainRunConfiguration
 
 _TEMPLATE_DIR = PROMPTS_DIR / "loops" / "plain"
 PlainLoopState = PlainLoopCursor

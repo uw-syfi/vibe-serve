@@ -10,12 +10,12 @@ from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from vs_project_state import ProjectStore
+from vs_project import Project
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
 
-    from vs_project_state import ProjectGitIntegration, StateSnapshot
+    from vs_project import ProjectGitIntegration, StateSnapshot
 
 
 def _normalize_project_paths(paths: Iterable[str | Path]) -> tuple[Path, ...]:
@@ -103,9 +103,9 @@ class GitTracker:
         )
         self._trusted_input_baseline: str | None = None
         self._project_branch = f"vibesys-runs/{run_id}"
-        self._state_integration: ProjectGitIntegration = ProjectStore(self.root).git_integration(
-            run_id
-        )
+        self._state_integration: ProjectGitIntegration = Project.open(
+            self.root
+        ).state.git_integration(run_id)
         self._git_dir: Path | None = None
         self._work_tree: Path | None = None
         self._exclude_file = self.root / ".git" / "info" / "exclude"

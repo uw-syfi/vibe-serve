@@ -4,7 +4,7 @@ from vibesys.run.project_policy import (
     LEGACY_TRUSTED_PROJECT_INPUT_PATHS,
     build_project_path_policy,
 )
-from vs_project_state import ProjectStore
+from vs_project import Project
 
 
 def test_legacy_project_policy_protects_trusted_inputs_and_hides_local_state(
@@ -19,7 +19,7 @@ def test_legacy_project_policy_protects_trusted_inputs_and_hides_local_state(
         else:
             path.mkdir()
     (project / ".git").mkdir()
-    store = ProjectStore(project)
+    store = Project.open(project).state
     store.create_project("test")
     store.model_cache_directory("test").mkdir(parents=True)
     (project / "agent.toml").write_text("private\n")

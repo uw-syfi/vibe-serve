@@ -13,14 +13,14 @@ import pytest
 from pydantic import BaseModel, ConfigDict, TypeAdapter, ValidationError
 
 from vs_loop_state import RoundRecord, parse_round_record, serialize_round_record
-from vs_project_state import (
+from vs_project import (
     PROJECT_SCHEMA_VERSION,
     AgentRunConfiguration,
     EvolveRunConfiguration,
     PlainRunConfiguration,
+    Project,
     ProjectManifest,
     ProjectStateError,
-    ProjectStore,
     RunConfiguration,
     RunManifest,
     StateFile,
@@ -114,16 +114,16 @@ def _evolve_configuration() -> EvolveRunConfiguration:
     )
 
 
-def _store(tmp_path: Path) -> ProjectStore:
+def _store(tmp_path: Path) -> Project:
     (tmp_path / "OBJECTIVE.md").write_text("Make it fast.\n", encoding="utf-8")
-    store = ProjectStore(tmp_path)
-    store.create_project("Queue SPSC", now=NOW)
+    store = Project.open(tmp_path)
+    store.state.create_project("Queue SPSC", now=NOW)
     return store
 
 
-def _run(store: ProjectStore, *, minute: int = 0) -> RunManifest:
+def _run(store: Project, *, minute: int = 0) -> RunManifest:
     created_at = NOW + timedelta(minutes=minute)
-    manifest = store.new_run_manifest(
+    manifest = store.state.new_run_manifest(
         "Queue SPSC",
         branch=f"vibesys/queue-{minute}",
         vibesys_version="0.2.0",
@@ -132,7 +132,7 @@ def _run(store: ProjectStore, *, minute: int = 0) -> RunManifest:
         now=created_at,
         unique=UUID(int=minute + 1),
     )
-    store.create_run(manifest)
+    store.state.create_run(manifest)
     return manifest
 
 
@@ -327,31 +327,34 @@ def test_create_project_writes_portable_committed_manifest(tmp_path: Path) -> No
     source = tmp_path / "src"
     source.mkdir()
     (source / "queue.rs").write_text("pub struct Queue;\n", encoding="utf-8")
-    store = ProjectStore(tmp_path)
+    store = Project.open(tmp_path)
 
-    manifest = store.create_project("Queue SPSC", now=NOW)
+    manifest = store.state.create_project("Queue SPSC", now=NOW)
 
-    assert store.load_project() == manifest
-    assert store._metadata_gitignore_path.read_text(encoding="utf-8") == "/local/\n"
-    raw = json.loads(store._project_manifest_path.read_text(encoding="utf-8"))
+    assert store.state.load_project() == manifest
+    assert store.state._metadata_gitignore_path.read_text(encoding="utf-8") == "/local/\n"
+    raw = json.loads(store.state._project_manifest_path.read_text(encoding="utf-8"))
     assert raw == {
         "created_at": "2026-08-11T12:34:56Z",
         "initial_input_fingerprint": manifest.initial_input_fingerprint,
         "project_id": manifest.project_id,
         "schema_version": PROJECT_SCHEMA_VERSION,
     }
-    serialized = store._project_manifest_path.read_text(encoding="utf-8")
+    serialized = store.state._project_manifest_path.read_text(encoding="utf-8")
     assert str(tmp_path) not in serialized
     assert "provider" not in serialized
 
 
 def test_create_project_is_idempotent_after_source_changes(tmp_path: Path) -> None:
     store = _store(tmp_path)
-    original = store.load_project()
+    original = store.state.load_project()
     (tmp_path / "src.py").write_text("changed = True\n", encoding="utf-8")
 
-    assert store.create_project("A different display name", now=NOW + timedelta(days=1)) == original
-    assert store._metadata_gitignore_path.read_text(encoding="utf-8") == "/local/\n"
+    assert (
+        store.state.create_project("A different display name", now=NOW + timedelta(days=1))
+        == original
+    )
+    assert store.state._metadata_gitignore_path.read_text(encoding="utf-8") == "/local/\n"
 
 
 def test_project_discovery_validates_manifests_without_exposing_layout(tmp_path: Path) -> None:
@@ -363,9 +366,9 @@ def test_project_discovery_validates_manifests_without_exposing_layout(tmp_path:
     _store(second)
     _store(first)
 
-    assert ProjectStore.is_project_root(first)
-    assert not ProjectStore.is_project_root(invalid)
-    assert ProjectStore.find_projects(tmp_path) == (first.resolve(), second.resolve())
+    assert Project.is_state_initialized(first)
+    assert not Project.is_state_initialized(invalid)
+    assert Project.find_state_projects(tmp_path) == (first.resolve(), second.resolve())
 
 
 @pytest.mark.parametrize(
@@ -394,18 +397,18 @@ def test_semantic_runtime_and_sandbox_paths(tmp_path: Path) -> None:
     project.mkdir()
     run_id = "run-1"
 
-    assert ProjectStore.log_directory_for(project, run_id) == (
+    assert Project.log_directory_for(project, run_id) == (
         project / ".vibesys/state" / "local" / "runs" / run_id / "logs"
     )
     store = _store(project)
     run = _run(store)
 
-    assert store.log_directory(run.run_id).is_dir()
-    assert store.model_cache_directory("huggingface").is_relative_to(project)
-    assert store.candidate_worktree_directory(run.run_id, "g1c1").is_relative_to(project)
-    assert store.sandbox_paths().read_only_path == Path(".vibesys")
-    assert store.sandbox_paths().hidden_path == Path(".vibesys/state/local")
-    git = store.git_integration(run.run_id)
+    assert store.state.log_directory(run.run_id).is_dir()
+    assert store.state.model_cache_directory("huggingface").is_relative_to(project)
+    assert store.state.candidate_worktree_directory(run.run_id, "g1c1").is_relative_to(project)
+    assert store.state.sandbox_paths().read_only_path == Path(".vibesys")
+    assert store.state.sandbox_paths().hidden_path == Path(".vibesys/state/local")
+    git = store.state.git_integration(run.run_id)
     assert git.local_exclude_pattern == "/.vibesys/state/local/"
     assert git.metadata_pathspec == ".vibesys/state"
     assert git.metadata_restore_exclusions == (
@@ -423,29 +426,29 @@ def test_log_directory_rejects_symlinked_parent(tmp_path: Path) -> None:
     (project / ".vibesys/state" / "local" / "runs").symlink_to(outside, target_is_directory=True)
 
     with pytest.raises(ProjectStateError, match=r"(?:escapes|must not be a symlink)"):
-        ProjectStore.log_directory_for(project, "run-1")
+        Project.log_directory_for(project, "run-1")
 
 
 def test_model_cache_directory_rejects_symlinked_parent(tmp_path: Path) -> None:
     store = _store(tmp_path)
     outside = tmp_path / "outside"
-    store._local_dir.mkdir(parents=True)
+    store.state._local_dir.mkdir(parents=True)
     outside.mkdir()
-    (store._local_dir / "cache").symlink_to(outside, target_is_directory=True)
+    (store.state._local_dir / "cache").symlink_to(outside, target_is_directory=True)
 
     with pytest.raises(ProjectStateError, match=r"(?:escapes|must not be a symlink)"):
-        store.model_cache_directory("huggingface")
+        store.state.model_cache_directory("huggingface")
 
 
 def test_portable_run_export_contains_all_run_documents(tmp_path: Path) -> None:
     store = _store(tmp_path)
     run = _run(store)
-    store.portable_namespace(run.run_id, "plain").save(
+    store.state.portable_namespace(run.run_id, "plain").save(
         "cursor.json",
         _Cursor(round=2, phase="judge"),
     )
 
-    exported = store.portable_run_export(run.run_id)
+    exported = store.state.portable_run_export(run.run_id)
 
     assert {item.relative_path for item in exported.files} == {
         PurePosixPath("run.json"),
@@ -458,25 +461,27 @@ def test_portable_run_export_rejects_symlinked_directories(tmp_path: Path) -> No
     run = _run(store)
     outside = tmp_path / "outside"
     outside.mkdir()
-    (store._contained_run_dir(run.run_id) / "linked").symlink_to(
+    (store.state._contained_run_dir(run.run_id) / "linked").symlink_to(
         outside,
         target_is_directory=True,
     )
 
     with pytest.raises(ProjectStateError, match="must not contain symlinks"):
-        store.portable_run_export(run.run_id)
+        store.state.portable_run_export(run.run_id)
 
 
 def test_create_project_preserves_existing_metadata_ignore_rules(tmp_path: Path) -> None:
     metadata_dir = tmp_path / ".vibesys/state"
     metadata_dir.mkdir(parents=True)
     (metadata_dir / ".gitignore").write_text("custom.tmp\n", encoding="utf-8")
-    store = ProjectStore(tmp_path)
+    store = Project.open(tmp_path)
 
-    store.create_project("queue", now=NOW)
-    store.create_project("queue", now=NOW)
+    store.state.create_project("queue", now=NOW)
+    store.state.create_project("queue", now=NOW)
 
-    assert store._metadata_gitignore_path.read_text(encoding="utf-8") == ("custom.tmp\n/local/\n")
+    assert store.state._metadata_gitignore_path.read_text(encoding="utf-8") == (
+        "custom.tmp\n/local/\n"
+    )
 
 
 def test_create_project_rejects_symlinked_metadata_root_before_writing(tmp_path: Path) -> None:
@@ -485,14 +490,14 @@ def test_create_project_rejects_symlinked_metadata_root_before_writing(tmp_path:
     (project / "OBJECTIVE.md").write_text("Make it fast.\n", encoding="utf-8")
     outside = tmp_path / "outside"
     outside.mkdir()
-    store = ProjectStore(project)
-    store._config_dir.mkdir()
-    store._metadata_dir.symlink_to(outside, target_is_directory=True)
+    store = Project.open(project)
+    store.state._config_dir.mkdir()
+    store.state._metadata_dir.symlink_to(outside, target_is_directory=True)
 
     with pytest.raises(
         ProjectStateError, match=r"metadata root must not be a symlink.*\.vibesys/state"
     ):
-        store.create_project("Queue SPSC", now=NOW)
+        store.state.create_project("Queue SPSC", now=NOW)
 
     assert list(outside.iterdir()) == []
 
@@ -504,14 +509,14 @@ def test_create_project_rejects_symlinked_configuration_root_before_writing(
     project.mkdir()
     outside = tmp_path / "outside"
     outside.mkdir()
-    store = ProjectStore(project)
-    store._config_dir.symlink_to(outside, target_is_directory=True)
+    store = Project.open(project)
+    store.state._config_dir.symlink_to(outside, target_is_directory=True)
 
     with pytest.raises(
         ProjectStateError,
         match=r"configuration root must not be a symlink.*\.vibesys",
     ):
-        store.create_project("Queue SPSC", now=NOW)
+        store.state.create_project("Queue SPSC", now=NOW)
 
     assert list(outside.iterdir()) == []
 
@@ -520,7 +525,7 @@ def test_create_run_rejects_symlinked_local_root_before_writing(tmp_path: Path) 
     project = tmp_path / "project"
     project.mkdir()
     store = _store(project)
-    manifest = store.new_run_manifest(
+    manifest = store.state.new_run_manifest(
         "Queue SPSC",
         branch="vibesys/queue",
         vibesys_version="0.2.0",
@@ -531,12 +536,12 @@ def test_create_run_rejects_symlinked_local_root_before_writing(tmp_path: Path) 
     )
     outside = tmp_path / "outside"
     outside.mkdir()
-    store._local_dir.symlink_to(outside, target_is_directory=True)
+    store.state._local_dir.symlink_to(outside, target_is_directory=True)
 
     with pytest.raises(ProjectStateError, match="local metadata root must not be a symlink"):
-        store.create_run(manifest)
+        store.state.create_run(manifest)
 
-    assert not (store._metadata_dir / "runs").exists()
+    assert not (store.state._metadata_dir / "runs").exists()
     assert list(outside.iterdir()) == []
 
 
@@ -544,8 +549,8 @@ def test_input_fingerprint_tracks_portable_files_only(tmp_path: Path) -> None:
     (tmp_path / "src").mkdir()
     source = tmp_path / "src" / "queue.rs"
     source.write_text("one", encoding="utf-8")
-    store = ProjectStore(tmp_path)
-    initial = store.input_fingerprint()
+    store = Project.open(tmp_path)
+    initial = store.state.input_fingerprint()
 
     excluded_files = [
         tmp_path / ".env",
@@ -560,49 +565,49 @@ def test_input_fingerprint_tracks_portable_files_only(tmp_path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("secret-or-cache", encoding="utf-8")
 
-    assert store.input_fingerprint() == initial
+    assert store.state.input_fingerprint() == initial
     task = tmp_path / ".vibesys" / "tasks" / "queue" / "OBJECTIVE.md"
     task.parent.mkdir(parents=True)
     task.write_text("Optimize queue throughput.\n", encoding="utf-8")
-    with_task = store.input_fingerprint()
+    with_task = store.state.input_fingerprint()
     assert with_task != initial
     (tmp_path / ".vibesys/state" / "run.json").write_text("generated", encoding="utf-8")
-    assert store.input_fingerprint() == with_task
+    assert store.state.input_fingerprint() == with_task
     task.write_text("Optimize queue latency.\n", encoding="utf-8")
-    assert store.input_fingerprint() != with_task
+    assert store.state.input_fingerprint() != with_task
     source.write_text("two", encoding="utf-8")
-    assert store.input_fingerprint() != initial
+    assert store.state.input_fingerprint() != initial
 
 
 def test_run_manifest_and_local_state_use_separate_trees(tmp_path: Path) -> None:
     store = _store(tmp_path)
     manifest = _run(store)
 
-    assert store.load_run(manifest.run_id) == manifest
-    assert store._run_manifest_path(manifest.run_id) == (
+    assert store.state.load_run(manifest.run_id) == manifest
+    assert store.state._run_manifest_path(manifest.run_id) == (
         tmp_path / ".vibesys/state" / "runs" / manifest.run_id / "run.json"
     )
-    assert store.log_directory(manifest.run_id) == (
+    assert store.state.log_directory(manifest.run_id) == (
         tmp_path / ".vibesys/state" / "local" / "runs" / manifest.run_id / "logs"
     )
-    assert store._rounds_dir(manifest.run_id) == (
+    assert store.state._rounds_dir(manifest.run_id) == (
         tmp_path / ".vibesys/state" / "runs" / manifest.run_id / "agent" / "rounds"
     )
     assert (
-        store.local_namespace(manifest.run_id, "agent").agent_visible_path("active.json")
+        store.state.local_namespace(manifest.run_id, "agent").agent_visible_path("active.json")
         == f".vibesys/state/local/runs/{manifest.run_id}/agent/active.json"
     )
-    assert store._round_transaction_path(manifest.run_id) == (
+    assert store.state._round_transaction_path(manifest.run_id) == (
         tmp_path / ".vibesys/state" / "local" / "runs" / manifest.run_id / "round-transaction.json"
     )
-    assert store._worktrees_dir(manifest.run_id) == (
+    assert store.state._worktrees_dir(manifest.run_id) == (
         tmp_path / ".vibesys/state" / "local" / "runs" / manifest.run_id / "worktrees"
     )
-    assert store.log_directory(manifest.run_id).is_dir()
+    assert store.state.log_directory(manifest.run_id).is_dir()
     assert not (tmp_path / ".vibesys/state" / "runs" / manifest.run_id / "agent").exists()
     assert not (tmp_path / ".vibesys/state" / "local" / "runs" / manifest.run_id / "agent").exists()
-    assert not store._worktrees_dir(manifest.run_id).exists()
-    committed = store._run_manifest_path(manifest.run_id).read_text(encoding="utf-8")
+    assert not store.state._worktrees_dir(manifest.run_id).exists()
+    committed = store.state._run_manifest_path(manifest.run_id).read_text(encoding="utf-8")
     assert str(tmp_path) not in committed
     assert "token" not in committed
 
@@ -611,7 +616,7 @@ def test_run_manifest_persists_complete_agent_loop_behavior(tmp_path: Path) -> N
     store = _store(tmp_path)
     manifest = _run(store)
 
-    raw = json.loads(store._run_manifest_path(manifest.run_id).read_text(encoding="utf-8"))
+    raw = json.loads(store.state._run_manifest_path(manifest.run_id).read_text(encoding="utf-8"))
 
     assert raw["trusted_input_baseline"] == "a" * 40
     assert raw["configuration"] == {
@@ -653,7 +658,7 @@ def test_run_manifest_round_trips_each_outer_loop_configuration(
     expected_type: type[RunConfiguration],
 ) -> None:
     store = _store(tmp_path)
-    manifest = store.new_run_manifest(
+    manifest = store.state.new_run_manifest(
         "queue",
         branch="vibesys/queue",
         vibesys_version="0.2.0",
@@ -663,8 +668,8 @@ def test_run_manifest_round_trips_each_outer_loop_configuration(
         unique=UNIQUE,
     )
 
-    store.create_run(manifest)
-    loaded = store.load_run(manifest.run_id)
+    store.state.create_run(manifest)
+    loaded = store.state.load_run(manifest.run_id)
 
     assert type(loaded.configuration) is expected_type
     assert loaded.configuration == configuration
@@ -672,7 +677,7 @@ def test_run_manifest_round_trips_each_outer_loop_configuration(
 
 def test_run_manifest_round_trips_optional_task_identity(tmp_path: Path) -> None:
     store = _store(tmp_path)
-    manifest = store.new_run_manifest(
+    manifest = store.state.new_run_manifest(
         "queue",
         branch="vibesys/queue",
         vibesys_version="0.2.0",
@@ -683,22 +688,22 @@ def test_run_manifest_round_trips_optional_task_identity(tmp_path: Path) -> None
         unique=UNIQUE,
     )
 
-    store.create_run(manifest)
+    store.state.create_run(manifest)
 
-    assert store.load_run(manifest.run_id).task_name == "queue-spsc"
-    raw = json.loads(store._run_manifest_path(manifest.run_id).read_text(encoding="utf-8"))
+    assert store.state.load_run(manifest.run_id).task_name == "queue-spsc"
+    raw = json.loads(store.state._run_manifest_path(manifest.run_id).read_text(encoding="utf-8"))
     assert raw["task_name"] == "queue-spsc"
 
 
 def test_run_manifest_loads_legacy_state_without_task_identity(tmp_path: Path) -> None:
     store = _store(tmp_path)
     manifest = _run(store)
-    path = store._run_manifest_path(manifest.run_id)
+    path = store.state._run_manifest_path(manifest.run_id)
     raw = json.loads(path.read_text(encoding="utf-8"))
     del raw["task_name"]
     path.write_text(json.dumps(raw), encoding="utf-8")
 
-    assert store.load_run(manifest.run_id).task_name is None
+    assert store.state.load_run(manifest.run_id).task_name is None
 
 
 @pytest.mark.parametrize("task_name", ["", "Uppercase", "../queue", "queue/spsc"])
@@ -706,7 +711,7 @@ def test_run_manifest_rejects_invalid_task_identity(tmp_path: Path, task_name: s
     store = _store(tmp_path)
 
     with pytest.raises(ValidationError, match="task_name"):
-        store.new_run_manifest(
+        store.state.new_run_manifest(
             "queue",
             branch="vibesys/queue",
             vibesys_version="0.2.0",
@@ -725,7 +730,7 @@ def test_run_manifest_accepts_git_sha1_and_sha256_object_ids(
 ) -> None:
     store = _store(tmp_path)
 
-    manifest = store.new_run_manifest(
+    manifest = store.state.new_run_manifest(
         "queue",
         branch="vibesys/queue",
         vibesys_version="0.2.0",
@@ -746,7 +751,7 @@ def test_run_manifest_rejects_invalid_git_object_ids(
     store = _store(tmp_path)
 
     with pytest.raises(ValidationError, match="trusted_input_baseline"):
-        store.new_run_manifest(
+        store.state.new_run_manifest(
             "queue",
             branch="vibesys/queue",
             vibesys_version="0.2.0",
@@ -762,8 +767,8 @@ def test_update_run_configuration_preserves_manifest_identity(tmp_path: Path) ->
     manifest = _run(store)
     updated_configuration = manifest.configuration.model_copy(update={"max_rounds": 20})
 
-    result = store.update_run_configuration(manifest.run_id, updated_configuration)
-    updated = store.load_run(manifest.run_id)
+    result = store.state.update_run_configuration(manifest.run_id, updated_configuration)
+    updated = store.state.load_run(manifest.run_id)
 
     assert result is None
     assert updated.configuration == updated_configuration
@@ -775,15 +780,15 @@ def test_update_run_configuration_rejects_outer_loop_change(tmp_path: Path) -> N
     manifest = _run(store)
 
     with pytest.raises(ProjectStateError, match="uses outer loop 'agent', not 'plain'"):
-        store.update_run_configuration(manifest.run_id, _plain_configuration())
+        store.state.update_run_configuration(manifest.run_id, _plain_configuration())
 
-    assert store.load_run(manifest.run_id) == manifest
+    assert store.state.load_run(manifest.run_id) == manifest
 
 
 def test_new_run_manifest_accepts_a_preallocated_safe_run_id(tmp_path: Path) -> None:
     store = _store(tmp_path)
 
-    manifest = store.new_run_manifest(
+    manifest = store.state.new_run_manifest(
         "queue",
         branch="vibesys/preallocated-run",
         vibesys_version="0.2.0",
@@ -800,7 +805,7 @@ def test_new_run_manifest_rejects_an_unsafe_preallocated_run_id(tmp_path: Path) 
     store = _store(tmp_path)
 
     with pytest.raises(ProjectStateError, match="Invalid VibeSys run ID"):
-        store.new_run_manifest(
+        store.state.new_run_manifest(
             "queue",
             branch="vibesys/queue",
             vibesys_version="0.2.0",
@@ -813,7 +818,7 @@ def test_new_run_manifest_rejects_an_unsafe_preallocated_run_id(tmp_path: Path) 
 
 def test_create_run_rejects_a_manifest_for_another_project(tmp_path: Path) -> None:
     store = _store(tmp_path)
-    manifest = store.new_run_manifest(
+    manifest = store.state.new_run_manifest(
         "queue",
         branch="vibesys/queue",
         vibesys_version="0.2.0",
@@ -824,7 +829,7 @@ def test_create_run_rejects_a_manifest_for_another_project(tmp_path: Path) -> No
     ).model_copy(update={"project_id": "another-project"})
 
     with pytest.raises(ProjectStateError, match="belongs to project"):
-        store.create_run(manifest)
+        store.state.create_run(manifest)
 
 
 def test_current_and_latest_run_resolution(tmp_path: Path) -> None:
@@ -832,23 +837,23 @@ def test_current_and_latest_run_resolution(tmp_path: Path) -> None:
     first = _run(store, minute=1)
     second = _run(store, minute=2)
 
-    assert store.list_runs() == [first, second]
-    assert store.latest_run() == second
-    assert store.resolve_run() == second
-    store.set_current_run(first.run_id)
-    assert store.current_run_id() == first.run_id
-    assert store.resolve_run() == first
-    assert store.resolve_run(second.run_id) == second
-    store.set_current_run(None)
-    assert store.current_run_id() is None
-    assert store.resolve_run() == second
+    assert store.state.list_runs() == [first, second]
+    assert store.state.latest_run() == second
+    assert store.state.resolve_run() == second
+    store.state.set_current_run(first.run_id)
+    assert store.state.current_run_id() == first.run_id
+    assert store.state.resolve_run() == first
+    assert store.state.resolve_run(second.run_id) == second
+    store.state.set_current_run(None)
+    assert store.state.current_run_id() is None
+    assert store.state.resolve_run() == second
 
 
 def test_resolve_run_without_runs_is_actionable(tmp_path: Path) -> None:
     store = _store(tmp_path)
 
     with pytest.raises(ProjectStateError, match=r"No VibeSys runs.*\.vibesys/state"):
-        store.resolve_run()
+        store.state.resolve_run()
 
 
 @pytest.mark.parametrize("run_id", ["../escape", "/absolute", "Uppercase", "", "a/b"])
@@ -856,7 +861,7 @@ def test_run_id_validation_prevents_path_escape(tmp_path: Path, run_id: str) -> 
     store = _store(tmp_path)
 
     with pytest.raises(ProjectStateError, match="Invalid VibeSys run ID"):
-        store._run_manifest_path(run_id)
+        store.state._run_manifest_path(run_id)
 
 
 def test_containment_rejects_symlinked_run_directory(tmp_path: Path) -> None:
@@ -868,7 +873,7 @@ def test_containment_rejects_symlinked_run_directory(tmp_path: Path) -> None:
     (runs_dir / "escaped").symlink_to(outside, target_is_directory=True)
 
     with pytest.raises(ProjectStateError, match="escapes"):
-        store._run_manifest_path("escaped")
+        store.state._run_manifest_path("escaped")
 
 
 def test_containment_rejects_in_tree_symlinked_run_directory(tmp_path: Path) -> None:
@@ -879,7 +884,7 @@ def test_containment_rejects_in_tree_symlinked_run_directory(tmp_path: Path) -> 
     (runs_dir / "alias").symlink_to(target, target_is_directory=True)
 
     with pytest.raises(ProjectStateError, match="must not be a symlink"):
-        store._run_manifest_path("alias")
+        store.state._run_manifest_path("alias")
 
 
 @pytest.mark.parametrize(
@@ -894,9 +899,9 @@ def test_state_namespace_validation_prevents_path_escape(
     run = _run(store)
 
     with pytest.raises(ProjectStateError, match="Invalid VibeSys state namespace"):
-        store.portable_namespace(run.run_id, namespace)
+        store.state.portable_namespace(run.run_id, namespace)
     with pytest.raises(ProjectStateError, match="Invalid VibeSys state namespace"):
-        store.local_namespace(run.run_id, namespace)
+        store.state.local_namespace(run.run_id, namespace)
 
 
 @pytest.mark.parametrize("local", [False, True])
@@ -913,7 +918,7 @@ def test_state_namespace_rejects_symlink_aliases(tmp_path: Path, *, local: bool)
     parent.mkdir(parents=True, exist_ok=True)
     (parent / "unsafe").symlink_to(outside, target_is_directory=True)
 
-    state_namespace = store.local_namespace if local else store.portable_namespace
+    state_namespace = store.state.local_namespace if local else store.state.portable_namespace
     with pytest.raises(ProjectStateError, match=r"(?:escapes|must not be a symlink)"):
         state_namespace(run.run_id, "unsafe")
 
@@ -927,7 +932,7 @@ def test_state_namespace_rejects_in_tree_symlink_alias(tmp_path: Path) -> None:
     (parent / "alias").symlink_to(target, target_is_directory=True)
 
     with pytest.raises(ProjectStateError, match="must not be a symlink"):
-        store.portable_namespace(run.run_id, "alias")
+        store.state.portable_namespace(run.run_id, "alias")
 
 
 def test_state_namespace_rejects_existing_file(tmp_path: Path) -> None:
@@ -935,7 +940,7 @@ def test_state_namespace_rejects_existing_file(tmp_path: Path) -> None:
     run = _run(store)
 
     with pytest.raises(ProjectStateError, match="is not a directory"):
-        store.portable_namespace(run.run_id, "run.json")
+        store.state.portable_namespace(run.run_id, "run.json")
 
 
 def test_worktrees_directory_rejects_symlink_alias(tmp_path: Path) -> None:
@@ -947,7 +952,7 @@ def test_worktrees_directory_rejects_symlink_alias(tmp_path: Path) -> None:
     worktrees.symlink_to(outside, target_is_directory=True)
 
     with pytest.raises(ProjectStateError, match=r"(?:escapes|must not be a symlink)"):
-        store._worktrees_dir(run.run_id)
+        store.state._worktrees_dir(run.run_id)
 
 
 def test_completed_round_directory_rejects_symlink_alias(tmp_path: Path) -> None:
@@ -960,7 +965,7 @@ def test_completed_round_directory_rejects_symlink_alias(tmp_path: Path) -> None
     (agent_dir / "rounds").symlink_to(outside, target_is_directory=True)
 
     with pytest.raises(ProjectStateError, match=r"(?:escapes|must not be a symlink)"):
-        store.save_round(
+        store.state.save_round(
             run.run_id,
             RoundRecord(1, "a" * 40, 10.0, "ops/s", True),  # noqa: FBT003
         )
@@ -971,7 +976,7 @@ def test_completed_round_directory_rejects_symlink_alias(tmp_path: Path) -> None
 def test_state_namespace_round_trips_strict_models_atomically(tmp_path: Path) -> None:
     store = _store(tmp_path)
     run = _run(store)
-    namespace = store.portable_namespace(run.run_id, "plain")
+    namespace = store.state.portable_namespace(run.run_id, "plain")
     cursor = _Cursor(round=3, phase="judge")
 
     namespace.save("cursor.json", cursor)
@@ -989,7 +994,7 @@ def test_state_namespace_round_trips_strict_models_atomically(tmp_path: Path) ->
 def test_state_namespace_prepares_and_applies_exact_typed_transition(tmp_path: Path) -> None:
     store = _store(tmp_path)
     run = _run(store)
-    namespace = store.local_namespace(run.run_id, "agent")
+    namespace = store.state.local_namespace(run.run_id, "agent")
     cursor = _Cursor(round=3, phase="judge")
 
     slot = namespace.slot("active.json", _Cursor)
@@ -1010,8 +1015,8 @@ def test_state_namespace_prepares_and_applies_exact_typed_transition(tmp_path: P
 def test_state_namespace_rejects_transition_for_another_namespace(tmp_path: Path) -> None:
     store = _store(tmp_path)
     run = _run(store)
-    agent = store.local_namespace(run.run_id, "agent")
-    plain = store.local_namespace(run.run_id, "plain")
+    agent = store.state.local_namespace(run.run_id, "agent")
+    plain = store.state.local_namespace(run.run_id, "plain")
     transition = plain.transition("cursor.json", _Cursor(round=1, phase="judge"))
 
     with pytest.raises(ProjectStateError, match="outside this namespace"):
@@ -1025,7 +1030,7 @@ def test_typed_state_slot_rejects_schema_invalid_reconstructed_document(
 ) -> None:
     store = _store(tmp_path)
     run = _run(store)
-    slot = store.local_namespace(run.run_id, "plain").slot("cursor.json", _Cursor)
+    slot = store.state.local_namespace(run.run_id, "plain").slot("cursor.json", _Cursor)
     payload = b'{"schema_version":1,"document":{"round":1,"unexpected":true}}'
 
     with pytest.raises(ProjectStateError, match="does not match the slot schema"):
@@ -1049,7 +1054,7 @@ def test_typed_state_slot_rejects_malformed_serialized_transition(
 ) -> None:
     store = _store(tmp_path)
     run = _run(store)
-    slot = store.local_namespace(run.run_id, "plain").slot("cursor.json", _Cursor)
+    slot = store.state.local_namespace(run.run_id, "plain").slot("cursor.json", _Cursor)
 
     with pytest.raises(ProjectStateError, match="transition"):
         slot.deserialize_transition(payload)
@@ -1058,7 +1063,7 @@ def test_typed_state_slot_rejects_malformed_serialized_transition(
 def test_state_namespace_distinguishes_missing_from_corrupt_optional_state(tmp_path: Path) -> None:
     store = _store(tmp_path)
     run = _run(store)
-    namespace = store.portable_namespace(run.run_id, "plain")
+    namespace = store.state.portable_namespace(run.run_id, "plain")
 
     assert namespace.load_optional("cursor.json", _Cursor) is None
     with pytest.raises(StateModelNotFoundError, match=r"state model does not exist.*cursor\.json"):
@@ -1074,7 +1079,7 @@ def test_state_namespace_distinguishes_missing_from_corrupt_optional_state(tmp_p
 def test_state_namespace_rejects_unknown_model_fields(tmp_path: Path) -> None:
     store = _store(tmp_path)
     run = _run(store)
-    namespace = store.portable_namespace(run.run_id, "plain")
+    namespace = store.state.portable_namespace(run.run_id, "plain")
     path = namespace.external_directory() / "cursor.json"
     path.write_text(
         json.dumps({"round": 1, "phase": "judge", "surprise": True}),
@@ -1106,7 +1111,7 @@ def test_state_namespace_rejects_unsafe_relative_paths(
 ) -> None:
     store = _store(tmp_path)
     run = _run(store)
-    namespace = store.portable_namespace(run.run_id, "plain")
+    namespace = store.state.portable_namespace(run.run_id, "plain")
 
     with pytest.raises(ProjectStateError, match=r"safe portable|non-empty portable"):
         namespace.save(relative_path, _Cursor(round=1, phase="judge"))
@@ -1115,7 +1120,7 @@ def test_state_namespace_rejects_unsafe_relative_paths(
 def test_state_namespace_rejects_symlinks_below_namespace(tmp_path: Path) -> None:
     store = _store(tmp_path)
     run = _run(store)
-    namespace = store.portable_namespace(run.run_id, "plain")
+    namespace = store.state.portable_namespace(run.run_id, "plain")
     root = namespace.external_directory()
     outside = tmp_path / "outside"
     outside.mkdir()
@@ -1132,7 +1137,7 @@ def test_state_namespace_rejects_symlinks_below_namespace(tmp_path: Path) -> Non
 def test_state_namespace_revalidates_its_root_before_every_operation(tmp_path: Path) -> None:
     store = _store(tmp_path)
     run = _run(store)
-    namespace = store.portable_namespace(run.run_id, "plain")
+    namespace = store.state.portable_namespace(run.run_id, "plain")
     root = tmp_path / ".vibesys/state" / "runs" / run.run_id / "plain"
     outside = tmp_path / "outside"
     outside.mkdir()
@@ -1145,7 +1150,7 @@ def test_state_namespace_revalidates_its_root_before_every_operation(tmp_path: P
 def test_state_namespace_delete_reports_presence_and_rejects_directories(tmp_path: Path) -> None:
     store = _store(tmp_path)
     run = _run(store)
-    namespace = store.local_namespace(run.run_id, "agent")
+    namespace = store.state.local_namespace(run.run_id, "agent")
     namespace.save("active.json", _Cursor(round=1, phase="implementer"))
 
     assert namespace.delete("active.json") is True
@@ -1158,7 +1163,7 @@ def test_state_namespace_delete_reports_presence_and_rejects_directories(tmp_pat
 def test_portable_state_snapshot_is_deterministic_and_namespace_relative(tmp_path: Path) -> None:
     store = _store(tmp_path)
     run = _run(store)
-    namespace = store.portable_namespace(run.run_id, "evolve")
+    namespace = store.state.portable_namespace(run.run_id, "evolve")
     namespace.save("z.json", _Cursor(round=2, phase="profile"))
     namespace.save("nested/a.json", _Cursor(round=1, phase="judge"))
 
@@ -1185,7 +1190,7 @@ def test_empty_portable_namespace_has_an_empty_snapshot(tmp_path: Path) -> None:
     store = _store(tmp_path)
     run = _run(store)
 
-    snapshot = store.portable_namespace(run.run_id, "runtime").snapshot()
+    snapshot = store.state.portable_namespace(run.run_id, "runtime").snapshot()
 
     assert snapshot._namespace_root == PurePosixPath(f".vibesys/state/runs/{run.run_id}/runtime")
     assert snapshot.files == ()
@@ -1196,7 +1201,7 @@ def test_initialization_snapshot_contains_only_selected_run_metadata(tmp_path: P
     first = _run(store)
     second = _run(store, minute=1)
 
-    snapshot = store.initialization_snapshot(first.run_id)
+    snapshot = store.state.initialization_snapshot(first.run_id)
 
     assert snapshot._namespace_root == PurePosixPath(".vibesys/state")
     assert tuple(file.relative_path for file in snapshot.files) == (
@@ -1207,23 +1212,23 @@ def test_initialization_snapshot_contains_only_selected_run_metadata(tmp_path: P
     assert PurePosixPath(f"runs/{second.run_id}/run.json") not in {
         file.relative_path for file in snapshot.files
     }
-    assert snapshot.files[0].contents == store._metadata_gitignore_path.read_bytes()
-    assert snapshot.files[1].contents == store._project_manifest_path.read_bytes()
-    assert snapshot.files[2].contents == store._run_manifest_path(first.run_id).read_bytes()
+    assert snapshot.files[0].contents == store.state._metadata_gitignore_path.read_bytes()
+    assert snapshot.files[1].contents == store.state._project_manifest_path.read_bytes()
+    assert snapshot.files[2].contents == store.state._run_manifest_path(first.run_id).read_bytes()
 
 
 def test_run_manifest_snapshot_is_rooted_at_the_selected_run(tmp_path: Path) -> None:
     store = _store(tmp_path)
     run = _run(store)
 
-    snapshot = store.run_manifest_snapshot(run.run_id)
+    snapshot = store.state.run_manifest_snapshot(run.run_id)
 
     assert snapshot == StateSnapshot._create(
         namespace_root=PurePosixPath(f".vibesys/state/runs/{run.run_id}"),
         files=(
             StateFile(
                 relative_path=PurePosixPath("run.json"),
-                contents=store._run_manifest_path(run.run_id).read_bytes(),
+                contents=store.state._run_manifest_path(run.run_id).read_bytes(),
             ),
         ),
     )
@@ -1234,10 +1239,10 @@ def test_completed_round_snapshot_contains_one_canonical_round(tmp_path: Path) -
     run = _run(store)
     first = RoundRecord(1, "a" * 40, 10.0, "ops/s", True)  # noqa: FBT003
     second = RoundRecord(2, "b" * 40, 20.0, "ops/s", True)  # noqa: FBT003
-    store.save_round(run.run_id, first)
-    second_snapshot = store.save_round(run.run_id, second)
+    store.state.save_round(run.run_id, first)
+    second_snapshot = store.state.save_round(run.run_id, second)
 
-    snapshot = store.completed_round_snapshot(run.run_id, 2)
+    snapshot = store.state.completed_round_snapshot(run.run_id, 2)
 
     assert snapshot == StateSnapshot._create(
         namespace_root=PurePosixPath(f".vibesys/state/runs/{run.run_id}/agent"),
@@ -1260,7 +1265,7 @@ def test_completed_round_snapshot_rejects_missing_or_invalid_round(
     run = _run(store)
 
     with pytest.raises(ProjectStateError, match=r"positive|does not exist"):
-        store.completed_round_snapshot(run.run_id, round_number)
+        store.state.completed_round_snapshot(run.run_id, round_number)
 
 
 def test_metadata_snapshot_rejects_symlinked_files(tmp_path: Path) -> None:
@@ -1268,11 +1273,11 @@ def test_metadata_snapshot_rejects_symlinked_files(tmp_path: Path) -> None:
     run = _run(store)
     outside = tmp_path / "outside"
     outside.write_text("local\n", encoding="utf-8")
-    store._metadata_gitignore_path.unlink()
-    store._metadata_gitignore_path.symlink_to(outside)
+    store.state._metadata_gitignore_path.unlink()
+    store.state._metadata_gitignore_path.symlink_to(outside)
 
     with pytest.raises(ProjectStateError, match=r"(?:escapes|must not be a symlink)"):
-        store.initialization_snapshot(run.run_id)
+        store.state.initialization_snapshot(run.run_id)
 
 
 @pytest.mark.parametrize(
@@ -1312,7 +1317,7 @@ def test_state_snapshot_rejects_local_file_below_metadata_root() -> None:
 def test_machine_local_state_namespace_cannot_be_snapshotted(tmp_path: Path) -> None:
     store = _store(tmp_path)
     run = _run(store)
-    namespace = store.local_namespace(run.run_id, "agent")
+    namespace = store.state.local_namespace(run.run_id, "agent")
     namespace.save("active.json", _Cursor(round=1, phase="implementer"))
 
     with pytest.raises(ProjectStateError, match=r"Machine-local.*cannot be snapshotted"):
@@ -1373,14 +1378,14 @@ def test_completed_rounds_use_one_file_per_round_and_are_idempotent(tmp_path: Pa
     second = RoundRecord(2, "b" * 40, 20.0, "ops/s", True)  # noqa: FBT003
     first = RoundRecord(1, "a" * 40, 10.0, "ops/s", True)  # noqa: FBT003
 
-    first_snapshot = store.save_round(run.run_id, first)
-    second_snapshot = store.save_round(run.run_id, second)
-    assert store.save_round(run.run_id, first) == first_snapshot
+    first_snapshot = store.state.save_round(run.run_id, first)
+    second_snapshot = store.state.save_round(run.run_id, second)
+    assert store.state.save_round(run.run_id, first) == first_snapshot
 
     assert first_snapshot.files[0].relative_path.name == "0001.json"
     assert second_snapshot.files[0].relative_path.name == "0002.json"
-    assert store.load_rounds(run.run_id) == [first, second]
-    first_path = store._rounds_dir(run.run_id) / "0001.json"
+    assert store.state.load_rounds(run.run_id) == [first, second]
+    first_path = store.state._rounds_dir(run.run_id) / "0001.json"
     assert json.loads(first_path.read_text(encoding="utf-8"))["round"] == 1
     assert first_path.read_bytes() == serialize_round(first)
 
@@ -1393,11 +1398,11 @@ def test_completed_rounds_must_be_saved_in_append_order(tmp_path: Path) -> None:
     third = RoundRecord(3, "c" * 40, 30.0, "ops/s", True)  # noqa: FBT003
 
     with pytest.raises(ProjectStateError, match="expected round 1, got 2"):
-        store.save_round(run.run_id, second)
+        store.state.save_round(run.run_id, second)
 
-    store.save_round(run.run_id, first)
+    store.state.save_round(run.run_id, first)
     with pytest.raises(ProjectStateError, match="expected round 2, got 3"):
-        store.save_round(run.run_id, third)
+        store.state.save_round(run.run_id, third)
 
 
 def test_restoring_a_completed_round_validates_sequence_before_writing(tmp_path: Path) -> None:
@@ -1406,29 +1411,29 @@ def test_restoring_a_completed_round_validates_sequence_before_writing(tmp_path:
     second = RoundRecord(2, "b" * 40, 20.0, "ops/s", True)  # noqa: FBT003
 
     with pytest.raises(ProjectStateError, match="without completed round 1"):
-        store.restore_completed_round(run.run_id, second)
+        store.state.restore_completed_round(run.run_id, second)
 
-    assert store.load_rounds(run.run_id) == []
+    assert store.state.load_rounds(run.run_id) == []
 
 
 def test_restoring_a_completed_round_repairs_its_corrupt_local_copy(tmp_path: Path) -> None:
     store = _store(tmp_path)
     run = _run(store)
     first = RoundRecord(1, "a" * 40, 10.0, "ops/s", True)  # noqa: FBT003
-    store.save_round(run.run_id, first)
-    target = store._rounds_dir(run.run_id) / "0001.json"
+    store.state.save_round(run.run_id, first)
+    target = store.state._rounds_dir(run.run_id) / "0001.json"
     target.write_text("{not-json", encoding="utf-8")
 
-    restored = store.restore_completed_round(run.run_id, first)
+    restored = store.state.restore_completed_round(run.run_id, first)
 
-    assert restored == store.completed_round_snapshot(run.run_id, 1)
-    assert store.load_rounds(run.run_id) == [first]
+    assert restored == store.state.completed_round_snapshot(run.run_id, 1)
+    assert store.state.load_rounds(run.run_id) == [first]
 
 
 def test_loaded_rounds_must_form_contiguous_sequence(tmp_path: Path) -> None:
     store = _store(tmp_path)
     run = _run(store)
-    directory = store._rounds_dir(run.run_id)
+    directory = store.state._rounds_dir(run.run_id)
     directory.mkdir(parents=True)
     for round_number in (1, 3):
         record = RoundRecord(
@@ -1444,7 +1449,7 @@ def test_loaded_rounds_must_form_contiguous_sequence(tmp_path: Path) -> None:
         )
 
     with pytest.raises(ProjectStateError, match="expected round 2, found 3"):
-        store.load_rounds(run.run_id)
+        store.state.load_rounds(run.run_id)
 
 
 def test_completed_round_cannot_be_overwritten(tmp_path: Path) -> None:
@@ -1452,10 +1457,10 @@ def test_completed_round_cannot_be_overwritten(tmp_path: Path) -> None:
     run = _run(store)
     original = RoundRecord(1, "a" * 40, 10.0, "ops/s", True)  # noqa: FBT003
     conflicting = RoundRecord(1, "b" * 40, 11.0, "ops/s", True)  # noqa: FBT003
-    store.save_round(run.run_id, original)
+    store.state.save_round(run.run_id, original)
 
     with pytest.raises(ProjectStateError, match="already exists with different data"):
-        store.save_round(run.run_id, conflicting)
+        store.state.save_round(run.run_id, conflicting)
 
 
 @pytest.mark.parametrize(
@@ -1477,7 +1482,7 @@ def test_completed_round_rejects_machine_local_artifact_paths(
     )
 
     with pytest.raises(ProjectStateError, match="portable project-relative path"):
-        store.save_round(run.run_id, record)
+        store.state.save_round(run.run_id, record)
 
 
 def test_completed_round_rejects_non_finite_metrics(tmp_path: Path) -> None:
@@ -1486,13 +1491,13 @@ def test_completed_round_rejects_non_finite_metrics(tmp_path: Path) -> None:
     record = RoundRecord(1, "a" * 40, float("nan"), "ops/s", True)  # noqa: FBT003
 
     with pytest.raises(ProjectStateError, match="finite numbers"):
-        store.save_round(run.run_id, record)
+        store.state.save_round(run.run_id, record)
 
 
 def test_loaded_round_rejects_machine_local_artifact_path(tmp_path: Path) -> None:
     store = _store(tmp_path)
     run = _run(store)
-    path = store._rounds_dir(run.run_id) / "0001.json"
+    path = store.state._rounds_dir(run.run_id) / "0001.json"
     path.parent.mkdir(parents=True)
     record = RoundRecord(
         1,
@@ -1508,35 +1513,35 @@ def test_loaded_round_rejects_machine_local_artifact_path(tmp_path: Path) -> Non
         ProjectStateError,
         match=r"0001\.json.*portable project-relative path",
     ):
-        store.load_rounds(run.run_id)
+        store.state.load_rounds(run.run_id)
 
 
 def test_loaded_round_rejects_non_finite_metrics(tmp_path: Path) -> None:
     store = _store(tmp_path)
     run = _run(store)
-    path = store._rounds_dir(run.run_id) / "0001.json"
+    path = store.state._rounds_dir(run.run_id) / "0001.json"
     path.parent.mkdir(parents=True)
     record = RoundRecord(1, "a" * 40, float("nan"), "ops/s", True)  # noqa: FBT003
     path.write_text(json.dumps(serialize_round_record(record)), encoding="utf-8")
 
     with pytest.raises(ProjectStateError, match=r"0001\.json.*finite numbers"):
-        store.load_rounds(run.run_id)
+        store.state.load_rounds(run.run_id)
 
 
 def test_corrupt_metadata_error_names_the_path(tmp_path: Path) -> None:
     store = _store(tmp_path)
     run = _run(store)
-    path = store._run_manifest_path(run.run_id)
+    path = store.state._run_manifest_path(run.run_id)
     path.write_text('{"schema_version": 99}', encoding="utf-8")
 
     with pytest.raises(ProjectStateError, match=r"Invalid VibeSys metadata.*run\.json"):
-        store.load_run(run.run_id)
+        store.state.load_run(run.run_id)
 
 
 def test_unknown_round_field_is_rejected_with_its_path(tmp_path: Path) -> None:
     store = _store(tmp_path)
     run = _run(store)
-    path = store._rounds_dir(run.run_id) / "0001.json"
+    path = store.state._rounds_dir(run.run_id) / "0001.json"
     path.parent.mkdir(parents=True)
     path.write_text(
         json.dumps(
@@ -1553,7 +1558,7 @@ def test_unknown_round_field_is_rejected_with_its_path(tmp_path: Path) -> None:
     )
 
     with pytest.raises(ProjectStateError, match=r"Invalid completed-round.*0001\.json"):
-        store.load_rounds(run.run_id)
+        store.state.load_rounds(run.run_id)
 
 
 def test_git_paths_resolve_portable_snapshot_without_layout_work_by_consumer(
@@ -1561,10 +1566,12 @@ def test_git_paths_resolve_portable_snapshot_without_layout_work_by_consumer(
 ) -> None:
     store = _store(tmp_path)
     run = _run(store)
-    namespace = store.portable_namespace(run.run_id, "evolve")
+    namespace = store.state.portable_namespace(run.run_id, "evolve")
     namespace.save("population.json", _Cursor(round=2, phase="complete"))
 
-    plan = store.git_integration(run.run_id).resolve_replacement_snapshot(namespace.snapshot())
+    plan = store.state.git_integration(run.run_id).resolve_replacement_snapshot(
+        namespace.snapshot()
+    )
 
     assert plan.scope_pathspec == f".vibesys/state/runs/{run.run_id}/evolve"
     assert plan.destination_root == tmp_path / ".vibesys/state" / "runs" / run.run_id / "evolve"
@@ -1579,10 +1586,10 @@ def test_git_paths_reject_snapshot_from_another_run(tmp_path: Path) -> None:
     store = _store(tmp_path)
     first = _run(store)
     second = _run(store, minute=1)
-    snapshot = store.portable_namespace(second.run_id, "evolve").snapshot()
+    snapshot = store.state.portable_namespace(second.run_id, "evolve").snapshot()
 
     with pytest.raises(ValueError, match="belongs to run"):
-        store.git_integration(first.run_id).resolve_snapshot(snapshot)
+        store.state.git_integration(first.run_id).resolve_snapshot(snapshot)
 
 
 def test_git_paths_validate_candidate_worktrees_without_symlink_traversal(
@@ -1590,8 +1597,8 @@ def test_git_paths_validate_candidate_worktrees_without_symlink_traversal(
 ) -> None:
     store = _store(tmp_path)
     run = _run(store)
-    capability = store.git_integration(run.run_id)
-    worktrees = store._worktrees_dir(run.run_id)
+    capability = store.state.git_integration(run.run_id)
+    worktrees = store.state._worktrees_dir(run.run_id)
 
     assert capability.validate_candidate_worktree(worktrees / "candidate") == (
         worktrees / "candidate"

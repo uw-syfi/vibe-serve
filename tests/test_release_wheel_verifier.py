@@ -21,8 +21,7 @@ FRAMEWORK_PACKAGES = (
     "vs_github",
     "vs_issue_board",
     "vs_loop_state",
-    "vs_project_layout",
-    "vs_project_state",
+    "vs_project",
     "vs_sandbox",
 )
 PLATLIB = ""
@@ -50,8 +49,7 @@ dependencies = ["example>=1"]
         "vs_github": "libs/vs-github/src/vs_github",
         "vs_issue_board": "libs/vs-issue-board/src/vs_issue_board",
         "vs_loop_state": "libs/vs-loop-state/src/vs_loop_state",
-        "vs_project_layout": "libs/vs-project-layout/src/vs_project_layout",
-        "vs_project_state": "libs/vs-project-state/src/vs_project_state",
+        "vs_project": "libs/vs-project/src/vs_project",
         "vs_sandbox": "libs/vs-sandbox/src/vs_sandbox",
     }
     for package, source in roots.items():
@@ -86,8 +84,7 @@ def _packaged_source_files(source_root: Path) -> dict[str, bytes]:
         "libs/vs-github/src/vs_github": "vs_github",
         "libs/vs-issue-board/src/vs_issue_board": "vs_issue_board",
         "libs/vs-loop-state/src/vs_loop_state": "vs_loop_state",
-        "libs/vs-project-layout/src/vs_project_layout": "vs_project_layout",
-        "libs/vs-project-state/src/vs_project_state": "vs_project_state",
+        "libs/vs-project/src/vs_project": "vs_project",
         "libs/vs-sandbox/src/vs_sandbox": "vs_sandbox",
         "resources/evaluators": "vibesys/_resources/evaluators",
         "resources/profilers": "vibesys/_resources/profilers",

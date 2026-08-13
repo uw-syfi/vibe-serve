@@ -13,8 +13,7 @@ graft libs/vs-feature-flags/src
 graft libs/vs-github/src
 graft libs/vs-issue-board/src
 graft libs/vs-loop-state/src
-graft libs/vs-project-layout/src
-graft libs/vs-project-state/src
+graft libs/vs-project/src
 graft libs/vs-sandbox/src
 
 # Include the TypeScript TUI sources in the sdist for development source builds.

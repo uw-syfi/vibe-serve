@@ -32,11 +32,11 @@ from vibesys.main import (
     parse_cli_invocation,
 )
 from vibesys.profilers import ProfilerKind
-from vs_project_state import (
+from vs_project import (
     AgentRunConfiguration,
     EvolveRunConfiguration,
     PlainRunConfiguration,
-    ProjectStore,
+    Project,
     RunConfiguration,
 )
 
@@ -186,8 +186,9 @@ def _write_project_run(  # noqa: PLR0913
     created_at: datetime,
     make_current: bool = True,
     task_name: str | None = None,
-) -> ProjectStore:
-    store = ProjectStore(project)
+) -> Project:
+    vibesys_project = Project.open(project)
+    store = vibesys_project.state
     store.create_project(project.name)
     manifest = store.new_run_manifest(
         project.name,
@@ -200,7 +201,7 @@ def _write_project_run(  # noqa: PLR0913
         now=created_at,
     )
     store.create_run(manifest, make_current=make_current)
-    return store
+    return vibesys_project
 
 
 def _git(project: Path, *args: str) -> None:
@@ -827,7 +828,7 @@ def test_direct_resume_prefers_current_then_latest_run(
 
     assert parse_cli_invocation(["--resume"]).args.resume == current
 
-    store.set_current_run(None)
+    store.state.set_current_run(None)
     assert parse_cli_invocation(["--resume", "latest"]).args.resume == latest
 
 
@@ -924,7 +925,7 @@ def test_remote_resume_selects_run_branch_before_reading_project_state(
     assert branch == f"vibesys-runs/{run_id}"
     assert upstream == f"origin/vibesys-runs/{run_id}"
 
-    ProjectStore(source).update_run_configuration(
+    Project.open(source).state.update_run_configuration(
         run_id,
         _agent_configuration(max_rounds=8),
     )
@@ -963,7 +964,7 @@ def test_remote_resume_selects_run_branch_before_reading_project_state(
         ).stdout
     )
 
-    ProjectStore(project).set_current_run(run_id)
+    Project.open(project).state.set_current_run(run_id)
 
     newer_run_id = "20260811-130000-22222222-agent"
     _git(source, "switch", "-q", "-c", f"vibesys-runs/{newer_run_id}")
@@ -1089,8 +1090,8 @@ def test_resume_switches_to_the_recorded_run_branch(
         created_at=datetime(2026, 8, 11, 12, tzinfo=UTC),
     )
     state_pathspec = (
-        store.git_integration(run_id)
-        .resolve_snapshot(store.initialization_snapshot(run_id))
+        store.state.git_integration(run_id)
+        .resolve_snapshot(store.state.initialization_snapshot(run_id))
         .scope_pathspec
     )
     _git(project, "add", "OBJECTIVE.md", state_pathspec)

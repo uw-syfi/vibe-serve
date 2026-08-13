@@ -21,7 +21,7 @@ from vibesys.evaluators import (
     write_evaluator_package_lock,
 )
 from vibesys.input_manifest import load_project_task
-from vs_project_layout import ProjectLayout
+from vs_project import Project
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -233,9 +233,9 @@ def test_lock_round_trips_in_deterministic_package_order(tmp_path: Path) -> None
             ),
         ),
     )
-    layout = ProjectLayout.open(tmp_path)
-    layout.initialize()
-    lock_path = layout.evaluator_lock().path
+    (tmp_path / ".vibesys").mkdir()
+    project = Project.open(tmp_path)
+    lock_path = project.evaluator_lock().path
 
     write_evaluator_package_lock(lock_path, lock)
 
@@ -247,9 +247,9 @@ def test_lock_round_trips_in_deterministic_package_order(tmp_path: Path) -> None
 
 
 def test_repository_task_requires_lock_for_packaged_evaluator(tmp_path: Path) -> None:
-    layout = ProjectLayout.open(tmp_path)
-    layout.initialize()
-    task = layout.tasks_root().path / "example"
+    (tmp_path / ".vibesys" / "tasks").mkdir(parents=True)
+    project = Project.open(tmp_path)
+    task = project.tasks_root().path / "example"
     task.mkdir()
     (task / "OBJECTIVE.md").write_text("Make it faster.\n", encoding="utf-8")
     (task / "vibesys.input.toml").write_text(
@@ -274,7 +274,7 @@ version = "0.1.0"
     )
 
     with pytest.raises(FileNotFoundError, match="require an evaluator lock file"):
-        load_project_task(layout, layout.select_task("example"))
+        load_project_task(project, project.select_task("example"))
 
 
 def test_lock_rejects_unknown_keys_and_duplicate_entries(tmp_path: Path) -> None:

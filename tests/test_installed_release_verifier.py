@@ -277,13 +277,20 @@ def test_project_smoke_requires_exactly_one_run(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    class _StoreWithoutRuns:
+    class _StateWithoutRuns:
         def load_project(self) -> object:
             return object()
 
         def list_runs(self) -> list[object]:
             return []
 
-    monkeypatch.setattr(verifier, "ProjectStore", lambda _root: _StoreWithoutRuns())
+    class _ProjectWithoutRuns:
+        state = _StateWithoutRuns()
+
+        @classmethod
+        def open(cls, _root: Path) -> _ProjectWithoutRuns:
+            return cls()
+
+    monkeypatch.setattr(verifier, "Project", _ProjectWithoutRuns)
     with pytest.raises(verifier.InstalledReleaseError, match="exactly one run"):
         verifier._verify_project_state(tmp_path)  # noqa: SLF001

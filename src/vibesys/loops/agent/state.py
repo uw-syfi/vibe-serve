@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 from vibesys.loops.agent.model import ActiveHypothesis
 
 if TYPE_CHECKING:
-    from vs_project_state import StateNamespace, StateSlot, StateTransition
+    from vs_project import StateNamespace, StateSlot, StateTransition
 
 
 class AgentStateStore:

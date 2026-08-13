@@ -3,9 +3,9 @@ requires = ["setuptools>=70.1"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "vs-project-state"
+name = "vs-project"
 version = "0.1.0"
-description = "Portable project and run metadata for VibeSys"
+description = "Repository-native project layout and state for VibeSys"
 readme = "README.md"
 requires-python = ">=3.12"
 license = "MIT"
@@ -16,7 +16,7 @@ dependencies = [
 
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["vs_project_state*"]
+include = ["vs_project*"]
 
 [tool.setuptools.package-data]
-vs_project_state = ["py.typed"]
+vs_project = ["py.typed"]

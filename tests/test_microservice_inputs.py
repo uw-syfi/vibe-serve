@@ -7,13 +7,13 @@ import pytest
 
 from vibesys.evaluators import PROJECT_ROOT_TOKEN
 from vibesys.input_manifest import InputBundle, load_input_bundle, load_project_task
-from vs_project_layout import ProjectLayout, ProjectLayoutError
+from vs_project import Project, ProjectLayoutError
 
 PROJECT_ROOT = Path(__file__).parents[1]
 MICROSERVICE_ROOT = PROJECT_ROOT / "examples" / "microservices"
 DEATHSTAR_ROOT = MICROSERVICE_ROOT / "repositories" / "deathstarbench"
 try:
-    DEATHSTAR_LAYOUT = ProjectLayout.open(DEATHSTAR_ROOT)
+    DEATHSTAR_LAYOUT = Project.open(DEATHSTAR_ROOT)
     DEATHSTAR_LAYOUT.discover_tasks()
 except ProjectLayoutError:
     pytest.skip("DeathStarBench repository example is not initialized", allow_module_level=True)

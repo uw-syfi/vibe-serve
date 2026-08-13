@@ -4,13 +4,14 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from vs_project_layout import (
+from vs_project import (
     AmbiguousTaskError,
     InvalidTaskDefinitionError,
     InvalidTaskNameError,
-    ProjectLayout,
+    Project,
     ProjectNotInitializedError,
     ProjectRootNotFoundError,
+    ProjectStateError,
     TaskName,
     TaskNotFoundError,
     UnsafeProjectPathError,
@@ -28,27 +29,14 @@ def _write_task(project: Path, name: str) -> Path:
     return task
 
 
-def test_initialize_creates_only_authored_layout(tmp_path: Path) -> None:
-    layout = ProjectLayout.open(tmp_path)
-
-    layout.initialize()
-    layout.initialize()
-
-    assert layout.is_initialized()
-    assert layout.configuration_root().path == (tmp_path / ".vibesys").resolve()
-    assert layout.tasks_root().path == (tmp_path / ".vibesys" / "tasks").resolve()
-    assert not layout.state_root().path.exists()
-    assert not layout.evaluator_lock().path.exists()
-
-
 def test_open_requires_an_existing_directory(tmp_path: Path) -> None:
     with pytest.raises(ProjectRootNotFoundError, match="does not exist"):
-        ProjectLayout.open(tmp_path / "missing")
+        Project.open(tmp_path / "missing")
 
     file_path = tmp_path / "file"
     file_path.write_text("not a project", encoding="utf-8")
     with pytest.raises(ProjectRootNotFoundError, match="not a directory"):
-        ProjectLayout.open(file_path)
+        Project.open(file_path)
 
 
 def test_project_is_recognized_without_generated_state(tmp_path: Path) -> None:
@@ -57,11 +45,11 @@ def test_project_is_recognized_without_generated_state(tmp_path: Path) -> None:
     nested.mkdir(parents=True)
     _write_task(project, "latency")
 
-    layout = ProjectLayout.discover(nested)
+    layout = Project.discover(nested)
 
-    assert layout.project_root.path == project.resolve()
+    assert layout.root == project.resolve()
     assert layout.is_initialized()
-    assert not layout.state_root().path.exists()
+    assert not (layout.root / ".vibesys" / "state").exists()
 
 
 def test_discover_reports_missing_project_layout(tmp_path: Path) -> None:
@@ -69,7 +57,7 @@ def test_discover_reports_missing_project_layout(tmp_path: Path) -> None:
     nested.mkdir()
 
     with pytest.raises(ProjectNotInitializedError, match="No VibeSys project"):
-        ProjectLayout.discover(nested)
+        Project.discover(nested)
 
 
 def test_tasks_are_typed_validated_and_sorted(tmp_path: Path) -> None:
@@ -79,7 +67,7 @@ def test_tasks_are_typed_validated_and_sorted(tmp_path: Path) -> None:
         "Task documentation.\n", encoding="utf-8"
     )
 
-    tasks = ProjectLayout.open(tmp_path).discover_tasks()
+    tasks = Project.open(tmp_path).discover_tasks()
 
     assert tuple(task.name for task in tasks) == (TaskName("alpha"), TaskName("beta"))
     assert tasks[0].path == alpha.resolve()
@@ -90,7 +78,7 @@ def test_tasks_are_typed_validated_and_sorted(tmp_path: Path) -> None:
 
 def test_select_task_supports_explicit_and_single_implicit_selection(tmp_path: Path) -> None:
     task_path = _write_task(tmp_path, "throughput")
-    layout = ProjectLayout.open(tmp_path)
+    layout = Project.open(tmp_path)
 
     assert layout.select_task().path == task_path.resolve()
     assert layout.select_task("throughput").name == TaskName("throughput")
@@ -102,7 +90,7 @@ def test_select_task_reports_ambiguity_with_available_names(tmp_path: Path) -> N
     _write_task(tmp_path, "throughput")
 
     with pytest.raises(AmbiguousTaskError) as caught:
-        ProjectLayout.open(tmp_path).select_task()
+        Project.open(tmp_path).select_task()
 
     assert caught.value.available == (TaskName("latency"), TaskName("throughput"))
     assert "latency, throughput" in str(caught.value)
@@ -112,17 +100,17 @@ def test_select_task_reports_missing_with_available_names(tmp_path: Path) -> Non
     _write_task(tmp_path, "latency")
 
     with pytest.raises(TaskNotFoundError) as caught:
-        ProjectLayout.open(tmp_path).select_task("throughput")
+        Project.open(tmp_path).select_task("throughput")
 
     assert caught.value.task_name == "throughput"
     assert caught.value.available == (TaskName("latency"),)
 
 
 def test_select_task_reports_empty_project(tmp_path: Path) -> None:
-    ProjectLayout.open(tmp_path).initialize()
+    (tmp_path / ".vibesys" / "tasks").mkdir(parents=True)
 
     with pytest.raises(TaskNotFoundError) as caught:
-        ProjectLayout.open(tmp_path).select_task()
+        Project.open(tmp_path).select_task()
 
     assert caught.value.task_name is None
     assert caught.value.available == ()
@@ -146,7 +134,7 @@ def test_discovery_requires_objective_and_manifest(
     (task / missing_filename).unlink()
 
     with pytest.raises(InvalidTaskDefinitionError, match=missing_filename):
-        ProjectLayout.open(tmp_path).discover_tasks()
+        Project.open(tmp_path).discover_tasks()
 
 
 def test_task_resource_resolution_rejects_traversal(tmp_path: Path) -> None:
@@ -154,7 +142,7 @@ def test_task_resource_resolution_rejects_traversal(tmp_path: Path) -> None:
     benchmark = task_path / "benchmark" / "run.py"
     benchmark.parent.mkdir()
     benchmark.write_text("print('ok')\n", encoding="utf-8")
-    task = ProjectLayout.open(tmp_path).select_task("latency")
+    task = Project.open(tmp_path).select_task("latency")
 
     assert task.resolve("benchmark/run.py") == benchmark.resolve()
     with pytest.raises(UnsafeProjectPathError, match="safe relative path"):
@@ -173,8 +161,8 @@ def test_task_directory_symlink_cannot_escape_tasks_root(tmp_path: Path) -> None
     (external_task / "vibesys.input.toml").write_text("version = 1\n", encoding="utf-8")
     (tasks_root / "escaped").symlink_to(external_task, target_is_directory=True)
 
-    with pytest.raises(UnsafeProjectPathError, match="escapes"):
-        ProjectLayout.open(project).discover_tasks()
+    with pytest.raises(UnsafeProjectPathError, match="symlink"):
+        Project.open(project).discover_tasks()
 
 
 def test_required_file_symlink_cannot_escape_task_root(tmp_path: Path) -> None:
@@ -186,7 +174,7 @@ def test_required_file_symlink_cannot_escape_task_root(tmp_path: Path) -> None:
     (task / "OBJECTIVE.md").symlink_to(external_objective)
 
     with pytest.raises(UnsafeProjectPathError, match=r"required file OBJECTIVE\.md escapes"):
-        ProjectLayout.open(project).discover_tasks()
+        Project.open(project).discover_tasks()
 
 
 def test_optional_task_resource_symlink_cannot_escape_task_root(tmp_path: Path) -> None:
@@ -195,7 +183,7 @@ def test_optional_task_resource_symlink_cannot_escape_task_root(tmp_path: Path) 
     external_reference = project / "shared-reference"
     external_reference.mkdir()
     (task_path / "reference").symlink_to(external_reference, target_is_directory=True)
-    task = ProjectLayout.open(project).select_task("latency")
+    task = Project.open(project).select_task("latency")
 
     with pytest.raises(UnsafeProjectPathError, match="escapes"):
         task.resolve("reference")
@@ -208,14 +196,27 @@ def test_configuration_symlink_cannot_escape_project(tmp_path: Path) -> None:
     (external_configuration / "tasks").mkdir(parents=True)
     (project / ".vibesys").symlink_to(external_configuration, target_is_directory=True)
 
-    layout = ProjectLayout.open(project)
-    with pytest.raises(UnsafeProjectPathError, match="escapes"):
+    layout = Project.open(project)
+    with pytest.raises(UnsafeProjectPathError, match="symlink"):
         layout.is_initialized()
 
 
+def test_configuration_symlink_is_rejected_even_within_project(tmp_path: Path) -> None:
+    project_root = tmp_path / "project"
+    configuration = project_root / "configuration"
+    (configuration / "tasks").mkdir(parents=True)
+    (project_root / ".vibesys").symlink_to(configuration, target_is_directory=True)
+    project = Project.open(project_root)
+
+    with pytest.raises(UnsafeProjectPathError, match="symlink"):
+        project.is_initialized()
+    with pytest.raises(ProjectStateError, match="symlink"):
+        project.state.create_project("project")
+
+
 def test_state_and_lock_symlinks_cannot_escape_configuration(tmp_path: Path) -> None:
-    layout = ProjectLayout.open(tmp_path)
-    layout.initialize()
+    (tmp_path / ".vibesys" / "tasks").mkdir(parents=True)
+    project = Project.open(tmp_path)
     external_state = tmp_path / "external-state"
     external_state.mkdir()
     external_lock = tmp_path / "external.lock"
@@ -223,15 +224,15 @@ def test_state_and_lock_symlinks_cannot_escape_configuration(tmp_path: Path) -> 
     (tmp_path / ".vibesys" / "state").symlink_to(external_state, target_is_directory=True)
     (tmp_path / ".vibesys" / "evaluators.lock").symlink_to(external_lock)
 
+    with pytest.raises(ProjectStateError, match="symlink"):
+        project.state.sandbox_paths()
     with pytest.raises(UnsafeProjectPathError, match="escapes"):
-        layout.state_root()
-    with pytest.raises(UnsafeProjectPathError, match="escapes"):
-        layout.evaluator_lock()
+        project.evaluator_lock()
 
 
 def test_configuration_capability_rejects_path_traversal(tmp_path: Path) -> None:
-    layout = ProjectLayout.open(tmp_path)
-    layout.initialize()
+    (tmp_path / ".vibesys" / "tasks").mkdir(parents=True)
+    layout = Project.open(tmp_path)
 
     with pytest.raises(UnsafeProjectPathError, match="safe relative path"):
         layout.configuration_root().resolve("../outside", must_exist=False)

@@ -5,13 +5,13 @@ from unittest.mock import MagicMock
 from vibesys.loops.evolve.population import Individual, Population
 from vibesys.loops.evolve.state import EvolutionStateStore
 from vibesys.run import RunState, RunStateNamespace
-from vs_project_state import EvolveRunConfiguration, ProjectStore
+from vs_project import EvolveRunConfiguration, Project
 
 
 def _store(tmp_path) -> EvolutionStateStore:  # noqa: ANN001
-    project = ProjectStore(tmp_path)
-    project.create_project("test")
-    run = project.new_run_manifest(
+    project = Project.open(tmp_path)
+    project.state.create_project("test")
+    run = project.state.new_run_manifest(
         "test",
         run_id="run-1",
         branch="vibesys/run-1",
@@ -32,8 +32,12 @@ def _store(tmp_path) -> EvolutionStateStore:  # noqa: ANN001
             max_parallelism=1,
         ),
     )
-    project.create_run(run)
-    state = RunState(project, git=MagicMock(), run_id=run.run_id)
+    project.state.create_run(run)
+    state = RunState(
+        project,
+        git=MagicMock(history_root=project.root, run_id=run.run_id),
+        run_id=run.run_id,
+    )
     return EvolutionStateStore(state.portable(RunStateNamespace.EVOLVE))
 
 

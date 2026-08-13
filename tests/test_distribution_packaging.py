@@ -25,8 +25,7 @@ INTERNAL_DISTRIBUTIONS = {
     "vs-github",
     "vs-issue-board",
     "vs-loop-state",
-    "vs-project-layout",
-    "vs-project-state",
+    "vs-project",
     "vs-sandbox",
 }
 INTERNAL_IMPORT_PACKAGES = {
@@ -34,8 +33,7 @@ INTERNAL_IMPORT_PACKAGES = {
     "vs_github",
     "vs_issue_board",
     "vs_loop_state",
-    "vs_project_layout",
-    "vs_project_state",
+    "vs_project",
     "vs_sandbox",
 }
 

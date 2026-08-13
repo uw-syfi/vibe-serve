@@ -54,7 +54,7 @@ from vibesys.profilers import ProfilerKind
 from vibesys.run import GitTracker, RunState, RunStateNamespace
 from vibesys.sandbox.run_environment import CandidateRuntime, RunEnvironmentSpec
 from vibesys.schemas import JudgeResponse, MutatorResponse, ProfilerSummary, Verdict
-from vs_project_state import EvolveRunConfiguration, ProjectStore
+from vs_project import EvolveRunConfiguration, Project
 
 _LLM_SERVING_DOMAIN = resolve_domain(DomainName.LLM_SERVING)
 
@@ -244,9 +244,13 @@ def _evolution_configuration() -> EvolveRunConfiguration:
 
 
 def _evolution_state_store(project_root: Path) -> EvolutionStateStore:
-    project = ProjectStore(project_root)
-    run = project.resolve_run()
-    state = RunState(project, MagicMock(), run.run_id)
+    project = Project.open(project_root)
+    run = project.state.resolve_run()
+    state = RunState(
+        project,
+        MagicMock(history_root=project.root, run_id=run.run_id),
+        run.run_id,
+    )
     return EvolutionStateStore(state.portable(RunStateNamespace.EVOLVE))
 
 
@@ -804,12 +808,12 @@ def test_candidate_code_is_multi_file_but_excludes_framework_state(tmp_path):  #
     (tmp_path / "src" / "lib.rs").write_text("baseline\n")
     (tmp_path / "src" / "ffi.rs").write_text("baseline\n")
     tracker.init(existing=False)
-    store = ProjectStore(tmp_path)
-    store.create_project("evolve patch test")
+    project = Project.open(tmp_path)
+    project.state.create_project("evolve patch test")
     assert tracker.project_branch is not None
     assert tracker.trusted_input_baseline is not None
-    store.create_run(
-        store.new_run_manifest(
+    project.state.create_run(
+        project.state.new_run_manifest(
             "evolve patch test",
             run_id="test-evolve",
             branch=tracker.project_branch,
@@ -820,13 +824,13 @@ def test_candidate_code_is_multi_file_but_excludes_framework_state(tmp_path):  #
     )
     tracker.snapshot_with_framework_metadata(
         "initialize state",
-        store.initialization_snapshot("test-evolve"),
+        project.state.initialization_snapshot("test-evolve"),
     )
 
     (tmp_path / "src" / "lib.rs").write_text("optimized lib\n")
     (tmp_path / "src" / "ffi.rs").write_text("optimized ffi\n")
     tracker.snapshot("candidate")
-    evolve_state = store.portable_namespace("test-evolve", "evolve")
+    evolve_state = project.state.portable_namespace("test-evolve", "evolve")
     (evolve_state.external_directory() / "population.json").write_text("[]\n")
     tracker.snapshot_framework_state("evolve state", evolve_state.snapshot())
     commit = tracker.current_sha()
@@ -1043,9 +1047,9 @@ def _stateful_context(
     tmp_path: Path,
     log=None,  # noqa: ANN001  # tracked: #288
 ) -> tuple[SimpleNamespace, EvolutionStateStore]:
-    project = ProjectStore(tmp_path)
-    project.create_project("test")
-    run = project.new_run_manifest(
+    project = Project.open(tmp_path)
+    project.state.create_project("test")
+    run = project.state.new_run_manifest(
         "test",
         run_id="run-1",
         branch="vibesys/run-1",
@@ -1053,8 +1057,8 @@ def _stateful_context(
         trusted_input_baseline="a" * 40,
         configuration=_evolution_configuration(),
     )
-    project.create_run(run)
-    git = MagicMock()
+    project.state.create_run(run)
+    git = MagicMock(history_root=project.root, run_id=run.run_id)
     state = RunState(project, git, run.run_id)
     ctx = SimpleNamespace(
         lprint=log or (lambda _message: None),
@@ -1339,7 +1343,7 @@ def test_evaluate_in_subcontext_builds_worktree_and_evaluates(tmp_path, ref_file
             parent.git.run(["git", "cat-file", "-e", outcome.commit], check=False).returncode == 0
         )
         # The candidate's worktree is torn down when its sub-context closes.
-        cand_ws = parent.project_store.candidate_worktree_directory(parent.run_id, "g1c1")
+        cand_ws = parent.project.state.candidate_worktree_directory(parent.run_id, "g1c1")
         assert not cand_ws.exists()
         retained = f"refs/vibesys/{parent.run_id}/candidates/g1c1"
         resolved = parent.git.run(["git", "rev-parse", retained])

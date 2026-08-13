@@ -56,12 +56,12 @@ from vibesys.sandbox.run_environment import (
 from vibesys.skills import resolve_skill_source_dirs
 from vibesys.tui import KNOWN_TUI_THEMES, TuiTheme
 from vs_github import GitHubCLI, GitHubCLIError
-from vs_project_layout import ProjectLayout, ProjectLayoutError
-from vs_project_state import (
+from vs_project import (
     AgentRunConfiguration,
     PlainRunConfiguration,
+    Project,
+    ProjectLayoutError,
     ProjectStateError,
-    ProjectStore,
     RunConfiguration,
 )
 
@@ -891,7 +891,7 @@ def _resolve_project_root(project_arg: str, runs_dir: Path) -> Path:
         explicit = Path(project_arg).expanduser()
         if explicit.is_dir():
             project_root = explicit.resolve()
-            if ProjectStore.is_project_root(project_root):
+            if Project.is_state_initialized(project_root):
                 return project_root
             _configuration_error(
                 f"Directory is not a VibeSys project: {project_root}",
@@ -902,7 +902,7 @@ def _resolve_project_root(project_arg: str, runs_dir: Path) -> Path:
         collection_path = runs_dir / project_arg
         if collection_path.is_dir():
             project_root = collection_path.resolve()
-            if ProjectStore.is_project_root(project_root):
+            if Project.is_state_initialized(project_root):
                 return project_root
             _configuration_error(
                 f"Directory is not a VibeSys project: {project_root}",
@@ -924,7 +924,7 @@ def _resolve_project_root(project_arg: str, runs_dir: Path) -> Path:
             code="resume_not_found",
             stage="resume_resolution",
         )
-    projects = ProjectStore.find_projects(runs_dir)
+    projects = Project.find_state_projects(runs_dir)
     if not projects:
         _configuration_error(
             f"No VibeSys projects found in {runs_dir}.",
@@ -1039,7 +1039,7 @@ def _select_cloned_run_branch(project_root: Path) -> Path:
 
     selected = max(candidates, key=lambda candidate: (candidate.created_at, candidate.run_id))
     _checkout_remote_run_branch(project_root, selected)
-    ProjectStore(project_root).set_current_run(selected.run_id)
+    Project.open(project_root).state.set_current_run(selected.run_id)
     return project_root
 
 
@@ -1054,10 +1054,10 @@ def _remote_run_candidates(
             continue
         branch, run_id = identity
         switched = _resume_git(project_root, "switch", "--detach", "--quiet", remote_branch)
-        if switched.returncode != 0 or not ProjectStore.is_project_root(project_root):
+        if switched.returncode != 0 or not Project.is_state_initialized(project_root):
             continue
         try:
-            manifest = ProjectStore(project_root).load_run(run_id)
+            manifest = Project.open(project_root).state.load_run(run_id)
         except ProjectStateError:
             continue
         if manifest.branch == branch:
@@ -1351,7 +1351,7 @@ def _resolve_resume_args(args: argparse.Namespace, *, loop_kind: str) -> None:
         else _resolve_project_root(args.resume, args.runs_dir)
     )
     try:
-        store = ProjectStore(project_root)
+        store = Project.open(project_root).state
         if direct and args.resume != "latest":
             run_id = args.resume
         else:
@@ -1512,9 +1512,9 @@ def _run_validate(argv: list[str]) -> None:
 
 def _load_selected_input(project_root: Path, task_name: str | None) -> InputBundle:
     """Select repository-native input, with legacy bundle compatibility."""
-    layout = ProjectLayout.open(project_root)
-    if layout.is_initialized():
-        return load_project_task(layout, layout.select_task(task_name))
+    project = Project.open(project_root)
+    if project.is_initialized():
+        return load_project_task(project, project.select_task(task_name))
     if task_name is not None:
         raise ValueError("--task requires a project with .vibesys/tasks")  # noqa: TRY003
     return load_input_bundle(project_root)
@@ -1771,7 +1771,7 @@ def _resolve_implicit_input(args: argparse.Namespace, standalone: list[str]) -> 
         return _synthesize_standalone_input(args)
     current = Path.cwd().resolve()
     legacy_markers = (current / "OBJECTIVE.md", current / "vibesys.input.toml")
-    repository_native = ProjectLayout.open(current).is_initialized()
+    repository_native = Project.open(current).is_initialized()
     if repository_native or all(marker.is_file() for marker in legacy_markers):
         return current
     missing = ", ".join(marker.name for marker in legacy_markers if not marker.is_file())

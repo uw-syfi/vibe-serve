@@ -17,7 +17,7 @@ from vibesys.profilers import ProfilerKind, ProfilerPreflightResult
 from vibesys.run import RunLogger, RunPaths, RunStateNamespace
 from vibesys.sandbox.run_environment import RunEnvironmentSpec
 from vs_loop_state import PlainLoopCursor
-from vs_project_state import AgentRunConfiguration, ProjectStore
+from vs_project import AgentRunConfiguration, Project
 
 
 class _FakeBackend:
@@ -183,8 +183,8 @@ def test_direct_run_uses_one_project_root_and_canonical_state(tmp_path):  # noqa
         with _create_context(project, evaluator=evaluator) as ctx:
             assert ctx.project_root == project
             assert ctx.workspace == project
-            assert ctx.project_store.project_root == project
-            assert ctx.log_dir == ctx.project_store.log_directory(ctx.run_id)
+            assert ctx.project.root == project
+            assert ctx.log_dir == ctx.project.state.log_directory(ctx.run_id)
             assert (
                 ctx.state.local(RunStateNamespace.AGENT)
                 .agent_visible_path("active.json")
@@ -192,18 +192,18 @@ def test_direct_run_uses_one_project_root_and_canonical_state(tmp_path):  # noqa
             )
             objective_path = Path(ctx.objective_location)
             assert objective_path == (
-                ctx.project_store.portable_namespace(ctx.run_id, "runtime").external_directory()
+                ctx.project.state.portable_namespace(ctx.run_id, "runtime").external_directory()
                 / "effective-objective.md"
             )
             assert objective_path.read_text() == "Make the queue faster.\n"
             assert objective_path.is_relative_to(ctx.workspace)
 
         policy = build_runner.call_args.kwargs["project_path_policy"]
-        state_paths = ProjectStore(project).sandbox_paths()
+        state_paths = Project.open(project).state.sandbox_paths()
         assert state_paths.read_only_path in policy.read_only_paths
         assert state_paths.hidden_path in policy.hidden_paths
 
-    manifest = ProjectStore(project).load_run(ctx.run_id)
+    manifest = Project.open(project).state.load_run(ctx.run_id)
     assert manifest.branch == f"vibesys-runs/{ctx.run_id}"
     assert _git(project, "branch", "--show-current") == manifest.branch
     assert _git(project, "status", "--porcelain") == ""
@@ -274,7 +274,7 @@ def test_direct_repository_task_materializes_model_in_local_state(tmp_path: Path
             task_root=task,
             hooks=LLMServingEnvironmentHooks(),
         ) as ctx:
-            runtime_model = ctx.project_store.model_cache_directory("llm-serving") / "model"
+            runtime_model = ctx.project.state.model_cache_directory("llm-serving") / "model"
 
             assert not (reference / "model").exists()
             assert runtime_model.resolve() == downloaded
@@ -299,7 +299,7 @@ def test_copied_run_provisions_self_contained_project_in_collection(tmp_path):  
         manifest_text = (project / "vibesys.input.toml").read_text()
         assert 'source = "_evaluator/checker"' in manifest_text
         assert "[workspace]" not in manifest_text
-        assert ctx.log_dir == ctx.project_store.log_directory(ctx.run_id)
+        assert ctx.log_dir == ctx.project.state.log_directory(ctx.run_id)
 
     assert _git(project, "status", "--porcelain") == ""
 
@@ -320,7 +320,7 @@ def test_resume_reuses_project_and_run_id_and_only_increases_limit(tmp_path):  #
         assert resumed.project_root == project
         assert resumed.run_id == run_id
 
-    stored = ProjectStore(project).load_run(run_id)
+    stored = Project.open(project).state.load_run(run_id)
     assert stored.configuration.max_rounds == 2
     assert _git(project, "branch", "--show-current") == f"vibesys-runs/{run_id}"
 
@@ -496,12 +496,12 @@ def test_portable_state_snapshot_replaces_namespace_exactly(tmp_path):  # noqa: 
         ctx.state.commit("state 2", state)
 
     tree = _git(project, "ls-tree", "-r", "--name-only", "HEAD")
-    portable = ctx.project_store.portable_namespace(ctx.run_id, "evolve")
+    portable = ctx.project.state.portable_namespace(ctx.run_id, "evolve")
     assert portable.agent_visible_path("new.json") in tree
     assert portable.agent_visible_path("old.json") not in tree
 
 
-def test_candidate_context_uses_project_store_worktree_directory(tmp_path):  # noqa: ANN001, ANN201
+def test_candidate_context_uses_project_worktree_directory(tmp_path):  # noqa: ANN001, ANN201
     project = tmp_path / "queue"
     evaluator = _write_project(project)
 
@@ -517,7 +517,7 @@ def test_candidate_context_uses_project_store_worktree_directory(tmp_path):  # n
             agent_backend="stub",
         )
         candidate_root = candidate.workspace
-        assert candidate_root == parent.project_store.candidate_worktree_directory(
+        assert candidate_root == parent.project.state.candidate_worktree_directory(
             parent.run_id,
             "g2c3",
         )
