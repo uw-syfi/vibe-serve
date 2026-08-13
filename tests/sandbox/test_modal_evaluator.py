@@ -2,11 +2,81 @@ from __future__ import annotations
 
 import json
 from types import SimpleNamespace
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, call
 
 import pytest
 
 from vibesys.sandbox import modal_evaluator
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+
+@pytest.fixture(autouse=True)
+def isolate_deployment_path_checks(request, monkeypatch) -> None:  # noqa: ANN001
+    """Keep subprocess tests focused on orchestration, not the fake /workspace."""
+    if request.node.name.startswith("test_deployment_path_"):
+        return
+    monkeypatch.setattr(
+        modal_evaluator,
+        "_deployment_path",
+        lambda workspace, entrypoint: modal_evaluator.Path(workspace) / entrypoint,
+    )
+
+
+def test_deployment_path_accepts_project_file_and_contained_symlink(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    service = workspace / "deploy" / "service.py"
+    service.parent.mkdir(parents=True)
+    service.write_text("app = object()\n")
+    alias = workspace / "service.py"
+    alias.symlink_to(service.relative_to(workspace))
+
+    assert (
+        modal_evaluator._deployment_path(  # noqa: SLF001
+            str(workspace), "deploy/service.py"
+        )
+        == service
+    )
+    assert (
+        modal_evaluator._deployment_path(  # noqa: SLF001
+            str(workspace), "service.py"
+        )
+        == service
+    )
+
+
+@pytest.mark.parametrize(
+    "entrypoint",
+    ["", ".", "../service.py", "/tmp/service.py"],  # noqa: S108
+)
+def test_deployment_path_rejects_non_relative_paths(
+    tmp_path: Path,
+    entrypoint: str,
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    with pytest.raises(ValueError, match="project-relative"):
+        modal_evaluator._deployment_path(str(workspace), entrypoint)  # noqa: SLF001
+
+
+def test_deployment_path_rejects_missing_directory_and_escape(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    directory = workspace / "deploy"
+    directory.mkdir()
+    outside = tmp_path / "outside.py"
+    outside.write_text("app = object()\n")
+    (workspace / "escape.py").symlink_to(outside)
+
+    with pytest.raises(FileNotFoundError):
+        modal_evaluator._deployment_path(str(workspace), "missing.py")  # noqa: SLF001
+    with pytest.raises(ValueError, match="not a file"):
+        modal_evaluator._deployment_path(str(workspace), "deploy")  # noqa: SLF001
+    with pytest.raises(ValueError, match="escapes the project"):
+        modal_evaluator._deployment_path(str(workspace), "escape.py")  # noqa: SLF001
 
 
 def test_extract_modal_web_url_handles_rich_line_wrapping() -> None:
@@ -94,6 +164,39 @@ def test_run_evaluator_deploys_waits_and_injects_url(monkeypatch) -> None:  # no
     wait.assert_called_once_with(
         "https://workspace--candidate.modal.run",
         timeout_seconds=90,
+    )
+
+
+def test_run_evaluator_deploys_custom_entrypoint(monkeypatch) -> None:  # noqa: ANN001
+    deploy = SimpleNamespace(
+        returncode=0,
+        stdout="Web Function URL: https://workspace--candidate.modal.run\n",
+        stderr="",
+    )
+    evaluator = SimpleNamespace(returncode=0)
+    run = MagicMock(side_effect=[deploy, evaluator])
+    monkeypatch.setattr(modal_evaluator.subprocess, "run", run)
+    monkeypatch.setattr(modal_evaluator, "wait_for_health", MagicMock())
+
+    result = modal_evaluator.run_evaluator(
+        ["checker"],
+        workspace="/workspace",
+        entrypoint="examples/deployment/service.py",
+    )
+
+    assert result == 0
+    assert run.call_args_list[0] == call(
+        [
+            "uv",
+            "run",
+            "modal",
+            "deploy",
+            "/workspace/examples/deployment/service.py",
+        ],
+        cwd="/workspace",
+        capture_output=True,
+        text=True,
+        check=False,
     )
 
 

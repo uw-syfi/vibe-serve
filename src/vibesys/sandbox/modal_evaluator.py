@@ -216,10 +216,31 @@ def _retire_deployment(lease: _DeploymentLease, *, workspace: str) -> None:
     _DEPLOYMENT_LEASE_PATH.unlink(missing_ok=True)
 
 
+def _deployment_path(workspace: str, entrypoint: str) -> Path:
+    """Resolve a candidate-owned Modal file without allowing project escapes."""
+    relative = Path(entrypoint)
+    if (
+        relative.is_absolute()
+        or not relative.parts
+        or any(part in {"", ".", ".."} for part in relative.parts)
+    ):
+        raise ValueError("Modal entrypoint must be a project-relative path")  # noqa: TRY003
+    workspace_root = Path(workspace).resolve(strict=True)
+    candidate = (workspace_root / relative).resolve(strict=True)
+    try:
+        candidate.relative_to(workspace_root)
+    except ValueError as exc:
+        raise ValueError(f"Modal entrypoint escapes the project: {entrypoint}") from exc  # noqa: TRY003
+    if not candidate.is_file():
+        raise ValueError(f"Modal entrypoint is not a file: {candidate}")  # noqa: TRY003
+    return candidate
+
+
 def run_evaluator(
     command: Sequence[str],
     *,
     workspace: str = "/workspace",
+    entrypoint: str = "main.py",
     readiness_timeout_seconds: float = 90,
 ) -> int:
     """Deploy the candidate and run ``command`` against its live URL."""
@@ -230,14 +251,16 @@ def run_evaluator(
         return _run_evaluator_unlocked(
             command,
             workspace=workspace,
+            entrypoint=entrypoint,
             readiness_timeout_seconds=readiness_timeout_seconds,
         )
 
 
-def _run_evaluator_unlocked(  # noqa: C901, PLR0912  # tracked: #288
+def _run_evaluator_unlocked(  # noqa: C901, PLR0912, PLR0915  # tracked: #288
     command: Sequence[str],
     *,
     workspace: str,
+    entrypoint: str,
     readiness_timeout_seconds: float,
 ) -> int:
     candidate_revision = os.environ.get(_CANDIDATE_REVISION_ENV)
@@ -262,8 +285,14 @@ def _run_evaluator_unlocked(  # noqa: C901, PLR0912  # tracked: #288
                         _retire_deployment(lease, workspace=workspace)
             _retire_deployment(lease, workspace=workspace)
 
+    try:
+        deployment_path = _deployment_path(workspace, entrypoint)
+    except (FileNotFoundError, ValueError) as exc:
+        print(f"Modal evaluator setup failed: {exc}", file=sys.stderr)  # noqa: T201
+        return 1
+
     deploy = subprocess.run(  # noqa: S603  # tracked: #288
-        ["uv", "run", "modal", "deploy", f"{workspace}/main.py"],  # noqa: S607  # tracked: #288
+        ["uv", "run", "modal", "deploy", str(deployment_path)],  # noqa: S607  # tracked: #288
         cwd=workspace,
         capture_output=True,
         text=True,
@@ -323,6 +352,7 @@ def _run_evaluator_unlocked(  # noqa: C901, PLR0912  # tracked: #288
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     parser.add_argument("--workspace", default="/workspace")
+    parser.add_argument("--entrypoint", default="main.py")
     parser.add_argument("--readiness-timeout-seconds", type=float, default=90)
     parser.add_argument("command", nargs=argparse.REMAINDER)
     return parser
@@ -336,6 +366,7 @@ def main(argv: Sequence[str] | None = None) -> int:  # noqa: D103  # tracked: #2
     return run_evaluator(
         command,
         workspace=args.workspace,
+        entrypoint=args.entrypoint,
         readiness_timeout_seconds=args.readiness_timeout_seconds,
     )
 

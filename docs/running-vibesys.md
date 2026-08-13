@@ -58,6 +58,14 @@ and Modal execution change where commands run, not the task layout. Task
 commands always start in the repository root. `.vibesys` is mounted read-only
 for coding agents; `.vibesys/state/local` is also hidden from them.
 
+Modal tasks may set a project-relative deployment file. Omit this block to use
+the legacy `main.py` default:
+
+```toml
+[environment.modal]
+entrypoint = "examples/deployment/service.py"
+```
+
 Accuracy and benchmark commands may be task-owned argv arrays, or stable entry
 points supplied by an exact evaluator package:
 

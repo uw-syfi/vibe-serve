@@ -212,6 +212,36 @@ class AgentInput(BaseModel):
     domain: DomainName
 
 
+class ModalEnvironmentInput(BaseModel):
+    """Task-owned settings for a Modal run environment."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    entrypoint: str
+
+    @field_validator("entrypoint")
+    @classmethod
+    def _relative_entrypoint(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("entrypoint must be a non-empty path")  # noqa: TRY003
+        path = Path(value)
+        if path.is_absolute():
+            raise ValueError("entrypoint must be relative to the project root")  # noqa: TRY003
+        if not path.parts or any(part in {"", ".", ".."} for part in path.parts):
+            raise ValueError(  # noqa: TRY003
+                "entrypoint must not contain empty, current, or parent path components"
+            )
+        return value
+
+
+class EnvironmentInput(BaseModel):
+    """Optional task settings for concrete run environments."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    modal: ModalEnvironmentInput | None = None
+
+
 class InputManifest(BaseModel):
     """Versioned evaluator-command manifest for an input bundle."""
 
@@ -221,6 +251,7 @@ class InputManifest(BaseModel):
     agent: AgentInput
     accuracy: InputCommand
     benchmark: BenchmarkCommand
+    environment: EnvironmentInput | None = None
     workspace: WorkspaceInput | None = None
     evaluator: EvaluatorInput | None = None
 
@@ -279,6 +310,15 @@ def render_input_manifest(manifest: InputManifest) -> str:  # noqa: C901
         )
     if manifest.accuracy.timeout_seconds is not None:
         lines.append(f"timeout_seconds = {manifest.accuracy.timeout_seconds}")
+
+    if manifest.environment is not None and manifest.environment.modal is not None:
+        lines.extend(
+            [
+                "",
+                "[environment.modal]",
+                f"entrypoint = {toml_string(manifest.environment.modal.entrypoint)}",
+            ]
+        )
 
     lines.extend(
         [
@@ -392,6 +432,14 @@ class InputBundle(BaseModel):
         return self.manifest.benchmark.result
 
     @property
+    def modal_entrypoint(self) -> str | None:
+        """Return the task's project-relative Modal deployment file, if declared."""
+        environment = self.manifest.environment
+        if environment is None or environment.modal is None:
+            return None
+        return environment.modal.entrypoint
+
+    @property
     def workspace_sources(self) -> tuple[WorkspaceSource, ...]:  # noqa: D102  # tracked: #288
         if self.manifest.workspace is None:
             return ()
@@ -455,6 +503,25 @@ def _load_input_bundle(  # noqa: C901, PLR0912, PLR0915  # tracked: #288
         manifest = InputManifest.model_validate(tomllib.loads(manifest_path.read_text()))
     except ValidationError as exc:
         raise ValueError(f"Invalid input manifest {manifest_path}: {exc}") from exc  # noqa: TRY003  # tracked: #288
+
+    environment = manifest.environment
+    modal = environment.modal if environment is not None else None
+    if modal is not None:
+        modal_entrypoint = (root / modal.entrypoint).resolve()
+        try:
+            modal_entrypoint.relative_to(root)
+        except ValueError as exc:
+            raise ValueError(  # noqa: TRY003
+                f"environment.modal.entrypoint escapes the project: {modal.entrypoint}"
+            ) from exc
+        if not modal_entrypoint.exists():
+            raise FileNotFoundError(  # noqa: TRY003
+                f"environment.modal.entrypoint does not exist: {modal_entrypoint}"
+            )
+        if not modal_entrypoint.is_file():
+            raise ValueError(  # noqa: TRY003
+                f"environment.modal.entrypoint is not a file: {modal_entrypoint}"
+            )
 
     evaluator_package = None
     requirement = manifest.evaluator.package_requirement if manifest.evaluator is not None else None

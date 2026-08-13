@@ -73,6 +73,12 @@ def test_cli_compatibility_flags_keep_options_scoped_to_selected_environment(): 
         "app": "candidate",
     }
 
+    configured = make_run_environment_spec(
+        use_modal=True,
+        modal_entrypoint="examples/deployment/service.py",
+    )
+    assert configured.options["entrypoint"] == "examples/deployment/service.py"
+
 
 def _modal_runtime_document(tmp_path: Path) -> str:
     return (tmp_path / "logs" / "runtime-environment.md").read_text()
@@ -550,6 +556,35 @@ def test_modal_environment_wraps_service_evaluators_with_remote_dispatch(tmp_pat
         container_path == helper and read_only
         for _, container_path, read_only in backend.calls[0][1]["bind_mounts"]
     )
+
+
+def test_modal_environment_wraps_custom_deployment_entrypoint(tmp_path) -> None:  # noqa: ANN001
+    backend = FakeBackend()
+    env = build_run_environment(
+        RunEnvironmentSpec(
+            "modal",
+            {"entrypoint": "examples/deployment/service with space.py"},
+        )
+    )
+
+    session = env.open(
+        _request(
+            tmp_path,
+            backend,
+            agent_backend="cli",
+            cli_provider="codex",
+            accuracy_command="trusted-check",
+            benchmark_command="trusted-benchmark",
+        )
+    )
+
+    helper = "/opt/vibesys-modal-evaluator.py"
+    prefix = (
+        f"python {helper} --entrypoint 'examples/deployment/service with space.py' "
+        "--readiness-timeout-seconds 1200 --"
+    )
+    assert session.view.paths.accuracy_command == f"{prefix} trusted-check"
+    assert session.view.paths.benchmark_command == f"{prefix} trusted-benchmark"
 
 
 def test_modal_environment_installs_modal_sdk_in_docker(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288

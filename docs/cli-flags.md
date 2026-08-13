@@ -518,6 +518,17 @@ paths. VibeSys does not relocate them. `.vibesys` is read-only to coding agents,
 so task commands must write scratch data outside `.vibesys` (for example under
 `/tmp` or a candidate-excluded build directory).
 
+For `--modal` runs, a task may declare the candidate deployment file:
+
+```toml
+[environment.modal]
+entrypoint = "examples/deployment/service.py"
+```
+
+The entrypoint is relative to the candidate repository root, must remain inside
+that repository, and defaults to `main.py` when omitted. The manifest supplies
+task-owned deployment wiring; the operator still selects Modal with `--modal`.
+
 ### Legacy bundles
 
 Unmigrated examples may still use root-level `OBJECTIVE.md` and

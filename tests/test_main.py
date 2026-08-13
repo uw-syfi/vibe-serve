@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 import subprocess
 import sys
@@ -16,6 +17,7 @@ from vibesys.config import Config
 from vibesys.constants import ComputeBackend
 from vibesys.domains.base import DomainName
 from vibesys.errors import ConfigurationDiagnostic, ConfigurationError
+from vibesys.input_manifest import load_input_bundle
 from vibesys.main import (
     _control_socket_from_argv,
     _extract_flag,
@@ -30,6 +32,7 @@ from vibesys.main import (
     load_config_and_skills,
     main,
     parse_cli_invocation,
+    run_environment_spec_from_args,
 )
 from vibesys.profilers import ProfilerKind
 from vs_project import (
@@ -95,6 +98,29 @@ command = ["python", "-c", "print('1')"]
 """
     )
     return task
+
+
+def test_run_environment_spec_uses_task_modal_entrypoint(tmp_path: Path) -> None:
+    project = _write_input_project(tmp_path)
+    entrypoint = project / "deploy" / "service.py"
+    entrypoint.parent.mkdir()
+    entrypoint.write_text("app = object()\n")
+    with (project / "vibesys.input.toml").open("a") as manifest:
+        manifest.write('\n[environment.modal]\nentrypoint = "deploy/service.py"\n')
+    args = argparse.Namespace(
+        input_bundle=load_input_bundle(project),
+        docker=False,
+        docker_image=None,
+        modal=True,
+        modal_gpu="H100!",
+        modal_model_volume=None,
+        modal_app="vibesys",
+    )
+
+    spec = run_environment_spec_from_args(args)
+
+    assert spec.name == "modal"
+    assert spec.options["entrypoint"] == "deploy/service.py"
 
 
 class _CommonConfiguration(TypedDict):

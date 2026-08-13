@@ -833,6 +833,7 @@ def _prepare_stub_agent_smoke_defaults(argv: list[str]) -> list[str]:
 
 
 def run_environment_spec_from_args(args: argparse.Namespace) -> RunEnvironmentSpec:  # tracked: #288
+    bundle = getattr(args, "input_bundle", None)
     return make_run_environment_spec(
         use_docker=args.docker,
         docker_image=args.docker_image,
@@ -840,6 +841,7 @@ def run_environment_spec_from_args(args: argparse.Namespace) -> RunEnvironmentSp
         modal_gpu=args.modal_gpu,
         modal_model_volume=args.modal_model_volume,
         modal_app=args.modal_app,
+        modal_entrypoint=bundle.modal_entrypoint if bundle is not None else None,
     )
 
 

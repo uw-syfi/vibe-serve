@@ -65,6 +65,97 @@ def test_manifest_without_external_sources_is_valid(tmp_path: Path) -> None:
     assert loaded.evaluator_path is None
 
 
+def test_manifest_resolves_modal_entrypoint_from_project_root(tmp_path: Path) -> None:
+    project_root = tmp_path / "project"
+    bundle = _write_bundle(
+        project_root,
+        '[environment.modal]\nentrypoint = "deploy/service.py"',
+    )
+    entrypoint = bundle / "deploy" / "service.py"
+    entrypoint.parent.mkdir()
+    entrypoint.write_text("app = object()\n")
+
+    loaded = load_input_bundle(bundle)
+
+    assert loaded.modal_entrypoint == "deploy/service.py"
+
+
+@pytest.mark.parametrize(
+    ("entrypoint", "error"),
+    [
+        ("", "non-empty path"),
+        (".", "current, or parent"),
+        ("../service.py", "current, or parent"),
+        ("/tmp/service.py", "relative to the project root"),  # noqa: S108
+        ("missing.py", "does not exist"),
+    ],
+)
+def test_manifest_rejects_invalid_modal_entrypoint(
+    tmp_path: Path,
+    entrypoint: str,
+    error: str,
+) -> None:
+    project_root = tmp_path / "project"
+    bundle = _write_bundle(
+        project_root,
+        f'[environment.modal]\nentrypoint = "{entrypoint}"',
+    )
+
+    with pytest.raises((FileNotFoundError, ValueError), match=error):
+        load_input_bundle(bundle)
+
+
+def test_manifest_rejects_modal_entrypoint_directory_and_escape(tmp_path: Path) -> None:
+    project_root = tmp_path / "project"
+    directory_bundle = _write_bundle(
+        project_root,
+        '[environment.modal]\nentrypoint = "deploy"',
+    )
+    (directory_bundle / "deploy").mkdir()
+
+    with pytest.raises(ValueError, match="is not a file"):
+        load_input_bundle(directory_bundle)
+
+    escaping_bundle = tmp_path / "escaping"
+    _write_bundle(
+        escaping_bundle,
+        '[environment.modal]\nentrypoint = "service.py"',
+    )
+    outside = tmp_path / "outside.py"
+    outside.write_text("app = object()\n")
+    task = escaping_bundle / "examples" / "data-structures" / "queue-spsc"
+    (task / "service.py").symlink_to(outside)
+
+    with pytest.raises(ValueError, match="escapes the project"):
+        load_input_bundle(task)
+
+
+def test_manifest_allows_contained_modal_entrypoint_symlink(tmp_path: Path) -> None:
+    project_root = tmp_path / "project"
+    bundle = _write_bundle(
+        project_root,
+        '[environment.modal]\nentrypoint = "service.py"',
+    )
+    target = bundle / "deploy" / "service.py"
+    target.parent.mkdir()
+    target.write_text("app = object()\n")
+    (bundle / "service.py").symlink_to(target.relative_to(bundle))
+
+    assert load_input_bundle(bundle).modal_entrypoint == "service.py"
+
+
+def test_manifest_rejects_unknown_modal_environment_keys(tmp_path: Path) -> None:
+    project_root = tmp_path / "project"
+    bundle = _write_bundle(
+        project_root,
+        '[environment.modal]\nentrypoint = "service.py"\nregion = "us-east"',
+    )
+    (bundle / "service.py").write_text("app = object()\n")
+
+    with pytest.raises(ValueError, match="Extra inputs are not permitted"):
+        load_input_bundle(bundle)
+
+
 def test_manifest_resolves_workspace_sources(tmp_path: Path) -> None:
     project_root = tmp_path / "project"
     bundle = _write_bundle(

@@ -110,6 +110,33 @@ def test_provision_project_places_source_at_root_and_removes_private_files(
     assert (input_root / "agent.toml").is_file()
 
 
+def test_provision_project_preserves_modal_entrypoint(tmp_path: Path) -> None:
+    input_root = _write_input(
+        tmp_path / "input",
+        '\n[environment.modal]\nentrypoint = "deploy/service.py"\n',
+    )
+    entrypoint = input_root / "deploy" / "service.py"
+    entrypoint.parent.mkdir()
+    entrypoint.write_text("app = object()\n")
+    destination = tmp_path / "runs" / "copy"
+
+    provision_project(
+        input_root,
+        destination,
+        spec=ProjectProvisioningSpec(
+            workspace=_workspace(destination, project_root=tmp_path),
+        ),
+    )
+
+    manifest = InputManifest.model_validate(
+        tomllib.loads((destination / "vibesys.input.toml").read_text())
+    )
+    assert manifest.environment is not None
+    assert manifest.environment.modal is not None
+    assert manifest.environment.modal.entrypoint == "deploy/service.py"
+    assert load_input_bundle(destination).modal_entrypoint == "deploy/service.py"
+
+
 def test_provision_project_copies_and_rewrites_external_evaluator(tmp_path: Path) -> None:
     input_root = _write_input(
         tmp_path / "input",

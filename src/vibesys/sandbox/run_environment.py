@@ -380,6 +380,7 @@ class ModalEnvironmentConfig:  # noqa: D101  # tracked: #288
     gpu: str = "H100!"
     model_volume: str | None = None
     app: str = "vibesys"
+    entrypoint: str | None = None
 
 
 class ModalEnvironment(_NoopWorkspaceRecovery):  # noqa: D101  # tracked: #288
@@ -405,6 +406,7 @@ class ModalEnvironment(_NoopWorkspaceRecovery):  # noqa: D101  # tracked: #288
                     str(options["model_volume"]) if options.get("model_volume") else None
                 ),
                 app=str(options.get("app") or "vibesys"),
+                entrypoint=(str(options["entrypoint"]) if options.get("entrypoint") else None),
             )
         )
 
@@ -496,7 +498,12 @@ class ModalEnvironment(_NoopWorkspaceRecovery):  # noqa: D101  # tracked: #288
         setup_timeout_seconds = 1200
         evaluator_prefix = (
             f"python {evaluator_container_path} "
-            f"--readiness-timeout-seconds {setup_timeout_seconds} --"
+            + (
+                f"--entrypoint {shlex.quote(self.config.entrypoint)} "
+                if self.config.entrypoint is not None
+                else ""
+            )
+            + f"--readiness-timeout-seconds {setup_timeout_seconds} --"
         )
         return _DefaultRunEnvironmentSession(
             sandbox=sandbox,
@@ -666,6 +673,7 @@ def make_run_environment_spec(  # noqa: PLR0913  # tracked: #288
     modal_gpu: str = "H100!",
     modal_model_volume: str | None = None,
     modal_app: str = "vibesys",
+    modal_entrypoint: str | None = None,
 ) -> RunEnvironmentSpec:
     """Build a spec from the current CLI compatibility flags.
 
@@ -679,14 +687,17 @@ def make_run_environment_spec(  # noqa: PLR0913  # tracked: #288
     if use_docker and use_modal:
         raise ValueError("--docker and --modal are mutually exclusive")  # noqa: TRY003  # tracked: #288
     if use_modal:
+        options: dict[str, object] = {
+            "image": docker_image,
+            "gpu": modal_gpu,
+            "model_volume": modal_model_volume,
+            "app": modal_app,
+        }
+        if modal_entrypoint is not None:
+            options["entrypoint"] = modal_entrypoint
         return RunEnvironmentSpec(
             name="modal",
-            options={
-                "image": docker_image,
-                "gpu": modal_gpu,
-                "model_volume": modal_model_volume,
-                "app": modal_app,
-            },
+            options=options,
         )
     if use_docker:
         return RunEnvironmentSpec(name="docker", options={"image": docker_image})
