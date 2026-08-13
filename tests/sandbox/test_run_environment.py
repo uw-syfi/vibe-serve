@@ -52,6 +52,20 @@ def _request(tmp_path: Path, backend: FakeBackend, **overrides):  # noqa: ANN003
     return RunEnvironmentRequest(**values)  # pyright: ignore[reportArgumentType]  # tracked: #297
 
 
+@pytest.fixture(autouse=True)
+def _synthetic_cli_auth(monkeypatch):  # pyright: ignore[reportUnusedFunction]  # noqa: ANN001, ANN202
+    """Pin a deterministic host auth source for container CLI setup.
+
+    ``_cli_container_setup`` fails loud when a provider has neither a staged
+    host file nor an auth environment variable, so these tests must not depend
+    on whichever CLI the developer running them happens to be logged into.
+    """
+    for names in cli_docker.DOCKER_AUTH_ENV_VARS.values():
+        for name in names:
+            monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("OPENAI_API_KEY", "synthetic-openai-key")
+
+
 def test_cli_compatibility_flags_keep_options_scoped_to_selected_environment():  # noqa: ANN201  # tracked: #288
     assert make_run_environment_spec().options == {}
     assert make_run_environment_spec(use_docker=True, docker_image="editor").options == {
@@ -403,6 +417,48 @@ def test_docker_environment_copies_cli_auth_from_readonly_staging(tmp_path, monk
     assert kwargs["extra_init_commands"][0] == (
         "mkdir -p /root/.codex && cp -a /opt/vibesys-auth/0 /root/.codex/auth.json"
     )
+
+
+def test_docker_environment_forwards_host_cli_auth_environment(tmp_path, monkeypatch):  # noqa: ANN001, ANN201  # tracked: #288
+    backend = FakeBackend()
+    env = build_run_environment(RunEnvironmentSpec("docker"))
+    monkeypatch.setenv("ANTHROPIC_AUTH_TOKEN", "proxy-token")
+    monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://proxy.invalid/v1")
+    monkeypatch.setenv("ANTHROPIC_MODEL", "host-selected-model")
+
+    env.open(_request(tmp_path, backend, agent_backend="cli", cli_provider="claude"))
+
+    container_env = backend.calls[0][1]["extra_env"]
+    assert container_env["ANTHROPIC_AUTH_TOKEN"] == "proxy-token"  # noqa: S105  # tracked: #288
+    assert container_env["ANTHROPIC_BASE_URL"] == "https://proxy.invalid/v1"
+    # VibeSys owns per-role model selection, so a host export must not reach
+    # the container and override it.
+    assert "ANTHROPIC_MODEL" not in container_env
+    assert container_env["IS_SANDBOX"] == "1"
+    assert container_env["PYTHONPATH"] == "/opt/vibesys"
+
+
+def test_docker_environment_rejects_a_cli_provider_without_any_auth_source(  # noqa: ANN201  # tracked: #288
+    tmp_path,  # noqa: ANN001  # tracked: #288
+    monkeypatch,  # noqa: ANN001  # tracked: #288
+):
+    backend = FakeBackend()
+    env = build_run_environment(RunEnvironmentSpec("docker"))
+    monkeypatch.setitem(
+        cli_docker.DOCKER_AUTH_PATHS,
+        "codex",
+        [DockerAuthPath(tmp_path / "absent-codex-home" / "auth.json", "/root/.codex/auth.json")],
+    )
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+    with pytest.raises(ValueError, match="no 'codex' CLI authentication") as excinfo:
+        env.open(_request(tmp_path, backend, agent_backend="cli", cli_provider="codex"))
+
+    message = str(excinfo.value)
+    assert str(tmp_path / "absent-codex-home" / "auth.json") in message
+    assert "OPENAI_API_KEY" in message
+    assert "OPENAI_BASE_URL" in message
+    assert backend.calls == []
 
 
 def test_docker_environment_exposes_framework_git_history_read_only(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288

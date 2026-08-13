@@ -1,5 +1,6 @@
 """Tests for DockerSandbox — all mock subprocess.run, no Docker required."""
 
+import json
 import subprocess
 from pathlib import Path
 from unittest.mock import patch
@@ -915,6 +916,76 @@ class TestEnvVars:
         assert "-e" in cmd
         assert "MY_KEY=my_value" in cmd_str
         assert "OTHER=thing" in cmd_str
+
+    @patch("subprocess.run")
+    def test_credential_values_reach_the_container_but_not_the_log(self, mock_run, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        log_path = tmp_path / "docker.log"
+        sandbox = DockerSandbox(
+            host_workspace=str(workspace),
+            image="pytorch:latest",
+            env={
+                "ANTHROPIC_AUTH_TOKEN": "sk-secret-token",
+                "ANTHROPIC_BASE_URL": "https://proxy.invalid/v1",
+                "PYTHONPATH": "/opt/vibesys",
+            },
+            log_path=log_path,
+        )
+
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="abc123\n", stderr=""
+        )
+
+        sandbox.start()
+
+        cmd_str = " ".join(mock_run.call_args_list[0][0][0])
+        assert "ANTHROPIC_AUTH_TOKEN=sk-secret-token" in cmd_str
+
+        log_text = log_path.read_text()
+        assert "sk-secret-token" not in log_text
+        assert "ANTHROPIC_AUTH_TOKEN=<redacted>" in log_text
+        # Endpoint selection is a diagnostic, not a credential.
+        assert "ANTHROPIC_BASE_URL=https://proxy.invalid/v1" in log_text
+        assert "PYTHONPATH=/opt/vibesys" in log_text
+
+    @patch("subprocess.run")
+    def test_credential_values_are_omitted_from_workspace_metadata(self, mock_run, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        sandbox = DockerSandbox(
+            host_workspace=str(workspace),
+            image="pytorch:latest",
+            env={"ANTHROPIC_API_KEY": "sk-secret-key", "PYTHONPATH": "/opt/vibesys"},
+        )
+
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="abc123\n", stderr=""
+        )
+
+        sandbox.start()
+
+        metadata_text = (workspace / ".docker_metadata.json").read_text()
+        assert "sk-secret-key" not in metadata_text
+        assert json.loads(metadata_text)["env"] == {"PYTHONPATH": "/opt/vibesys"}
+
+    @patch("subprocess.run")
+    def test_start_failure_error_does_not_expose_credentials(self, mock_run, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+        sandbox = DockerSandbox(
+            host_workspace=str(tmp_path / "workspace"),
+            image="pytorch:latest",
+            env={"ANTHROPIC_AUTH_TOKEN": "sk-secret-token"},
+        )
+
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=[], returncode=125, stdout="", stderr="boom"
+        )
+
+        with pytest.raises(RuntimeError) as excinfo:
+            sandbox.start()
+
+        assert "sk-secret-token" not in str(excinfo.value)
+        assert "ANTHROPIC_AUTH_TOKEN=<redacted>" in str(excinfo.value)
 
 
 class TestDevicePassthrough:

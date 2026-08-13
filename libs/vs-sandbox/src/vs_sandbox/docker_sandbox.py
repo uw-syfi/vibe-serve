@@ -6,6 +6,7 @@ import atexit
 import json
 import logging
 import os
+import re
 import signal
 import subprocess
 import tempfile
@@ -28,6 +29,41 @@ if TYPE_CHECKING:
 
 # Global registry of live containers for cleanup on exit / SIGINT.
 _live_containers: dict[str, str] = {}  # container_id -> container_name
+
+# Environment variables whose *values* must never leave this process.
+# Credentials reach the container as ``-e NAME=VALUE`` arguments on
+# ``docker run``, and every sink that records a command or the env dict is
+# durable and readable: the command log lives beside the run's other logs, the
+# metadata file is written into the bind-mounted workspace the agent edits, and
+# startup errors are surfaced to the caller.  Endpoint variables such as
+# ``*_BASE_URL`` stay visible because they are diagnostics, not secrets.
+_SECRET_ENV_NAME_PATTERN = re.compile(
+    r"AUTH|TOKEN|KEY|SECRET|PASSWORD|PASSWD|CREDENTIAL|HEADERS",
+    re.IGNORECASE,
+)
+_REDACTED_VALUE = "<redacted>"
+
+
+def _is_secret_env_name(name: str) -> bool:
+    """Report whether *name* identifies a credential-bearing variable."""
+    return _SECRET_ENV_NAME_PATTERN.search(name) is not None
+
+
+def _redacted_command(cmd: list[str]) -> list[str]:
+    """Return *cmd* with the values of credential ``-e NAME=VALUE`` flags masked."""
+    redacted: list[str] = []
+    for index, argument in enumerate(cmd):
+        name, separator, _ = argument.partition("=")
+        if separator and index > 0 and cmd[index - 1] == "-e" and _is_secret_env_name(name):
+            redacted.append(f"{name}={_REDACTED_VALUE}")
+        else:
+            redacted.append(argument)
+    return redacted
+
+
+def _non_secret_env(env: dict[str, str]) -> dict[str, str]:
+    """Return *env* without credential entries, for the on-disk metadata file."""
+    return {name: value for name, value in env.items() if not _is_secret_env_name(name)}
 
 
 def _cleanup_containers() -> None:
@@ -205,7 +241,7 @@ class DockerSandbox(BaseSandbox):
     ) -> None:
         if self._logger is None:
             return
-        self._logger.info("CMD: %s", " ".join(cmd))
+        self._logger.info("CMD: %s", " ".join(_redacted_command(cmd)))
         if result is not None:
             self._logger.info("  exit_code=%d", result.returncode)
             if result.stdout and result.stdout.strip():
@@ -404,7 +440,7 @@ class DockerSandbox(BaseSandbox):
                 f"Failed to start Docker container (exit {result.returncode}):\n"
                 f"  stdout: {result.stdout.strip()}\n"
                 f"  stderr: {result.stderr.strip()}\n"
-                f"  cmd: {' '.join(cmd)}"
+                f"  cmd: {' '.join(_redacted_command(cmd))}"
             )
         self._container_id = result.stdout.strip()
         _live_containers[self._container_id] = self._container_name
@@ -430,7 +466,10 @@ class DockerSandbox(BaseSandbox):
             "entrypoint": self._entrypoint,
             "shm_size": self._shm_size,
             "bind_mounts": [[host, container, ro] for host, container, ro in self._bind_mounts],
-            "env": dict(self._env),
+            # Credentials are omitted rather than masked: the metadata file is
+            # written into the agent-visible workspace, and a masked value
+            # would rebuild a broken container that looks authenticated.
+            "env": _non_secret_env(self._env),
             "symlink_commands": [],
         }
         self._save_metadata()

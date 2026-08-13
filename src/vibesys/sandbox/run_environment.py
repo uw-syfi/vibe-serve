@@ -1368,14 +1368,35 @@ def _cli_container_setup(
     if effective_agent != "cli" or not request.cli_provider:
         return [], {}
     from vibesys.agents.cli_docker import (  # noqa: PLC0415  # tracked: #288
+        DOCKER_AUTH_ENV_VARS,
+        DOCKER_AUTH_PATHS,
         DOCKER_PROVIDER_ENV,
         auth_copy_commands,
+        auth_env_passthrough,
         docker_init_commands,
     )
 
     provider = request.cli_provider
+    auth_commands = auth_copy_commands(provider)
+    auth_env = auth_env_passthrough(provider)
+    if not auth_commands and not auth_env:
+        checked_files = (
+            ", ".join(str(spec.host_path) for spec in DOCKER_AUTH_PATHS.get(provider, []))
+            or "<none registered>"
+        )
+        checked_env = ", ".join(DOCKER_AUTH_ENV_VARS.get(provider, ())) or "<none registered>"
+        raise ValueError(  # noqa: TRY003  # tracked: #288
+            f"no {provider!r} CLI authentication is available for the container: "
+            f"none of the host files exist ({checked_files}) and none of the "
+            f"environment variables are set ({checked_env}). Authenticate the "
+            f"{provider} CLI on this host, or export one of those variables, "
+            "before running in an isolated environment."
+        )
     env = dict(DOCKER_PROVIDER_ENV.get(provider, {}))
-    commands = [*auth_copy_commands(provider), *docker_init_commands(provider)]
+    # Container processes inherit only what ``docker run -e`` sets; the editor
+    # container has no other view of the host environment.
+    env.update(auth_env)
+    commands = [*auth_commands, *docker_init_commands(provider)]
     return commands, env
 
 

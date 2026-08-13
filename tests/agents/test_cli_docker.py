@@ -93,6 +93,47 @@ def test_provider_auth_imports_exclude_bulk_runtime_roots():  # noqa: ANN201  # 
     )
 
 
+def test_provider_auth_env_registry_covers_credentials_not_model_selection():  # noqa: ANN201  # tracked: #288
+    assert cli_docker.DOCKER_AUTH_ENV_VARS == {
+        "claude": (
+            "ANTHROPIC_AUTH_TOKEN",
+            "ANTHROPIC_API_KEY",
+            "ANTHROPIC_BASE_URL",
+            "ANTHROPIC_CUSTOM_HEADERS",
+        ),
+        "gemini": ("GEMINI_API_KEY", "GOOGLE_API_KEY"),
+        "codex": ("OPENAI_API_KEY", "OPENAI_BASE_URL"),
+        "opencode": (),
+    }
+    # VibeSys owns per-role model selection; a host export must not override it.
+    forwarded = {name for names in cli_docker.DOCKER_AUTH_ENV_VARS.values() for name in names}
+    assert forwarded.isdisjoint({"ANTHROPIC_MODEL", "OPENAI_MODEL", "GEMINI_MODEL"})
+    assert set(cli_docker.DOCKER_AUTH_ENV_VARS) == set(cli_docker.DOCKER_AUTH_PATHS)
+
+
+def test_auth_env_passthrough_forwards_only_variables_the_host_actually_set(  # noqa: ANN201  # tracked: #288
+    monkeypatch,  # noqa: ANN001  # tracked: #288
+):
+    monkeypatch.setenv("ANTHROPIC_AUTH_TOKEN", "token-value")
+    monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://proxy.invalid/v1")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "   ")
+    monkeypatch.delenv("ANTHROPIC_CUSTOM_HEADERS", raising=False)
+    monkeypatch.setenv("ANTHROPIC_MODEL", "host-selected-model")
+
+    assert cli_docker.auth_env_passthrough("claude") == {
+        "ANTHROPIC_AUTH_TOKEN": "token-value",
+        "ANTHROPIC_BASE_URL": "https://proxy.invalid/v1",
+    }
+
+
+def test_auth_env_passthrough_is_empty_without_host_credentials(monkeypatch):  # noqa: ANN001, ANN201  # tracked: #288
+    for name in cli_docker.DOCKER_AUTH_ENV_VARS["claude"]:
+        monkeypatch.delenv(name, raising=False)
+
+    assert cli_docker.auth_env_passthrough("claude") == {}
+    assert cli_docker.auth_env_passthrough("unregistered-provider") == {}
+
+
 def test_codex_container_installs_luna_capable_cli_version():  # noqa: ANN201  # tracked: #288
     commands = cli_docker.docker_init_commands("codex")
 

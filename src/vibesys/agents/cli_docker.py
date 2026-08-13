@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import shlex
 from dataclasses import dataclass
 from pathlib import Path
@@ -220,6 +221,52 @@ DOCKER_AUTH_PATHS: dict[str, list[DockerAuthPath]] = {
         ),
     ],
 }
+
+
+# Host environment variables that carry provider authentication, forwarded
+# into the container alongside the staged files above.  A host may authenticate
+# a CLI entirely through the environment — an ``ANTHROPIC_AUTH_TOKEN`` plus
+# ``ANTHROPIC_BASE_URL`` pointing at a proxy or enterprise gateway is a
+# first-class Claude Code auth mechanism, and plain API keys are another — in
+# which case no provider state file exists to stage and the container CLI would
+# start unauthenticated.  Host sandboxes never hit this because they inherit
+# the host environment directly.
+#
+# Keep this registry to credential and endpoint variables.  Model-selection
+# variables such as ``ANTHROPIC_MODEL`` are deliberately excluded: VibeSys owns
+# per-role model selection, and forwarding a host export would let it silently
+# override the configured model inside the container.
+DOCKER_AUTH_ENV_VARS: dict[str, tuple[str, ...]] = {
+    "claude": (
+        "ANTHROPIC_AUTH_TOKEN",
+        "ANTHROPIC_API_KEY",
+        "ANTHROPIC_BASE_URL",
+        "ANTHROPIC_CUSTOM_HEADERS",
+    ),
+    "gemini": ("GEMINI_API_KEY", "GOOGLE_API_KEY"),
+    "codex": ("OPENAI_API_KEY", "OPENAI_BASE_URL"),
+    # OpenCode resolves credentials per *model* provider from the models.dev
+    # registry, so the variable names depend on whichever provider the user
+    # configured rather than on OpenCode itself; it documents no CLI-owned auth
+    # variable to enumerate here.  Its ``auth.json`` and config files are
+    # already staged through ``DOCKER_AUTH_PATHS``.
+    "opencode": (),
+}
+
+
+def auth_env_passthrough(provider: str) -> dict[str, str]:
+    """Return the host auth environment variables *provider* can actually use.
+
+    Unset and blank variables are dropped: an empty host export carries no
+    credential and must not shadow staged file authentication or make the
+    preflight check believe the container is authenticated.
+    """
+    values: dict[str, str] = {}
+    for name in DOCKER_AUTH_ENV_VARS.get(provider, ()):
+        value = os.environ.get(name)
+        if value and value.strip():
+            values[name] = value
+    return values
 
 
 def auth_bind_mounts(provider: str) -> list[tuple[str, str, bool]]:
