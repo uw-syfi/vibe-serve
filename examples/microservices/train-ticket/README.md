@@ -14,12 +14,12 @@ Expected target for a gateway/proxy deployment:
 The scripts call `/api/v1/...` endpoints through whichever base URL you pass.
 
 ```bash
-go -C examples/evaluators/microservice run ./cmd/servicebench \
+go -C resources/evaluators/microservice run ./cmd/servicebench \
   --mode accuracy \
   --workload "$PWD/examples/microservices/train-ticket/benchmark/workload.toml" \
   --base-url http://localhost:8080 \
   --seed random
-go -C examples/evaluators/microservice run ./cmd/servicebench \
+go -C resources/evaluators/microservice run ./cmd/servicebench \
   --workload "$PWD/examples/microservices/train-ticket/benchmark/workload.toml" \
   --base-url http://localhost:8080 \
 	--duration 30 \
@@ -27,7 +27,7 @@ go -C examples/evaluators/microservice run ./cmd/servicebench \
 ```
 
 Both modes require Go; dependencies are pinned by
-`examples/evaluators/microservice/go.sum`.
+`resources/evaluators/microservice/go.sum`.
 
 For the prebuilt-image local Docker Compose helper below, use the helper
 `check`/`bench` commands. The prebuilt
@@ -129,7 +129,7 @@ Compose tries to pull `localtrain/...` from Docker Hub.
 Manual direct-service runs:
 
 ```bash
-go -C examples/evaluators/microservice run ./cmd/servicebench \
+go -C resources/evaluators/microservice run ./cmd/servicebench \
   --mode accuracy \
   --workload "$PWD/examples/microservices/train-ticket/benchmark/workload.toml" \
   --seed random \
@@ -140,7 +140,7 @@ go -C examples/evaluators/microservice run ./cmd/servicebench \
   --target route=http://localhost:11178 \
   --target price=http://localhost:16579
 
-go -C examples/evaluators/microservice run ./cmd/servicebench \
+go -C resources/evaluators/microservice run ./cmd/servicebench \
   --workload "$PWD/examples/microservices/train-ticket/benchmark/workload.toml" \
   --target config=http://localhost:15679 \
   --target station=http://localhost:12345 \
@@ -155,13 +155,13 @@ go -C examples/evaluators/microservice run ./cmd/servicebench \
 Manual gateway runs after source-built deployment:
 
 ```bash
-go -C examples/evaluators/microservice run ./cmd/servicebench \
+go -C resources/evaluators/microservice run ./cmd/servicebench \
   --mode accuracy \
   --workload "$PWD/examples/microservices/train-ticket/benchmark/workload.toml" \
   --base-url http://localhost:18888 \
   --seed random
 
-go -C examples/evaluators/microservice run ./cmd/servicebench \
+go -C resources/evaluators/microservice run ./cmd/servicebench \
   --workload "$PWD/examples/microservices/train-ticket/benchmark/workload.toml" \
   --base-url http://localhost:18888 \
 	--duration 30 \

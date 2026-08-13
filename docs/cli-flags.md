@@ -526,10 +526,11 @@ Unmigrated examples may still use root-level `OBJECTIVE.md` and
 the format for new repository adoption.
 
 The optional `evaluator.source` path is relative to the input manifest and must
-resolve inside `examples/evaluators/`. On a fresh run, VibeSys copies it to
-`_evaluator/<source-name>`. This is a separate, evaluator-owned input: Git-backed
-integrity checks reject accuracy and benchmark gates after it is modified.
-Resumed runs use the evaluator snapshot committed in the canonical project.
+resolve to a directory. On a fresh run, VibeSys copies it to
+`_evaluator/<source-name>`. This is a separate, evaluator-owned input:
+Git-backed integrity checks reject accuracy and benchmark gates after it is
+modified. Resumed runs use the evaluator snapshot committed in the canonical
+project.
 
 ### Providing inputs without a bundle (`--input-*`)
 
@@ -559,10 +560,11 @@ Optional flags:
 | `--input-evaluator-dir DIR` | contents copied into the bundle root (evaluator scripts the commands invoke) |
 | `--input-evaluator-source DIR` | `[evaluator].source` (staged inside the bundle) |
 
-Unlike bundle-declared `evaluator.source`, which must resolve inside
-`examples/evaluators/`, the synthesized bundle stages this directory inside
-itself, so any local directory is accepted. Git-pinned `[[workspace.sources]]`
-entries are not exposed as flags; use `--input` for those.
+The synthesized bundle stages `--input-evaluator-source` inside itself before
+loading the manifest, so the supplied local directory does not need to share a
+parent repository with the generated bundle. Git-pinned
+`[[workspace.sources]]` entries are not exposed as flags; use `--input` for
+those.
 
 ```bash
 vibesys \

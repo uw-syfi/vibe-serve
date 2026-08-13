@@ -16,7 +16,7 @@ response semantics.
 From the repository root:
 
 ```bash
-go -C examples/evaluators/microservice run ./cmd/servicebench \
+go -C resources/evaluators/microservice run ./cmd/servicebench \
   --workload "$PWD/examples/microservices/train-ticket/benchmark/workload.toml" \
   --base-url http://localhost:8080 \
   --seed random \
@@ -34,7 +34,7 @@ For diagnostic latency under a fixed offered load, select the open-loop profile
 and choose a rate the candidate can sustain:
 
 ```bash
-go -C examples/evaluators/microservice run ./cmd/servicebench \
+go -C resources/evaluators/microservice run ./cmd/servicebench \
   --workload "$PWD/examples/microservices/train-ticket/benchmark/workload.toml" \
   --profile offered-load \
   --rate 100 \

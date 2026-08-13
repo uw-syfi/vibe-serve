@@ -33,7 +33,7 @@ def _adjacent_pairs(command: tuple[str, ...]) -> set[tuple[str, str]]:
 def test_legacy_microservice_scenario_uses_source_evaluator() -> None:
     bundle = load_input_bundle(MICROSERVICE_ROOT / "train-ticket")
 
-    assert bundle.evaluator_path == PROJECT_ROOT / "examples" / "evaluators" / "microservice"
+    assert bundle.evaluator_path == PROJECT_ROOT / "resources" / "evaluators" / "microservice"
     assert bundle.benchmark_command[:5] == (
         "go",
         "-C",

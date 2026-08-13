@@ -375,7 +375,7 @@ case "${cmd}" in
     ;;
   check)
     command -v go >/dev/null || { echo "go is required" >&2; exit 127; }
-    go -C "${REPO_ROOT}/examples/evaluators/microservice" run ./cmd/servicebench \
+    go -C "${REPO_ROOT}/resources/evaluators/microservice" run ./cmd/servicebench \
       --mode accuracy \
       --workload "${INPUT_DIR}/benchmark/workload.toml" \
       --seed random \
@@ -388,7 +388,7 @@ case "${cmd}" in
     ;;
   bench)
     command -v go >/dev/null || { echo "go is required" >&2; exit 127; }
-    go -C "${REPO_ROOT}/examples/evaluators/microservice" run ./cmd/servicebench \
+    go -C "${REPO_ROOT}/resources/evaluators/microservice" run ./cmd/servicebench \
       --workload "${INPUT_DIR}/benchmark/workload.toml" \
       --target "config=http://localhost:15679" \
       --target "station=http://localhost:12345" \
