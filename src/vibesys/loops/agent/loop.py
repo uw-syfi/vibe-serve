@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path  # noqa: TC003  # tracked: #288
 from typing import Any
 
+from vibesys.agents.base import ResponseFallback
 from vibesys.agents.progress import RoundProgress
 from vibesys.config import Config, as_config
 from vibesys.constants import DEFAULT_AGENT_BACKEND, DEFAULT_COMPUTE_BACKEND, ComputeBackend
@@ -1018,6 +1019,21 @@ def _missing_implementer_response() -> ImplementerResponse:
     )
 
 
+@dataclass(frozen=True)
+class _ImplementerAttempt:
+    """One implementer turn plus who authored its response.
+
+    ``synthesized`` is True when the framework had to build the response with
+    :func:`_missing_implementer_response` because the turn's output did not
+    parse. Such a turn produced no reviewable evidence, so it must consume a
+    same-round retry rather than complete the round like a genuine
+    ``inconclusive`` result would.
+    """
+
+    response: ImplementerResponse
+    synthesized: bool
+
+
 def _validate_skill_selections(
     ctx: LoopContext,
     selections: list[SkillResourceSelection],
@@ -1086,7 +1102,7 @@ def _run_implementer(  # noqa: PLR0913  # tracked: #288
     official_evaluation_due: bool = False,
     official_evaluation_reason: str | None = None,
     prior_attempt_artifact_locations: tuple[str, ...] = (),
-) -> ImplementerResponse:
+) -> _ImplementerAttempt:
     plan.recommended_skills, resolved_skills = _validate_skill_selections(
         ctx, plan.recommended_skills
     )
@@ -1144,6 +1160,7 @@ def _run_implementer(  # noqa: PLR0913  # tracked: #288
         recommended_skills=resolved_skills,
         prior_attempt_artifact_locations=prior_attempt_artifact_locations,
     )
+    fallback = ResponseFallback(_missing_implementer_response)
     response = ctx.invoke(
         kind="implementer",
         system_prompt=system_prompt,
@@ -1154,7 +1171,7 @@ def _run_implementer(  # noqa: PLR0913  # tracked: #288
             else "Work persistently on the active hypothesis and return only the JSON object."
         ),
         response_cls=ImplementerResponse,
-        fallback_factory=_missing_implementer_response,
+        fallback_factory=fallback,
         round_label=f"round-{round_number}-retry-{retry}-implementer",
         reuse_session=True,
         session_key=f"hypothesis:{plan.hypothesis_id}",
@@ -1170,7 +1187,7 @@ def _run_implementer(  # noqa: PLR0913  # tracked: #288
     issue_board.write_implementer_artifact(progress_path, round_number, retry, response)
     issue_board.append_implementer(progress_path, round_number, retry, response)
     ctx.snapshot_workspace(f"round-{round_number}-retry-{retry}-implementer")
-    return response
+    return _ImplementerAttempt(response=response, synthesized=fallback.synthesized)
 
 
 def _run_judge(  # noqa: PLR0913  # tracked: #288
@@ -2364,7 +2381,7 @@ def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
                             )
                         )
                         ctx.reselect_gpu()
-                        implementation = _run_implementer(
+                        attempt = _run_implementer(
                             ctx,
                             round_number=round_number,
                             retry=retry,
@@ -2392,6 +2409,26 @@ def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
                             official_evaluation_reason=planned_official_reason,
                             prior_attempt_artifact_locations=prior_attempt_artifact_locations,
                         )
+                        implementation = attempt.response
+                        if attempt.synthesized:
+                            # The framework, not the implementer, wrote this
+                            # response because the turn's output did not parse.
+                            # It carries no reviewable evidence, so spend a
+                            # retry on a real turn instead of letting a parse
+                            # failure silently consume the whole round. When
+                            # retries are exhausted the round still commits the
+                            # fail-closed response, unreviewed, as before.
+                            ctx.lprint(
+                                f"[implementer] attempt {retry}/{max_retries_per_round} "
+                                "returned no parseable structured response; the framework "
+                                "synthesized a fail-closed one. "
+                                + (
+                                    "Retrying within the same round."
+                                    if retry < max_retries_per_round
+                                    else "Retries are exhausted; completing the round with it."
+                                )
+                            )
+                            continue
                         review_due = _review_due(
                             round_number=round_number,
                             max_rounds=max_rounds,

@@ -137,6 +137,7 @@ def _make_orchestrate_runner(  # noqa: ANN202, PLR0913  # tracked: #288
     implementer_skill_updates: list[list[SkillResourceSelection]] | None = None,
     implementer_validation_artifacts: list[str | None] | None = None,
     implementer_next_steps: list[str] | None = None,
+    implementer_parse_failures: list[bool] | None = None,
 ):
     """Build a MagicMock AgentRunner whose invoke() returns scripted responses.
 
@@ -144,6 +145,10 @@ def _make_orchestrate_runner(  # noqa: ANN202, PLR0913  # tracked: #288
     class. Defaults: when the plan queue is exhausted, the harness returns a
     permissive no-op plan and lets the loop's ``max_rounds`` bound the test.
     Judge verdicts default to pass; the profiler is not called.
+
+    ``implementer_parse_failures`` marks turns whose output does not parse.
+    Those return ``fallback_factory()`` — the contract every real runner obeys
+    for an unparseable response — instead of a scripted response.
     """
     pre_q = list(pre_decisions or [])
     plan_q = list(plans or [])
@@ -154,6 +159,7 @@ def _make_orchestrate_runner(  # noqa: ANN202, PLR0913  # tracked: #288
     impl_skill_q = list(implementer_skill_updates or [])
     impl_validation_q = list(implementer_validation_artifacts or [])
     impl_next_step_q = list(implementer_next_steps or [])
+    impl_parse_failure_q = list(implementer_parse_failures or [])
     counters = {"impl": 0, "judge": 0, "orch_pre": 0, "orch_plan": 0, "prof": 0}
 
     runner = MagicMock(spec=AgentRunner)
@@ -162,9 +168,13 @@ def _make_orchestrate_runner(  # noqa: ANN202, PLR0913  # tracked: #288
     def _invoke(*, kind, response_cls, fallback_factory, **kwargs):  # noqa: ANN001, ANN003, ANN202, ARG001, PLR0911  # tracked: #288
         if kind == "orchestrator" and response_cls is PreRoundDecision:
             counters["orch_pre"] += 1
-            if pre_q:
-                return pre_q.pop(0)
-            return PreRoundDecision(need_profile=False, profile_focus="", reasoning="default skip")
+            return (
+                pre_q.pop(0)
+                if pre_q
+                else PreRoundDecision(
+                    need_profile=False, profile_focus="", reasoning="default skip"
+                )
+            )
         if kind == "orchestrator" and response_cls is OrchestratorPlan:
             counters["orch_plan"] += 1
             if plan_q:
@@ -176,6 +186,8 @@ def _make_orchestrate_runner(  # noqa: ANN202, PLR0913  # tracked: #288
             )
         if kind == "implementer":
             counters["impl"] += 1
+            if impl_parse_failure_q and impl_parse_failure_q.pop(0):
+                return fallback_factory()
             outcome = outcome_q.pop(0) if outcome_q else HypothesisOutcome.NOMINATED
             perf_metric = impl_perf_q.pop(0) if impl_perf_q else None
             skill_updates = impl_skill_q.pop(0) if impl_skill_q else []
@@ -1829,6 +1841,91 @@ def test_loop_judge_retry_then_pass(tmp_path, ref_file):  # noqa: ANN001, ANN201
     assert "Same-round retry boundary" in retry_prompt
     assert "round-0001-attempt-01-implementer.json" in retry_prompt
     assert "remains consumed" in retry_prompt
+
+
+def test_unparseable_implementer_response_consumes_a_retry(tmp_path, ref_file):  # noqa: ANN001, ANN201  # tracked: #288
+    """A framework-synthesized response re-invokes the implementer in the same round.
+
+    Sparse-review cadence would otherwise defer the judge and let the round
+    complete on a fail-closed response that no agent authored, burning a round
+    without spending any of ``max_retries_per_round``.
+    """
+    runner = _make_orchestrate_runner(
+        plans=[
+            OrchestratorPlan(
+                task="Build server",
+                pass_criteria="tests pass",  # noqa: S106  # tracked: #288
+                reasoning="cold start",
+            ),
+        ],
+        implementer_parse_failures=[True],
+        implementer_outcomes=[HypothesisOutcome.NOMINATED],
+    )
+
+    result = _invoke_orchestrate(tmp_path, ref_file, runner, max_rounds=1, max_retries_per_round=3)
+
+    assert result is True
+    assert runner.counters["impl"] == 2
+    assert runner.counters["judge"] == 1
+    implementer_labels = [
+        call.kwargs["round_label"]
+        for call in runner.invoke.call_args_list
+        if call.kwargs.get("response_cls") is ImplementerResponse
+    ]
+    assert implementer_labels == [
+        "round-1-retry-1-implementer",
+        "round-1-retry-2-implementer",
+    ]
+    rounds = _round_payloads(tmp_path)
+    assert len(rounds) == 1
+    assert rounds[0]["reviewed"] is True
+
+
+def test_unparseable_implementer_responses_commit_fail_closed_once_exhausted(tmp_path, ref_file):  # noqa: ANN001, ANN201  # tracked: #288
+    """Only genuine retry exhaustion may commit the synthesized response."""
+    runner = _make_orchestrate_runner(
+        plans=[
+            OrchestratorPlan(
+                task="Build server",
+                pass_criteria="tests pass",  # noqa: S106  # tracked: #288
+                reasoning="cold start",
+            ),
+        ],
+        implementer_parse_failures=[True, True],
+    )
+
+    result = _invoke_orchestrate(tmp_path, ref_file, runner, max_rounds=1, max_retries_per_round=2)
+
+    assert result is True
+    assert runner.counters["impl"] == 2
+    assert runner.counters["judge"] == 0
+    rounds = _round_payloads(tmp_path)
+    assert len(rounds) == 1
+    assert rounds[0]["passed"] is False
+    assert rounds[0]["reviewed"] is False
+    assert rounds[0]["hypothesis_outcome"] == HypothesisOutcome.INCONCLUSIVE.value
+
+
+def test_agent_authored_inconclusive_completes_the_round(tmp_path, ref_file):  # noqa: ANN001, ANN201  # tracked: #288
+    """A parsed ``inconclusive`` turn is real evidence and keeps sparse review."""
+    runner = _make_orchestrate_runner(
+        implementer_outcomes=[HypothesisOutcome.INCONCLUSIVE] * 2,
+    )
+
+    result = _invoke_orchestrate(
+        tmp_path,
+        ref_file,
+        runner,
+        max_rounds=2,
+        judge_every=10,
+        max_retries_per_round=3,
+    )
+
+    assert result is True
+    assert runner.counters["impl"] == 2  # one attempt per round, no retries burned
+    assert runner.counters["judge"] == 1  # mandatory final-round review only
+    rounds = _round_payloads(tmp_path)
+    assert [round_data["reviewed"] for round_data in rounds] == [False, True]
 
 
 def test_loop_defers_judge_until_cadence_and_always_reviews_final_round(tmp_path, ref_file):  # noqa: ANN001, ANN201  # tracked: #288

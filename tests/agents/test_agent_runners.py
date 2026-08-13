@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from vibesys.agent_runner import log_json_and_print, log_prompt_markdown_and_print
-from vibesys.agents import build_agent_runner
+from vibesys.agents import ResponseFallback, build_agent_runner
 from vibesys.agents.callbacks import AgentLogger
 from vibesys.agents.cli_runner import CliAgentRunner
 from vibesys.agents.deepagents_runner import DeepAgentsRunner
@@ -822,6 +822,53 @@ class TestCliAgentRunner:
         assert "Failure" in stdout
         assert "# Failure" in stdout
         assert "**JSON**" in stdout
+
+    @pytest.mark.parametrize(
+        ("generate_returns", "expect_synthesized"),
+        [
+            ("not json at all", True),
+            ('{"analysis": "ok", "feedback": "", "verdict": "pass"}', False),
+        ],
+    )
+    def test_response_fallback_reports_who_authored_the_response(  # noqa: ANN201  # tracked: #288
+        self,
+        monkeypatch,  # noqa: ANN001  # tracked: #288
+        tmp_path,  # noqa: ANN001  # tracked: #288
+        generate_returns,  # noqa: ANN001  # tracked: #288
+        expect_synthesized,  # noqa: ANN001  # tracked: #288
+    ):
+        """Callers must be able to tell a synthesized response from a parsed one."""
+        captured: list = []
+        fake_cls = _make_fake_agent_class(
+            generate_returns=generate_returns,
+            captured=captured,
+        )
+        monkeypatch.setitem(
+            __import__(  # noqa: SLF001  # tracked: #288
+                "vibesys.agents.cli_runner",
+                fromlist=["_PROVIDER_CLASSES"],
+            )._PROVIDER_CLASSES,
+            "claude",
+            fake_cls,
+        )
+
+        runner = CliAgentRunner(provider="claude", model="m", run_log_file=None)
+        workspace = tmp_path / "ws"
+        workspace.mkdir()
+
+        fallback = ResponseFallback(_judge_fallback)
+        result = runner.invoke(
+            kind="judge",
+            workspace=workspace,
+            system_prompt="sys",
+            user_prompt="usr",
+            response_cls=JudgeResponse,
+            fallback_factory=fallback,
+            round_label="judge #1",
+        )
+
+        assert fallback.synthesized is expect_synthesized
+        assert (result.analysis == "fallback") is expect_synthesized
 
     def test_cli_runner_passes_progress_to_logger(self, monkeypatch, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         captured: list = []

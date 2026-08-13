@@ -16,7 +16,7 @@ from vibesys.config import Config  # noqa: TC001  # tracked: #288
 from vibesys.constants import DEFAULT_AGENT_BACKEND, ComputeBackend
 from vibesys.features import FeatureFlag, is_feature_enabled
 
-from .base import AgentRunner
+from .base import AgentRunner, ResponseFallback
 from .progress import AgentProgress, CandidateProgress, RoundProgress
 
 # ``CliAgentRunner`` and ``DeepAgentsRunner`` are imported lazily to break a
@@ -39,6 +39,7 @@ __all__ = [
     "CandidateProgress",
     "CliAgentRunner",
     "DeepAgentsRunner",
+    "ResponseFallback",
     "RoundProgress",
     "build_agent_runner",
 ]

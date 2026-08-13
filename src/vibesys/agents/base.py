@@ -17,8 +17,9 @@ session object; the default remains each runner's historical behavior.
 from __future__ import annotations
 
 from collections.abc import Callable  # noqa: TC003  # tracked: #288
+from dataclasses import dataclass, field
 from pathlib import Path  # noqa: TC003  # tracked: #288
-from typing import Protocol, TypeVar
+from typing import Generic, Protocol, TypeVar
 
 from langchain_core.tools import BaseTool  # noqa: TC002  # tracked: #288
 from pydantic import BaseModel
@@ -27,6 +28,38 @@ from vibesys._agent_cli.base import MCPServerSpec  # noqa: TC001  # tracked: #28
 from vibesys.agents.progress import AgentProgress  # noqa: TC001  # tracked: #288
 
 T = TypeVar("T", bound=BaseModel)
+
+
+@dataclass(slots=True)
+class ResponseFallback(Generic[T]):
+    """A ``fallback_factory`` that records whether the runner had to use it.
+
+    Every :meth:`AgentRunner.invoke` implementation calls ``fallback_factory``
+    exactly when the agent's output could not be parsed into ``response_cls``,
+    and returns the parsed response otherwise. Wrapping the factory turns that
+    framework-side event into a typed signal the caller can read after the
+    call, so a loop can tell a response it synthesized apart from one the agent
+    actually authored.
+
+    The signal deliberately lives here rather than on the response model: the
+    response schema is sent to the agent as its structured-output contract, and
+    a framework-only field would leak into it.
+
+    Instances are single-call scoped — construct one per ``invoke()``::
+
+        fallback = ResponseFallback(_missing_implementer_response)
+        response = ctx.invoke(..., fallback_factory=fallback)
+        if fallback.synthesized:
+            ...
+    """
+
+    build: Callable[[], T]
+    synthesized: bool = field(default=False, init=False)
+
+    def __call__(self) -> T:
+        """Build the fallback response and record that the runner needed it."""
+        self.synthesized = True
+        return self.build()
 
 
 class AgentRunner(Protocol):
@@ -72,7 +105,9 @@ class AgentRunner(Protocol):
             response_cls: Pydantic model class the agent should produce.
             fallback_factory: Constructs a default ``response_cls`` instance
                 used when the agent fails to produce a parseable response.
-                Implementations must call this rather than raise.
+                Implementations must call this rather than raise, and must
+                call it only for that reason — callers may wrap it in
+                :class:`ResponseFallback` to detect a synthesized response.
             round_label: Short label used in log headers (e.g. ``"judge #3"``).
             progress: Optional loop-owned progress state shown in the live
                 terminal prefix (e.g. ``RoundProgress(3, 24)``).
