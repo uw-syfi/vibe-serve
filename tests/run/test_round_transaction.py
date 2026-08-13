@@ -15,7 +15,12 @@ from vibesys.run import (
     RoundTransactionError,
 )
 from vs_loop_state import RoundRecord
-from vs_project import AgentRunConfiguration, Project, StateTransition
+from vs_project import (
+    AgentRunConfiguration,
+    Project,
+    RunEnvironmentRecord,
+    StateTransition,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -32,6 +37,7 @@ class _ActiveState(BaseModel):
 def _configuration() -> AgentRunConfiguration:
     return AgentRunConfiguration(
         outer_loop="agent",
+        run_environment=RunEnvironmentRecord(name="local"),
         inner_loop="multi-agent",
         interface="inprocess",
         agent_backend="cli",

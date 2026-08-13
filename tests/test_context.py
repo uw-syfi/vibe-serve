@@ -17,7 +17,7 @@ from vibesys.profilers import ProfilerKind, ProfilerPreflightResult
 from vibesys.run import RunLogger, RunPaths, RunStateNamespace
 from vibesys.sandbox.run_environment import RunEnvironmentSpec
 from vs_loop_state import PlainLoopCursor
-from vs_project import AgentRunConfiguration, Project
+from vs_project import AgentRunConfiguration, Project, RunEnvironmentRecord
 
 
 class _FakeBackend:
@@ -60,6 +60,7 @@ def _context_dependencies(monkeypatch):  # pyright: ignore[reportUnusedFunction]
 def _configuration(max_rounds: int = 1) -> AgentRunConfiguration:
     return AgentRunConfiguration(
         outer_loop="agent",
+        run_environment=RunEnvironmentRecord(name="local"),
         inner_loop="multi-agent",
         interface="inprocess",
         model="gpt-test",

@@ -297,6 +297,27 @@ starts with an actionable error.
 `--docker-image` overrides the backend's default container image when Docker or
 Modal is active.
 
+The selected environment and its options (`--docker-image`, `--modal-gpu`,
+`--modal-model-volume`, `--modal-app`) are recorded in the run configuration.
+`--docker` and `--modal` are boolean flags, so an omitted flag cannot be told
+apart from an explicit "off": on resume the recorded environment is therefore
+authoritative. Omitting the runtime-environment flags restores it, and passing
+a flag that contradicts the recording is rejected like any other immutable
+configuration field. The candidate's Modal entrypoint is declared by the task,
+not recorded, so it follows the current input bundle.
+
+Run metadata written before run schema version 2 has no recorded environment.
+VibeSys refuses to load it rather than guess a local environment. Stamp the
+environment the run was launched with, once:
+
+```bash
+vibesys migrate-run-environment --project . --run <run-id> --run-environment modal
+```
+
+The command accepts the same `--docker-image`, `--modal-gpu`,
+`--modal-model-volume`, and `--modal-app` options as a run, with the same
+defaults, and is one-way.
+
 ## Profiler
 
 | Value | Intended use |

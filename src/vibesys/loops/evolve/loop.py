@@ -69,6 +69,7 @@ from vibesys.run import LoopContext, RepositoryVisibility, RunStateNamespace
 from vibesys.sandbox.run_environment import (
     RunEnvironmentSpec,
     make_run_environment_spec,
+    run_environment_record,
 )
 from vibesys.schemas import JudgeResponse, MutatorResponse, ProfilerSummary, Verdict
 from vs_project import EvolveRunConfiguration
@@ -1329,6 +1330,7 @@ def run_evolve_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
     selected_policy = SearchPolicyName(search_policy).value if search_policy is not None else None
     run_configuration = EvolveRunConfiguration(
         outer_loop="evolve",
+        run_environment=run_environment_record(run_environment),
         model=normalized_config.model.name,
         agent_backend=(agent_backend or normalized_config.agent.backend or DEFAULT_AGENT_BACKEND),
         cli_provider=cli_provider or normalized_config.agent.cli_provider or "codex",

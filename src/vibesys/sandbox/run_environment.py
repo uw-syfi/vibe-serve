@@ -45,9 +45,11 @@ from vibesys.domains.environment import EnvironmentBindMount  # noqa: TC001  # t
 from vibesys.evaluators import PROJECT_ROOT_TOKEN, load_evaluator_package
 from vibesys.input_manifest import WorkspaceSource  # noqa: TC001  # tracked: #288
 from vibesys.profilers import ProfilerKind
+from vs_project import RunEnvironmentRecord
 from vs_sandbox import ProjectPathPolicy
 
 _SHELL_COMMAND_ARG_COUNT = 3
+_RECORDED_ENVIRONMENT_NAMES = frozenset({"local", "docker", "modal"})
 
 
 @dataclass(frozen=True)
@@ -653,6 +655,30 @@ class ModalEnvironment(_NoopWorkspaceRecovery):  # noqa: D101  # tracked: #288
             ),
             deployment_name=candidate_name,
         )
+
+
+def run_environment_record(spec: RunEnvironmentSpec) -> RunEnvironmentRecord:
+    """Project a CLI-built spec onto the record persisted with the run.
+
+    Only operator-selected options are recorded, under the spec's own option
+    names. The candidate's Modal entrypoint is deliberately excluded: it is
+    declared by the input bundle and re-derived on every launch, so recording
+    it would make a legitimate task edit look like a resume mismatch.
+    """
+    if spec.name not in _RECORDED_ENVIRONMENT_NAMES:
+        raise ValueError(f"unknown run environment: {spec.name!r}")  # noqa: TRY003  # tracked: #288
+    return RunEnvironmentRecord(
+        name=spec.name,  # pyright: ignore[reportArgumentType]
+        image=_recorded_option(spec, "image"),
+        gpu=_recorded_option(spec, "gpu"),
+        model_volume=_recorded_option(spec, "model_volume"),
+        app=_recorded_option(spec, "app"),
+    )
+
+
+def _recorded_option(spec: RunEnvironmentSpec, key: str) -> str | None:
+    value = spec.options.get(key)
+    return str(value) if value else None
 
 
 def build_run_environment(spec: RunEnvironmentSpec) -> RunEnvironment:  # noqa: D103  # tracked: #288

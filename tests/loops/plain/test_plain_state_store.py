@@ -6,7 +6,12 @@ import pytest
 
 from vibesys.loops.plain.state import PlainStateStore
 from vs_loop_state import PlainLoopCursor, PlainPerformanceRecord
-from vs_project import PlainRunConfiguration, Project, ProjectStateError
+from vs_project import (
+    PlainRunConfiguration,
+    Project,
+    ProjectStateError,
+    RunEnvironmentRecord,
+)
 
 
 def _store(tmp_path) -> PlainStateStore:  # noqa: ANN001
@@ -20,6 +25,7 @@ def _store(tmp_path) -> PlainStateStore:  # noqa: ANN001
         trusted_input_baseline="a" * 40,
         configuration=PlainRunConfiguration(
             outer_loop="plain",
+            run_environment=RunEnvironmentRecord(name="local"),
             agent_backend="stub",
             compute_backend="cpu",
             max_rounds=1,

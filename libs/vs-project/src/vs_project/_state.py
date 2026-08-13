@@ -38,6 +38,10 @@ if TYPE_CHECKING:
     from uuid import UUID
 
 PROJECT_SCHEMA_VERSION: Literal[1] = 1
+# Version 2 added the required run-environment recording to a run's
+# configuration. Older recordings cannot be interpreted safely, so they are
+# rejected at load time and must be migrated with an explicit environment.
+RUN_SCHEMA_VERSION: Literal[2] = 2
 _CONFIG_DIRECTORY_NAME = project_paths.CONFIGURATION_DIRECTORY_NAME
 _STATE_DIRECTORY_PARTS = project_paths.STATE_DIRECTORY_PARTS
 _STATE_DIRECTORY_PATH = project_paths.STATE_DIRECTORY_PATH
@@ -73,6 +77,20 @@ class ProjectStateError(ProjectError):
 
 class StateModelNotFoundError(ProjectStateError):
     """Raised when a required model is absent from a state namespace."""
+
+
+class RunSchemaMigrationRequiredError(ProjectStateError):
+    """Raised when a run manifest predates the current run schema version.
+
+    Callers own the operator-facing migration instructions; this package
+    reports only the offending path and the two schema versions.
+    """
+
+    def __init__(self, message: str, *, path: Path, run_id: str, recorded_version: int) -> None:
+        super().__init__(message)
+        self.path = path
+        self.run_id = run_id
+        self.recorded_version = recorded_version
 
 
 def is_project_state_path(relative_path: Path | str) -> bool:
@@ -673,19 +691,40 @@ class StateSlot[ModelT: BaseModel]:
 
 
 class _CommittedManifest(BaseModel):
-    """Strict base for versioned, portable metadata committed with source."""
+    """Strict base for versioned, portable metadata committed with source.
+
+    Each concrete manifest declares its own ``schema_version`` literal so the
+    project and run schemas can evolve independently.
+    """
 
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
-
-    schema_version: Literal[1]
 
 
 class ProjectManifest(_CommittedManifest):
     """Immutable identity and initial provenance of one project directory."""
 
+    schema_version: Literal[1]
     project_id: Identifier
     created_at: AwareDatetime
     initial_input_fingerprint: Sha256Digest
+
+
+class RunEnvironmentRecord(BaseModel):
+    """Runtime environment a run executes in, recorded for faithful resume.
+
+    ``name`` selects the environment; the remaining fields carry that
+    environment's operator-selected options and stay ``None`` when they do not
+    apply. Values a run derives from its own input (rather than from the
+    operator) are deliberately absent: they are re-derived on every launch.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+
+    name: Literal["local", "docker", "modal"]
+    image: PortableText | None = None
+    gpu: PortableText | None = None
+    model_volume: PortableText | None = None
+    app: PortableText | None = None
 
 
 class _BaseRunConfiguration(BaseModel):
@@ -693,6 +732,7 @@ class _BaseRunConfiguration(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
+    run_environment: RunEnvironmentRecord
     model: PortableText | None = None
     agent_backend: PortableText
     cli_provider: PortableText | None = None
@@ -777,6 +817,7 @@ RunConfiguration = Annotated[
 class RunManifest(_CommittedManifest):
     """Immutable identity and starting provenance of one optimization run."""
 
+    schema_version: Literal[2]
     run_id: Identifier
     project_id: Identifier
     task_name: Identifier | None = None
@@ -991,7 +1032,7 @@ class ProjectState:
         project = self.load_project()
         created_at = _aware_now(now)
         return RunManifest(
-            schema_version=PROJECT_SCHEMA_VERSION,
+            schema_version=RUN_SCHEMA_VERSION,
             run_id=(
                 _validate_run_id(run_id)
                 if run_id is not None
@@ -1043,8 +1084,58 @@ class ProjectState:
         )
 
     def load_run(self, run_id: str) -> RunManifest:
-        """Load one run manifest."""
-        return _load_model(self._run_manifest_path(run_id), RunManifest)
+        """Load one run manifest, rejecting recordings from an older schema."""
+        path = self._run_manifest_path(run_id)
+        _require_current_run_schema(path, run_id)
+        return _load_model(path, RunManifest)
+
+    def migrate_run_environment(
+        self,
+        run_id: str,
+        run_environment: RunEnvironmentRecord,
+    ) -> RunManifest:
+        """Stamp an explicit run environment into a pre-version-2 run manifest.
+
+        Run schema version 1 never recorded the runtime environment, so the
+        operator supplies the environment the run actually used. The migration
+        is one-way and idempotent only in the sense that a manifest already at
+        the current version is rejected rather than rewritten.
+        """
+        self._validate_storage_roots()
+        path = self._run_manifest_path(run_id)
+        raw = _read_json_object(path)
+        recorded_version = raw.get("schema_version")
+        if recorded_version == RUN_SCHEMA_VERSION:
+            raise ProjectStateError(
+                f"Run metadata at {path} is already at run schema version {RUN_SCHEMA_VERSION}"
+            )
+        if recorded_version != 1:
+            raise ProjectStateError(
+                f"Run metadata at {path} records unsupported run schema version "
+                f"{recorded_version!r}; only version 1 can be migrated"
+            )
+        configuration = raw.get("configuration")
+        if not isinstance(configuration, dict):
+            raise ProjectStateError(f"Run metadata at {path} has no configuration object")
+        if "run_environment" in configuration:
+            raise ProjectStateError(
+                f"Run metadata at {path} already records a run environment; "
+                "its schema version is inconsistent with its contents"
+            )
+        migrated = {
+            **raw,
+            "schema_version": RUN_SCHEMA_VERSION,
+            "configuration": {
+                **configuration,
+                "run_environment": run_environment.model_dump(mode="json"),
+            },
+        }
+        try:
+            manifest = RunManifest.model_validate_json(json.dumps(migrated), strict=True)
+        except (TypeError, ValueError) as exc:
+            raise ProjectStateError(f"Could not migrate VibeSys metadata at {path}: {exc}") from exc
+        _atomic_write_model(path, manifest)
+        return manifest
 
     def run_manifest_snapshot(self, run_id: str) -> StateSnapshot:
         """Snapshot the current portable manifest for one run."""
@@ -1764,6 +1855,28 @@ def _read_json_object(path: Path) -> dict[str, object]:
     if not isinstance(raw, dict):
         raise ProjectStateError(f"Expected a JSON object in VibeSys metadata at {path}")
     return raw
+
+
+def _require_current_run_schema(path: Path, run_id: str) -> None:
+    """Reject a run manifest written before the current run schema version.
+
+    Only an outdated version is diagnosed here; every other defect is left to
+    the model validation that follows, which reports the offending field.
+    """
+    if not path.exists():
+        return
+    recorded_version = _read_json_object(path).get("schema_version")
+    if not isinstance(recorded_version, int) or recorded_version >= RUN_SCHEMA_VERSION:
+        return
+    raise RunSchemaMigrationRequiredError(
+        f"Run metadata at {path} uses run schema version {recorded_version}, but this "
+        f"VibeSys requires version {RUN_SCHEMA_VERSION}, which records the runtime "
+        "environment the run executes in. Migrate the run with the environment it "
+        "was launched with; VibeSys cannot infer it from an older recording.",
+        path=path,
+        run_id=run_id,
+        recorded_version=recorded_version,
+    )
 
 
 def _load_model[ModelT: BaseModel](path: Path, model_type: type[ModelT]) -> ModelT:

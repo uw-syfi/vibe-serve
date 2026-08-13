@@ -27,6 +27,7 @@ from vibesys.main import (
     _parse_cli_objective,
     _prepare_experiment_repository,
     _render_configuration_error,
+    _run_migrate_run_environment,
     _validate_target_inputs,
     _with_operator_constraints,
     load_config_and_skills,
@@ -35,12 +36,15 @@ from vibesys.main import (
     run_environment_spec_from_args,
 )
 from vibesys.profilers import ProfilerKind
+from vibesys.sandbox.run_environment import run_environment_record
 from vs_project import (
+    RUN_SCHEMA_VERSION,
     AgentRunConfiguration,
     EvolveRunConfiguration,
     PlainRunConfiguration,
     Project,
     RunConfiguration,
+    RunEnvironmentRecord,
 )
 
 
@@ -124,6 +128,7 @@ def test_run_environment_spec_uses_task_modal_entrypoint(tmp_path: Path) -> None
 
 
 class _CommonConfiguration(TypedDict):
+    run_environment: RunEnvironmentRecord
     model: str
     agent_backend: str
     cli_provider: str
@@ -138,8 +143,20 @@ class _CommonConfiguration(TypedDict):
     inner_reasoning_effort: str
 
 
-def _common_configuration() -> _CommonConfiguration:
+_LOCAL_ENVIRONMENT = RunEnvironmentRecord(name="local")
+_MODAL_ENVIRONMENT = RunEnvironmentRecord(
+    name="modal",
+    gpu="A100-80GB",
+    model_volume="weights",
+    app="run-app",
+)
+
+
+def _common_configuration(
+    run_environment: RunEnvironmentRecord | None = None,
+) -> _CommonConfiguration:
     return {
+        "run_environment": run_environment or _LOCAL_ENVIRONMENT,
         "model": "gpt-recorded",
         "agent_backend": "cli",
         "cli_provider": "claude",
@@ -155,9 +172,13 @@ def _common_configuration() -> _CommonConfiguration:
     }
 
 
-def _agent_configuration(*, max_rounds: int = 7) -> AgentRunConfiguration:
+def _agent_configuration(
+    *,
+    max_rounds: int = 7,
+    run_environment: RunEnvironmentRecord | None = None,
+) -> AgentRunConfiguration:
     return AgentRunConfiguration(
-        **_common_configuration(),
+        **_common_configuration(run_environment),
         outer_loop="agent",
         inner_loop="single-agent",
         interface="service",
@@ -1318,6 +1339,168 @@ def test_resume_rejects_changes_to_immutable_configuration(
         parse_cli_invocation(["--resume", run_id, "--judge-every", "3"])
     assert exc.value.diagnostic.code == "project_resume_configuration_mismatch"
     assert "judge_every" in exc.value.diagnostic.message
+
+
+def _write_pre_migration_run(project: Path, run_id: str) -> None:
+    """Rewrite a run manifest as a schema version 1 recording."""
+    path = project / ".vibesys" / "state" / "runs" / run_id / "run.json"
+    raw = json.loads(path.read_text())
+    raw["schema_version"] = 1
+    del raw["configuration"]["run_environment"]
+    path.write_text(json.dumps(raw, indent=2, sort_keys=True))
+
+
+def _modal_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, str]:
+    """Provision a project whose recorded run executes on Modal."""
+    project = _write_input_project(tmp_path)
+    run_id = "20260811-120000-11111111-agent"
+    _write_project_run(
+        project,
+        run_id,
+        configuration=_agent_configuration(run_environment=_MODAL_ENVIRONMENT),
+        created_at=datetime(2026, 8, 11, 12, tzinfo=UTC),
+    )
+    monkeypatch.chdir(project)
+    return project, run_id
+
+
+def test_fresh_run_records_the_selected_run_environment(tmp_path: Path) -> None:
+    project = _write_input_project(tmp_path)
+    args = argparse.Namespace(
+        input_bundle=load_input_bundle(project),
+        docker=False,
+        docker_image=None,
+        modal=True,
+        modal_gpu="A100-80GB",
+        modal_model_volume="weights",
+        modal_app="run-app",
+    )
+
+    record = run_environment_record(run_environment_spec_from_args(args))
+
+    assert record == _MODAL_ENVIRONMENT
+
+
+def test_resume_without_run_environment_flags_restores_the_recorded_environment(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, run_id = _modal_run(tmp_path, monkeypatch)
+
+    args = parse_cli_invocation(["--resume", run_id]).args
+
+    assert args.modal is True
+    assert args.docker is False
+    assert args.modal_gpu == "A100-80GB"
+    assert args.modal_model_volume == "weights"
+    assert args.modal_app == "run-app"
+    assert run_environment_record(run_environment_spec_from_args(args)) == _MODAL_ENVIRONMENT
+
+
+def test_resume_with_matching_run_environment_flags_is_accepted(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, run_id = _modal_run(tmp_path, monkeypatch)
+
+    args = parse_cli_invocation(
+        [
+            "--resume",
+            run_id,
+            "--modal",
+            "--modal-gpu",
+            "A100-80GB",
+            "--modal-model-volume",
+            "weights",
+            "--modal-app",
+            "run-app",
+        ]
+    ).args
+
+    assert run_environment_record(run_environment_spec_from_args(args)) == _MODAL_ENVIRONMENT
+
+
+@pytest.mark.parametrize(
+    ("flags", "field"),
+    [
+        (["--docker"], "run_environment"),
+        (["--modal", "--modal-gpu", "H100!"], "run_environment.gpu"),
+    ],
+)
+def test_resume_rejects_run_environment_flags_that_contradict_the_recording(
+    flags: list[str],
+    field: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, run_id = _modal_run(tmp_path, monkeypatch)
+
+    with pytest.raises(ConfigurationError) as exc:
+        parse_cli_invocation(["--resume", run_id, *flags])
+    assert exc.value.diagnostic.code == "project_resume_configuration_mismatch"
+    assert field in exc.value.diagnostic.message
+
+
+def test_resume_rejects_a_recording_without_a_run_environment(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project, run_id = _modal_run(tmp_path, monkeypatch)
+    _write_pre_migration_run(project, run_id)
+
+    with pytest.raises(ConfigurationError) as exc:
+        parse_cli_invocation(["--resume", run_id])
+
+    assert exc.value.diagnostic.code == "project_run_schema_migration_required"
+    assert "migrate-run-environment" in exc.value.diagnostic.message
+    assert run_id in exc.value.diagnostic.message
+
+
+def test_migrated_recording_resumes_with_the_supplied_run_environment(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project, run_id = _modal_run(tmp_path, monkeypatch)
+    _write_pre_migration_run(project, run_id)
+
+    _run_migrate_run_environment(
+        [
+            "--project",
+            str(project),
+            "--run",
+            run_id,
+            "--run-environment",
+            "modal",
+            "--modal-gpu",
+            "A100-80GB",
+            "--modal-model-volume",
+            "weights",
+            "--modal-app",
+            "run-app",
+        ]
+    )
+
+    args = parse_cli_invocation(["--resume", run_id]).args
+    assert args.modal is True
+    assert run_environment_record(run_environment_spec_from_args(args)) == _MODAL_ENVIRONMENT
+    recorded = Project.open(project).state.load_run(run_id)
+    assert recorded.schema_version == RUN_SCHEMA_VERSION
+    assert recorded.configuration.run_environment == _MODAL_ENVIRONMENT
+
+
+def test_migration_rejects_an_already_migrated_recording(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project, run_id = _modal_run(tmp_path, monkeypatch)
+
+    with pytest.raises(ConfigurationError) as exc:
+        _run_migrate_run_environment(
+            ["--project", str(project), "--run", run_id, "--run-environment", "modal"]
+        )
+
+    assert exc.value.diagnostic.code == "migration_failed"
+    assert "already at run schema version" in exc.value.diagnostic.message
 
 
 @pytest.mark.parametrize(

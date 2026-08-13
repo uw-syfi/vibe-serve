@@ -37,7 +37,7 @@ from vibesys.server.schema import ProtocolDocument
 from vibesys.server.service import SupervisionService
 from vibesys.server.transport import SupervisionSocketServer
 from vs_loop_state import RoundRecord
-from vs_project import AgentRunConfiguration, Project
+from vs_project import AgentRunConfiguration, Project, RunEnvironmentRecord
 
 
 def _events(path):  # noqa: ANN001, ANN202  # tracked: #288
@@ -57,6 +57,7 @@ def _project_run(project: Path) -> tuple[Project, str]:
         vibesys_version="0.2.0-test",
         configuration=AgentRunConfiguration(
             outer_loop="agent",
+            run_environment=RunEnvironmentRecord(name="local"),
             inner_loop="single-agent",
             interface="inprocess",
             agent_backend="stub",

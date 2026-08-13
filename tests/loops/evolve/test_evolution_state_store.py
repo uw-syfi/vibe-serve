@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 from vibesys.loops.evolve.population import Individual, Population
 from vibesys.loops.evolve.state import EvolutionStateStore
 from vibesys.run import RunState, RunStateNamespace
-from vs_project import EvolveRunConfiguration, Project
+from vs_project import EvolveRunConfiguration, Project, RunEnvironmentRecord
 
 
 def _store(tmp_path) -> EvolutionStateStore:  # noqa: ANN001
@@ -19,6 +19,7 @@ def _store(tmp_path) -> EvolutionStateStore:  # noqa: ANN001
         trusted_input_baseline="a" * 40,
         configuration=EvolveRunConfiguration(
             outer_loop="evolve",
+            run_environment=RunEnvironmentRecord(name="local"),
             agent_backend="stub",
             compute_backend="cpu",
             max_generations=1,

@@ -18,8 +18,9 @@ from vibesys.sandbox.run_environment import (
     RunEnvironmentSpec,
     build_run_environment,
     make_run_environment_spec,
+    run_environment_record,
 )
-from vs_project import Project
+from vs_project import Project, RunEnvironmentRecord
 from vs_sandbox import ProjectPathPolicy
 
 
@@ -78,6 +79,33 @@ def test_cli_compatibility_flags_keep_options_scoped_to_selected_environment(): 
         modal_entrypoint="examples/deployment/service.py",
     )
     assert configured.options["entrypoint"] == "examples/deployment/service.py"
+
+
+def test_run_environment_record_captures_operator_selected_options():  # noqa: ANN201  # tracked: #288
+    assert run_environment_record(make_run_environment_spec()) == RunEnvironmentRecord(name="local")
+    assert run_environment_record(
+        make_run_environment_spec(use_docker=True, docker_image="editor")
+    ) == RunEnvironmentRecord(name="docker", image="editor")
+    assert run_environment_record(
+        make_run_environment_spec(
+            use_modal=True,
+            modal_gpu="accelerator",
+            modal_model_volume="weights",
+            modal_app="candidate",
+            # Declared by the input bundle, so it is re-derived rather than recorded.
+            modal_entrypoint="examples/deployment/service.py",
+        )
+    ) == RunEnvironmentRecord(
+        name="modal",
+        gpu="accelerator",
+        model_volume="weights",
+        app="candidate",
+    )
+
+
+def test_run_environment_record_rejects_an_unknown_environment():  # noqa: ANN201  # tracked: #288
+    with pytest.raises(ValueError, match="unknown run environment"):
+        run_environment_record(RunEnvironmentSpec("kubernetes"))
 
 
 def _modal_runtime_document(tmp_path: Path) -> str:

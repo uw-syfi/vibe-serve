@@ -3,7 +3,12 @@
 from vibesys.loops.agent.model import ActiveHypothesis
 from vibesys.loops.agent.state import AgentStateStore
 from vibesys.schemas import OrchestratorPlan
-from vs_project import PlainRunConfiguration, Project, StateTransition
+from vs_project import (
+    PlainRunConfiguration,
+    Project,
+    RunEnvironmentRecord,
+    StateTransition,
+)
 
 
 def test_agent_state_store_round_trips_and_clears_active_state(tmp_path) -> None:  # noqa: ANN001
@@ -17,6 +22,7 @@ def test_agent_state_store_round_trips_and_clears_active_state(tmp_path) -> None
         trusted_input_baseline="a" * 40,
         configuration=PlainRunConfiguration(
             outer_loop="plain",
+            run_environment=RunEnvironmentRecord(name="local"),
             agent_backend="stub",
             compute_backend="cpu",
             max_rounds=1,

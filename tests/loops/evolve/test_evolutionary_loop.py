@@ -54,7 +54,7 @@ from vibesys.profilers import ProfilerKind
 from vibesys.run import GitTracker, RunState, RunStateNamespace
 from vibesys.sandbox.run_environment import CandidateRuntime, RunEnvironmentSpec
 from vibesys.schemas import JudgeResponse, MutatorResponse, ProfilerSummary, Verdict
-from vs_project import EvolveRunConfiguration, Project
+from vs_project import EvolveRunConfiguration, Project, RunEnvironmentRecord
 
 _LLM_SERVING_DOMAIN = resolve_domain(DomainName.LLM_SERVING)
 
@@ -229,6 +229,7 @@ def _project_dir(tmp_path: Path) -> Path:
 def _evolution_configuration() -> EvolveRunConfiguration:
     return EvolveRunConfiguration(
         outer_loop="evolve",
+        run_environment=RunEnvironmentRecord(name="local"),
         agent_backend="stub",
         compute_backend="cpu",
         max_generations=1,
@@ -1286,6 +1287,7 @@ def test_evaluate_in_subcontext_builds_worktree_and_evaluates(tmp_path, ref_file
             environment_hooks=LLMServingEnvironmentHooks(),
             project_configuration=EvolveRunConfiguration(
                 outer_loop="evolve",
+                run_environment=RunEnvironmentRecord(name="local"),
                 agent_backend="deepagents",
                 compute_backend="cuda",
                 max_generations=1,

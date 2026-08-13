@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, TypeAdapter, ValidationError
 from vs_loop_state import RoundRecord, parse_round_record, serialize_round_record
 from vs_project import (
     PROJECT_SCHEMA_VERSION,
+    RUN_SCHEMA_VERSION,
     AgentRunConfiguration,
     EvolveRunConfiguration,
     PlainRunConfiguration,
@@ -22,7 +23,9 @@ from vs_project import (
     ProjectManifest,
     ProjectStateError,
     RunConfiguration,
+    RunEnvironmentRecord,
     RunManifest,
+    RunSchemaMigrationRequiredError,
     StateFile,
     StateModelNotFoundError,
     StateSnapshot,
@@ -47,6 +50,7 @@ def _configuration() -> AgentRunConfiguration:
     return AgentRunConfiguration(
         model="gpt-5",
         outer_loop="agent",
+        run_environment=RunEnvironmentRecord(name="local"),
         inner_loop="multi-agent",
         interface="inprocess",
         agent_backend="cli",
@@ -73,6 +77,7 @@ def _plain_configuration() -> PlainRunConfiguration:
     return PlainRunConfiguration(
         model="gpt-5",
         outer_loop="plain",
+        run_environment=RunEnvironmentRecord(name="local"),
         agent_backend="cli",
         cli_provider="codex",
         cli_timeout=1800,
@@ -88,6 +93,7 @@ def _evolve_configuration() -> EvolveRunConfiguration:
     return EvolveRunConfiguration(
         model="gpt-5",
         outer_loop="evolve",
+        run_environment=RunEnvironmentRecord(name="local"),
         agent_backend="cli",
         cli_provider="codex",
         cli_timeout=1800,
@@ -163,7 +169,7 @@ def test_manifests_are_strict_versioned_contracts() -> None:
     forbidden_value = ""
     with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
         RunManifest(
-            schema_version=PROJECT_SCHEMA_VERSION,
+            schema_version=RUN_SCHEMA_VERSION,
             run_id="run-1",
             project_id="queue-abc",
             display_name="Queue",
@@ -641,6 +647,13 @@ def test_run_manifest_persists_complete_agent_loop_behavior(tmp_path: Path) -> N
         "outer_model": "gpt-5.6-sol",
         "outer_reasoning_effort": "xhigh",
         "profiler": "linux-cpu",
+        "run_environment": {
+            "app": None,
+            "gpu": None,
+            "image": None,
+            "model_volume": None,
+            "name": "local",
+        },
     }
 
 
@@ -1526,6 +1539,66 @@ def test_loaded_round_rejects_non_finite_metrics(tmp_path: Path) -> None:
 
     with pytest.raises(ProjectStateError, match=r"0001\.json.*finite numbers"):
         store.state.load_rounds(run.run_id)
+
+
+def _downgrade_run_schema(store: Project, run_id: str) -> Path:
+    """Rewrite one run manifest as a version 1 recording without an environment."""
+    path = store.state._run_manifest_path(run_id)
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    raw["schema_version"] = 1
+    del raw["configuration"]["run_environment"]
+    path.write_text(json.dumps(raw), encoding="utf-8")
+    return path
+
+
+def test_loading_a_pre_environment_run_requires_migration(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    run = _run(store)
+    _downgrade_run_schema(store, run.run_id)
+
+    with pytest.raises(RunSchemaMigrationRequiredError) as caught:
+        store.state.load_run(run.run_id)
+
+    assert caught.value.recorded_version == 1
+    assert caught.value.run_id == run.run_id
+    assert "run.json" in str(caught.value)
+    assert "runtime environment" in str(caught.value)
+
+
+def test_migrating_a_run_records_the_supplied_environment(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    run = _run(store)
+    _downgrade_run_schema(store, run.run_id)
+    environment = RunEnvironmentRecord(name="modal", gpu="H100!", app="vibesys")
+
+    migrated = store.state.migrate_run_environment(run.run_id, environment)
+
+    assert migrated.schema_version == RUN_SCHEMA_VERSION
+    assert migrated.configuration.run_environment == environment
+    assert store.state.load_run(run.run_id) == migrated
+    assert migrated.model_dump(exclude={"schema_version", "configuration"}) == run.model_dump(
+        exclude={"schema_version", "configuration"}
+    )
+
+
+def test_migrating_a_current_run_is_rejected(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    run = _run(store)
+
+    with pytest.raises(ProjectStateError, match="already at run schema version"):
+        store.state.migrate_run_environment(run.run_id, RunEnvironmentRecord(name="local"))
+
+
+def test_migrating_an_unknown_schema_version_is_rejected(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    run = _run(store)
+    path = store.state._run_manifest_path(run.run_id)
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    raw["schema_version"] = 99
+    path.write_text(json.dumps(raw), encoding="utf-8")
+
+    with pytest.raises(ProjectStateError, match="unsupported run schema version"):
+        store.state.migrate_run_environment(run.run_id, RunEnvironmentRecord(name="local"))
 
 
 def test_corrupt_metadata_error_names_the_path(tmp_path: Path) -> None:

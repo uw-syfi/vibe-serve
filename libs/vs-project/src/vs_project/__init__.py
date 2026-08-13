@@ -17,6 +17,7 @@ from vs_project._layout import (
 )
 from vs_project._state import (
     PROJECT_SCHEMA_VERSION,
+    RUN_SCHEMA_VERSION,
     AgentRunConfiguration,
     EvolveRunConfiguration,
     GitObjectId,
@@ -28,7 +29,9 @@ from vs_project._state import (
     ProjectSandboxPaths,
     ProjectStateError,
     RunConfiguration,
+    RunEnvironmentRecord,
     RunManifest,
+    RunSchemaMigrationRequiredError,
     StateFile,
     StateModelNotFoundError,
     StateNamespace,
@@ -44,6 +47,7 @@ from vs_project.project import Project
 
 __all__ = [
     "PROJECT_SCHEMA_VERSION",
+    "RUN_SCHEMA_VERSION",
     "AgentRunConfiguration",
     "AmbiguousTaskError",
     "ConfigurationRoot",
@@ -65,7 +69,9 @@ __all__ = [
     "ProjectSandboxPaths",
     "ProjectStateError",
     "RunConfiguration",
+    "RunEnvironmentRecord",
     "RunManifest",
+    "RunSchemaMigrationRequiredError",
     "StateFile",
     "StateModelNotFoundError",
     "StateNamespace",

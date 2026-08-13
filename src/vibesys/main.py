@@ -52,6 +52,7 @@ from vibesys.sandbox.run_environment import (
     RunEnvironmentSpec,
     build_run_environment,
     make_run_environment_spec,
+    run_environment_record,
 )
 from vibesys.skills import resolve_skill_source_dirs
 from vibesys.tui import KNOWN_TUI_THEMES, TuiTheme
@@ -63,6 +64,7 @@ from vs_project import (
     ProjectLayoutError,
     ProjectStateError,
     RunConfiguration,
+    RunSchemaMigrationRequiredError,
 )
 
 if TYPE_CHECKING:
@@ -111,6 +113,16 @@ _COMMON_RESUME_CLI_FIELDS: dict[str, str] = {
     "backend": "compute_backend",
     "profiler": "profiler",
     "modality": "modality",
+}
+
+# CLI destination -> ``RunEnvironmentRecord`` field for the runtime-environment
+# options. The environment kind itself comes from the ``--docker`` / ``--modal``
+# store-true flags and is handled separately.
+_RUN_ENVIRONMENT_OPTION_CLI_FIELDS: dict[str, str] = {
+    "docker_image": "image",
+    "modal_gpu": "gpu",
+    "modal_model_volume": "model_volume",
+    "modal_app": "app",
 }
 
 _AGENT_RESUME_CLI_FIELDS: dict[str, str] = {
@@ -473,7 +485,11 @@ def _add_common_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--docker",
         action="store_true",
-        help="Run agent operations inside a Docker container.",
+        help=(
+            "Run agent operations inside a Docker container. On --resume the "
+            "recorded runtime environment is restored when no runtime-environment "
+            "flag is given, and a flag that contradicts the recording is rejected."
+        ),
     )
     parser.add_argument(
         "--docker-image",
@@ -491,7 +507,10 @@ def _add_common_args(parser: argparse.ArgumentParser) -> None:
             "Use Modal for remote GPU dispatch. The agent (codex) still runs "
             "locally inside a Docker container for editing; GPU-bound code "
             "the implementer writes (decorated with `@app.cls` / `@app.function`) "
-            "is dispatched via `modal run`. Mutually exclusive with --docker."
+            "is dispatched via `modal run`. Mutually exclusive with --docker. "
+            "On --resume the recorded runtime environment is restored when no "
+            "runtime-environment flag is given, and a flag that contradicts the "
+            "recording is rejected."
         ),
     )
     parser.add_argument(
@@ -1201,6 +1220,42 @@ def _restore_resume_constraints(
     return requested != recorded.operator_constraints
 
 
+def _restore_resume_run_environment(
+    args: argparse.Namespace,
+    recorded: RunConfiguration,
+    explicit: frozenset[str],
+) -> list[str]:
+    """Restore the recorded runtime environment and reject contradictions.
+
+    ``--docker`` and ``--modal`` are store-true flags, so an omitted flag is
+    indistinguishable from ``--flag false``. The recorded environment therefore
+    wins whenever the resume invocation says nothing about it, and only an
+    explicitly passed flag that contradicts the recording is an error.
+    """
+    record = recorded.run_environment
+    changed: list[str] = []
+    if not hasattr(args, "docker") or not hasattr(args, "modal"):
+        return changed
+    if {"docker", "modal"} & explicit:
+        requested = "modal" if args.modal else "docker" if args.docker else "local"
+        if requested != record.name:
+            changed.append("run_environment")
+    else:
+        args.docker = record.name == "docker"
+        args.modal = record.name == "modal"
+
+    for destination, field in _RUN_ENVIRONMENT_OPTION_CLI_FIELDS.items():
+        if not hasattr(args, destination):
+            continue
+        expected = getattr(record, field)
+        if destination in explicit:
+            if getattr(args, destination) != expected:
+                changed.append(f"run_environment.{field}")
+        elif expected is not None:
+            setattr(args, destination, expected)
+    return changed
+
+
 def _normalized_resume_cli_value(destination: str, value: object) -> object:
     if destination == "backend" and value is not None:
         assert isinstance(value, ComputeBackend)  # noqa: S101  # argparse contract
@@ -1276,7 +1331,7 @@ def _restore_loop_resume_fields(
 ) -> tuple[dict[str, str], list[str]]:
     """Restore a loop's budget and return its immutable CLI field map."""
     fields = dict(_COMMON_RESUME_CLI_FIELDS)
-    changed: list[str] = []
+    changed: list[str] = _restore_resume_run_environment(args, recorded, explicit)
     if isinstance(recorded, AgentRunConfiguration):
         _restore_resume_budget(
             args,
@@ -1362,6 +1417,12 @@ def _resolve_resume_args(args: argparse.Namespace, *, loop_kind: str) -> None:
                 run_id = store.resolve_run().run_id
         _switch_project_resume_branch(project_root, run_id)
         run_manifest = store.load_run(run_id)
+    except RunSchemaMigrationRequiredError as exc:
+        _configuration_error(
+            f"{exc} Run: {_migrate_run_environment_command(project_root, exc.run_id)}",
+            code="project_run_schema_migration_required",
+            stage="resume_resolution",
+        )
     except ProjectStateError as exc:
         _configuration_error(
             f"Cannot resume project run: {exc}",
@@ -1406,6 +1467,111 @@ def _make_parser(prog: str, description: str) -> argparse.ArgumentParser:
     parser = _RunArgumentParser(prog=prog, description=description)
     _apply_common_args(parser)
     return parser
+
+
+# ---------------------------------------------------------------------------
+# Run metadata migration command
+# ---------------------------------------------------------------------------
+
+_MIGRATE_RUN_ENVIRONMENT_COMMAND = "migrate-run-environment"
+
+
+def _migrate_run_environment_command(project_root: Path, run_id: str) -> str:
+    """Render the operator command that migrates one run's recorded metadata."""
+    return shlex.join(
+        [
+            "vibesys",
+            _MIGRATE_RUN_ENVIRONMENT_COMMAND,
+            "--project",
+            str(project_root),
+            "--run",
+            run_id,
+            "--run-environment",
+            "local|docker|modal",
+        ]
+    )
+
+
+def _build_migrate_run_environment_parser() -> argparse.ArgumentParser:
+    parser = _RunArgumentParser(
+        prog=f"vibesys {_MIGRATE_RUN_ENVIRONMENT_COMMAND}",
+        description=(
+            "Record the runtime environment an existing run executes in. Run "
+            "metadata written before run schema version 2 never captured it, so "
+            "the operator supplies the environment the run was launched with. "
+            "The migration is one-way."
+        ),
+    )
+    parser.add_argument(
+        "--project",
+        type=Path,
+        default=None,
+        help="Project directory holding the run metadata. Defaults to the current directory.",
+    )
+    parser.add_argument(
+        "--run",
+        default=None,
+        help="Run ID to migrate. Defaults to the project's current run.",
+    )
+    parser.add_argument(
+        "--run-environment",
+        choices=["local", "docker", "modal"],
+        required=True,
+        help="Runtime environment the run was launched with.",
+    )
+    # These mirror the run flags, defaults included, so a migrated recording is
+    # identical to what the same launch would have written today.
+    parser.add_argument("--docker-image", default=None, help="Recorded --docker-image value.")
+    parser.add_argument("--modal-gpu", default="H100!", help="Recorded --modal-gpu value.")
+    parser.add_argument(
+        "--modal-model-volume",
+        default=None,
+        help="Recorded --modal-model-volume value.",
+    )
+    parser.add_argument("--modal-app", default="vibesys", help="Recorded --modal-app value.")
+    return parser
+
+
+def _run_migrate_run_environment(argv: list[str]) -> None:
+    """Stamp an explicit runtime environment into one pre-version-2 run."""
+    args = _build_migrate_run_environment_parser().parse_args(argv)
+    project_root = (args.project or Path.cwd()).expanduser().resolve()
+    # Build the record through the same producer a fresh run uses so a migrated
+    # recording matches what the CLI would have written for those flags.
+    spec = make_run_environment_spec(
+        use_docker=args.run_environment == "docker",
+        use_modal=args.run_environment == "modal",
+        docker_image=args.docker_image,
+        modal_gpu=args.modal_gpu,
+        modal_model_volume=args.modal_model_volume,
+        modal_app=args.modal_app,
+    )
+    try:
+        store = Project.open(project_root).state
+        run_id = args.run or store.current_run_id()
+        if run_id is None:
+            _configuration_error(
+                f"No current run in {project_root}; pass --run RUN_ID",
+                code="migration_failed",
+                stage="run_migration",
+                exit_code=1,
+            )
+        manifest = store.migrate_run_environment(run_id, run_environment_record(spec))
+    except (ProjectLayoutError, ProjectStateError, ValueError) as exc:
+        _configuration_error(
+            f"Migration failed for VibeSys run in {project_root}: {exc}",
+            code="migration_failed",
+            stage="run_migration",
+            exit_code=1,
+        )
+
+    print(  # noqa: T201  # tracked: #288
+        f"Migrated run {manifest.run_id} to run schema version "
+        f"{manifest.schema_version}: run environment "
+        f"{manifest.configuration.run_environment.name}"
+    )
+    print(f"  metadata: {project_root}")  # noqa: T201  # tracked: #288
+    print("  commit the updated run metadata to keep the run branch clean.")  # noqa: T201  # tracked: #288
 
 
 # ---------------------------------------------------------------------------
@@ -2303,6 +2469,9 @@ def _dispatch(argv: list[str]) -> None:
         return
     if argv and argv[0] == "validate":
         _run_validate(argv[1:])
+        return
+    if argv and argv[0] == _MIGRATE_RUN_ENVIRONMENT_COMMAND:
+        _run_migrate_run_environment(argv[1:])
         return
 
     invocation = parse_cli_invocation(argv)

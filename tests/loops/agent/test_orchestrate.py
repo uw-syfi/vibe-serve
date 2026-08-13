@@ -32,6 +32,7 @@ from vibesys.loops.evolve.population import Objective
 from vibesys.profilers import ProfilerKind, ProfilerPreflightResult
 from vibesys.prompts import PROMPTS_DIR
 from vibesys.run import GitTracker
+from vibesys.sandbox.run_environment import make_run_environment_spec
 from vibesys.schemas import (
     CandidateDisposition,
     HypothesisOutcome,
@@ -333,6 +334,11 @@ def test_project_configuration_captures_effective_agent_behavior(tmp_path: Path)
             memory_layout="directories",
             operator_constraints=("Preserve ordering",),
             domain=DomainName.GENERIC,
+            run_environment=make_run_environment_spec(
+                use_modal=True,
+                modal_gpu="A100-80GB",
+                modal_model_volume="weights",
+            ),
         )
 
     configuration = create_context.call_args.kwargs["project_configuration"]
@@ -358,6 +364,13 @@ def test_project_configuration_captures_effective_agent_behavior(tmp_path: Path)
         "inner_model": "gpt-inner",
         "inner_reasoning_effort": "medium",
         "operator_constraints": ("Preserve ordering",),
+        "run_environment": {
+            "name": "modal",
+            "image": None,
+            "gpu": "A100-80GB",
+            "model_volume": "weights",
+            "app": "vibesys",
+        },
     }
 
 

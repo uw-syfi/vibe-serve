@@ -140,7 +140,9 @@ vibesys --runs-dir /work/vibesys-runs --resume https://github.com/my-org/my-expe
 
 Omitted configuration flags and the selected task are restored from
 `.vibesys/state/runs/<run-id>/run.json`. The total round or generation limit
-may increase. Other recorded settings cannot change during a resume.
+may increase. Other recorded settings cannot change during a resume, including
+the runtime environment: a run launched with `--modal` resumes on Modal without
+repeating the flag.
 
 ## Supply an Input with CLI Flags
 

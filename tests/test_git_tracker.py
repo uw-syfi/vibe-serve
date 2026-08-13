@@ -10,7 +10,7 @@ import pytest
 
 from vibesys.run.git_tracker import GitTracker
 from vibesys.run.project_policy import trusted_project_input_paths
-from vs_project import PlainRunConfiguration, Project
+from vs_project import PlainRunConfiguration, Project, RunEnvironmentRecord
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -66,6 +66,7 @@ def _project(root: Path, tracker: GitTracker, run_id: str = "test-run") -> Proje
             trusted_input_baseline=tracker.trusted_input_baseline,
             configuration=PlainRunConfiguration(
                 outer_loop="plain",
+                run_environment=RunEnvironmentRecord(name="local"),
                 agent_backend="stub",
                 compute_backend="cpu",
                 max_rounds=2,
