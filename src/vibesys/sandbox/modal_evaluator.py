@@ -348,15 +348,23 @@ def _find_app_container(
                 check=False,
                 timeout=60,
             )
-            entries = json.loads(result.stdout) if result.returncode == 0 else []
+            if result.returncode == 0:
+                entries = json.loads(result.stdout)
+            else:
+                entries = []
+                last_error = f"container list exited {result.returncode}: {result.stderr.strip()}"
         except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError) as exc:
             entries = []
             last_error = f"{type(exc).__name__}: {exc}"
         for entry in entries:
             if not isinstance(entry, dict):
                 continue
-            if entry.get("App Name") == app_identifier and entry.get("Container ID"):
-                return str(entry["Container ID"])
+            # Key style varies across modal client versions: 1.5.x emits
+            # snake_case ("app_name"), older clients title case ("App Name").
+            name = entry.get("app_name") or entry.get("App Name")
+            container_id = entry.get("container_id") or entry.get("Container ID")
+            if name == app_identifier and container_id:
+                return str(container_id)
         if time.monotonic() >= deadline:
             raise TimeoutError(  # noqa: TRY003
                 f"no running container found for Modal app {app_identifier}: {last_error}"

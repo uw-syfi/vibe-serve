@@ -203,13 +203,13 @@ def test_build_stage_archive_rejects_oversized_inputs(
         modal_evaluator._build_stage_archive(str(workspace), ["blob.bin"])  # noqa: SLF001
 
 
-def test_find_app_container_matches_app_name(monkeypatch) -> None:  # noqa: ANN001
+def test_find_app_container_matches_snake_case_listing(monkeypatch) -> None:  # noqa: ANN001
     listing = SimpleNamespace(
         returncode=0,
         stdout=json.dumps(
             [
-                {"Container ID": "ta-other", "App Name": "other-app"},
-                {"Container ID": "ta-123", "App Name": "candidate-app"},
+                {"container_id": "ta-other", "app_name": "other-app"},
+                {"container_id": "ta-123", "app_name": "candidate-app"},
             ]
         ),
         stderr="",
@@ -225,6 +225,40 @@ def test_find_app_container_matches_app_name(monkeypatch) -> None:  # noqa: ANN0
 
     assert container == "ta-123"
     assert run.call_args_list[0].args[0][:5] == ["uv", "run", "modal", "container", "list"]
+
+
+def test_find_app_container_matches_title_case_listing(monkeypatch) -> None:  # noqa: ANN001
+    listing = SimpleNamespace(
+        returncode=0,
+        stdout=json.dumps([{"Container ID": "ta-123", "App Name": "candidate-app"}]),
+        stderr="",
+    )
+    monkeypatch.setattr(modal_evaluator.subprocess, "run", MagicMock(return_value=listing))
+
+    container = modal_evaluator._find_app_container(  # noqa: SLF001
+        "candidate-app",
+        workspace="/workspace",
+        base_url="https://workspace--candidate.modal.run",
+    )
+
+    assert container == "ta-123"
+
+
+def test_find_app_container_surfaces_cli_error(monkeypatch) -> None:  # noqa: ANN001
+    listing = SimpleNamespace(returncode=2, stdout="", stderr="token expired")
+    monkeypatch.setattr(modal_evaluator.subprocess, "run", MagicMock(return_value=listing))
+    monkeypatch.setattr(modal_evaluator, "_healthy_now", MagicMock(return_value=True))
+    monkeypatch.setattr(modal_evaluator.time, "sleep", lambda _: None)
+    clock = iter([0.0, 0.0, 2.0])
+    monkeypatch.setattr(modal_evaluator.time, "monotonic", lambda: next(clock))
+
+    with pytest.raises(TimeoutError, match="container list exited 2: token expired"):
+        modal_evaluator._find_app_container(  # noqa: SLF001
+            "candidate-app",
+            workspace="/workspace",
+            base_url="https://workspace--candidate.modal.run",
+            timeout_seconds=1.5,
+        )
 
 
 def test_find_app_container_rewarms_then_times_out(monkeypatch) -> None:  # noqa: ANN001
