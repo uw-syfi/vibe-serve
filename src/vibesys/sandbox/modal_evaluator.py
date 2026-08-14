@@ -1,21 +1,36 @@
 """Run a trusted evaluator against a candidate deployed on Modal.
 
 The Modal run environment edits candidates in a local CPU-only container, so
-service-style evaluators cannot use their default localhost URL. This helper is
-mounted read-only by the runtime adapter. It deploys the current candidate,
-discovers the emitted web endpoint, waits for readiness, and appends ``--url``
-to the trusted evaluator command.
+service-style evaluators cannot reach the serving process at their default
+``http://localhost:8000``. This helper is mounted read-only by the runtime
+adapter. It deploys the current candidate, discovers the emitted web endpoint,
+waits for readiness, and then runs the trusted command *unmodified inside the
+serving container* (via ``modal container exec``) so the task's localhost
+measurement contract holds: metrics reflect the engine, not TLS, WAN, Modal
+ingress, or Modal's function-admission queue.
+
+The public endpoint is used only for deploy discovery, readiness, and periodic
+keep-warm probes during the in-container run (colocated traffic does not reset
+Modal's idle scaledown timer). Workspace-relative input files referenced by the
+command are staged into the container; absolute not-yet-existing paths in the
+command (for example a ``--output-json`` target) are relayed back to the caller
+after the run.
 """
 
 from __future__ import annotations
 
 import argparse
+import base64
 import fcntl
+import io
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
+import tarfile
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -35,6 +50,14 @@ _DEPLOYMENT_LEASE_PATH = Path("/tmp/vibesys-modal-evaluator-deployment.json")  #
 _CANDIDATE_REVISION_ENV = "VIBESYS_CANDIDATE_REVISION"
 _RELEASE_DEPLOYMENT_ENV = "VIBESYS_RELEASE_MODAL_DEPLOYMENT"
 _MAX_DIAGNOSTIC_CHARS = 20_000
+_EXEC_RC_MARKER = "__VIBESYS_EXEC_RC__="
+_OUTPUT_FILE_MARKER = "__VIBESYS_OUTPUT_FILE__"
+_OUTPUT_END_MARKER = "__VIBESYS_OUTPUT_END__"
+# Linux caps a single argv string at 128 KiB; stay well under it per chunk.
+_B64_CHUNK_CHARS = 60_000
+_MAX_STAGE_ARCHIVE_BYTES = 8 * 1024 * 1024
+_CONTAINER_DISCOVERY_TIMEOUT_SECONDS = 90.0
+_KEEPWARM_INTERVAL_SECONDS = 30.0
 
 
 @dataclass(frozen=True)
@@ -236,6 +259,271 @@ def _deployment_path(workspace: str, entrypoint: str) -> Path:
     return candidate
 
 
+@dataclass(frozen=True)
+class _CommandTransferPlan:
+    """Files to stage into the serving container and outputs to relay back."""
+
+    stage_paths: tuple[str, ...]
+    output_paths: tuple[str, ...]
+
+
+def _plan_command_transfer(command: Sequence[str], workspace: str) -> _CommandTransferPlan:
+    """Classify command tokens into staged inputs and relayed outputs.
+
+    Workspace-relative tokens that resolve to files are staged with their
+    parent directory (scripts commonly import or read siblings); directory
+    tokens are staged whole. Absolute tokens that do not exist but whose
+    parent directory does are treated as output artifacts the command will
+    write, and are relayed back after the in-container run.
+    """
+    workspace_root = Path(workspace).resolve(strict=True)
+    staged: list[str] = []
+    outputs: list[str] = []
+    for token in command:
+        if not token or token.startswith("-"):
+            continue
+        if token.startswith("/"):
+            path = Path(token)
+            if not path.exists() and path.parent.is_dir() and token not in outputs:
+                outputs.append(token)
+            continue
+        candidate = workspace_root / token
+        try:
+            resolved = candidate.resolve(strict=True)
+            resolved.relative_to(workspace_root)
+        except (OSError, ValueError):
+            continue
+        if resolved.is_dir() or resolved.parent == workspace_root:
+            stage = resolved
+        else:
+            stage = resolved.parent
+        relative = stage.relative_to(workspace_root).as_posix()
+        if relative not in staged:
+            staged.append(relative)
+
+    def _covered(path: str) -> bool:
+        return any(other != path and path.startswith(f"{other}/") for other in staged)
+
+    kept = tuple(path for path in staged if not _covered(path))
+    return _CommandTransferPlan(stage_paths=kept, output_paths=tuple(outputs))
+
+
+def _build_stage_archive(workspace: str, stage_paths: Sequence[str]) -> bytes:
+    """Produce a gzipped tar of the staged paths, keyed by their relative paths."""
+    workspace_root = Path(workspace).resolve(strict=True)
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
+        for relative in stage_paths:
+            archive.add(str(workspace_root / relative), arcname=relative)
+    payload = buffer.getvalue()
+    if len(payload) > _MAX_STAGE_ARCHIVE_BYTES:
+        raise ValueError(  # noqa: TRY003
+            f"evaluator inputs too large to stage into the serving container "
+            f"({len(payload)} bytes compressed, cap {_MAX_STAGE_ARCHIVE_BYTES})"
+        )
+    return payload
+
+
+def _find_app_container(
+    app_identifier: str,
+    *,
+    workspace: str,
+    base_url: str,
+    timeout_seconds: float = _CONTAINER_DISCOVERY_TIMEOUT_SECONDS,
+) -> str:
+    """Return the id of a running container for the deployed app.
+
+    Health probes double as warm-up: if the app scaled to zero between
+    readiness and discovery, probing the public endpoint starts a container.
+    """
+    deadline = time.monotonic() + timeout_seconds
+    last_error = "no container listed"
+    while True:
+        try:
+            result = subprocess.run(  # tracked: #288
+                ["uv", "run", "modal", "container", "list", "--json"],  # noqa: S607  # tracked: #288
+                cwd=workspace,
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=60,
+            )
+            entries = json.loads(result.stdout) if result.returncode == 0 else []
+        except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError) as exc:
+            entries = []
+            last_error = f"{type(exc).__name__}: {exc}"
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            if entry.get("App Name") == app_identifier and entry.get("Container ID"):
+                return str(entry["Container ID"])
+        if time.monotonic() >= deadline:
+            raise TimeoutError(  # noqa: TRY003
+                f"no running container found for Modal app {app_identifier}: {last_error}"
+            )
+        _healthy_now(base_url)
+        time.sleep(5)
+
+
+def _bootstrap_script(command: Sequence[str], output_paths: Sequence[str]) -> str:
+    """Build the in-container POSIX shell bootstrap.
+
+    Receives the staged archive as base64 chunks in ``"$@"``, recreates the
+    workspace-relative layout in a temp directory, provides ``uv`` through a
+    ``python3 -m uv`` shim, runs the trusted command verbatim from that
+    directory (so its localhost defaults and relative paths hold), then emits
+    each existing output file and the command's exit code between sentinel
+    markers — ``modal container exec`` does not propagate exit codes.
+    """
+    quoted_command = " ".join(shlex.quote(token) for token in command)
+    relay_blocks = "\n".join(
+        f"if [ -f {shlex.quote(path)} ]; then\n"
+        f"  printf '\\n%s %s\\n' {shlex.quote(_OUTPUT_FILE_MARKER)} {shlex.quote(path)}\n"
+        f"  base64 {shlex.quote(path)}\n"
+        f"  printf '%s\\n' {shlex.quote(_OUTPUT_END_MARKER)}\n"
+        "fi"
+        for path in output_paths
+    )
+    return f"""set -u
+stage=$(mktemp -d /tmp/vibesys-eval-XXXXXX)
+printf '%s' "$@" | base64 -d | tar -xzf - -C "$stage"
+mkdir -p "$stage/.bin"
+printf '#!/bin/sh\\nexec python3 -m uv "$@"\\n' > "$stage/.bin/uv"
+chmod +x "$stage/.bin/uv"
+if ! python3 -m pip install --quiet --target "$stage/.pip" uv >&2; then
+  echo 'vibesys evaluator bootstrap failed: serving container lacks python3 -m pip' >&2
+  printf '\\n{_EXEC_RC_MARKER}%s\\n' 97
+  exit 0
+fi
+PATH="$stage/.bin:$PATH"; export PATH
+PYTHONPATH="$stage/.pip${{PYTHONPATH:+:$PYTHONPATH}}"; export PYTHONPATH
+UV_CACHE_DIR="$stage/.uv-cache"; export UV_CACHE_DIR
+cd "$stage"
+{quoted_command}
+rc=$?
+{relay_blocks}
+printf '\\n{_EXEC_RC_MARKER}%s\\n' "$rc"
+"""
+
+
+def _parse_exec_output(stdout: str) -> tuple[int | None, dict[str, bytes], str]:
+    """Split exec stdout into exit code, relayed output files, and passthrough."""
+    exit_code: int | None = None
+    files: dict[str, bytes] = {}
+    passthrough: list[str] = []
+    collecting: str | None = None
+    encoded: list[str] = []
+    for line in stdout.splitlines():
+        stripped = line.strip()
+        if collecting is not None:
+            if stripped == _OUTPUT_END_MARKER:
+                try:
+                    files[collecting] = base64.b64decode("".join(encoded))
+                except ValueError:
+                    files.pop(collecting, None)
+                collecting = None
+                encoded = []
+            else:
+                encoded.append(stripped)
+            continue
+        if stripped.startswith(f"{_OUTPUT_FILE_MARKER} "):
+            collecting = stripped[len(_OUTPUT_FILE_MARKER) + 1 :]
+            continue
+        if stripped.startswith(_EXEC_RC_MARKER):
+            suffix = stripped[len(_EXEC_RC_MARKER) :]
+            if suffix.isdigit():
+                exit_code = int(suffix)
+            continue
+        passthrough.append(line)
+    return exit_code, files, "\n".join(passthrough)
+
+
+class _DeploymentKeepWarm:
+    """Probe the public endpoint periodically while the colocated run executes.
+
+    Colocated traffic never crosses Modal ingress, so it does not reset the
+    app's idle scaledown timer; without these probes Modal may retire the
+    serving container mid-measurement.
+    """
+
+    def __init__(self, base_url: str) -> None:
+        self._base_url = base_url
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._run, daemon=True)
+
+    def __enter__(self) -> _DeploymentKeepWarm:
+        self._thread.start()
+        return self
+
+    def __exit__(self, *exc_info: object) -> None:
+        self._stop.set()
+        self._thread.join(timeout=10)
+
+    def _run(self) -> None:
+        while not self._stop.wait(_KEEPWARM_INTERVAL_SECONDS):
+            _healthy_now(self._base_url)
+
+
+def _execute_colocated(
+    command: Sequence[str],
+    *,
+    workspace: str,
+    app_identifier: str,
+    base_url: str,
+) -> int:
+    """Run the trusted command inside the app's serving container."""
+    plan = _plan_command_transfer(command, workspace)
+    archive = _build_stage_archive(workspace, plan.stage_paths)
+    encoded = base64.b64encode(archive).decode("ascii")
+    chunks = [
+        encoded[offset : offset + _B64_CHUNK_CHARS]
+        for offset in range(0, len(encoded), _B64_CHUNK_CHARS)
+    ] or [""]
+    container_id = _find_app_container(
+        app_identifier,
+        workspace=workspace,
+        base_url=base_url,
+    )
+    script = _bootstrap_script(command, plan.output_paths)
+    with _DeploymentKeepWarm(base_url):
+        result = subprocess.run(  # noqa: S603  # tracked: #288
+            [  # noqa: S607  # tracked: #288
+                "uv",
+                "run",
+                "modal",
+                "container",
+                "exec",
+                container_id,
+                "--",
+                "sh",
+                "-c",
+                script,
+                "vibesys-eval",
+                *chunks,
+            ],
+            cwd=workspace,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    exit_code, files, passthrough = _parse_exec_output(result.stdout)
+    if passthrough:
+        print(passthrough)  # noqa: T201  # tracked: #288
+    if result.stderr:
+        print(result.stderr, file=sys.stderr, end="")  # noqa: T201  # tracked: #288
+    for path, payload in files.items():
+        Path(path).write_bytes(payload)
+    if exit_code is None:
+        tail = result.stdout[-_MAX_DIAGNOSTIC_CHARS:]
+        print(  # noqa: T201  # tracked: #288
+            "Modal evaluator exec did not report an exit code "
+            f"(modal exit {result.returncode}); output tail:\n{tail}",
+            file=sys.stderr,
+        )
+        return result.returncode or 1
+    return exit_code
+
+
 def run_evaluator(
     command: Sequence[str],
     *,
@@ -243,7 +531,7 @@ def run_evaluator(
     entrypoint: str = "main.py",
     readiness_timeout_seconds: float = 90,
 ) -> int:
-    """Deploy the candidate and run ``command`` against its live URL."""
+    """Deploy the candidate and run ``command`` inside its serving container."""
     if not command:
         raise ValueError("missing evaluator command after '--'")  # noqa: TRY003  # tracked: #288
 
@@ -256,7 +544,7 @@ def run_evaluator(
         )
 
 
-def _run_evaluator_unlocked(  # noqa: C901, PLR0912, PLR0915  # tracked: #288
+def _run_evaluator_unlocked(  # noqa: C901, PLR0911, PLR0912, PLR0915  # tracked: #288
     command: Sequence[str],
     *,
     workspace: str,
@@ -267,19 +555,26 @@ def _run_evaluator_unlocked(  # noqa: C901, PLR0912, PLR0915  # tracked: #288
     if candidate_revision:
         lease = _read_deployment_lease()
         if lease is not None:
-            if lease.candidate_revision == candidate_revision and _healthy_now(lease.base_url):
+            if (
+                lease.candidate_revision == candidate_revision
+                and lease.app_identifier is not None
+                and _healthy_now(lease.base_url)
+            ):
                 print(  # noqa: T201  # tracked: #288
                     "Reusing healthy Modal deployment for candidate revision "
                     f"{candidate_revision}.",
                     file=sys.stderr,
                 )
                 try:
-                    result = subprocess.run(  # noqa: S603  # tracked: #288
-                        [*command, "--url", lease.base_url],
-                        cwd=workspace,
-                        check=False,
+                    return _execute_colocated(
+                        command,
+                        workspace=workspace,
+                        app_identifier=lease.app_identifier,
+                        base_url=lease.base_url,
                     )
-                    return result.returncode
+                except (TimeoutError, ValueError) as exc:
+                    print(f"Modal evaluator setup failed: {exc}", file=sys.stderr)  # noqa: T201
+                    return 1
                 finally:
                     if _release_requested():
                         _retire_deployment(lease, workspace=workspace)
@@ -307,18 +602,16 @@ def _run_evaluator_unlocked(  # noqa: C901, PLR0912, PLR0915  # tracked: #288
     app_identifier: str | None = None
     try:
         base_url = extract_modal_web_url(deploy_output)
-        try:  # noqa: SIM105  # tracked: #288
-            app_identifier = extract_modal_app_identifier(deploy_output)
-        except ValueError:
-            pass
+        app_identifier = extract_modal_app_identifier(deploy_output)
         wait_for_health(base_url, timeout_seconds=readiness_timeout_seconds)
     except (TimeoutError, ValueError) as exc:
         print(f"Modal evaluator setup failed: {exc}", file=sys.stderr)  # noqa: T201  # tracked: #288
-        try:
-            app_identifier = extract_modal_app_identifier(deploy_output)
-        except ValueError:
-            pass
-        else:
+        if app_identifier is None:
+            try:  # noqa: SIM105  # tracked: #288
+                app_identifier = extract_modal_app_identifier(deploy_output)
+            except ValueError:
+                pass
+        if app_identifier is not None:
             print(  # noqa: T201  # tracked: #288
                 f"Recent Modal logs:\n{recent_modal_logs(app_identifier, workspace=workspace)}",
                 file=sys.stderr,
@@ -330,12 +623,15 @@ def _run_evaluator_unlocked(  # noqa: C901, PLR0912, PLR0915  # tracked: #288
         _write_deployment_lease(candidate_revision, base_url, app_identifier)
 
     try:
-        result = subprocess.run(  # noqa: S603  # tracked: #288
-            [*command, "--url", base_url],
-            cwd=workspace,
-            check=False,
+        return _execute_colocated(
+            command,
+            workspace=workspace,
+            app_identifier=app_identifier,
+            base_url=base_url,
         )
-        return result.returncode
+    except (TimeoutError, ValueError) as exc:
+        print(f"Modal evaluator setup failed: {exc}", file=sys.stderr)  # noqa: T201  # tracked: #288
+        return 1
     finally:
         if _release_requested():
             lease = _read_deployment_lease()
@@ -345,7 +641,7 @@ def _run_evaluator_unlocked(  # noqa: C901, PLR0912, PLR0915  # tracked: #288
                 and lease.candidate_revision == candidate_revision
             ):
                 _retire_deployment(lease, workspace=workspace)
-            elif app_identifier is not None:
+            else:
                 _stop_modal_app(app_identifier, workspace=workspace)
 
 
