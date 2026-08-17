@@ -7,14 +7,21 @@ import type {SidebarsConfig} from '@docusaurus/plugin-content-docs';
 const sidebars: SidebarsConfig = {
   docsSidebar: [
     'running-vibesys',
-    'development',
     'cli-flags',
-    'coding-best-practices',
-    'extending-profilers',
-    'openevolve',
-    'publishing',
-    'skill-metadata',
-    'issue-authoring',
+    {
+      type: 'category',
+      label: 'Contributing',
+      link: {type: 'doc', id: 'development'},
+      items: [
+        'development',
+        'coding-best-practices',
+        'extending-profilers',
+        'skill-metadata',
+        'openevolve',
+        'issue-authoring',
+        'publishing',
+      ],
+    },
   ],
 };
 

@@ -81,8 +81,8 @@ const config: Config = {
           title: 'Docs',
           items: [
             {label: 'Running VibeSys', to: '/docs/running-vibesys'},
-            {label: 'Development', to: '/docs/development'},
             {label: 'CLI flags', to: '/docs/cli-flags'},
+            {label: 'Contributing', to: '/docs/development'},
           ],
         },
         {
