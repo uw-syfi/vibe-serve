@@ -13,7 +13,7 @@ from vibesys.server.experiments import UNIDENTIFIED, apply_baselines, build_expe
 from vibesys.server.protocol import ExperimentQuery
 from vibesys.server.service import SupervisionService
 from vs_loop_state import RoundRecord
-from vs_project import AgentRunConfiguration, PlainRunConfiguration, Project
+from vs_project import AgentRunConfiguration, PlainRunConfiguration, Project, RunEnvironmentRecord
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -200,6 +200,7 @@ def _agent_configuration() -> AgentRunConfiguration:
         judge_every=1,
         official_eval_every=1,
         memory_layout="files",
+        run_environment=RunEnvironmentRecord(name="local"),
     )
 
 
@@ -212,6 +213,7 @@ def _plain_configuration() -> PlainRunConfiguration:
         max_rounds=3,
         max_attempts_per_issue=1,
         max_issues_per_perf_eval=1,
+        run_environment=RunEnvironmentRecord(name="local"),
     )
 
 
