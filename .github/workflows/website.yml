@@ -1,0 +1,46 @@
+name: Website
+
+# Runs independently of the main Tests workflow, which ignores docs/** and
+# *.md changes to avoid running the full backend matrix on doc-only edits.
+# The Docusaurus docs plugin renders docs/ directly (no copy step) and
+# sidebars.ts hardcodes doc ids against those filenames, so a docs/ change
+# can break the site build without touching website/ at all.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'website/**'
+      - 'docs/**'
+      - '.github/workflows/website.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'website/**'
+      - 'docs/**'
+      - '.github/workflows/website.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: website/package-lock.json
+
+      - name: Install website dependencies
+        working-directory: website
+        run: npm ci
+
+      - name: Check TypeScript
+        working-directory: website
+        run: npm run typecheck
+
+      - name: Build website
+        working-directory: website
+        run: npm run build
