@@ -3,6 +3,17 @@ name: Build and publish release wheels
 on:
   pull_request:
     branches: [main]
+    # Skip the wheel-build matrix (two paid macOS runners plus a Docker
+    # clean-room verification pass) for changes that can't affect native
+    # packaging: pure documentation and the Docusaurus site. Ignored by exact
+    # filename, not `.github/workflows/**`, so edits to this workflow still
+    # run the full matrix. `release` events don't support path filters and
+    # are unaffected.
+    paths-ignore:
+      - '*.md'
+      - 'docs/**'
+      - 'website/**'
+      - '.github/workflows/website.yml'
   release:
     types: [published]
 
