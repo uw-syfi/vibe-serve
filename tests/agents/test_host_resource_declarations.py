@@ -30,6 +30,37 @@ class TestInstallRoot:
         )
 
 
+class TestInterpreterAliasRoots:
+    """A venv reached through an alias directory must import that alias."""
+
+    def test_alias_directory_between_venv_and_install_is_declared(self, monkeypatch, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+        install = tmp_path / "cpython-3.14.7"
+        (install / "bin").mkdir(parents=True)
+        real = install / "bin" / "python3.14"
+        real.write_text("#!/bin/false\n")
+        alias = tmp_path / "cpython-3.14"
+        alias.symlink_to(install)
+        venv_bin = tmp_path / "venv" / "bin"
+        venv_bin.mkdir(parents=True)
+        (venv_bin / "python").symlink_to(alias / "bin" / "python3.14")
+        (venv_bin / "python3").symlink_to("python")
+        monkeypatch.setattr(host_resource_declarations.sys, "executable", str(venv_bin / "python3"))
+
+        roots = host_resource_declarations._interpreter_alias_roots()  # noqa: SLF001  # tracked: #288
+
+        # The alias, not the resolved install: sys.base_prefix already covers
+        # the resolved path, and only the alias name dangles in the sandbox.
+        assert roots == {alias}
+
+    def test_no_alias_declares_nothing_extra(self, monkeypatch, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+        real = tmp_path / "usr" / "bin" / "python3.14"
+        real.parent.mkdir(parents=True)
+        real.write_text("#!/bin/false\n")
+        monkeypatch.setattr(host_resource_declarations.sys, "executable", str(real))
+
+        assert host_resource_declarations._interpreter_alias_roots() == set()  # noqa: SLF001  # tracked: #288
+
+
 def test_defaults_declare_path_rust_and_shell_resources(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     home = tmp_path / "home"
     tool_bin = home / "tools" / "bin"

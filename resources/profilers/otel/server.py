@@ -448,6 +448,64 @@ class CriticalPathEvidence(BaseModel):
     omitted_root_count: int
 
 
+class TraceNodeEvidence(BaseModel):
+    """One call-graph node with its inclusive and exclusive latency split."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    node_id: str
+    path: str
+    service: str
+    operation: str
+    kind: str
+    depth: int
+    inclusive_latency_ms: LatencyDistribution
+    exclusive_latency_ms: LatencyDistribution
+
+
+class BoundedRepresentativeTrace(BaseModel):
+    """Bounded representative waterfall returned to the profiler agent."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    trace_id: str
+    duration_ms: float
+    spans: list[WaterfallSpan]
+    omitted_span_count: int
+
+
+class TraceBreakdownRootEvidence(BaseModel):
+    """Bounded call-graph and waterfall evidence for one root operation."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    service: str
+    operation: str
+    trace_count: int
+    error_count: int
+    latency_ms: LatencyDistribution
+    nodes: list[TraceNodeEvidence]
+    omitted_node_count: int
+    edges: list[TraceGraphEdge]
+    omitted_edge_count: int
+    representative_trace: BoundedRepresentativeTrace
+
+
+class TraceBreakdown(BaseModel):
+    """Bounded schema-v2 structure returned by the ``trace_breakdown`` tool."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    source: str
+    collected_at: str
+    workload_name: str
+    workload_hash: str
+    measurement_windows: list[MeasurementWindow]
+    quality: TraceQuality
+    roots: list[TraceBreakdownRootEvidence]
+    omitted_root_count: int
+
+
 def load_report(path: str) -> TelemetryReport:  # noqa: D103  # tracked: #288
     return TelemetryReport.model_validate_json(Path(path).read_text(encoding="utf-8"))
 
@@ -494,18 +552,7 @@ def summarize_critical_path(
 ) -> CriticalPathEvidence:
     """Return bounded critical-path evidence from a schema-v2 trace graph."""
     _validate_top(top)
-    graph = load_trace_graph(path)
-    telemetry = load_report(telemetry_path)
-    if (
-        graph.workload_name,
-        graph.workload_hash,
-        graph.measurement_windows,
-    ) != (
-        telemetry.workload_name,
-        telemetry.workload_hash,
-        telemetry.measurement_windows,
-    ):
-        raise ValueError(_GRAPH_REPORT_MISMATCH)
+    graph = _bound_graph_to_report(path, telemetry_path)
     roots = []
     for root in graph.roots[:top]:
         critical = root.critical_path
@@ -541,6 +588,93 @@ def summarize_critical_path(
         roots=roots,
         omitted_root_count=max(len(graph.roots) - top, 0),
     )
+
+
+def summarize_trace_breakdown(path: str, telemetry_path: str, *, top: int = 10) -> TraceBreakdown:
+    """Return the bounded call graph and representative waterfall of a trace graph.
+
+    ``critical_path`` answers "where does wall clock go"; this answers "what
+    calls what, and how do the calls overlap in one request". Both bind the
+    graph to the normalized report so a stale or foreign artifact fails closed.
+    """
+    _validate_top(top)
+    graph = _bound_graph_to_report(path, telemetry_path)
+    roots = []
+    for root in graph.roots[:top]:
+        # Rank by inclusive p95 so truncation drops cheap leaves, then report
+        # the survivors parent-first so the retained nodes still read as a tree.
+        ranked = sorted(root.nodes, key=lambda node: node.inclusive_latency_ms.p95_ms, reverse=True)
+        kept = {node.id for node in ranked[:top]}
+        nodes = sorted(
+            (node for node in root.nodes if node.id in kept),
+            key=lambda node: (_node_depth(node.path), -node.inclusive_latency_ms.p95_ms),
+        )
+        edges = [edge for edge in root.edges if edge.from_node in kept and edge.to in kept]
+        spans = sorted(root.representative_trace.spans, key=lambda span: -span.duration_ms)[:top]
+        roots.append(
+            TraceBreakdownRootEvidence(
+                service=root.service,
+                operation=root.operation,
+                trace_count=root.trace_count,
+                error_count=root.error_count,
+                latency_ms=root.latency_ms,
+                nodes=[
+                    TraceNodeEvidence(
+                        node_id=node.id,
+                        path=node.path,
+                        service=node.service,
+                        operation=node.operation,
+                        kind=node.kind,
+                        depth=_node_depth(node.path),
+                        inclusive_latency_ms=node.inclusive_latency_ms,
+                        exclusive_latency_ms=node.exclusive_latency_ms,
+                    )
+                    for node in nodes
+                ],
+                omitted_node_count=max(len(root.nodes) - len(nodes), 0),
+                edges=edges,
+                omitted_edge_count=max(len(root.edges) - len(edges), 0),
+                representative_trace=BoundedRepresentativeTrace(
+                    trace_id=root.representative_trace.trace_id,
+                    duration_ms=root.representative_trace.duration_ms,
+                    # Longest spans survive truncation; time order is restored so
+                    # the agent reads an ordered waterfall, not a ranking.
+                    spans=sorted(spans, key=lambda span: (span.offset_ms, -span.duration_ms)),
+                    omitted_span_count=max(len(root.representative_trace.spans) - len(spans), 0),
+                ),
+            )
+        )
+    return TraceBreakdown(
+        source=graph.source,
+        collected_at=graph.collected_at,
+        workload_name=graph.workload_name,
+        workload_hash=graph.workload_hash,
+        measurement_windows=graph.measurement_windows,
+        quality=graph.quality,
+        roots=roots,
+        omitted_root_count=max(len(graph.roots) - top, 0),
+    )
+
+
+def _bound_graph_to_report(path: str, telemetry_path: str) -> TraceGraphReport:
+    """Load a graph only when it shares one workload identity and windows."""
+    graph = load_trace_graph(path)
+    telemetry = load_report(telemetry_path)
+    if (
+        graph.workload_name,
+        graph.workload_hash,
+        graph.measurement_windows,
+    ) != (
+        telemetry.workload_name,
+        telemetry.workload_hash,
+        telemetry.measurement_windows,
+    ):
+        raise ValueError(_GRAPH_REPORT_MISMATCH)
+    return graph
+
+
+def _node_depth(path: str) -> int:
+    return path.count(" > ")
 
 
 def _report_identity(report: TelemetryReport) -> tuple:
@@ -669,6 +803,11 @@ def build_server() -> FastMCP:  # noqa: D103  # tracked: #288
     def critical_path(path: str, telemetry_path: str, top: int = 10) -> CriticalPathEvidence:
         """Return a graph's critical path after binding it to normalized telemetry."""
         return summarize_critical_path(path, telemetry_path, top=top)
+
+    @mcp.tool()
+    def trace_breakdown(path: str, telemetry_path: str, top: int = 10) -> TraceBreakdown:
+        """Return a graph's call structure and representative request waterfall."""
+        return summarize_trace_breakdown(path, telemetry_path, top=top)
 
     return mcp
 

@@ -290,6 +290,9 @@ def test_microservice_otel_profiler_uses_critical_path_as_diagnostic_evidence():
 
     assert "trace_graphs()" in rendered
     assert "critical_path(path=..., telemetry_path=...)" in rendered
+    assert "trace_breakdown(path=..., telemetry_path=...)" in rendered
+    assert "representative waterfall" in rendered
+    assert "--trace-graph-json" in rendered
     assert "async_relationships_excluded" in rendered
     assert "do not add overlapping sibling durations" in rendered
     assert "primary_value" in rendered

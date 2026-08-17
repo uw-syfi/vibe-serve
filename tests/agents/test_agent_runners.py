@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from io import StringIO
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -1778,9 +1779,36 @@ class TestCliAgentRunner:
         # Strict ordering: install before generate before uninstall.
         assert agent.event_log == ["install", "generate", "uninstall"]
         assert agent.install_calls[0]["workspace"] == workspace
-        assert agent.install_calls[0]["servers"] == [spec]
+        # A host run pins the interpreter; install and uninstall see one spec.
+        installed = agent.install_calls[0]["servers"]
+        assert [server.name for server in installed] == [spec.name]
+        assert installed[0].command == sys.executable
         assert agent.uninstall_calls[0]["workspace"] == workspace
-        assert agent.uninstall_calls[0]["servers"] == [spec]
+        assert agent.uninstall_calls[0]["servers"] == installed
+
+    def test_mcp_interpreter_resolution_is_host_only_and_python_only(self):  # noqa: ANN201  # tracked: #288
+        """Host runs pin ``python``; containers and other commands are untouched."""
+        from vibesys._agent_cli.base import MCPServerSpec  # noqa: PLC0415  # tracked: #288
+        from vibesys.agents.cli_runner import _resolve_mcp_interpreter  # noqa: PLC0415
+
+        servers = [
+            MCPServerSpec(name="issues", command="python", args=["-m", "x"]),
+            MCPServerSpec(name="profiler", command="python3", args=["p/server.py"]),
+            MCPServerSpec(name="other", command="node", args=["server.js"]),
+        ]
+
+        host = _resolve_mcp_interpreter(servers, in_container=False)
+        container = _resolve_mcp_interpreter(servers, in_container=True)
+
+        assert [server.command for server in host] == [
+            sys.executable,
+            sys.executable,
+            "node",
+        ]
+        # Args and names survive the rewrite, and the container image keeps
+        # resolving ``python`` itself.
+        assert [server.args for server in host] == [server.args for server in servers]
+        assert container == servers
 
     def test_cli_runner_uninstalls_even_when_generate_raises(self, monkeypatch, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         """uninstall_mcp_servers must run in finally so a crashing generate

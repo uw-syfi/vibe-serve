@@ -21,7 +21,9 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from collections.abc import Callable, Iterable  # noqa: TC003  # tracked: #288
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol, TextIO, TypeVar, cast
@@ -82,6 +84,32 @@ _PROVIDER_CLASSES: dict[str, _ProviderFactory] = {
 _MAX_CODEX_SESSION_TURNS = 2
 _MAX_CODEX_SESSION_INPUT_TOKENS = 10_000_000
 _MAX_CODEX_SESSION_DURATION_MS = 600_000
+
+_PYTHON_MCP_COMMANDS = frozenset({"python", "python3"})
+
+
+def _resolve_mcp_interpreter(
+    servers: list[MCPServerSpec], *, in_container: bool
+) -> list[MCPServerSpec]:
+    """Pin ``python`` MCP servers to the interpreter running VibeSys.
+
+    A host agent inherits an interactive login shell's environment, not the
+    launcher's, so a bare ``python`` resolves against the user's PATH and may
+    be missing or lack ``mcp``/``pydantic``. The CLI then fails to spawn the
+    stdio server and the agent silently loses its tools (profiler analysis,
+    issue board). The interpreter running VibeSys always has those
+    dependencies, and the host sandbox already imports ``sys.prefix`` and
+    ``sys.base_prefix`` read-only. Container executors keep ``python``: the
+    image provides its own and a host interpreter path does not exist there.
+    """
+    if in_container:
+        return servers
+    return [
+        replace(server, command=sys.executable)
+        if server.command in _PYTHON_MCP_COMMANDS
+        else server
+        for server in servers
+    ]
 
 
 def _is_missing_codex_rollout(exc: RuntimeError) -> bool:
@@ -424,6 +452,7 @@ class CliAgentRunner:
         #    for claude/gemini/opencode, runtime --config flags for codex).
         #    Wrapped in try/finally so a crash in generate() still cleans up.
         if mcp_servers:
+            mcp_servers = _resolve_mcp_interpreter(mcp_servers, in_container=_in_container)
             agent.install_mcp_servers(workspace, mcp_servers)
 
         log_and_print(

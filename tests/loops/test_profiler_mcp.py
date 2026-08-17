@@ -187,7 +187,14 @@ class TestOtelMcpServer:
     def test_registers_expected_tools(self, otel_server_mod):  # noqa: ANN001, ANN201  # tracked: #288
         server = otel_server_mod.build_server()
         names = asyncio.run(_list_tool_names(server))
-        assert names == {"reports", "summary", "compare", "trace_graphs", "critical_path"}
+        assert names == {
+            "reports",
+            "summary",
+            "compare",
+            "trace_graphs",
+            "critical_path",
+            "trace_breakdown",
+        }
 
     def test_discovers_and_summarizes_critical_path(self, otel_server_mod, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         report_path = tmp_path / "telemetry.json"
@@ -230,6 +237,91 @@ class TestOtelMcpServer:
 
         assert result["workload_name"] == "hotel"
         assert result["roots"][0]["nodes_by_contribution"][0]["service"] == "search"
+
+    def test_trace_breakdown_returns_call_graph_and_waterfall(
+        self, otel_server_mod: ModuleType, tmp_path: Path
+    ) -> None:
+        graph_path = tmp_path / "trace-graph.json"
+        report_path = tmp_path / "telemetry.json"
+        graph_path.write_text(json.dumps(_trace_graph()))
+        report_path.write_text(json.dumps(_otel_report(20.0)))
+
+        breakdown = otel_server_mod.summarize_trace_breakdown(
+            str(graph_path), str(report_path), top=10
+        )
+
+        root = breakdown.roots[0]
+        assert [(node.node_id, node.depth) for node in root.nodes] == [
+            ("node-001", 0),
+            ("node-002", 1),
+        ]
+        assert root.nodes[0].inclusive_latency_ms.mean_ms == 20.0
+        assert root.nodes[0].exclusive_latency_ms.mean_ms == 5.0
+        assert (root.omitted_node_count, root.omitted_edge_count) == (0, 0)
+        assert [edge.from_node for edge in root.edges] == ["node-001"]
+        waterfall = root.representative_trace
+        assert [(span.offset_ms, span.duration_ms) for span in waterfall.spans] == [
+            (0.0, 20.0),
+            (5.0, 15.0),
+        ]
+        assert waterfall.omitted_span_count == 0
+
+    def test_trace_breakdown_bounds_output_and_keeps_the_costly_nodes(
+        self, otel_server_mod: ModuleType, tmp_path: Path
+    ) -> None:
+        graph_path = tmp_path / "trace-graph.json"
+        report_path = tmp_path / "telemetry.json"
+        graph_path.write_text(json.dumps(_trace_graph()))
+        report_path.write_text(json.dumps(_otel_report(20.0)))
+
+        breakdown = otel_server_mod.summarize_trace_breakdown(
+            str(graph_path), str(report_path), top=1
+        )
+
+        root = breakdown.roots[0]
+        # Ranking is by inclusive p95, so the cheap leaf is what gets dropped,
+        # and an edge to a dropped node cannot dangle.
+        assert [node.node_id for node in root.nodes] == ["node-001"]
+        assert (root.omitted_node_count, root.omitted_edge_count) == (1, 1)
+        assert root.edges == []
+        assert [span.duration_ms for span in root.representative_trace.spans] == [20.0]
+        assert root.representative_trace.omitted_span_count == 1
+
+    def test_trace_breakdown_tool_rejects_a_graph_from_another_workload(
+        self, otel_server_mod: ModuleType, tmp_path: Path
+    ) -> None:
+        graph_path = tmp_path / "trace-graph.json"
+        report_path = tmp_path / "telemetry.json"
+        graph = _trace_graph()
+        graph["workload_hash"] = "def456"
+        graph_path.write_text(json.dumps(graph))
+        report_path.write_text(json.dumps(_otel_report(20.0)))
+
+        with pytest.raises(ValueError, match="matching workload identity and windows"):
+            otel_server_mod.summarize_trace_breakdown(str(graph_path), str(report_path))
+
+    def test_trace_breakdown_tool_returns_structured_summary(
+        self, otel_server_mod: ModuleType, tmp_path: Path
+    ) -> None:
+        graph_path = tmp_path / "trace-graph.json"
+        report_path = tmp_path / "telemetry.json"
+        graph_path.write_text(json.dumps(_trace_graph()))
+        report_path.write_text(json.dumps(_otel_report(20.0)))
+
+        server = otel_server_mod.build_server()
+        result = asyncio.run(
+            _call_structured_tool(
+                server,
+                "trace_breakdown",
+                path=str(graph_path),
+                telemetry_path=str(report_path),
+                top=10,
+            )
+        )
+
+        assert result["workload_name"] == "hotel"
+        assert result["roots"][0]["representative_trace"]["trace_id"] == "trace-a"
+        assert result["roots"][0]["nodes"][1]["service"] == "search"
 
     def test_critical_path_rejects_graph_from_another_measurement_window(
         self, otel_server_mod: ModuleType, tmp_path: Path

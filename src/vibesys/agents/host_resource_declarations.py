@@ -44,9 +44,34 @@ def _resources(
     return tuple(HostResource(path, access, purpose) for path in paths)
 
 
+def _interpreter_alias_roots() -> set[Path]:
+    """Symlinked directories the interpreter is reached through.
+
+    A virtualenv's ``bin/python`` often reaches its base install through an
+    alias directory (uv keeps ``cpython-3.14`` pointing at ``cpython-3.14.7``).
+    ``sys.base_prefix`` is already symlink-resolved, so importing it alone
+    leaves the alias dangling inside the sandbox and every ``sys.executable``
+    exec fails with ENOENT: the agent then loses its stdio MCP servers.
+    Importing the alias directory itself binds the real install under the name
+    the interpreter actually walks.
+    """
+    roots: set[Path] = set()
+    current = Path(sys.executable)
+    seen: set[Path] = set()
+    while current.is_symlink() and current not in seen:
+        seen.add(current)
+        target = current.readlink()
+        current = target if target.is_absolute() else current.parent / target
+        roots.update(parent for parent in current.parents if parent.is_symlink())
+    return roots
+
+
 def _python_runtime(ctx: HostResourceContext) -> Iterable[HostResource]:
     del ctx
-    return _resources((Path(sys.base_prefix), Path(sys.prefix)), purpose="Python runtime")
+    return _resources(
+        (Path(sys.base_prefix), Path(sys.prefix), *sorted(_interpreter_alias_roots())),
+        purpose="Python runtime",
+    )
 
 
 def _path_toolchain(ctx: HostResourceContext) -> Iterable[HostResource]:
