@@ -13,9 +13,10 @@ const config: Config = {
     v4: true, // Improve compatibility with the upcoming Docusaurus v4
   },
 
-  // Production URL. GitHub Pages for the uw-syfi/vibesys repo.
-  url: 'https://uw-syfi.github.io',
-  baseUrl: '/vibesys/',
+  // Production URL. GitHub Pages for the uw-syfi/vibesys repo, served under
+  // the custom subdomain docs.vibing.systems (see static/CNAME).
+  url: 'https://docs.vibing.systems',
+  baseUrl: '/',
 
   organizationName: 'uw-syfi',
   projectName: 'vibesys',
