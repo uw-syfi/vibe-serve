@@ -1926,6 +1926,33 @@ def _run_framework_benchmark(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracke
     return feedback, None
 
 
+def _reconcile_model_requests(ctx: LoopContext) -> str | None:
+    """Stage any candidate-declared model weights before the framework gates.
+
+    The candidate may declare extra model weights it needs in
+    ``.vibesys/models.json`` (see ``vibesys.sandbox.model_requests``). This runs
+    once per gate invocation, before deploy; a malformed or disallowed manifest
+    is returned as gate feedback so the candidate can correct it rather than
+    crashing the run. Only meaningful for Modal runs (weights live in Modal
+    Volumes); a no-op otherwise.
+    """
+    if getattr(ctx.run_environment_view, "env_kind", "local") != "modal":
+        return None
+    from vibesys.sandbox.model_requests import (  # noqa: PLC0415  # tracked: #288
+        ModelRequestError,
+        reconcile_model_requests,
+    )
+
+    try:
+        volumes = reconcile_model_requests(ctx.workspace, log=ctx.lprint)
+    except ModelRequestError as exc:
+        ctx.lprint(f"[model-request] rejected: {exc}")
+        return f"Model-weight request could not be satisfied: {exc}"
+    if volumes:
+        ctx.lprint(f"[model-request] staged {len(volumes)} model volume(s): " + ", ".join(volumes))
+    return None
+
+
 def _run_framework_gates(  # noqa: PLR0913  # tracked: #288
     ctx: LoopContext,
     *,
@@ -1940,6 +1967,9 @@ def _run_framework_gates(  # noqa: PLR0913  # tracked: #288
 ) -> tuple[str | None, float | None, bool]:
     if ctx.agent_runner.backend_name == "stub":
         return None, None, False
+    resource_feedback = _reconcile_model_requests(ctx)
+    if resource_feedback is not None:
+        return resource_feedback, None, False
     if reuse_accuracy_pass:
         feedback = None
         issue_board.append_framework_accuracy_gate(

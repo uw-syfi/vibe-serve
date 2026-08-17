@@ -898,6 +898,16 @@ def _modal_runtime_notes(
         "Use `modal.Volume.from_name(<that-name>)` and mount it at "
         "whatever container path you prefer (no fixed convention is "
         "required).\n"
+        "  - If your implementation needs model weights beyond those the "
+        "task pre-stages, declare them in `.vibesys/models.json` in your "
+        'workspace root: a JSON list of `{"id": "<huggingface-repo-id>", '
+        '"revision": "<optional>"}` entries (or `{"models": [...]}`). Between '
+        "rounds, before measurement, the framework stages each requested "
+        "repository into its own `vibesys-model-<normalized-id>` Volume using "
+        "the exact naming rule above; mount them the same way. This request "
+        "covers model weights only and cannot change the GPU or benchmark "
+        "configuration. An operator allowlist may restrict which repositories "
+        "are permitted; a rejected request comes back as gate feedback.\n"
         f"  - **The `{reference_path}/` directory (meta.json, config.json, "
         "reference.py) exists ONLY in this local editor container — it is "
         "NOT present inside the deployed Modal container.** Reading "
