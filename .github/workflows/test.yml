@@ -3,19 +3,27 @@ name: Tests
 on:
   push:
     branches: [main]
-    # Skip CI for pure-documentation changes. Only root-level Markdown and the
-    # docs/ tree are ignored; Markdown under resources/skills/ and test fixtures
-    # is consumed by prompt/skill snapshot tests, so it is deliberately not
-    # listed here. A change touching any non-doc file still runs the full
-    # matrix (paths-ignore skips only when every changed file matches).
+    # Skip CI for changes that can't affect backend correctness:
+    # pure-documentation changes and the Docusaurus site (checked separately
+    # by website.yml). Root-level Markdown, docs/, website/, and the website
+    # workflow itself are ignored by exact name, not `.github/workflows/**`,
+    # so edits to this workflow (or publish.yml) still run the full matrix.
+    # Markdown under resources/skills/ and test fixtures is consumed by
+    # prompt/skill snapshot tests, so it is deliberately not listed here. A
+    # change touching any non-ignored file still runs the full matrix
+    # (paths-ignore skips only when every changed file matches).
     paths-ignore:
       - '*.md'
       - 'docs/**'
+      - 'website/**'
+      - '.github/workflows/website.yml'
   pull_request:
     branches: [main]
     paths-ignore:
       - '*.md'
       - 'docs/**'
+      - 'website/**'
+      - '.github/workflows/website.yml'
 
 jobs:
   format:
