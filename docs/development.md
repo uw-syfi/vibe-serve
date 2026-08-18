@@ -8,7 +8,7 @@ bundles, and the TUI.
 
 - Read [`docs/coding-best-practices.md`](coding-best-practices.md).
 - Keep changes within the owning package and preserve the framework boundaries.
-- Use the repository [pull request template](../.github/pull_request_template.md)
+- Use the repository [pull request template](https://github.com/uw-syfi/vibesys/blob/main/.github/pull_request_template.md)
   when opening a PR.
 
 ## Repository layout
@@ -96,7 +96,7 @@ uv run pytest -k orchestrator
 ```
 
 The TypeScript client has its own workflow; see
-[`clients/tui/README.md`](../clients/tui/README.md). The short version is:
+[`clients/tui/README.md`](https://github.com/uw-syfi/vibesys/blob/main/clients/tui/README.md). The short version is:
 
 ```bash
 pnpm install --frozen-lockfile
@@ -114,16 +114,16 @@ When Python protocol models change, regenerate the files under
 
 Use the guide that matches the surface you are adding:
 
-- [Add or customize a domain](../src/vibesys/domains/README.md) for new
+- [Add or customize a domain](https://github.com/uw-syfi/vibesys/blob/main/src/vibesys/domains/README.md) for new
   problem-space prompts, hooks, and domain registration.
-- [Add or update Agent Skills](../resources/skills/README.md) and read the
+- [Add or update Agent Skills](https://github.com/uw-syfi/vibesys/blob/main/resources/skills/README.md) and read the
   [VibeSys skill metadata guide](skill-metadata.md) when routing skills by
   backend or domain.
 - [Extend profilers](extending-profilers.md) for profiler support packages,
   MCP tools, and profiler prompts.
 - [Update CLI flags and combinations](cli-flags.md) when changing the user
   facing command contract.
-- [Update feature flags](../src/vibesys/FEATURE_FLAGS.md) for opt-in
+- [Update feature flags](https://github.com/uw-syfi/vibesys/blob/main/src/vibesys/FEATURE_FLAGS.md) for opt-in
   experiments and optional framework behavior.
 
 The experimental Omnigent adapter is a developer-facing alternative to the

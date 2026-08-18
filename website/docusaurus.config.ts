@@ -21,8 +21,18 @@ const config: Config = {
   organizationName: 'uw-syfi',
   projectName: 'vibesys',
 
-  onBrokenLinks: 'warn',
-  onBrokenMarkdownLinks: 'warn',
+  // Fail the build instead of warning. `warn` let broken links ship: the CI
+  // website build stayed green while the deployed site served dead links
+  // (docs/ links that escape the docs plugin's content root resolve to site
+  // URLs that were never built).
+  onBrokenLinks: 'throw',
+  onBrokenAnchors: 'throw',
+
+  markdown: {
+    hooks: {
+      onBrokenMarkdownLinks: 'throw',
+    },
+  },
 
   i18n: {
     defaultLocale: 'en',

@@ -11,12 +11,16 @@ on:
     paths:
       - 'website/**'
       - 'docs/**'
+      - '*.md'
+      - 'scripts/check_doc_links.py'
       - '.github/workflows/website.yml'
   pull_request:
     branches: [main]
     paths:
       - 'website/**'
       - 'docs/**'
+      - '*.md'
+      - 'scripts/check_doc_links.py'
       - '.github/workflows/website.yml'
 
 jobs:
@@ -25,6 +29,12 @@ jobs:
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Stdlib-only, so it needs no uv/dependency setup in this Node-only job.
+      # Covers what the Docusaurus build cannot: absolute links back into this
+      # repository, and Markdown outside docs/ that the site never renders.
+      - name: Check Markdown links
+        run: python3 scripts/check_doc_links.py
 
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0

@@ -62,6 +62,12 @@ jobs:
       - name: Check Python lint
         run: ./scripts/check_lint.sh
 
+      # docs/ and root Markdown are covered by website.yml, which this
+      # workflow's paths-ignore hands off to. This pass catches the rest:
+      # Markdown under src/, resources/, clients/, and examples/.
+      - name: Check Markdown links
+        run: python3 scripts/check_doc_links.py
+
   typecheck:
     runs-on: ubuntu-latest
 

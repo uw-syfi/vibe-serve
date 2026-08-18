@@ -178,4 +178,4 @@ maintained by people.
 Legacy root input bundles remain valid positional arguments without `--task`.
 
 See the [CLI reference](cli-flags.md) for every flag and
-[`examples/`](../examples/) for complete objectives and manifests.
+[`examples/`](https://github.com/uw-syfi/vibesys/tree/main/examples) for complete objectives and manifests.

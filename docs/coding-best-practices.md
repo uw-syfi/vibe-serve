@@ -150,6 +150,20 @@ through business logic.
 - Do not add VibeSys routing metadata to skill frontmatter; use
   `.vibesys.toml` sidecars.
 
+## Documentation Links
+
+`docs/` is rendered twice: by GitHub, and by the Docusaurus site at
+docs.vibing.systems, which serves `docs/` as its entire content root. A
+relative link from `docs/` to anything outside `docs/` resolves on GitHub and
+404s on the site.
+
+- Inside `docs/`, link to sibling docs relatively (`cli-flags.md`); link to
+  anything else in the repository by absolute URL
+  (`https://github.com/uw-syfi/vibesys/blob/main/...`).
+- Elsewhere in the repository, relative links are fine.
+- `scripts/check_doc_links.py` enforces both rules, including `#anchor`
+  targets and whether an absolute repo URL still points at a file that exists.
+
 ## Tests And Checks
 
 Run the narrowest relevant test first, then broaden when the change crosses
@@ -159,6 +173,7 @@ module boundaries.
 ./scripts/format.sh
 ./scripts/check_format.sh
 ./scripts/check_lint.sh
+uv run python scripts/check_doc_links.py
 uv run pytest
 uv run pytest path/to/test.py
 uv run pytest -k keyword
