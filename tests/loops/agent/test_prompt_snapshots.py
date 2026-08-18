@@ -610,3 +610,69 @@ def test_pre_round_prompt_byte_budgets():  # noqa: ANN201  # tracked: #288
 
     assert len(native.encode("utf-8")) <= 2_000
     assert len(fallback.encode("utf-8")) <= 4_000
+
+
+def test_pre_round_prompt_byte_budgets_on_a_cold_start():  # noqa: ANN201  # tracked: #288
+    """Round 1's extra guidance stays bounded too.
+
+    It renders once per campaign rather than once per round, so it earns a
+    larger ceiling than the steady-state text, not an exemption from one.
+    """
+    rendered = render_template(
+        "orchestrator_pre_round_prompt.j2",
+        template_dir=_TEMPLATE_DIR,
+        objective_location="OBJECTIVE.md",
+        progress_location="progress/",
+        regression_info="recorded in progress",
+        exhaustion_info="recorded in progress",
+        profiler_kind="torch",
+        profile_execution="remote",
+        has_history=False,
+    )
+    native = rendered + "\n\nReturn only the JSON object."
+    fallback = native + build_schema_hint(PreRoundDecision)
+
+    assert len(native.encode("utf-8")) <= 2_900
+    assert len(fallback.encode("utf-8")) <= 4_900
+
+
+def test_pre_round_prompt_defaults_to_the_campaign_history_reading():  # noqa: ANN201  # tracked: #288
+    """Omitting ``has_history`` must not silently render round 1's text."""
+    rendered = render_template(
+        "orchestrator_pre_round_prompt.j2",
+        template_dir=_TEMPLATE_DIR,
+        objective_location="OBJECTIVE.md",
+        progress_location="progress/",
+        profiler_kind="torch",
+        profile_execution="remote",
+    )
+
+    assert "latest relevant entry under `progress/`" in rendered
+    assert "This is\nround 1" not in rendered
+    assert "Profiling measures a running system" not in rendered
+    # The evaluation ban is relaxed only where the check is needed.
+    assert "you may run\none cheap check" not in rendered
+
+
+def test_pre_round_prompt_lets_a_cold_start_establish_that_it_runs():  # noqa: ANN201  # tracked: #288
+    """Round 1 has no prior result, so it is allowed one check of its own."""
+    rendered = render_template(
+        "orchestrator_pre_round_prompt.j2",
+        template_dir=_TEMPLATE_DIR,
+        objective_location="OBJECTIVE.md",
+        progress_location="progress/",
+        profiler_kind="torch",
+        profile_execution="remote",
+        has_history=False,
+    )
+
+    assert "This is\nround 1" in rendered
+    assert "latest relevant entry under" not in rendered
+    # The blanket ban still stands; the cold-start branch names its exception.
+    assert "or launch other evaluations." in rendered
+    assert "despite the restriction above you may run\none cheap check" in rendered
+    assert "never\nstand in for a benchmark run" in rendered
+    # A candidate that does not run must not be profiled, and the uncertain
+    # case defaults the same way rather than spending the turn.
+    assert "no profile is possible" in rendered
+    assert "If the check is inconclusive, prefer `need_profile=false`" in rendered
