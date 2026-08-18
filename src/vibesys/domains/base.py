@@ -13,6 +13,7 @@ class DomainName(StrEnum):  # noqa: D101  # tracked: #288
     LLM_SERVING = "llm-serving"
     GENERIC = "generic"
     MICROSERVICES = "microservices"
+    DATABASE = "database"
 
 
 class DomainRole(StrEnum):  # noqa: D101  # tracked: #288

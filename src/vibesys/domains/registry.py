@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from vibesys.domains import generic, llm_serving, microservices
+from vibesys.domains import database, generic, llm_serving, microservices
 from vibesys.domains.base import DomainDefinition, DomainName
 
 DOMAINS: dict[DomainName, DomainDefinition] = {
     generic.DEFINITION.name: generic.DEFINITION,
     llm_serving.DEFINITION.name: llm_serving.DEFINITION,
     microservices.DEFINITION.name: microservices.DEFINITION,
+    database.DEFINITION.name: database.DEFINITION,
 }
 
 

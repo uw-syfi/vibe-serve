@@ -47,6 +47,7 @@ def test_registered_domains_present():  # noqa: ANN201  # tracked: #288
     assert "llm-serving" in names
     assert "generic" in names
     assert "microservices" in names
+    assert "database" in names
     assert "README" not in names  # the authoring guide is not a domain
 
 
@@ -66,6 +67,14 @@ def test_resolve_microservices_domain():  # noqa: ANN201  # tracked: #288
     assert d.prompt_dir.parent.name == "domains"
 
 
+def test_resolve_database_domain():  # noqa: ANN201  # tracked: #288
+    d = resolve_domain(DomainName.DATABASE)
+    assert d.name is DomainName.DATABASE
+    assert d.prompt_dir.is_dir()
+    assert d.prompt_dir.name == "database"
+    assert d.prompt_dir.parent.name == "domains"
+
+
 def test_resolve_path_is_not_supported(tmp_path: Path):  # noqa: ANN201  # tracked: #288
     f = tmp_path / "mine"
     f.mkdir()
@@ -78,12 +87,14 @@ def test_registered_domains_carry_environment_hooks():  # noqa: ANN201  # tracke
     assert isinstance(DOMAINS[DomainName.LLM_SERVING].environment_hooks, LLMServingEnvironmentHooks)
     assert isinstance(DOMAINS[DomainName.GENERIC].environment_hooks, NoopEnvironmentHooks)
     assert isinstance(DOMAINS[DomainName.MICROSERVICES].environment_hooks, NoopEnvironmentHooks)
+    assert isinstance(DOMAINS[DomainName.DATABASE].environment_hooks, NoopEnvironmentHooks)
 
 
 def test_domains_declare_torch_profiler_compatibility():  # noqa: ANN201  # tracked: #288
     assert DOMAINS[DomainName.LLM_SERVING].supports_torch_profiler
     assert not DOMAINS[DomainName.GENERIC].supports_torch_profiler
     assert not DOMAINS[DomainName.MICROSERVICES].supports_torch_profiler
+    assert not DOMAINS[DomainName.DATABASE].supports_torch_profiler
 
 
 def test_resolve_unknown_raises():  # noqa: ANN201  # tracked: #288
@@ -135,6 +146,36 @@ def test_render_microservices_has_content():  # noqa: ANN201  # tracked: #288
     assert "connection pools" in impl
     assert "./check" in judge
     assert "./bench" in judge
+
+
+def test_render_database_has_content():  # noqa: ANN201  # tracked: #288
+    d = resolve_domain(DomainName.DATABASE)
+    impl = render_domain_section(d, DomainRole.IMPLEMENTER, reference_path="/ref")
+    judge = render_domain_section(
+        d,
+        DomainRole.JUDGE,
+        accuracy_command="./check",
+        benchmark_command="./bench",
+    )
+    # in-place-superopt framing is present on both role files
+    assert "database / dataflow engine" in impl
+    assert "output-equivalence" in impl.lower()
+    assert "output-equivalence" in judge.lower()
+    assert "no rearchitecture" in judge.lower()
+    # judge.md branches on the framework-supplied command variables
+    assert "./check" in judge
+    assert "./bench" in judge
+
+
+def test_render_database_judge_omits_commands_when_absent():  # noqa: ANN201  # tracked: #288
+    # with no commands supplied, the gated command lines drop out cleanly
+    d = resolve_domain(DomainName.DATABASE)
+    judge = render_domain_section(
+        d, DomainRole.JUDGE, accuracy_command=None, benchmark_command=None
+    )
+    assert judge  # the always-on correctness prose still renders
+    assert "./check" not in judge
+    assert "./bench" not in judge
 
 
 def test_role_file_keeps_markdown_headings(tmp_path: Path):  # noqa: ANN201  # tracked: #288
