@@ -124,6 +124,10 @@
   stroke-linejoin: round;
 }
 
+.logo {
+  fill: currentColor;
+}
+
 .arrowHead {
   fill: currentColor;
   fill-opacity: 0.75;
