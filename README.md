@@ -119,7 +119,7 @@ initialize a repository. An existing repository needs a baseline commit and a
 clean worktree. See [Running VibeSys](docs/running-vibesys.md) for copied
 projects, legacy input bundles, Docker, Modal, remote repositories, resume, and
 alternate search loops. The [CLI reference](docs/cli-flags.md) documents every
-flag. Contributor setup belongs in [`docs/development.md`](docs/development.md).
+flag. Contributor setup belongs in [`docs/contributing/development.md`](docs/contributing/development.md).
 
 ## Citation
 

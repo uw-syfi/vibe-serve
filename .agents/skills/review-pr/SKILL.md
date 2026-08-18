@@ -14,7 +14,7 @@ repository's contracts, architecture, tests, and affected callers.
 ## Workflow
 
 1. Resolve the review target and intent.
-   - Read `AGENTS.md`, `docs/coding-best-practices.md`, and every applicable
+   - Read `AGENTS.md`, `docs/contributing/coding-best-practices.md`, and every applicable
      subtree instruction before judging the change.
    - Inspect repository status before switching branches or fetching a PR.
      Preserve user changes and prefer reviewing without mutating the worktree.

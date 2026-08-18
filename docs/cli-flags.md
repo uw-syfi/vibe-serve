@@ -175,7 +175,7 @@ multi-file project.
 
 OpenEvolve state is stored under
 `.vibesys/state/runs/<run-id>/evolve/openevolve/` and loaded on resume. See
-[`docs/openevolve.md`](openevolve.md) for the adapter boundary and metric
+[`docs/contributing/openevolve.md`](contributing/openevolve.md) for the adapter boundary and metric
 semantics. On resume the policy and saved settings are restored when these
 flags are omitted; partial explicit settings are merged with the saved values,
 flag-defined objectives are restored, and incompatible changes are rejected.
@@ -457,7 +457,7 @@ Effective skill loading is the intersection of the declared constraints:
 - `--no-skills` disables all skill loading, including scoped skills, and
   overrides both `--skills-dir` and `--extra-skills`.
 
-See [Skill Metadata](skill-metadata.md) for the VibeSys-specific metadata
+See [Skill Metadata](contributing/skill-metadata.md) for the VibeSys-specific metadata
 contract and validation rules.
 
 ## Target Inputs

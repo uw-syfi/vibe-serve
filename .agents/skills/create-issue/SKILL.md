@@ -15,7 +15,7 @@ metadata, and leave prioritization to maintainers.
 
 1. Resolve the repository and requested write scope. If the user asks only for
    a draft, do not create or modify GitHub state.
-2. Read `docs/issue-authoring.md` completely.
+2. Read `docs/contributing/issue-authoring.md` completely.
 3. Select exactly one matching form and read it completely:
    - `.github/ISSUE_TEMPLATE/01-bug.yml`
    - `.github/ISSUE_TEMPLATE/02-engineering-change.yml`

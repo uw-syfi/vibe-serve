@@ -46,6 +46,26 @@ const config: Config = {
     },
   ],
 
+  // docs/ moved contributor pages under docs/contributing/ so the repo tree
+  // mirrors the site. These are the pre-move URLs; keep them resolving rather
+  // than turning previously published links into 404s.
+  plugins: [
+    [
+      '@docusaurus/plugin-client-redirects',
+      {
+        redirects: [
+          'development',
+          'coding-best-practices',
+          'extending-profilers',
+          'skill-metadata',
+          'openevolve',
+          'issue-authoring',
+          'publishing',
+        ].map(id => ({from: `/docs/${id}`, to: `/docs/contributing/${id}`})),
+      },
+    ],
+  ],
+
   presets: [
     [
       'classic',
@@ -104,7 +124,7 @@ const config: Config = {
           items: [
             {label: 'Running VibeSys', to: '/docs/running-vibesys'},
             {label: 'CLI flags', to: '/docs/cli-flags'},
-            {label: 'Contributing', to: '/docs/development'},
+            {label: 'Contributing', to: '/docs/contributing/development'},
           ],
         },
         {

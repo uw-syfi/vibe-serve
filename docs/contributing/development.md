@@ -6,7 +6,7 @@ bundles, and the TUI.
 
 ## Before you change code
 
-- Read [`docs/coding-best-practices.md`](coding-best-practices.md).
+- Read [`docs/contributing/coding-best-practices.md`](coding-best-practices.md).
 - Keep changes within the owning package and preserve the framework boundaries.
 - Use the repository [pull request template](https://github.com/uw-syfi/vibesys/blob/main/.github/pull_request_template.md)
   when opening a PR.
@@ -114,16 +114,16 @@ When Python protocol models change, regenerate the files under
 
 Use the guide that matches the surface you are adding:
 
-- [Add or customize a domain](https://github.com/uw-syfi/vibesys/blob/main/src/vibesys/domains/README.md) for new
+- [Add or customize a domain](domains.md) for new
   problem-space prompts, hooks, and domain registration.
 - [Add or update Agent Skills](https://github.com/uw-syfi/vibesys/blob/main/resources/skills/README.md) and read the
   [VibeSys skill metadata guide](skill-metadata.md) when routing skills by
   backend or domain.
 - [Extend profilers](extending-profilers.md) for profiler support packages,
   MCP tools, and profiler prompts.
-- [Update CLI flags and combinations](cli-flags.md) when changing the user
+- [Update CLI flags and combinations](../cli-flags.md) when changing the user
   facing command contract.
-- [Update feature flags](https://github.com/uw-syfi/vibesys/blob/main/src/vibesys/FEATURE_FLAGS.md) for opt-in
+- [Update feature flags](feature-flags.md) for opt-in
   experiments and optional framework behavior.
 
 The experimental Omnigent adapter is a developer-facing alternative to the
@@ -143,8 +143,8 @@ uv run vibesys-issue-mcp
 ```
 
 For issue forms and repository issue conventions, see
-[`docs/issue-authoring.md`](issue-authoring.md). For evolutionary search policy
-work, see [`docs/openevolve.md`](openevolve.md).
+[`docs/contributing/issue-authoring.md`](issue-authoring.md). For evolutionary search policy
+work, see [`docs/contributing/openevolve.md`](openevolve.md).
 
 ## CI gates
 

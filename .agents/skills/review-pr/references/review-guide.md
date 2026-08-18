@@ -141,7 +141,7 @@ Ask of new abstractions:
 - For TOML/YAML/JSON/manifests, test a representative valid value and unknown,
   malformed, missing, or conflicting values. Check defaults and precedence.
 - Add `FeatureFlag` enum members and `FeatureDefinition` registrations together;
-  keep typed flag use at call sites and update `src/vibesys/FEATURE_FLAGS.md`.
+  keep typed flag use at call sites and update `docs/contributing/feature-flags.md`.
 - Check package and distribution boundaries when adding templates, data, CLI
   entry points, workspace libraries, or client outputs. A source-tree test can
   pass while a built package omits the new file.
@@ -193,7 +193,7 @@ Search for every user-visible name, command, field, default, and path changed by
 the PR. Typical coupled documentation includes:
 
 - `README.md`, package READMEs, installation/setup commands, and examples;
-- `docs/cli-flags.md` for CLI flags and `src/vibesys/FEATURE_FLAGS.md` for flags;
+- `docs/cli-flags.md` for CLI flags and `docs/contributing/feature-flags.md` for flags;
 - `CANDIDATE_CONTRACT.md`, protocol/design docs, and evaluator READMEs;
 - example `OBJECTIVE.md`, `vibesys.input.toml`, checker, benchmark, reference,
   requirements, and run commands;

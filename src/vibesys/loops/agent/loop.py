@@ -918,7 +918,7 @@ def _domain_render_context(
     falsy (``benchmark_command`` / ``accuracy_command`` when nothing is attached),
     so ``{% if benchmark_command %}`` works everywhere. ``interface`` lets a
     domain distinguish direct invocation from an over-the-wire service without
-    treating that boundary as a language choice. See ``vibesys/domains/README.md``.
+    treating that boundary as a language choice. See ``docs/contributing/domains.md``.
     """
     return {
         "modality": modality,

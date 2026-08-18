@@ -1,6 +1,6 @@
 # Agent Instructions
 
-Read [`docs/coding-best-practices.md`](docs/coding-best-practices.md) before
+Read [`docs/contributing/coding-best-practices.md`](docs/contributing/coding-best-practices.md) before
 editing code in this repository. It documents the repo-specific expectations
 for what good code looks like.
 
@@ -21,7 +21,7 @@ editing across files) to subagents. Use cheaper models whenever the task
 allows, and run independent subagents in parallel.
 
 Before creating a GitHub issue, read
-[`docs/issue-authoring.md`](docs/issue-authoring.md) and the matching form under
+[`docs/contributing/issue-authoring.md`](docs/contributing/issue-authoring.md) and the matching form under
 `.github/ISSUE_TEMPLATE/`. Search both the codebase and open and closed issues
 before filing. Use the repo-local `create-issue` skill when it is available.
 

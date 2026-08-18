@@ -2,8 +2,9 @@ import type {SidebarsConfig} from '@docusaurus/plugin-content-docs';
 
 // This runs in Node.js - Don't use client-side code here (browser APIs, JSX...)
 //
-// Doc ids are the repo docs/ filenames (the docs plugin `path` points at
-// ../docs), so the site renders a single copy of those Markdown files.
+// Doc ids are the repo docs/ paths (the docs plugin `path` points at ../docs),
+// so this sidebar and the docs/ tree have the same shape: user-facing pages at
+// the top level, contributor pages under docs/contributing/.
 const sidebars: SidebarsConfig = {
   docsSidebar: [
     'running-vibesys',
@@ -11,15 +12,17 @@ const sidebars: SidebarsConfig = {
     {
       type: 'category',
       label: 'Contributing',
-      link: {type: 'doc', id: 'development'},
+      link: {type: 'doc', id: 'contributing/development'},
       items: [
-        'development',
-        'coding-best-practices',
-        'extending-profilers',
-        'skill-metadata',
-        'openevolve',
-        'issue-authoring',
-        'publishing',
+        'contributing/development',
+        'contributing/coding-best-practices',
+        'contributing/domains',
+        'contributing/feature-flags',
+        'contributing/extending-profilers',
+        'contributing/skill-metadata',
+        'contributing/openevolve',
+        'contributing/issue-authoring',
+        'contributing/publishing',
       ],
     },
   ],
