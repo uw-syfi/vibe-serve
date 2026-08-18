@@ -2896,6 +2896,15 @@ def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
                     candidate_retention_reason = (
                         active_hypothesis.gate_approved_candidate_retention_reason
                     )
+                # An official framework benchmark reports a single trusted
+                # scalar via perf_metric/perf_unit but leaves accepted_metrics
+                # empty (only implementer-reported evals populate it). Without a
+                # comparable objective row, _record_candidate_metrics falls back
+                # to the provisional candidate_metrics for frontier dominance.
+                # Promote the trusted scalar into the objective row so official
+                # framework measurements drive the frontier.
+                if not accepted_metrics and perf_metric is not None and perf_unit is not None:
+                    accepted_metrics = {perf_unit: perf_metric}
                 completed_record = RoundRecord(
                     round_number=round_number,
                     commit=commit,
