@@ -2806,6 +2806,37 @@ def test_judge_audited_implementer_metrics_are_recorded(tmp_path, ref_file):  # 
     )
 
 
+def test_official_framework_benchmark_scalar_populates_round_metrics(tmp_path, ref_file):  # noqa: ANN001, ANN201  # tracked: #288
+    from vibesys.input_manifest import BenchmarkResult  # noqa: PLC0415  # tracked: #288
+
+    # No implementer-reported perf: accepted_metrics stays empty, so the only
+    # objective row can come from the official framework benchmark's scalar.
+    runner = _make_orchestrate_runner()
+
+    with patch(
+        "vibesys.loops.agent.loop._run_framework_benchmark",
+        return_value=(None, 512.0),
+    ):
+        _invoke_orchestrate(
+            tmp_path,
+            ref_file,
+            runner,
+            max_rounds=1,
+            judge_every=10,
+            benchmark_result=BenchmarkResult(
+                json_argument="--output-json",
+                metric="tok/s",
+            ),
+        )
+
+    rounds = _round_payloads(tmp_path)
+    assert rounds[0]["perf_metric"] == 512.0
+    assert rounds[0]["perf_unit"] == "tok/s"
+    # The trusted framework scalar is promoted into the objective row even
+    # though the implementer reported no accepted_metrics.
+    assert rounds[0]["metrics"] == {"tok/s": 512.0}
+
+
 def test_loop_retries_when_framework_accuracy_gate_fails(tmp_path, ref_file):  # noqa: ANN001, ANN201  # tracked: #288
     runner = _make_orchestrate_runner(
         plans=[OrchestratorPlan(task="Build", pass_criteria="tests", reasoning="start")],  # noqa: S106  # tracked: #288
