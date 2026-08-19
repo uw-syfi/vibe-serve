@@ -71,10 +71,13 @@ Rust owns all candidate FFI so C ABI loading, native handle lifetimes, and direc
 benchmark calls are implemented once. The candidate never interacts directly
 with Go.
 
-Go dependencies, including the evaluator SDK reached through a relative
-`replace`, are vendored into `vendor/`. VibeSys copies this package into the
-candidate workspace before running it, where a relative module path no longer
-resolves, so the package must build from its own tree.
+VibeSys copies this package to `_evaluator/<name>` in the candidate workspace
+before running it, so it must build from a relocated tree with no path back to
+this repository. Every Go dependency, including the evaluator SDK
+(`github.com/uw-syfi/vibesys/sdk/vs-evaluator/vseval`), is an ordinary published
+module requirement resolved from the module proxy: no relative `replace`, no
+committed `vendor/`. To change the SDK and this evaluator together, use a
+developer-local Go workspace, described in [sdk/README.md](../../../sdk/README.md).
 
 ## Repository and Evaluator Integrity
 

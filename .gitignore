@@ -269,3 +269,12 @@ src/vibesys/_tui/
 clients/tui/package-lock.json
 clients/tui/bun.lock
 clients/tui/bun.lockb
+
+# Go workspaces are developer-local, never committed. A committed go.work would
+# point evaluators at the local SDK source, so CI would test a build that no
+# real run performs: the framework copies an evaluator to `_evaluator/<name>`
+# in the candidate workspace, where it resolves the published SDK version from
+# the module proxy. Depending on the published version keeps CI honest. See
+# sdk/README.md for the co-development workflow.
+go.work
+go.work.sum

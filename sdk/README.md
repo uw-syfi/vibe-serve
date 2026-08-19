@@ -18,3 +18,28 @@ without pulling in the full VibeSys dependency tree.
 |---------|---------|
 | `vs-bench` | Benchmark toolkit: SSE transport, load scheduling, statistics |
 | `vs-evaluator` | Evaluator result protocol: spec, conformance fixtures, Go SDK |
+
+## Co-developing an SDK and a consumer
+
+Consumers depend on published versions, never on a relative `replace`. The queue
+evaluator, for example, requires
+`github.com/uw-syfi/vibesys/sdk/vs-evaluator/vseval v0.1.0` and resolves it from
+the module proxy. This is not incidental: VibeSys copies an evaluator package to
+`_evaluator/<name>` in the candidate workspace before running it, where a
+relative path no longer resolves. Requiring the published version means CI
+builds the same dependency a run does.
+
+To change an SDK and a consumer together, create a Go workspace at the
+repository root:
+
+```bash
+go work init ./sdk/vs-evaluator/vseval ./resources/evaluators/queue
+```
+
+`go.work` and `go.work.sum` are gitignored and must stay that way. A committed
+workspace would redirect CI to the local SDK source while real runs resolve the
+published version, so CI could pass against code no run executes.
+
+An SDK change reaches consumers only once it is tagged (Go module tags for a
+subdirectory carry the full path, `sdk/vs-evaluator/vseval/vX.Y.Z`) and each
+consumer's `go.mod` requires the new version.
