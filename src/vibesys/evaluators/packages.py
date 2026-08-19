@@ -8,7 +8,6 @@ file names, resource layout, or content-digest implementation details.
 from __future__ import annotations
 
 import hashlib
-import json
 import re
 import tomllib
 from dataclasses import dataclass
@@ -27,7 +26,6 @@ PROJECT_ROOT_TOKEN = "${PROJECT_ROOT}"  # noqa: S105
 
 _IDENTIFIER_PATTERN = re.compile(r"^[a-z0-9]+(?:[.-][a-z0-9]+)*$")
 _VERSION_PATTERN = re.compile(r"^[A-Za-z0-9]+(?:[._+-][A-Za-z0-9]+)*$")
-_DIGEST_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
 _DIGEST_EXCLUDED_NAMES = frozenset({".git", "__pycache__", "target"})
 
 
@@ -107,39 +105,6 @@ class EvaluatorPackageMetadata(EvaluatorPackageRequirement):
                     f"entrypoint {name!r} contains an empty argv element"
                 )
         return value
-
-
-class EvaluatorPackageLockEntry(EvaluatorPackageRequirement):
-    """One immutable evaluator package resolution stored in a lock file."""
-
-    digest: str
-
-    @field_validator("digest")
-    @classmethod
-    def _valid_digest(cls, value: str) -> str:
-        if not _DIGEST_PATTERN.fullmatch(value):
-            raise ValueError("digest must be a lowercase sha256 content digest")  # noqa: TRY003
-        return value
-
-
-class EvaluatorPackageLock(BaseModel):
-    """Versioned repository lock for evaluator package resolutions."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    schema_version: Literal[1]
-    package: tuple[EvaluatorPackageLockEntry, ...] = ()
-
-    def entry(self, requirement: EvaluatorPackageRequirement) -> EvaluatorPackageLockEntry | None:
-        """Return the entry matching an exact requirement, if present."""
-        return next(
-            (
-                entry
-                for entry in self.package
-                if entry.name == requirement.name and entry.version == requirement.version
-            ),
-            None,
-        )
 
 
 @dataclass(frozen=True)
@@ -230,27 +195,6 @@ class EvaluatorPackageRegistry:
             )
         return matches[0]
 
-    def resolve_locked(
-        self,
-        requirement: EvaluatorPackageRequirement,
-        lock: EvaluatorPackageLock | None,
-    ) -> ResolvedEvaluatorPackage:
-        """Resolve ``requirement`` and verify its immutable lock entry when provided."""
-        package = self.resolve(requirement)
-        if lock is None:
-            return package
-        entry = lock.entry(requirement)
-        if entry is None:
-            raise EvaluatorPackageError(  # noqa: TRY003
-                f"evaluator package {requirement.name}=={requirement.version} is not locked"
-            )
-        if entry.digest != package.digest:
-            raise EvaluatorPackageError(  # noqa: TRY003
-                f"evaluator package {requirement.name}=={requirement.version} digest mismatch: "
-                f"lock has {entry.digest}, resolved package has {package.digest}"
-            )
-        return package
-
     def _packages(self) -> tuple[ResolvedEvaluatorPackage, ...]:
         return tuple(
             load_evaluator_package(child)
@@ -289,72 +233,15 @@ def resolve_evaluator_package(
     requirement: EvaluatorPackageRequirement,
     *,
     packages_root: Path | None = None,
-    lock: EvaluatorPackageLock | None = None,
 ) -> ResolvedEvaluatorPackage:
-    """Resolve a package from an explicit collection or VibeSys resources.
-
-    When ``lock`` is supplied, resolution fails unless the exact package and
-    its resolved content digest match the lock file.
-    """
+    """Resolve a package from an explicit collection or VibeSys resources."""
     root = packages_root if packages_root is not None else evaluator_packages_dir()
     if root is None:
         raise EvaluatorPackageNotFoundError(  # noqa: TRY003
             "VibeSys evaluator package resources are not available; install a complete "
             "VibeSys distribution or pass packages_root"
         )
-    return EvaluatorPackageRegistry(root).resolve_locked(requirement, lock)
-
-
-def load_evaluator_package_lock(path: Path) -> EvaluatorPackageLock:
-    """Load and validate one evaluator package lock file."""
-    lock_path = path.expanduser().resolve()
-    try:
-        document = tomllib.loads(lock_path.read_text(encoding="utf-8"))
-        lock = EvaluatorPackageLock.model_validate(document)
-    except (OSError, tomllib.TOMLDecodeError, ValidationError) as exc:
-        raise EvaluatorPackageError(  # noqa: TRY003
-            f"invalid evaluator package lock {lock_path}: {exc}"
-        ) from exc
-    duplicate_keys = sorted(
-        key
-        for key in {(entry.name, entry.version) for entry in lock.package}
-        if sum(1 for entry in lock.package if (entry.name, entry.version) == key) > 1
-    )
-    if duplicate_keys:
-        duplicates = ", ".join(f"{name}=={version}" for name, version in duplicate_keys)
-        raise EvaluatorPackageError(  # noqa: TRY003
-            f"duplicate evaluator package lock entries in {lock_path}: {duplicates}"
-        )
-    return lock
-
-
-def render_evaluator_package_lock(lock: EvaluatorPackageLock) -> str:
-    """Serialize an evaluator lock deterministically as TOML."""
-    lines = [f"schema_version = {lock.schema_version}"]
-    for entry in sorted(lock.package, key=lambda item: (item.name, item.version)):
-        lines.extend(
-            [
-                "",
-                "[[package]]",
-                f"name = {json.dumps(entry.name)}",
-                f"version = {json.dumps(entry.version)}",
-                f"digest = {json.dumps(entry.digest)}",
-            ]
-        )
-    return "\n".join(lines) + "\n"
-
-
-def write_evaluator_package_lock(path: Path, lock: EvaluatorPackageLock) -> None:
-    """Write ``lock`` atomically, creating its parent directory as needed."""
-    lock_path = path.expanduser().resolve()
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = lock_path.with_name(f".{lock_path.name}.tmp")
-    try:
-        temporary.write_text(render_evaluator_package_lock(lock), encoding="utf-8")
-        temporary.replace(lock_path)
-    finally:
-        if temporary.exists():
-            temporary.unlink()
+    return EvaluatorPackageRegistry(root).resolve(requirement)
 
 
 def _content_digest(root: Path) -> str:

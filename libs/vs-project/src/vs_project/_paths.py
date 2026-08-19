@@ -5,7 +5,6 @@ from pathlib import Path, PurePosixPath
 CONFIGURATION_DIRECTORY_NAME = ".vibesys"
 TASKS_DIRECTORY_NAME = "tasks"
 STATE_DIRECTORY_NAME = "state"
-EVALUATOR_LOCK_FILE_NAME = "evaluators.lock"
 OBJECTIVE_FILE_NAME = "OBJECTIVE.md"
 MANIFEST_FILE_NAME = "vibesys.input.toml"
 

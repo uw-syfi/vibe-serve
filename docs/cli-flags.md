@@ -251,10 +251,10 @@ vibesys validate examples/model-serving/repositories/vllm \
 
 The command applies the same strict schemas and path checks as a real run. It
 validates the task objective and manifest, accuracy and benchmark command
-paths or package entry points, evaluator locks, and the optional
-benchmark-result contract. A valid task exits with status 0; an invalid task
-prints the failing contract and exits with status 1. Command-line usage errors
-exit with status 2. Validation does not execute the checker or benchmark.
+paths or package entry points, and the optional benchmark-result contract. A
+valid task exits with status 0; an invalid task prints the failing contract
+and exits with status 1. Command-line usage errors exit with status 2.
+Validation does not execute the checker or benchmark.
 Legacy root input bundles remain valid positional arguments without `--task`.
 
 ## Interface
@@ -467,7 +467,6 @@ Repository-native examples use this layout:
 ```text
 candidate-repository/
 ├── .vibesys/
-│   ├── evaluators.lock
 │   └── tasks/<task>/
 │       ├── OBJECTIVE.md
 │       ├── vibesys.input.toml
@@ -519,10 +518,9 @@ metric = "requests_per_second"
 ```
 
 Direct `command = [...]` arrays may point at Python, shell, Go, Rust, C++, or
-any other task-owned program. Package entry points decouple task manifests from
-the package's install location and verify the package's content digest against
-`.vibesys/evaluators.lock`. `${PROJECT_ROOT}` in package arguments expands to
-the absolute candidate repository root.
+any other task-owned program. Package entry points decouple task manifests
+from the package's install location. `${PROJECT_ROOT}` in package arguments
+expands to the absolute candidate repository root.
 
 The optional `benchmark.result` block opts a single-metric benchmark into
 trusted framework scoring: VibeSys appends `json_argument`, reads the resulting

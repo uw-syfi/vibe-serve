@@ -214,20 +214,15 @@ def test_configuration_symlink_is_rejected_even_within_project(tmp_path: Path) -
         project.state.create_project("project")
 
 
-def test_state_and_lock_symlinks_cannot_escape_configuration(tmp_path: Path) -> None:
+def test_state_symlinks_cannot_escape_configuration(tmp_path: Path) -> None:
     (tmp_path / ".vibesys" / "tasks").mkdir(parents=True)
     project = Project.open(tmp_path)
     external_state = tmp_path / "external-state"
     external_state.mkdir()
-    external_lock = tmp_path / "external.lock"
-    external_lock.write_text("lock", encoding="utf-8")
     (tmp_path / ".vibesys" / "state").symlink_to(external_state, target_is_directory=True)
-    (tmp_path / ".vibesys" / "evaluators.lock").symlink_to(external_lock)
 
     with pytest.raises(ProjectStateError, match="symlink"):
         project.state.sandbox_paths()
-    with pytest.raises(UnsafeProjectPathError, match="escapes"):
-        project.evaluator_lock()
 
 
 def test_configuration_capability_rejects_path_traversal(tmp_path: Path) -> None:

@@ -27,9 +27,6 @@ def _authored_project_input_paths(root: Path) -> tuple[Path, ...]:
     project = Project.open(root)
     if project.is_initialized():
         paths = {project.tasks_root().path.relative_to(root)}
-        evaluator_lock = project.evaluator_lock().path
-        if evaluator_lock.is_file():
-            paths.add(evaluator_lock.relative_to(root))
         return _minimal_paths(paths)
     return tuple(Path(value) for value in LEGACY_TRUSTED_PROJECT_INPUT_PATHS)
 

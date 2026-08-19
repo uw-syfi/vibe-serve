@@ -10,7 +10,7 @@ root:
 
     make
 
-VibeSys resolves and verifies the locked evaluator package during validation,
+VibeSys resolves the evaluator package during validation,
 then runs it during optimization. The evaluator command is not a repository
 executable.
 

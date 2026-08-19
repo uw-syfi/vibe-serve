@@ -102,7 +102,7 @@ computes a content digest, and resolves the logical entry point to a direct
 command. The selected run environment expands `${PROJECT_ROOT}` to the candidate
 repository root and mounts the immutable package read-only when isolation is in
 use. This remains correct even though the package command uses `go -C` to run
-from evaluator source. A repository lock file pins the package's exact digest.
+from evaluator source.
 
 This Git comparison protects against ordinary agent edits to evaluator files.
 It is not a substitute for an OS sandbox against native code that can access

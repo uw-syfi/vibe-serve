@@ -21,7 +21,6 @@ from vs_project.errors import ProjectError
 
 _CONFIGURATION_DIRECTORY_NAME = project_paths.CONFIGURATION_DIRECTORY_NAME
 _TASKS_DIRECTORY_NAME = project_paths.TASKS_DIRECTORY_NAME
-_EVALUATOR_LOCK_FILE_NAME = project_paths.EVALUATOR_LOCK_FILE_NAME
 _OBJECTIVE_FILE_NAME = project_paths.OBJECTIVE_FILE_NAME
 _MANIFEST_FILE_NAME = project_paths.MANIFEST_FILE_NAME
 _TASK_NAME_PATTERN = re.compile(r"^[a-z0-9][a-z0-9._-]{0,127}$")
@@ -128,18 +127,6 @@ class TasksRoot:
 
 
 @dataclass(frozen=True)
-class EvaluatorLockCapability:
-    """Location of the repository-wide evaluator dependency lock file."""
-
-    path: Path
-
-    @property
-    def exists(self) -> bool:
-        """Return whether the lock file currently exists as a regular file."""
-        return self.path.is_file()
-
-
-@dataclass(frozen=True)
 class TaskDirectory:
     """Validated task directory and its required trusted inputs."""
 
@@ -231,14 +218,6 @@ class ProjectLayout:
             boundary=configuration.path,
         )
         return TasksRoot(path)
-
-    def evaluator_lock(self) -> EvaluatorLockCapability:
-        """Return the evaluator lock-file location without creating it."""
-        configuration = self.configuration_root()
-        path = configuration.resolve(_EVALUATOR_LOCK_FILE_NAME, must_exist=False)
-        if path.exists() and not path.is_file():
-            raise ProjectLayoutError(f"Evaluator lock path is not a regular file: {path}")
-        return EvaluatorLockCapability(path)
 
     def discover_tasks(self) -> tuple[TaskDirectory, ...]:
         """Return all validated tasks ordered by task name."""

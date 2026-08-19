@@ -9,7 +9,6 @@ below `.vibesys/state`.
 project/
 ├── .git/
 ├── .vibesys/
-│   ├── evaluators.lock              # exact package pins, when packages are used
 │   ├── tasks/
 │   │   └── <task>/
 │   │       ├── OBJECTIVE.md
@@ -87,9 +86,6 @@ args = ["check", "--workspace", "${PROJECT_ROOT}", "--scenario", "spsc"]
 entrypoint = "vibesys-queue"
 args = ["benchmark", "--workspace", "${PROJECT_ROOT}", "--scenario", "spsc"]
 ```
-
-Commit `.vibesys/evaluators.lock` when a task uses a package. VibeSys verifies
-its exact version and content digest before a run.
 
 ## Legacy Input Bundles
 

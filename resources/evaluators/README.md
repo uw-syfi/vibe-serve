@@ -32,17 +32,3 @@ The local collection is the initial package source. Published packages can
 later provide the same metadata and entry-point names through a registry-backed
 resolver. Repository-specific checks and workloads belong with their task, not
 in this directory.
-
-A repository may pin its exact resolutions in `.vibesys/evaluators.lock`:
-
-```toml
-schema_version = 1
-
-[[package]]
-name = "vibesys-evaluator-example"
-version = "0.1.0"
-digest = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-```
-
-The lock is authoritative when present. Resolution requires an entry matching
-the requested exact version and rejects package contents whose digest differs.

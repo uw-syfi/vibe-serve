@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING, Self
 
 from vs_project._layout import (
     ConfigurationRoot,
-    EvaluatorLockCapability,
     ProjectLayout,
     TaskDirectory,
     TaskName,
@@ -63,10 +62,6 @@ class Project:
     def tasks_root(self) -> TasksRoot:
         """Return the validated root containing task definitions."""
         return self._layout.tasks_root()
-
-    def evaluator_lock(self) -> EvaluatorLockCapability:
-        """Return the repository-wide evaluator lock-file capability."""
-        return self._layout.evaluator_lock()
 
     def discover_tasks(self) -> tuple[TaskDirectory, ...]:
         """Return all validated task definitions ordered by name."""

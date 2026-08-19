@@ -52,7 +52,7 @@ def test_legacy_microservice_scenario_uses_source_evaluator() -> None:
     "task_name",
     ["hotel-reservation", "social-network-read-timeline"],
 )
-def test_deathstar_tasks_use_locked_packaged_evaluator(task_name: str) -> None:
+def test_deathstar_tasks_use_packaged_evaluator(task_name: str) -> None:
     bundle = _deathstar_bundle(task_name)
 
     assert bundle.root == DEATHSTAR_ROOT.resolve()

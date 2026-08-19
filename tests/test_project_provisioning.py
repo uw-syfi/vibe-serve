@@ -398,7 +398,7 @@ command = ["python", "-c", "print('1')"]
 """,
         encoding="utf-8",
     )
-    (source / ".vibesys" / "evaluators.lock").write_text(
+    (source / ".vibesys" / "notes.toml").write_text(
         "schema_version = 1\n",
         encoding="utf-8",
     )
@@ -419,6 +419,6 @@ command = ["python", "-c", "print('1')"]
 
     assert (destination / "src" / "server.py").is_file()
     assert (destination / ".vibesys" / "tasks" / "latency" / "OBJECTIVE.md").is_file()
-    assert (destination / ".vibesys" / "evaluators.lock").is_file()
+    assert (destination / ".vibesys" / "notes.toml").is_file()
     assert not (destination / ".vibesys" / "state").exists()
     assert not (destination / "vibesys.input.toml").exists()

@@ -22,7 +22,6 @@ The package owns the complete `.vibesys` filesystem contract:
 
 ```text
 .vibesys/
-├── evaluators.lock
 ├── tasks/<task-name>/
 │   ├── OBJECTIVE.md
 │   └── vibesys.input.toml

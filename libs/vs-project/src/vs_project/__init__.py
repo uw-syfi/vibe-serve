@@ -3,7 +3,6 @@
 from vs_project._layout import (
     AmbiguousTaskError,
     ConfigurationRoot,
-    EvaluatorLockCapability,
     InvalidTaskDefinitionError,
     InvalidTaskNameError,
     ProjectLayoutError,
@@ -51,7 +50,6 @@ __all__ = [
     "AgentRunConfiguration",
     "AmbiguousTaskError",
     "ConfigurationRoot",
-    "EvaluatorLockCapability",
     "EvolveRunConfiguration",
     "GitObjectId",
     "GitSnapshotFile",

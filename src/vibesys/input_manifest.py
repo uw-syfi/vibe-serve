@@ -12,11 +12,7 @@ from urllib.parse import urlparse
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from vibesys.domains.base import DomainName
-from vibesys.evaluators import (
-    EvaluatorPackageRequirement,
-    load_evaluator_package_lock,
-    resolve_evaluator_package,
-)
+from vibesys.evaluators import EvaluatorPackageRequirement, resolve_evaluator_package
 
 if TYPE_CHECKING:
     from vs_project import Project, TaskDirectory
@@ -464,7 +460,6 @@ def load_project_task(project: Project, task: TaskDirectory) -> InputBundle:
         project_root=project.root,
         task_root=task.path,
         task_name=str(task.name),
-        evaluator_lock_path=project.evaluator_lock().path,
         task_directory=task,
     )
 
@@ -474,7 +469,6 @@ def _load_input_bundle(  # noqa: C901, PLR0912, PLR0915  # tracked: #288
     project_root: Path,
     task_root: Path,
     task_name: str | None,
-    evaluator_lock_path: Path | None = None,
     task_directory: TaskDirectory | None = None,
 ) -> InputBundle:
     """Load a manifest and resolve its commands for project-root execution."""
@@ -526,17 +520,7 @@ def _load_input_bundle(  # noqa: C901, PLR0912, PLR0915  # tracked: #288
     evaluator_package = None
     requirement = manifest.evaluator.package_requirement if manifest.evaluator is not None else None
     if requirement is not None:
-        if evaluator_lock_path is not None and not evaluator_lock_path.is_file():
-            raise FileNotFoundError(  # noqa: TRY003
-                "Repository tasks that use evaluator packages require "
-                f"an evaluator lock file: {evaluator_lock_path}"
-            )
-        package_lock = (
-            load_evaluator_package_lock(evaluator_lock_path)
-            if evaluator_lock_path is not None and evaluator_lock_path.is_file()
-            else None
-        )
-        evaluator_package = resolve_evaluator_package(requirement, lock=package_lock)
+        evaluator_package = resolve_evaluator_package(requirement)
 
     resolved_commands: list[tuple[str, ...]] = []
     for label, command_spec in (
