@@ -191,13 +191,57 @@ func TestBenchmarkStreamReportsBadInvocationAsErrorRecord(t *testing.T) {
 	}
 }
 
+// TestBenchmarkReportsUndecidedGateHistoryAsErrorRecord drives the whole
+// command through the bounded-check path. The budget is small enough that the
+// multi-producer gate history cannot be decided, so the run must reach the
+// framework as a benchmark failure naming the budget rather than as a
+// measurement or a hang.
+func TestBenchmarkReportsUndecidedGateHistoryAsErrorRecord(t *testing.T) {
+	outputs := t.TempDir()
+	streamPath := filepath.Join(outputs, "stream.jsonl")
+	reportPath := filepath.Join(outputs, "report.json")
+
+	err := runBenchmarkCommand(referenceBenchmarkArgs(
+		t.TempDir(),
+		"--scenario", "mpsc",
+		"--check-budget", "1ns",
+		"--output-json", reportPath,
+		"--vs-output", streamPath,
+	))
+	if err == nil {
+		t.Fatal("undecided correctness gate still produced a measurement")
+	}
+	for _, want := range []string{"correctness gate", "could not be decided", "1ns"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("undecided gate error = %v, want it to name %q", err, want)
+		}
+	}
+	if _, statErr := os.Stat(reportPath); statErr == nil {
+		t.Fatal("undecided correctness gate still wrote a detailed report")
+	}
+
+	records := readStreamRecords(t, streamPath)
+	if len(records) != 2 || records[1]["kind"] != "error" {
+		t.Fatalf("stream records = %v, want hello and error", records)
+	}
+	if records[1]["message"] != err.Error() {
+		t.Fatalf("error record message = %v, want %q", records[1]["message"], err)
+	}
+}
+
 func TestBenchmarkWithoutStreamFlagKeepsExistingBehavior(t *testing.T) {
 	outputs := t.TempDir()
 	reportPath := filepath.Join(outputs, "report.json")
 
+	// Two producers and two consumers keep the correctness gate's concurrent
+	// history narrow. The default 4P/4C history overlaps widely enough that
+	// deciding it is sometimes minutes of work, which is the gate's problem to
+	// report, not this test's subject.
 	if err := runBenchmarkCommand(referenceBenchmarkArgs(
 		t.TempDir(),
 		"--scenario", "all",
+		"--producers", "2",
+		"--consumers", "2",
 		"--output-json", reportPath,
 	)); err != nil {
 		t.Fatal(err)

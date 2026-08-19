@@ -2,6 +2,7 @@ package main
 
 import (
 	"slices"
+	"time"
 
 	"github.com/anishathalye/porcupine"
 )
@@ -28,12 +29,20 @@ type reservationState struct {
 	Published []uint64
 }
 
-func checkReservationAwareFIFOHistory(capacity int, history []recordedOperation) bool {
+func checkReservationAwareFIFOHistory(
+	capacity int,
+	history []recordedOperation,
+	budget time.Duration,
+) porcupine.CheckResult {
 	operations, ok := reservationAwareOperations(history)
 	if !ok {
-		return false
+		return porcupine.Illegal
 	}
-	return porcupine.CheckOperations(reservationAwareFIFOModel(capacity), operations)
+	return porcupine.CheckOperationsTimeout(
+		reservationAwareFIFOModel(capacity),
+		operations,
+		budget,
+	)
 }
 
 func reservationAwareOperations(

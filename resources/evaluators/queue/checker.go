@@ -10,6 +10,7 @@ import (
 	"sort"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/anishathalye/porcupine"
 )
@@ -88,6 +89,7 @@ type accuracyConfig struct {
 	producers      int
 	consumers      int
 	seed           int64
+	checkBudget    time.Duration
 	failureHistory string
 }
 
@@ -309,6 +311,35 @@ func accuracyCapacities(configured uint64) []uint64 {
 	return capacities
 }
 
+// gateFailure turns a non-Ok verdict on the named history into the gate error
+// the caller reports.
+//
+// An undecided verdict is a failure, not a pass: the checker is worst-case
+// exponential, so treating porcupine.Unknown as Ok would let a candidate win by
+// producing histories the checker cannot decide.
+func gateFailure(
+	verdict porcupine.CheckResult,
+	config accuracyConfig,
+	history string,
+) error {
+	switch verdict {
+	case porcupine.Ok:
+		return nil
+	case porcupine.Illegal:
+		return fmt.Errorf("%s violates %s", history, correctnessContract(config.scenario))
+	default:
+		return fmt.Errorf(
+			"%s could not be decided against the %s scenario's %s within the %s check"+
+				" budget; the search is worst-case exponential, so raise"+
+				" --check-budget or check a smaller workload",
+			history,
+			config.scenario,
+			correctnessContract(config.scenario),
+			config.checkBudget,
+		)
+	}
+}
+
 func runAccuracy(config accuracyConfig) error {
 	if config.operations <= 0 {
 		return errors.New("operations must be greater than zero")
@@ -321,6 +352,11 @@ func runAccuracy(config accuracyConfig) error {
 	}
 	if config.trials <= 0 {
 		return errors.New("trials must be greater than zero")
+	}
+	// Porcupine reads a zero timeout as unlimited, which is the hang this
+	// budget exists to prevent, so the gate requires a positive one.
+	if config.checkBudget <= 0 {
+		return errors.New("check budget must be greater than zero")
 	}
 	if _, _, err := workerCounts(config.scenario, config.producers, config.consumers); err != nil {
 		return err
@@ -337,16 +373,18 @@ func runAccuracy(config accuracyConfig) error {
 		if err != nil {
 			return fmt.Errorf("boundary history at capacity %d: %w", capacity, err)
 		}
-		if !checkScenarioHistory(config.scenario, int(capacity), boundary) {
-			writeErr := writeFailureHistory(config.failureHistory, boundary)
-			return errors.Join(
-				fmt.Errorf(
-					"boundary history at capacity %d violates %s",
-					capacity,
-					correctnessContract(config.scenario),
-				),
-				writeErr,
-			)
+		verdict := checkScenarioHistory(
+			config.scenario,
+			int(capacity),
+			boundary,
+			config.checkBudget,
+		)
+		if err := gateFailure(
+			verdict,
+			config,
+			fmt.Sprintf("boundary history at capacity %d", capacity),
+		); err != nil {
+			return errors.Join(err, writeFailureHistory(config.failureHistory, boundary))
 		}
 	}
 
@@ -364,18 +402,23 @@ func runAccuracy(config accuracyConfig) error {
 				err,
 			)
 		}
-		if !checkScenarioHistory(config.scenario, int(capacity), history) {
-			writeErr := writeFailureHistory(config.failureHistory, history)
-			return errors.Join(
-				fmt.Errorf(
-					"trial %d (seed %d, capacity %d) violates %s",
-					trial,
-					config.seed+int64(trial),
-					capacity,
-					correctnessContract(config.scenario),
-				),
-				writeErr,
-			)
+		verdict := checkScenarioHistory(
+			config.scenario,
+			int(capacity),
+			history,
+			config.checkBudget,
+		)
+		if err := gateFailure(
+			verdict,
+			config,
+			fmt.Sprintf(
+				"trial %d (seed %d, capacity %d)",
+				trial,
+				config.seed+int64(trial),
+				capacity,
+			),
+		); err != nil {
+			return errors.Join(err, writeFailureHistory(config.failureHistory, history))
 		}
 	}
 	return nil

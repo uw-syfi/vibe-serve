@@ -97,6 +97,11 @@ func runCheckCommand(args []string) error {
 	producers := flags.Int("producers", 4, "Producer count for configurable scenarios")
 	consumers := flags.Int("consumers", 4, "Consumer count for MPMC")
 	seed := flags.Int64("seed", 42, "Deterministic workload seed")
+	checkBudget := flags.Duration(
+		"check-budget",
+		defaultCheckBudget,
+		"Time budget for deciding one history; an undecided history fails the gate",
+	)
 	failureHistory := flags.String("failure-history", "", "Write the first rejected history as JSON")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -127,6 +132,7 @@ func runCheckCommand(args []string) error {
 			producers:       *producers,
 			consumers:       *consumers,
 			seed:            *seed,
+			checkBudget:     *checkBudget,
 			failureHistory:  failureHistoryForScenario(*failureHistory, selected, len(scenarios)),
 		}
 		if err := runAccuracy(config); err != nil {
@@ -173,6 +179,11 @@ func runBenchmarkCommand(args []string) error {
 		"Odd number of measured runs; total_ops_per_sec reports their median",
 	)
 	seed := flags.Int64("seed", 42, "Correctness-gate seed")
+	checkBudget := flags.Duration(
+		"check-budget",
+		defaultCheckBudget,
+		"Time budget for deciding one correctness-gate history",
+	)
 	output := flags.String("output-json", "", "Write the detailed benchmark report as JSON")
 	// startBenchmarkStream registers --vs-output and parses args, so every
 	// failure from here on can be reported on the stream itself.
@@ -197,6 +208,7 @@ func runBenchmarkCommand(args []string) error {
 		warmup:       *warmup,
 		repetitions:  *repetitions,
 		seed:         *seed,
+		checkBudget:  *checkBudget,
 	}, stream)
 	if err != nil {
 		return stream.fail(err)
@@ -223,6 +235,7 @@ type benchmarkCommandConfig struct {
 	warmup       time.Duration
 	repetitions  int
 	seed         int64
+	checkBudget  time.Duration
 }
 
 func benchmarkScenarios(
@@ -258,6 +271,7 @@ func benchmarkScenarios(
 			warmup:          config.warmup,
 			repetitions:     config.repetitions,
 			seed:            config.seed,
+			checkBudget:     config.checkBudget,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", selected, err)

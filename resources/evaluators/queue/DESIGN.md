@@ -148,8 +148,9 @@ scenario the evaluator performs these steps:
 4. Run independently seeded concurrent histories with the scenario's producer
    and consumer counts.
 5. Convert the recorded operations into a Porcupine history and check the
-   bounded FIFO model.
-6. Optionally write the first rejected history as JSON for reproduction.
+   bounded FIFO model within a per-history time budget.
+6. Optionally write the first rejected or undecided history as JSON for
+   reproduction.
 
 ### ABI Probes
 
@@ -205,6 +206,32 @@ Go, not the candidate, owns:
 
 Histories are limited to 32 approximate operations. Increasing the number of
 trials provides more schedules without making one Porcupine search intractable.
+
+### Check Budget
+
+Porcupine's search is worst-case exponential in the number of overlapping
+operations, so history size alone does not bound the work. Real histories decide
+in milliseconds, but some interleavings of a wide producer/consumer history run
+for minutes.
+
+Every history is therefore decided with `CheckOperationsTimeout` under a budget,
+default 20 seconds per history and overridable with `--check-budget` on both
+`check` and `benchmark`. The verdict is tri-state:
+
+| Verdict | Meaning | Gate outcome |
+| --- | --- | --- |
+| `Ok` | A legal linearization exists | Pass |
+| `Illegal` | No legal linearization exists | Fail as a contract violation |
+| `Unknown` | The budget expired first | Fail as an undecided history |
+
+An undecided history is a failure, not a pass. The checker is the candidate's
+adversary, so folding `Unknown` into `Ok` would let a candidate win by producing
+histories the checker cannot decide. The failure names the history, the
+scenario, and the budget, so a task can raise `--check-budget` or narrow the
+worker counts deliberately.
+
+Zero is rejected rather than passed through: Porcupine reads a zero timeout as
+unlimited, which is the unbounded search the budget exists to prevent.
 
 ### Queue Models
 
@@ -270,7 +297,11 @@ hanging the checker.
 
 The Go benchmark command first runs a reduced correctness gate. It does not
 benchmark a candidate that fails ABI probes, boundary checks, or its concurrent
-history.
+history, and it does not benchmark one whose history cannot be decided within
+the check budget. The gate decides five histories (four boundary, one
+concurrent), so the default budget keeps it inside the framework's benchmark
+timeout with room for the measured run. A gate failure reaches the framework as
+an evaluator error record carrying that reason.
 
 For each requested repetition, Go starts the Rust `benchmark` command. Rust
 loads the candidate and calls the C ABI directly from native producer and
@@ -365,6 +396,9 @@ extension.
   worker crashes fail evaluation.
 - Worker output is capped at 64 KiB before inclusion in an error.
 - A rejected linearizability history can be persisted for reproduction.
+- Linearizability checking is bounded per history; an undecided history fails
+  the gate with the scenario and budget in its reason rather than hanging until
+  the surrounding command timeout kills the run.
 - The evaluator does not currently impose its own per-operation deadline. Command
   timeout enforcement belongs to the surrounding execution layer.
 - Correctness schedules are sampled, not exhaustive.

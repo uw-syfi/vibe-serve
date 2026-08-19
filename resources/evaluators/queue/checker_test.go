@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/anishathalye/porcupine"
 )
 
 func TestAccuracyTimesOutStuckCandidateOperation(t *testing.T) {
@@ -25,17 +27,74 @@ func TestAccuracyTimesOutStuckCandidateOperation(t *testing.T) {
 			capacity:  4,
 			valueSize: 64,
 		},
-		operations: 8,
-		trials:     1,
-		producers:  1,
-		consumers:  1,
-		seed:       7,
+		operations:  8,
+		trials:      1,
+		producers:   1,
+		consumers:   1,
+		seed:        7,
+		checkBudget: defaultCheckBudget,
 	})
 	if err == nil || !strings.Contains(err.Error(), "timed out") {
 		t.Fatalf("stuck candidate error = %v, want operation timeout", err)
 	}
 	if elapsed := time.Since(started); elapsed > 2*time.Second {
 		t.Fatalf("stuck candidate took %s to reject", elapsed)
+	}
+}
+
+// TestAccuracyRejectsUnboundedCheckBudget pins the budget as mandatory:
+// porcupine reads a zero timeout as unlimited, which is the hang the budget
+// exists to prevent.
+func TestAccuracyRejectsUnboundedCheckBudget(t *testing.T) {
+	for _, budget := range []time.Duration{0, -time.Second} {
+		err := runAccuracy(accuracyConfig{
+			candidateConfig: candidateConfig{
+				workspace:    t.TempDir(),
+				useReference: true,
+				scenario:     scenarioSPSC,
+				capacity:     4,
+				valueSize:    64,
+			},
+			operations:  8,
+			trials:      1,
+			producers:   1,
+			consumers:   1,
+			seed:        7,
+			checkBudget: budget,
+		})
+		if err == nil || !strings.Contains(err.Error(), "check budget") {
+			t.Fatalf("check budget %s error = %v, want a rejection", budget, err)
+		}
+	}
+}
+
+// TestGateFailureRejectsUndecidedHistory covers the verdict a bounded check
+// adds. A candidate must not win by making the checker slow, so an undecided
+// history fails the gate with a reason that names the scenario and the budget
+// instead of claiming a violation nobody proved.
+func TestGateFailureRejectsUndecidedHistory(t *testing.T) {
+	config := accuracyConfig{
+		candidateConfig: candidateConfig{scenario: scenarioMPMC},
+		checkBudget:     250 * time.Millisecond,
+	}
+	if err := gateFailure(porcupine.Ok, config, "trial 0"); err != nil {
+		t.Fatalf("decided-linearizable history failed the gate: %v", err)
+	}
+	if err := gateFailure(porcupine.Illegal, config, "trial 0"); err == nil ||
+		!strings.Contains(err.Error(), "violates") {
+		t.Fatalf("illegal history error = %v, want a violation", err)
+	}
+	err := gateFailure(porcupine.Unknown, config, "trial 0")
+	if err == nil {
+		t.Fatal("undecided history passed the correctness gate")
+	}
+	for _, want := range []string{"trial 0", "could not be decided", "mpmc", "250ms"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("undecided history error = %v, want it to name %q", err, want)
+		}
+	}
+	if strings.Contains(err.Error(), "violates") {
+		t.Fatalf("undecided history error = %v, want no claimed violation", err)
 	}
 }
 
@@ -151,11 +210,12 @@ func TestAccuracyRejectsCandidateThatOnlySupportsMaximumLength(t *testing.T) {
 			capacity:  4,
 			valueSize: 64,
 		},
-		operations: 8,
-		trials:     1,
-		producers:  1,
-		consumers:  1,
-		seed:       7,
+		operations:  8,
+		trials:      1,
+		producers:   1,
+		consumers:   1,
+		seed:        7,
+		checkBudget: defaultCheckBudget,
 	})
 	if err == nil {
 		t.Fatal("candidate that only supports maximum-length values passed ABI probes")
@@ -173,11 +233,12 @@ func TestAccuracyUsesCopyingCABI(t *testing.T) {
 			capacity:  4,
 			valueSize: 64,
 		},
-		operations: 16,
-		trials:     1,
-		producers:  2,
-		consumers:  1,
-		seed:       7,
+		operations:  16,
+		trials:      1,
+		producers:   2,
+		consumers:   1,
+		seed:        7,
+		checkBudget: defaultCheckBudget,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -194,11 +255,12 @@ func TestAccuracyRejectsCandidateThatRetainsEnqueueInput(t *testing.T) {
 			capacity:  4,
 			valueSize: 64,
 		},
-		operations: 8,
-		trials:     1,
-		producers:  1,
-		consumers:  1,
-		seed:       7,
+		operations:  8,
+		trials:      1,
+		producers:   1,
+		consumers:   1,
+		seed:        7,
+		checkBudget: defaultCheckBudget,
 	})
 	if err == nil {
 		t.Fatal("candidate that retained enqueue input passed copying ABI checks")

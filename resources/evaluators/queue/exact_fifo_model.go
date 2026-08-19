@@ -2,16 +2,21 @@ package main
 
 import (
 	"slices"
+	"time"
 
 	"github.com/anishathalye/porcupine"
 )
 
-func checkExactFIFOHistory(capacity int, history []recordedOperation) bool {
+func checkExactFIFOHistory(
+	capacity int,
+	history []recordedOperation,
+	budget time.Duration,
+) porcupine.CheckResult {
 	operations := make([]porcupine.Operation, 0, len(history))
 	for _, op := range history {
 		operations = append(operations, op.porcupine())
 	}
-	return porcupine.CheckOperations(exactFIFOModel(capacity), operations)
+	return porcupine.CheckOperationsTimeout(exactFIFOModel(capacity), operations, budget)
 }
 
 func exactFIFOModel(capacity int) porcupine.Model {
