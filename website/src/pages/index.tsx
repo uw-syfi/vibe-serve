@@ -1,4 +1,4 @@
-import type {ReactNode} from 'react';
+import {useState, type ReactNode} from 'react';
 import clsx from 'clsx';
 import Link from '@docusaurus/Link';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
@@ -43,6 +43,7 @@ function HomepageHeader() {
 
 export default function Home(): ReactNode {
   const {siteConfig} = useDocusaurusContext();
+  const [activeId, setActiveId] = useState<string | null>(null);
   return (
     <Layout
       title={siteConfig.title}
@@ -53,7 +54,10 @@ export default function Home(): ReactNode {
         <section className={styles.architecture}>
           <div className="container text--center">
             <Heading as="h2">Architecture</Heading>
-            <ArchitectureDiagram />
+            <p className={styles.architectureNote}>
+              Click a use case on the left to see its input, system, and result on the right.
+            </p>
+            <ArchitectureDiagram activeId={activeId} onSelect={setActiveId} />
           </div>
         </section>
       </main>

@@ -1,4 +1,6 @@
 import {cloneElement, type ReactElement, type ReactNode} from 'react';
+import clsx from 'clsx';
+import {GENERIC_DIAGRAM, USE_CASES, type DiagramOutputLine} from '@site/src/data/useCases';
 import styles from './styles.module.css';
 
 /**
@@ -11,6 +13,13 @@ import styles from './styles.module.css';
  * two-line title/subtitle) rather than a shared oversized default, and
  * every region starts its first row at the same y so the three columns
  * read as one grid.
+ *
+ * The USER INPUT and BESPOKE SYSTEM regions are data-driven off the
+ * selected use case (see src/data/useCases.ts); the VibeSys region in
+ * between is drawn once and never changes, since the loop is the part
+ * that stays constant across targets. The use-case tabs live outside the
+ * SVG, in a real HTML button column to its left, so selection keeps
+ * native keyboard/focus behavior instead of hand-rolled SVG hit targets.
  */
 
 function Icon({
@@ -54,21 +63,31 @@ function LogoRow({
   y,
   size = 20,
   gap = 8,
+  highlight,
   children,
 }: {
   x: number;
   y: number;
   size?: number;
   gap?: number;
+  /** When set, dims every logo whose key doesn't match, to point at the
+   * hardware the active use case actually targets. */
+  highlight?: string;
   children: ReactElement<{size?: number}>[];
 }) {
   return (
     <g>
-      {children.map((child, i) => (
-        <g key={i} transform={`translate(${x + i * (size + gap)}, ${y})`}>
-          {cloneElement(child, {size})}
-        </g>
-      ))}
+      {children.map((child, i) => {
+        const dimmed = highlight != null && child.key !== highlight;
+        return (
+          <g
+            key={i}
+            transform={`translate(${x + i * (size + gap)}, ${y})`}
+            opacity={dimmed ? 0.25 : 1}>
+            {cloneElement(child, {size})}
+          </g>
+        );
+      })}
     </g>
   );
 }
@@ -112,7 +131,13 @@ function LeafCard({
    * e.g. the hardware backends or execution environments a card covers.
    * `y` is an absolute diagram coordinate, hand-placed like everything
    * else in this file. */
-  logoRow?: {y: number; size?: number; gap?: number; items: ReactElement<{size?: number}>[]};
+  logoRow?: {
+    y: number;
+    size?: number;
+    gap?: number;
+    highlight?: string;
+    items: ReactElement<{size?: number}>[];
+  };
 }) {
   const iconX = x + 13;
   const iconY = y + 11;
@@ -147,7 +172,7 @@ function LeafCard({
       <text className={styles.cardTitle}>{titleLines}</text>
       {subtitle && <text className={styles.cardSubtitle}>{subtitleLines}</text>}
       {logoRow && (
-        <LogoRow x={textX} y={logoRow.y} size={logoRow.size} gap={logoRow.gap}>
+        <LogoRow x={textX} y={logoRow.y} size={logoRow.size} gap={logoRow.gap} highlight={logoRow.highlight}>
           {logoRow.items}
         </LogoRow>
       )}
@@ -155,20 +180,118 @@ function LeafCard({
   );
 }
 
-export default function ArchitectureDiagram(): ReactNode {
+/** Renders the BESPOKE SYSTEM file tree from a use case's output lines.
+ * `dir`/`note` lines start a new visual group (extra leading space);
+ * `file` lines are dim; `file-new`/`file-modified` are bold so a changed
+ * or added file stands out against the rest of an otherwise-untouched tree.
+ * `startY` shifts down when a stat block occupies the top of the card. */
+function OutputTree({lines, startY}: {lines: DiagramOutputLine[]; startY: number}) {
+  return (
+    <text x={880} y={startY} className={styles.mono}>
+      {lines.map((line, i) => {
+        const step = i === 0 ? 0 : line.kind === 'dir' || line.kind === 'note' ? 27 : 19;
+        const bold = line.kind === 'dir' || line.kind === 'file-new' || line.kind === 'file-modified';
+        const dimClass =
+          line.kind === 'file' ? styles.monoDim : line.kind === 'note' ? styles.monoNote : undefined;
+        return (
+          <tspan key={i} x={880} dy={step} fontWeight={bold ? 600 : undefined} className={dimClass}>
+            {line.text}
+          </tspan>
+        );
+      })}
+    </text>
+  );
+}
+
+/** Performance-benefit callout at the top of the BESPOKE SYSTEM card: the
+ * metric, its context, and (for paper-backed cases) a link to the source.
+ * Only rendered when a use case is selected; the generic state has no
+ * result to show, so the file tree alone fills the card. */
+function StatBlock({
+  metric,
+  metricLabel,
+  link,
+}: {
+  metric: string;
+  metricLabel: string[];
+  link?: {label: string; href: string};
+}) {
+  const labelY = 118;
+  const linkY = labelY + metricLabel.length * 14 + 8;
+  return (
+    <g>
+      <rect x={864} y={62} width={264} height={104} rx={6} className={styles.card} />
+      <text x={880} y={96} className={styles.statMetric}>
+        {metric}
+      </text>
+      <text x={880} y={labelY} className={styles.statLabel}>
+        {metricLabel.map((line, i) => (
+          <tspan key={i} x={880} dy={i === 0 ? 0 : 14}>
+            {line}
+          </tspan>
+        ))}
+      </text>
+      {link && (
+        <a href={link.href} target="_blank" rel="noopener noreferrer">
+          <text x={880} y={linkY} className={styles.statLink}>
+            {link.label} →
+          </text>
+        </a>
+      )}
+    </g>
+  );
+}
+
+const DEFAULT_CAPTION =
+  'An outer loop searches over designs; an inner loop implements and validates each one.';
+
+export default function ArchitectureDiagram({
+  activeId,
+  onSelect,
+}: {
+  activeId: string | null;
+  onSelect: (id: string | null) => void;
+}): ReactNode {
+  const useCase = USE_CASES.find((candidate) => candidate.id === activeId) ?? null;
+  const diagram = useCase?.diagram ?? GENERIC_DIAGRAM;
+  const treeY = useCase ? 178 : 62;
+  const treeH = useCase ? 302 : 418;
+
   return (
     <figure className={styles.figure}>
-      <figcaption className={styles.caption}>
-        An outer loop plans the search over designs; an inner loop
-        implements and validates candidates; an independent judge checks
-        correctness before results are recorded.
-      </figcaption>
-      <svg
-        className={styles.diagram}
-        viewBox="0 0 1160 512"
-        role="img"
-        aria-label="Diagram: user input (model, hardware, workload) feeds VibeSys, where an outer loop plans the search and an inner loop of Implementer, Accuracy Judge, and Profiler implements, checks, and benchmarks each candidate, producing a bespoke system. On error, the Accuracy Judge sends the candidate back to the Implementer.">
-        <defs>
+      <figcaption className={styles.caption}>{useCase?.description ?? DEFAULT_CAPTION}</figcaption>
+      <div className={styles.diagramRow}>
+        <div className={styles.tabColumn} role="tablist" aria-label="Use case">
+          <span className={styles.tabColumnLabel}>USE CASES</span>
+          <div className={styles.tabList}>
+            {USE_CASES.map((candidate) => {
+              const active = candidate.id === activeId;
+              return (
+                <button
+                  key={candidate.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  className={clsx(styles.tab, active && styles.tabActive)}
+                  onClick={() => onSelect(active ? null : candidate.id)}>
+                  <span className={styles.tabText}>
+                    <span className={styles.tabTag}>{candidate.tag}</span>
+                    <span className={styles.tabHeadline}>{candidate.headline}</span>
+                  </span>
+                  <span className={styles.tabArrow} aria-hidden="true">
+                    →
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+        <svg
+          className={styles.diagram}
+          viewBox="0 0 1160 512"
+          role="img"
+          aria-label="Diagram: user input (model, hardware, workload) feeds VibeSys, where an outer loop plans the search and an inner loop of Implementer, Accuracy Judge, and Profiler implements, checks, and benchmarks each candidate, producing a bespoke system. On error, the Accuracy Judge sends the candidate back to the Implementer.">
+          <defs>
           <marker
             id="arch-arrow"
             viewBox="0 0 10 10"
@@ -192,8 +315,8 @@ export default function ArchitectureDiagram(): ReactNode {
           y={62}
           w={184}
           h={108}
-          title={['Model']}
-          subtitle={['Weights, code']}
+          title={['Starting point']}
+          subtitle={diagram.startingPoint}
           icon={
             <>
               <circle cx={12} cy={5.5} r={2} />
@@ -209,7 +332,7 @@ export default function ArchitectureDiagram(): ReactNode {
           w={184}
           h={120}
           title={['Hardware']}
-          subtitle={['Device spec']}
+          subtitle={diagram.hardware}
           icon={
             <>
               <rect x={6} y={6} width={12} height={12} rx={1.5} />
@@ -220,6 +343,7 @@ export default function ArchitectureDiagram(): ReactNode {
             y: 298,
             size: 20,
             gap: 9,
+            highlight: diagram.hardwareVendor,
             items: [
               <Logo key="nvidia" title="NVIDIA" d={LOGO_PATHS.nvidia} />,
               <Logo key="amd" title="AMD" d={LOGO_PATHS.amd} />,
@@ -235,7 +359,7 @@ export default function ArchitectureDiagram(): ReactNode {
           w={184}
           h={108}
           title={['Workload']}
-          subtitle={['Benchmark metrics']}
+          subtitle={diagram.workload}
           icon={
             <>
               <rect x={4.5} y={13} width={3.4} height={7} fill="currentColor" stroke="none" />
@@ -428,57 +552,18 @@ export default function ArchitectureDiagram(): ReactNode {
         {/* arrow: VibeSys -> Bespoke System */}
         <line x1={824} y1={256} x2={844} y2={256} className={styles.arrow} markerEnd="url(#arch-arrow)" />
 
-        {/* ---- Region C: Bespoke System ---- */}
-        <rect x={848} y={16} width={296} height={480} rx={14} className={styles.regionOutline} />
-        <text x={864} y={44} className={styles.zoneLabel}>
-          BESPOKE SYSTEM
-        </text>
-        <rect x={864} y={62} width={264} height={418} rx={6} className={styles.card} />
-        <text x={880} y={90} className={styles.mono}>
-          <tspan x={880} dy={0} fontWeight={600}>
-            serving_system/
-          </tspan>
-          <tspan x={880} dy={19} className={styles.monoDim}>
-            {'├─ api_server.py'}
-          </tspan>
-          <tspan x={880} dy={19} className={styles.monoDim}>
-            {'├─ scheduler.py'}
-          </tspan>
-          <tspan x={880} dy={19} className={styles.monoDim}>
-            {'├─ router.py'}
-          </tspan>
-          <tspan x={880} dy={19} className={styles.monoDim}>
-            {'├─ cache.py'}
-          </tspan>
-          <tspan x={880} dy={19} className={styles.monoDim}>
-            {'├─ model.py'}
-          </tspan>
-          <tspan x={880} dy={19} className={styles.monoDim}>
-            {'└─ backend.py'}
-          </tspan>
-          <tspan x={880} dy={27} fontWeight={600}>
-            tests/
-          </tspan>
-          <tspan x={880} dy={19} className={styles.monoDim}>
-            {'├─ test_accuracy.py'}
-          </tspan>
-          <tspan x={880} dy={19} className={styles.monoDim}>
-            {'└─ test_router.py'}
-          </tspan>
-          <tspan x={880} dy={27} fontWeight={600}>
-            bench/
-          </tspan>
-          <tspan x={880} dy={19} className={styles.monoDim}>
-            {'├─ microbench.py'}
-          </tspan>
-          <tspan x={880} dy={19} className={styles.monoDim}>
-            {'├─ latency.csv'}
-          </tspan>
-          <tspan x={880} dy={19} className={styles.monoDim}>
-            {'└─ tpt.csv'}
-          </tspan>
-        </text>
-      </svg>
+          {/* ---- Region C: Bespoke System ---- */}
+          <rect x={848} y={16} width={296} height={480} rx={14} className={styles.regionOutline} />
+          <text x={864} y={44} className={styles.zoneLabel}>
+            BESPOKE SYSTEM
+          </text>
+          {useCase && (
+            <StatBlock metric={useCase.metric} metricLabel={useCase.metricLabel} link={useCase.link} />
+          )}
+          <rect x={864} y={treeY} width={264} height={treeH} rx={6} className={styles.card} />
+          <OutputTree lines={diagram.output} startY={treeY + 28} />
+        </svg>
+      </div>
     </figure>
   );
 }
