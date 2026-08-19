@@ -16,7 +16,7 @@ from vibesys.domains.base import DomainName
 from vibesys.domains.registry import resolve_domain
 from vibesys.domains.rendering import render_domain_section
 from vibesys.loops.agent import issue_board
-from vibesys.profilers import ProfilerKind
+from vibesys.profilers import ProfilerKind, profiler_definition
 from vibesys.prompts import PROMPTS_DIR, render_template
 
 _TEMPLATE_DIR = PROMPTS_DIR / "loops" / "agent"
@@ -93,6 +93,7 @@ def _domain_context(context: dict[str, object]) -> dict[str, object]:
         "accuracy_command": context["accuracy_command"],
         "runtime_notes": context["runtime_notes"],
         "profile_execution": context["profile_execution"],
+        "workspace_sources": (),
     }
 
 
@@ -122,6 +123,8 @@ def _render_prompt_bundle(domain: DomainName, *, modality: str | None) -> dict[s
             task=context["task"],
             pass_criteria=context["pass_criteria"],
             feedback=None,
+            prior_attempt_artifact_locations=(),
+            recommended_skills=[],
             domain_implementer=_domain_section(domain, "implementer", context),
         ),
         "judge": render_template(
@@ -135,6 +138,7 @@ def _render_prompt_bundle(domain: DomainName, *, modality: str | None) -> dict[s
             benchmark_command=context["benchmark_command"],
             accuracy_command=context["accuracy_command"],
             domain_judge=_domain_section(domain, "judge", context),
+            pareto_archive_conflict=None,
         ),
         "single_agent_nsys": render_template(
             "single_agent_round_prompt.j2",
@@ -152,6 +156,8 @@ def _render_prompt_bundle(domain: DomainName, *, modality: str | None) -> dict[s
             feedback=None,
             reference_path=context["reference_path"],
             profiler_kind=ProfilerKind.NSYS,
+            profiler_support_name=profiler_definition(ProfilerKind.NSYS).support_name,
+            profiler_mcp_name=profiler_definition(ProfilerKind.NSYS).mcp_name,
             profile_focus="",
             domain_single_agent=_domain_section(domain, "single_agent", context),
             domain_profiler=_domain_section(domain, "profiler", context),
@@ -172,6 +178,8 @@ def _render_prompt_bundle(domain: DomainName, *, modality: str | None) -> dict[s
             feedback=None,
             reference_path=context["reference_path"],
             profiler_kind=ProfilerKind.TORCH,
+            profiler_support_name=profiler_definition(ProfilerKind.TORCH).support_name,
+            profiler_mcp_name=profiler_definition(ProfilerKind.TORCH).mcp_name,
             profile_focus="",
             domain_single_agent=_domain_section(domain, "single_agent", context),
             domain_profiler=_domain_section(domain, "profiler", context),

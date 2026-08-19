@@ -134,6 +134,8 @@ def _render_implementer(interface: str, *, modality: str | None = None) -> str:
         reference_path="/ref",
         runtime_notes="",
         feedback=None,
+        prior_attempt_artifact_locations=(),
+        recommended_skills=[],
     )
 
 
@@ -168,23 +170,30 @@ def test_inprocess_implementer_handles_missing_reference_explicitly():  # noqa: 
         reference_path=".",
         runtime_notes="",
         feedback=None,
+        prior_attempt_artifact_locations=(),
+        recommended_skills=[],
     )
     assert "No separate reference implementation is provided" in output
     assert "Reference implementation is at `.`" not in output
 
 
 def test_default_interface_matches_inprocess_for_implementer():  # noqa: ANN201  # tracked: #288
+    from vibesys.loops.agent.loop import DEFAULT_INTERFACE  # noqa: PLC0415  # tracked: #288
+
     explicit = _render_implementer("inprocess")
     implied = render_template(
         "implementer_prompt.j2",
         template_dir=_TEMPLATE_DIR,
         modality=None,
+        interface=DEFAULT_INTERFACE,
         domain_implementer="",
         task="TASK",
         pass_criteria="PC",  # noqa: S106  # tracked: #288
         reference_path="/ref",
         runtime_notes="",
         feedback=None,
+        prior_attempt_artifact_locations=(),
+        recommended_skills=[],
     )
     assert explicit == implied
 
@@ -197,11 +206,13 @@ def test_llm_domain_owns_python_tooling():  # noqa: ANN201  # tracked: #288
         llm_domain,
         DomainRole.IMPLEMENTER,
         interface="inprocess",
+        workspace_sources=(),
     )
     generic_prompt = render_domain_section(
         generic_domain,
         DomainRole.IMPLEMENTER,
         interface="inprocess",
+        workspace_sources=(),
     )
     assert "For candidate components that use Python, use `uv`" in llm_prompt
     assert "not a requirement that the serving hot path" in llm_prompt
@@ -222,6 +233,7 @@ def _render_judge(interface: str) -> str:
         runtime_notes="",
         profile_execution="local",
         objective="OBJ",
+        pareto_archive_conflict=None,
     )
 
 

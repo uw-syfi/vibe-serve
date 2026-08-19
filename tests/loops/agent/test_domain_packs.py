@@ -124,7 +124,11 @@ def test_render_empty_role_is_empty():  # noqa: ANN201  # tracked: #288
 def test_render_llm_serving_has_content():  # noqa: ANN201  # tracked: #288
     d = resolve_domain(DomainName.LLM_SERVING)
     impl = render_domain_section(
-        d, DomainRole.IMPLEMENTER, modality="text_generation", reference_path="/ref"
+        d,
+        DomainRole.IMPLEMENTER,
+        modality="text_generation",
+        reference_path="/ref",
+        workspace_sources=(),
     )
     assert impl  # non-empty
     # leading/trailing blank lines are stripped — base template owns spacing
@@ -207,10 +211,18 @@ def test_llm_serving_judge_does_not_duplicate_framework_benchmark():  # noqa: AN
     """The LLM judge audits evidence instead of rerunning a trusted gate."""
     d = resolve_domain(DomainName.LLM_SERVING)
     with_bench = render_domain_section(
-        d, DomainRole.JUDGE, modality="text_generation", benchmark_command="./BENCHX"
+        d,
+        DomainRole.JUDGE,
+        modality="text_generation",
+        benchmark_command="./BENCHX",
+        workspace_sources=(),
     )
     without_bench = render_domain_section(
-        d, DomainRole.JUDGE, modality="text_generation", benchmark_command=None
+        d,
+        DomainRole.JUDGE,
+        modality="text_generation",
+        benchmark_command=None,
+        workspace_sources=(),
     )
     assert "./BENCHX" not in with_bench
     assert "./BENCHX" not in without_bench
@@ -236,7 +248,11 @@ def test_single_agent_uses_explicit_section_when_present():  # noqa: ANN201  # t
     # llm-serving ships a bespoke single_agent.md file
     d = resolve_domain(DomainName.LLM_SERVING)
     sa = render_domain_section(
-        d, DomainRole.SINGLE_AGENT, modality="text_generation", reference_path="/ref"
+        d,
+        DomainRole.SINGLE_AGENT,
+        modality="text_generation",
+        reference_path="/ref",
+        workspace_sources=(),
     )
     assert "do not let yourself cheat" in sa  # text unique to that section
 
@@ -258,18 +274,25 @@ def test_single_agent_derives_from_implementer_and_judge(tmp_path: Path):  # noq
 def _render_implementer(domain: DomainName) -> str:
     d = resolve_domain(domain)
     section = render_domain_section(
-        d, DomainRole.IMPLEMENTER, modality="text_generation", reference_path="/ref"
+        d,
+        DomainRole.IMPLEMENTER,
+        modality="text_generation",
+        reference_path="/ref",
+        workspace_sources=(),
     )
     return render_template(
         "implementer_prompt.j2",
         template_dir=_TEMPLATE_DIR,
         modality="text_generation",
+        interface="inprocess",
         domain_implementer=section,
         task="TASK",
         pass_criteria="PC",  # noqa: S106  # tracked: #288
         reference_path="/ref",
         runtime_notes="",
         feedback=None,
+        prior_attempt_artifact_locations=(),
+        recommended_skills=[],
     )
 
 
@@ -308,7 +331,10 @@ def test_orchestrator_is_a_domain_role():  # noqa: ANN201  # tracked: #288
 
 def _render_orchestrator(domain: DomainName) -> str:
     section = render_domain_section(
-        resolve_domain(domain), DomainRole.ORCHESTRATOR, modality="text_generation"
+        resolve_domain(domain),
+        DomainRole.ORCHESTRATOR,
+        modality="text_generation",
+        workspace_sources=(),
     )
     return render_template(
         "orchestrator_plan_prompt.j2",
@@ -327,7 +353,10 @@ def _render_orchestrator(domain: DomainName) -> str:
 
 def test_llm_serving_provides_evidence_led_orchestrator_method():  # noqa: ANN201  # tracked: #288
     section = render_domain_section(
-        resolve_domain(DomainName.LLM_SERVING), DomainRole.ORCHESTRATOR, modality="text_generation"
+        resolve_domain(DomainName.LLM_SERVING),
+        DomainRole.ORCHESTRATOR,
+        modality="text_generation",
+        workspace_sources=(),
     )
     assert "Evidence-led optimization method" in section
     assert "measured end-to-end evidence" in section

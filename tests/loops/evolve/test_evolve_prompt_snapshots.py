@@ -84,6 +84,7 @@ def _domain_context(case: _Case) -> dict[str, object]:
         "accuracy_command": case.accuracy_command,
         "runtime_notes": "Runtime note: local isolated workspace.",
         "profile_execution": "local",
+        "workspace_sources": (),
     }
 
 

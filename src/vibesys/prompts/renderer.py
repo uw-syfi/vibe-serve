@@ -28,48 +28,42 @@ targets.
 
 See ``vibesys/prompts/backend/README.md`` for the
 fragment-filename convention contributors should follow.
+
+Rendering itself (Jinja environment construction, strict-undefined
+enforcement, and the fragment-family contract) is owned by ``vs_prompts``
+(``libs/vs-prompts``); this module binds that generic machinery to
+``PROMPTS_DIR`` and to :class:`~vibesys.constants.ComputeBackend`.
 """
 
 from abc import ABC
 from pathlib import Path
 from typing import ClassVar
 
-from jinja2 import Environment, FileSystemLoader
-
 from vibesys.constants import ComputeBackend
+from vs_prompts import FragmentFamily, TemplateRenderer
 
 PROMPTS_DIR = Path(__file__).resolve().parent
+_BACKEND_FRAGMENTS_ROOT = PROMPTS_DIR / "backend"
 
-_env = Environment(  # noqa: S701  # tracked: #288
-    loader=FileSystemLoader(str(PROMPTS_DIR)),
-    keep_trailing_newline=True,
-    trim_blocks=True,
-    lstrip_blocks=True,
-)
+_renderer = TemplateRenderer(PROMPTS_DIR)
 
-# Cache of Jinja2 environments keyed by template directory path
-_env_cache: dict[str, Environment] = {str(PROMPTS_DIR): _env}
+# Cache of TemplateRenderers keyed by template directory path
+_env_cache: dict[str, TemplateRenderer] = {str(PROMPTS_DIR): _renderer}
 
 
-def _build_env(template_dir: Path | str | None = None) -> Environment:
-    """Return a Jinja2 Environment for the given template directory.
+def _build_env(template_dir: Path | str | None = None) -> TemplateRenderer:
+    """Return a ``TemplateRenderer`` for the given template directory.
 
     Per-loop prompt directories also fall back to the shared
     ``vibesys/prompts/`` root, so fragment lookups via
     :class:`ComputeBackendFragment` resolve from package-owned prompt assets.
     """
     if template_dir is None:
-        return _env
+        return _renderer
     key = str(template_dir)
     if key not in _env_cache:
-        search_paths = [key]
-        if key != str(PROMPTS_DIR):
-            search_paths.append(str(PROMPTS_DIR))
-        _env_cache[key] = Environment(  # noqa: S701  # tracked: #288
-            loader=FileSystemLoader(search_paths),
-            keep_trailing_newline=True,
-            trim_blocks=True,
-            lstrip_blocks=True,
+        _env_cache[key] = (
+            _renderer if key == str(PROMPTS_DIR) else _renderer.child(Path(template_dir))
         )
     return _env_cache[key]
 
@@ -86,8 +80,8 @@ def render_template(
     fragment composition. New backend-aware code should use
     :class:`Prompt` instead.
     """
-    env = _build_env(template_dir)
-    return env.get_template(name).render(**kwargs)
+    renderer = _build_env(template_dir)
+    return renderer.render_template(name, **kwargs)
 
 
 def render_string(source: str, **kwargs: object) -> str:
@@ -97,7 +91,7 @@ def render_string(source: str, **kwargs: object) -> str:
     Jinja template file. Shares the root environment's settings so ``{% if %}``
     trimming matches file-based templates.
     """
-    return _env.from_string(source).render(**kwargs)
+    return _renderer.render_string(source, **kwargs)
 
 
 class ComputeBackendFragment(ABC):
@@ -129,41 +123,29 @@ class ComputeBackendFragment(ABC):
     )
     backend: ClassVar[ComputeBackend]  # set by subclasses
 
-    def __init__(self, env: Environment) -> None:  # noqa: D107  # tracked: #288
-        self._env = env
+    def __init__(self, renderer: TemplateRenderer) -> None:  # noqa: D107  # tracked: #288
+        self._renderer = renderer
+        self._family = FragmentFamily(root=_BACKEND_FRAGMENTS_ROOT, names=self.NAMES)
 
     def render(self, name: str) -> str:
         """Render a single fragment by name.
 
         Strips trailing newlines from the rendered output: fragments
         are inline substitutions (`{{ device_dtype }}` mid-line), so
-        the parent template owns the surrounding whitespace. Without
-        this, ``keep_trailing_newline=True`` on the env would inject
-        an extra blank line at every substitution site.
+        the parent template owns the surrounding whitespace.
         """
-        if name not in self.NAMES:
-            raise ValueError(f"Unknown fragment {name!r}; valid: {sorted(self.NAMES)}")  # noqa: TRY003  # tracked: #288
-        return (
-            self._env.get_template(f"backend/{self.backend.value}/{name}.j2").render().rstrip("\n")
-        )
+        return self._family.render(self.backend.value, name, self._renderer)
 
     def render_all(self) -> dict[str, str]:
         """Render every fragment in :attr:`NAMES` keyed by name."""
-        return {name: self.render(name) for name in self.NAMES}
+        return self._family.render_all(self.backend.value, self._renderer)
 
     @classmethod
     def validate(cls) -> None:
         """Verify a ``.j2`` file exists for every fragment in
         :attr:`NAMES`. Raises ``ValueError`` listing missing files.
         """  # noqa: D205  # tracked: #288
-        backend_dir = PROMPTS_DIR / "backend" / cls.backend.value
-        missing = [n for n in cls.NAMES if not (backend_dir / f"{n}.j2").is_file()]
-        if missing:
-            raise ValueError(  # noqa: TRY003  # tracked: #288
-                f"{cls.__name__}: missing fragment files under {backend_dir}: "
-                f"{', '.join(f'{n}.j2' for n in sorted(missing))}. "
-                f"Use an empty file for a deliberate skip."
-            )
+        FragmentFamily(root=_BACKEND_FRAGMENTS_ROOT, names=cls.NAMES).validate([cls.backend.value])
 
 
 class CudaComputeBackendFragment(ComputeBackendFragment):
@@ -205,7 +187,7 @@ _FRAGMENT_IMPLS: dict[ComputeBackend, type[ComputeBackendFragment]] = {
 }
 
 
-def get_backend_fragment(backend: ComputeBackend, env: Environment) -> ComputeBackendFragment:
+def get_backend_fragment(backend: ComputeBackend, env: TemplateRenderer) -> ComputeBackendFragment:
     """Construct the :class:`ComputeBackendFragment` impl for the given backend."""
     if backend not in _FRAGMENT_IMPLS:
         raise ValueError(  # noqa: TRY003  # tracked: #288
@@ -241,8 +223,8 @@ class Prompt:
     """  # noqa: D205  # tracked: #288
 
     def __init__(self, template_dir: Path | str, backend: ComputeBackend) -> None:  # noqa: D107  # tracked: #288
-        self._env = _build_env(template_dir)
-        self._fragments = get_backend_fragment(backend, self._env)
+        self._renderer = _build_env(template_dir)
+        self._fragments = get_backend_fragment(backend, self._renderer)
         type(self._fragments).validate()
 
     def render(self, name: str, **kwargs: object) -> str:
@@ -252,7 +234,7 @@ class Prompt:
         filename stem; explicit kwargs override.
         """
         auto = self._fragments.render_all()
-        return self._env.get_template(name).render(**(auto | kwargs))
+        return self._renderer.render_template(name, **(auto | kwargs))
 
     def fragment(self, name: str) -> str:
         """Render a single backend fragment by name (escape hatch).

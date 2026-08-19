@@ -26,6 +26,7 @@ directory with the Linux CPU profiler MCP server.
 Benchmark command: go run ./_evaluator/queue/cmd/benchmark --candidate ./queue-candidate.so
 
 
+
 ## Analysis workflow
 
 1. Call `capabilities()` first. Report `perf_event_paranoid`, `kptr_restrict`,

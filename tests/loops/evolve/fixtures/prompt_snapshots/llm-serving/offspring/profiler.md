@@ -10,6 +10,10 @@ Your job is to collect a profile, analyze the results via the `vibesys-nsys-prof
 
 Measure the headline metric and identify the dominant bottleneck.
 
+## Runtime environment
+
+Runtime note: local isolated workspace.
+
 ## Workspace
 
 Your working directory contains the implementer's code. A small `nsys_profiler/` directory ships alongside — it provides the MCP server you use for analysis.

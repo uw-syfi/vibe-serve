@@ -39,8 +39,32 @@ def test_kv_store_judge_prompt_mentions_resp2_not_http():  # noqa: ANN201  # tra
         objective="OBJ",
         accuracy_checker_path="accuracy_checker",
         bench_path="benchmark",
+        pareto_archive_conflict=None,
     )
     assert "RESP2" in output
     assert "HTTP server" in output
     assert "VibeServeModel" not in output
     assert "p99" in output
+
+
+def test_kv_store_linux_cpu_profiler_gets_resp2_specific_guidance():  # noqa: ANN201  # tracked: #288
+    """Regression test: linux_cpu.j2 used to omit the {% include %} that pulls
+    in _modality/kv_store/profiler.j2, so a kv_store profiling round silently
+    lost the RESP2-specific py-spy/perf/strace guidance even though it's the
+    modality this profiler kind is actually paired with in examples/kv-store.
+    """
+    output = render_template(
+        "profilers/linux_cpu.j2",
+        template_dir=_TEMPLATE_DIR,
+        profile_focus="",
+        benchmark_command="uv run python benchmark/benchmark.py",
+        modality="kv_store",
+        domain_profiler="",
+        runtime_notes="",
+        objective="OBJ",
+        profiler_support_name="linux_cpu_profiler",
+        profiler_mcp_name="vibesys-linux-cpu-profiler",
+        bench_path="benchmark",
+    )
+    assert "RESP2" in output
+    assert "py-spy record" in output
