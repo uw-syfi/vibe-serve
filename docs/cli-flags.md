@@ -552,7 +552,7 @@ fails the round when they disagree, when a value is missing or not finite, or
 when a configured objective names a metric the benchmark does not produce. The
 protocol is specified in
 [sdk/vs-evaluator/PROTOCOL.md](https://github.com/uw-syfi/vibesys/blob/main/sdk/vs-evaluator/PROTOCOL.md),
-and `sdk/vs-evaluator/go` is a Go SDK for emitting it. Use this form for
+and `sdk/vs-evaluator/vseval` is a Go SDK for emitting it. Use this form for
 multi-objective benchmarks, which the scalar block cannot represent.
 
 Task resources, including held-out evaluation sets, remain at their repository

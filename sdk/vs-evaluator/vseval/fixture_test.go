@@ -9,7 +9,7 @@ import (
 	"reflect"
 	"testing"
 
-	vseval "github.com/uw-syfi/vibesys/sdk/vs-evaluator/go"
+	"github.com/uw-syfi/vibesys/sdk/vs-evaluator/vseval"
 )
 
 const fixtureDir = "../fixtures/valid"

@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	vseval "github.com/uw-syfi/vibesys/sdk/vs-evaluator/go"
+	"github.com/uw-syfi/vibesys/sdk/vs-evaluator/vseval"
 )
 
 // TestHelloIsWrittenAtStart pins the crash-visibility property: the schema

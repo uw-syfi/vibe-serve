@@ -1,7 +1,7 @@
 # github.com/anishathalye/porcupine v1.3.0
 ## explicit; go 1.16
 github.com/anishathalye/porcupine
-# github.com/uw-syfi/vibesys/sdk/vs-evaluator/go v0.0.0 => ../../../sdk/vs-evaluator/go
+# github.com/uw-syfi/vibesys/sdk/vs-evaluator/vseval v0.0.0 => ../../../sdk/vs-evaluator/vseval
 ## explicit; go 1.21
-github.com/uw-syfi/vibesys/sdk/vs-evaluator/go
-# github.com/uw-syfi/vibesys/sdk/vs-evaluator/go => ../../../sdk/vs-evaluator/go
+github.com/uw-syfi/vibesys/sdk/vs-evaluator/vseval
+# github.com/uw-syfi/vibesys/sdk/vs-evaluator/vseval => ../../../sdk/vs-evaluator/vseval

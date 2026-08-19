@@ -1794,7 +1794,7 @@ _FRAMEWORK_BENCHMARK_MARKER = "__VIBESYS_FRAMEWORK_BENCHMARK_JSON__"
 _FRAMEWORK_BENCHMARK_END_MARKER = "__VIBESYS_FRAMEWORK_BENCHMARK_JSON_END__"
 
 # The flag every result-protocol evaluator registers for its output file; see
-# ``OutputFlag`` in the evaluator SDK (``sdk/vs-evaluator/go/schema.go``).
+# ``OutputFlag`` in the evaluator SDK (``sdk/vs-evaluator/vseval/schema.go``).
 _PROTOCOL_OUTPUT_FLAG = "--vs-output"
 
 

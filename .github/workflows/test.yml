@@ -188,8 +188,19 @@ jobs:
         working-directory: examples/data-structures/repositories/queue-rs
         run: cargo test --locked
 
+      # The SDK is consumed by `go get`, so a module path that disagrees with
+      # its directory fails only for outside consumers and never for us.
+      - name: Check evaluator SDK module path
+        run: |
+          declared=$(sed -n 's/^module //p' sdk/vs-evaluator/vseval/go.mod)
+          expected=github.com/uw-syfi/vibesys/sdk/vs-evaluator/vseval
+          if [ "$declared" != "$expected" ]; then
+            echo "go.mod declares $declared but its directory requires $expected"
+            exit 1
+          fi
+
       - name: Test evaluator SDK
-        working-directory: sdk/vs-evaluator/go
+        working-directory: sdk/vs-evaluator/vseval
         run: go test -race ./...
 
       - name: Test queue evaluator

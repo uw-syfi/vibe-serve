@@ -4,7 +4,7 @@ import (
 	"flag"
 	"fmt"
 
-	vseval "github.com/uw-syfi/vibesys/sdk/vs-evaluator/go"
+	"github.com/uw-syfi/vibesys/sdk/vs-evaluator/vseval"
 )
 
 // benchmarkStream is the framework-facing output of the benchmark command: the
