@@ -1,0 +1,2 @@
+{"kind":"hello","protocol":1,"metrics":{"total ops per sec":{}}}
+{"kind":"result","label":"","values":{"total ops per sec":41250.3}}

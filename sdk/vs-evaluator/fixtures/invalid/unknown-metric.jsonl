@@ -1,0 +1,2 @@
+{"kind":"hello","protocol":1,"metrics":{"total_ops_per_sec":{}}}
+{"kind":"result","label":"","values":{"total_ops_per_sec":41250.3,"p99_latency_ms":8.2}}

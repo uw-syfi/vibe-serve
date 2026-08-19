@@ -1,0 +1,3 @@
+{"kind":"hello","protocol":1,"metrics":{"total_ops_per_sec":{}}}
+{"kind":"hello","protocol":1,"metrics":{"total_ops_per_sec":{}}}
+{"kind":"result","label":"","values":{"total_ops_per_sec":41250.3}}

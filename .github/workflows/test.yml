@@ -188,6 +188,10 @@ jobs:
         working-directory: examples/data-structures/repositories/queue-rs
         run: cargo test --locked
 
+      - name: Test evaluator SDK
+        working-directory: sdk/vs-evaluator/go
+        run: go test -race ./...
+
       - name: Test queue evaluator
         working-directory: resources/evaluators/queue
         run: go test -race ./...
