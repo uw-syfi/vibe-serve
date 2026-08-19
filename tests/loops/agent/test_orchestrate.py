@@ -1749,7 +1749,7 @@ def test_protocol_benchmark_reads_complete_row(tmp_path):  # noqa: ANN001, ANN20
     outcome = _run_framework_benchmark(
         ctx,
         result_spec=None,
-        result_protocol=1,
+        result_protocol=2,
         objectives=[Objective("total_ops_per_sec", "max"), Objective("p99_latency_ns", "min")],
         round_number=3,
         retry=1,
@@ -1775,7 +1775,7 @@ def test_protocol_benchmark_rejects_objective_the_evaluator_does_not_declare(tmp
     outcome = _run_framework_benchmark(
         ctx,
         result_spec=None,
-        result_protocol=1,
+        result_protocol=2,
         objectives=[Objective("throughput_ops_per_sec", "max")],
         round_number=1,
         retry=1,
@@ -1799,7 +1799,7 @@ def test_protocol_benchmark_reports_evaluator_error_record(tmp_path):  # noqa: A
     outcome = _run_framework_benchmark(
         ctx,
         result_spec=None,
-        result_protocol=1,
+        result_protocol=2,
         objectives=[Objective("total_ops_per_sec", "max")],
         round_number=1,
         retry=1,
@@ -1818,7 +1818,7 @@ def test_protocol_benchmark_surfaces_reason_code_for_malformed_stream(tmp_path):
     outcome = _run_framework_benchmark(
         ctx,
         result_spec=None,
-        result_protocol=1,
+        result_protocol=2,
         objectives=[Objective("total_ops_per_sec", "max")],
         round_number=1,
         retry=1,
@@ -1877,7 +1877,7 @@ def test_official_protocol_benchmark_row_becomes_the_round_metrics(tmp_path, ref
             runner,
             max_rounds=1,
             judge_every=10,
-            benchmark_result_protocol=1,
+            benchmark_result_protocol=2,
             objectives=[Objective("total_ops_per_sec", "max"), Objective("p99_latency_ns", "min")],
         )
 
