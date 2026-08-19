@@ -173,46 +173,99 @@ func runBenchmarkCommand(args []string) error {
 		"Odd number of measured runs; total_ops_per_sec reports their median",
 	)
 	seed := flags.Int64("seed", 42, "Correctness-gate seed")
-	output := flags.String("output-json", "", "Write trusted benchmark metrics as JSON")
-	if err := flags.Parse(args); err != nil {
-		return err
-	}
-	if flags.NArg() != 0 {
-		return fmt.Errorf("unexpected positional arguments: %v", flags.Args())
-	}
-	scenarios, err := selectedScenarios(*scenarioName)
+	output := flags.String("output-json", "", "Write the detailed benchmark report as JSON")
+	// startBenchmarkStream registers --vs-output and parses args, so every
+	// failure from here on can be reported on the stream itself.
+	stream, err := startBenchmarkStream(flags, args)
 	if err != nil {
 		return err
+	}
+	defer stream.Close()
+	if flags.NArg() != 0 {
+		return stream.fail(fmt.Errorf("unexpected positional arguments: %v", flags.Args()))
+	}
+	results, err := benchmarkScenarios(benchmarkCommandConfig{
+		workspace:    *workspace,
+		candidate:    *candidate,
+		useReference: *useReference,
+		scenarioName: *scenarioName,
+		capacity:     *capacity,
+		valueSize:    *valueSize,
+		producers:    *producers,
+		consumers:    *consumers,
+		duration:     *duration,
+		warmup:       *warmup,
+		repetitions:  *repetitions,
+		seed:         *seed,
+	}, stream)
+	if err != nil {
+		return stream.fail(err)
+	}
+	if err := writeBenchmarkResults(*output, results); err != nil {
+		return stream.fail(err)
+	}
+	return stream.emit(results)
+}
+
+// benchmarkCommandConfig is the parsed benchmark subcommand argv. It exists so
+// the measurement loop can run without the flag set, which lets tests drive it
+// directly.
+type benchmarkCommandConfig struct {
+	workspace    string
+	candidate    string
+	useReference bool
+	scenarioName string
+	capacity     uint64
+	valueSize    uint64
+	producers    int
+	consumers    int
+	duration     time.Duration
+	warmup       time.Duration
+	repetitions  int
+	seed         int64
+}
+
+func benchmarkScenarios(
+	config benchmarkCommandConfig,
+	stream *benchmarkStream,
+) ([]benchmarkResult, error) {
+	scenarios, err := selectedScenarios(config.scenarioName)
+	if err != nil {
+		return nil, err
+	}
+	// Reject a multi-scenario stream before measuring rather than after.
+	if err := stream.requireSingleRow(len(scenarios)); err != nil {
+		return nil, err
 	}
 	results := make([]benchmarkResult, 0, len(scenarios))
 	for _, selected := range scenarios {
 		base, err := parseCandidateConfig(
-			*workspace,
-			*candidate,
-			*useReference,
+			config.workspace,
+			config.candidate,
+			config.useReference,
 			selected.String(),
-			*capacity,
-			*valueSize,
+			config.capacity,
+			config.valueSize,
 		)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		result, err := runBenchmark(benchmarkConfig{
 			candidateConfig: base,
-			producers:       *producers,
-			consumers:       *consumers,
-			duration:        *duration,
-			warmup:          *warmup,
-			repetitions:     *repetitions,
-			seed:            *seed,
+			producers:       config.producers,
+			consumers:       config.consumers,
+			duration:        config.duration,
+			warmup:          config.warmup,
+			repetitions:     config.repetitions,
+			seed:            config.seed,
 		})
 		if err != nil {
-			return fmt.Errorf("%s: %w", selected, err)
+			return nil, fmt.Errorf("%s: %w", selected, err)
 		}
 		printBenchmarkResult(result)
 		results = append(results, result)
 	}
-	return writeBenchmarkResults(*output, results)
+	return results, nil
 }
 
 func printBenchmarkResult(result benchmarkResult) {

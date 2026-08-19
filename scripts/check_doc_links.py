@@ -48,6 +48,11 @@ EXCLUDED_PREFIXES = (
     "resources/skills/neuron-agentic-development/",
 )
 
+# Dependency trees that can appear at any depth rather than at a fixed prefix.
+# Go vendoring writes one per module, so a prefix list would need a new entry
+# for every evaluator that vendors.
+EXCLUDED_PATH_SEGMENTS = ("vendor",)
+
 MARKDOWN_SUFFIXES = (".md", ".mdx")
 
 # Inline `[text](target)` links plus `[id]: target` reference definitions.
@@ -86,6 +91,8 @@ def iter_markdown_files(paths: list[Path], repo_root: Path) -> list[Path]:
         if not name.endswith(MARKDOWN_SUFFIXES):
             continue
         if name.startswith(EXCLUDED_PREFIXES):
+            continue
+        if any(segment in EXCLUDED_PATH_SEGMENTS for segment in name.split("/")[:-1]):
             continue
         files.append(repo_root / name)
     return sorted(files)

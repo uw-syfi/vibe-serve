@@ -58,7 +58,7 @@ The source is organized as follows:
 
 | Path | Responsibility |
 | --- | --- |
-| `*.go` | CLI, candidate process control, histories, Porcupine checking, benchmark aggregation |
+| `*.go` | CLI, candidate process control, histories, Porcupine checking, benchmark aggregation, evaluator result stream |
 | `native_runner/src/abi.rs` | Dynamic loading and typed ownership of the candidate C ABI |
 | `native_runner/src/protocol.rs` | Correctness worker and per-lane socket protocol |
 | `native_runner/src/probe.rs` | ABI edge-case and copying-lifetime probes |
@@ -70,6 +70,11 @@ Go owns the correctness model because Porcupine is a mature Go implementation.
 Rust owns all candidate FFI so C ABI loading, native handle lifetimes, and direct
 benchmark calls are implemented once. The candidate never interacts directly
 with Go.
+
+Go dependencies, including the evaluator SDK reached through a relative
+`replace`, are vendored into `vendor/`. VibeSys copies this package into the
+candidate workspace before running it, where a relative module path no longer
+resolves, so the package must build from its own tree.
 
 ## Repository and Evaluator Integrity
 
@@ -301,9 +306,33 @@ inconsistent attempt totals. An odd number of repetitions is required, and
 `total_ops_per_sec` is taken from the median repetition while all samples are
 retained.
 
-For manifests with `[benchmark.result]`, VibeSys runs the immutable benchmark
-command and accepts only one finite numeric field with the declared name.
-SPSC, MPSC, and MPMC declare `total_ops_per_sec`.
+### Benchmark Output
+
+The benchmark command writes two independent outputs, and both flags are
+optional.
+
+`--vs-output` names the VibeSys evaluator record stream, the framework-facing
+result channel specified by `sdk/vs-evaluator/PROTOCOL.md`. The command declares
+one metric, `total_ops_per_sec` in `ops/s` with direction `max`. The hello
+record is written before the first repetition, so a crashed or timed-out run
+still leaves a stream that names its metric. The stream then closes with either
+a result record carrying the median rate or an error record naming why no rate
+exists. Protocol 1 carries one row, so a run that reports the stream measures a
+single `--scenario`; `--scenario all` with `--vs-output` is rejected before any
+measurement.
+
+`--output-json` keeps the detailed report: per-scenario counters, duration,
+worker counts, and every repetition sample. It is human debugging output, not
+the metric channel, and it still accepts `--scenario all`.
+
+Omitting `--vs-output` reports nothing to the framework and leaves the printed
+summary and the detailed report unchanged. Standalone baseline invocations use
+that form.
+
+`[benchmark.result]` in a task manifest selects the `--output-json` path
+instead: VibeSys runs the immutable benchmark command and accepts only one
+finite numeric field with the declared name. SPSC, MPSC, and MPMC declare
+`total_ops_per_sec`.
 
 ## Trust Model
 

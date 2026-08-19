@@ -112,9 +112,9 @@ retention, undersized-output retry, concurrent short/full-buffer consumers, and
 unchanged output on empty and invalid dequeues before running concurrent
 Porcupine histories.
 
-The evaluator may run multiple independent benchmark repetitions. Its
-`total_ops_per_sec` field is the median repetition, and the JSON output includes
-the individual `total_ops_per_sec_samples` values.
+The evaluator may run multiple independent benchmark repetitions. The reported
+`total_ops_per_sec` is the median repetition; the detailed JSON report also
+lists the individual `total_ops_per_sec_samples` values.
 
 ## Unsupported contracts
 
