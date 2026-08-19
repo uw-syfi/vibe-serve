@@ -1,0 +1,55 @@
+{
+  "comment": "Reason code every conforming reader must report for each invalid stream. Codes are part of the protocol contract; error message wording is not.",
+  "invalid": {
+    "boolean-value": "NON_NUMERIC_VALUE",
+    "duplicate-hello": "DUPLICATE_HELLO",
+    "empty-error-message": "INVALID_RECORD",
+    "empty-metrics": "EMPTY_METRICS",
+    "hello-not-first": "HELLO_NOT_FIRST",
+    "labeled-result": "UNSUPPORTED_LABEL",
+    "malformed-line": "MALFORMED_LINE",
+    "missing-hello": "MISSING_HELLO",
+    "missing-kind": "UNKNOWN_KIND",
+    "missing-metric": "MISSING_METRIC",
+    "no-outcome": "NO_OUTCOME",
+    "non-finite-value": "NON_FINITE_VALUE",
+    "non-numeric-value": "NON_NUMERIC_VALUE",
+    "second-result": "INVALID_RECORD",
+    "unknown-key": "UNKNOWN_KEY",
+    "unknown-kind": "UNKNOWN_KIND",
+    "unknown-metric": "UNKNOWN_METRIC",
+    "unsupported-protocol": "UNSUPPORTED_PROTOCOL",
+    "whitespace-metric-name": "INVALID_METRIC_NAME"
+  },
+  "valid": {
+    "bare-metric-spec": {
+      "outcome": "result",
+      "values": {
+        "primary_value": 0.0
+      }
+    },
+    "error": {
+      "outcome": "error"
+    },
+    "negative-and-integer-values": {
+      "outcome": "result",
+      "values": {
+        "drift_ratio": -0.25,
+        "enqueued": 1048576.0
+      }
+    },
+    "single-metric": {
+      "outcome": "result",
+      "values": {
+        "total_ops_per_sec": 41250.3
+      }
+    },
+    "two-metrics": {
+      "outcome": "result",
+      "values": {
+        "aggregate_throughput": 1180.4,
+        "p99_latency_ms": 812.0
+      }
+    }
+  }
+}

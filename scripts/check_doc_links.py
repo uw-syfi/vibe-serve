@@ -47,7 +47,6 @@ EXCLUDED_PREFIXES = (
     "node_modules/",
     "resources/skills/neuron-agentic-development/",
 )
-
 MARKDOWN_SUFFIXES = (".md", ".mdx")
 
 # Inline `[text](target)` links plus `[id]: target` reference definitions.

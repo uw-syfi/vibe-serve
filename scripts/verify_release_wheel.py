@@ -38,6 +38,7 @@ if TYPE_CHECKING:
 PYPI_FILE_SIZE_LIMIT = 100_000_000
 FRAMEWORK_PACKAGES = (
     "vibesys",
+    "vs_evaluator_protocol",
     "vs_feature_flags",
     "vs_github",
     "vs_issue_board",
@@ -48,6 +49,7 @@ FRAMEWORK_PACKAGES = (
 )
 _INTERNAL_DISTRIBUTIONS = frozenset(
     {
+        "vs-evaluator-protocol",
         "vs-feature-flags",
         "vs-github",
         "vs-issue-board",
@@ -59,6 +61,9 @@ _INTERNAL_DISTRIBUTIONS = frozenset(
 )
 _PACKAGE_SOURCE_ROOTS = {
     Path("src/vibesys"): PurePosixPath("vibesys"),
+    Path("libs/vs-evaluator-protocol/src/vs_evaluator_protocol"): PurePosixPath(
+        "vs_evaluator_protocol"
+    ),
     Path("libs/vs-feature-flags/src/vs_feature_flags"): PurePosixPath("vs_feature_flags"),
     Path("libs/vs-github/src/vs_github"): PurePosixPath("vs_github"),
     Path("libs/vs-issue-board/src/vs_issue_board"): PurePosixPath("vs_issue_board"),

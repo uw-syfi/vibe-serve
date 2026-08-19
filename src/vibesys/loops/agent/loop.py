@@ -11,9 +11,10 @@ import hashlib
 import json
 import math
 import shlex
+from collections.abc import Mapping, Sequence  # noqa: TC003  # tracked: #288
 from dataclasses import dataclass
 from pathlib import Path  # noqa: TC003  # tracked: #288
-from typing import Any
+from typing import Any, Literal
 
 from vibesys.agents.base import ResponseFallback
 from vibesys.agents.progress import RoundProgress
@@ -69,6 +70,13 @@ from vibesys.skills import (
     ResolvedSkillSelection,
     build_skill_catalog,
     resolve_skill_selections,
+)
+from vs_evaluator_protocol import (
+    Hello,
+    ProtocolError,
+    check_objectives,
+    parse_records,
+    read_measurement,
 )
 from vs_loop_state.agent import RoundHistory, RoundRecord
 from vs_project import AgentRunConfiguration
@@ -1787,6 +1795,83 @@ def _run_framework_accuracy_gate(  # noqa: PLR0913  # tracked: #288
 _FRAMEWORK_BENCHMARK_MARKER = "__VIBESYS_FRAMEWORK_BENCHMARK_JSON__"
 _FRAMEWORK_BENCHMARK_END_MARKER = "__VIBESYS_FRAMEWORK_BENCHMARK_JSON_END__"
 
+# The flag every result-protocol evaluator registers for its output file; see
+# ``OutputFlag`` in the evaluator SDK (``sdk/vs-evaluator/vseval/schema.go``).
+_PROTOCOL_OUTPUT_FLAG = "--vs-output"
+
+
+@dataclass(frozen=True, slots=True)
+class FrameworkBenchmarkOutcome:
+    """What one framework benchmark run reported.
+
+    ``feedback`` is set exactly when the run failed and the round must retry.
+    On success ``metric_name`` and ``metric_value`` carry the headline scalar
+    both result contracts produce, and ``row`` carries the complete validated
+    metric row, which only the evaluator result protocol reports.
+    """
+
+    feedback: str | None = None
+    metric_name: str | None = None
+    metric_value: float | None = None
+    row: Mapping[str, float] | None = None
+
+
+def _read_protocol_benchmark(
+    text: str, *, objectives: Sequence[Objective]
+) -> FrameworkBenchmarkOutcome:
+    """Turn a recovered evaluator record stream into a benchmark outcome.
+
+    Never raises for a bad stream: an invalid stream, a structured evaluator
+    failure, and an undecidable headline metric all become round feedback.
+    Objectives belong to the task rather than to the evaluator, so the check
+    that the evaluator declares every optimized metric happens here and not in
+    the protocol reader.
+    """
+    hello: Hello | None = None
+    try:
+        records = parse_records(text)
+        hello = next((record for record in records if isinstance(record, Hello)), None)
+        measurement = read_measurement(records)
+        if objectives and hello is not None:
+            check_objectives(hello, {objective.name for objective in objectives})
+    except ProtocolError as error:
+        return FrameworkBenchmarkOutcome(feedback=_protocol_feedback(error, hello))
+    if measurement.values is None:
+        return FrameworkBenchmarkOutcome(
+            feedback=f"benchmark evaluator reported a failure: {measurement.failure}"
+        )
+    return _select_headline_metric(measurement.values, objectives)
+
+
+def _protocol_feedback(error: ProtocolError, hello: Hello | None) -> str:
+    """Render a rejected record stream, naming its reason code and metrics."""
+    declared = ", ".join(sorted(hello.metrics)) if hello is not None else "(none declared)"
+    return f"invalid benchmark result [{error.code}]: {error}; evaluator declares: {declared}"
+
+
+def _select_headline_metric(
+    values: Mapping[str, float], objectives: Sequence[Objective]
+) -> FrameworkBenchmarkOutcome:
+    """Select the back-compat headline scalar out of a complete metric row.
+
+    The first configured objective names it. With no objectives configured a
+    single-metric evaluator is unambiguous; anything else is a task
+    configuration error to report rather than a row to guess through.
+    """
+    if objectives:
+        name = objectives[0].name
+        return FrameworkBenchmarkOutcome(metric_name=name, metric_value=values[name], row=values)
+    if len(values) == 1:
+        name, value = next(iter(values.items()))
+        return FrameworkBenchmarkOutcome(metric_name=name, metric_value=value, row=values)
+    return FrameworkBenchmarkOutcome(
+        feedback=(
+            f"benchmark evaluator reported metrics {', '.join(sorted(values))} but the task "
+            "configures no objectives, so no headline metric is defined; declare the optimized "
+            "metrics in objectives.toml"
+        )
+    )
+
 
 def _metric_values(value: object, metric: str) -> list[object]:
     if isinstance(value, dict):
@@ -1806,34 +1891,51 @@ def _run_framework_benchmark(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracke
     ctx: LoopContext,
     *,
     result_spec: BenchmarkResult | None,
+    result_protocol: Literal[1] | None = None,
+    objectives: Sequence[Objective] = (),
     round_number: int,
     retry: int,
     progress_path: Path,
     timeout_seconds: int | None = None,
     candidate_revision: str | None = None,
-) -> tuple[str | None, float | None]:
-    """Run and parse an opt-in trusted benchmark result contract."""
-    if result_spec is None:
-        return None, None
+) -> FrameworkBenchmarkOutcome:
+    """Run and parse an opt-in trusted benchmark result contract.
+
+    ``result_spec`` scrapes one declared scalar out of arbitrary benchmark
+    JSON; ``result_protocol`` reads a complete validated metric row from the
+    evaluator result protocol. The manifest rejects declaring both.
+    """
+    if result_spec is None and result_protocol is None:
+        return FrameworkBenchmarkOutcome()
 
     base_command = ctx.judge_benchmark_command
     if not base_command:
-        return "Benchmark result contract is configured without a benchmark command.", None
+        return FrameworkBenchmarkOutcome(
+            feedback="Benchmark result contract is configured without a benchmark command."
+        )
 
     output_path = f"/tmp/vibesys-framework-benchmark-{round_number}-{retry}.json"  # noqa: S108  # tracked: #288
+    output_argument = (
+        result_spec.json_argument if result_spec is not None else _PROTOCOL_OUTPUT_FLAG
+    )
     execution_base = _with_candidate_revision(
         base_command,
         candidate_revision,
         release_deployment_env_var=_deployment_release_env_var(ctx),
     )
+    # The markers recover the result file through stdout, which is what makes
+    # the contract work for remote execution. Both contracts share that
+    # transport; only the recovered text is parsed differently.
     command = (
-        f"{execution_base} {shlex.quote(result_spec.json_argument)} {shlex.quote(output_path)}"
+        f"{execution_base} {shlex.quote(output_argument)} {shlex.quote(output_path)}"
         f" && printf '\\n{_FRAMEWORK_BENCHMARK_MARKER}\\n'"
         f" && cat {shlex.quote(output_path)}"
         f" && printf '\\n{_FRAMEWORK_BENCHMARK_END_MARKER}\\n'"
     )
     ctx.lprint(f"[framework-benchmark] running: {base_command}")
+    metric_name = result_spec.metric if result_spec is not None else None
     metric_value: float | None = None
+    row: Mapping[str, float] | None = None
     changed_before_execution = ctx.trusted_input_changes()
     if changed_before_execution:
         output = "Evaluator-owned files were modified: " + ", ".join(changed_before_execution)
@@ -1863,6 +1965,17 @@ def _run_framework_benchmark(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracke
         if not marker or not end_marker:
             output = f"{output}\nbenchmark output did not include its result JSON".strip()
             passed = False
+        elif result_spec is None:
+            # No scalar spec, so the caller declared `result_protocol`: the
+            # recovered text is a record stream, not arbitrary benchmark JSON.
+            outcome = _read_protocol_benchmark(encoded, objectives=objectives)
+            if outcome.feedback is not None:
+                output = f"{output}\n{outcome.feedback}".strip()
+                passed = False
+            else:
+                metric_name = outcome.metric_name
+                metric_value = outcome.metric_value
+                row = outcome.row
         else:
             try:
                 payload = json.loads(encoded.strip())
@@ -1896,6 +2009,7 @@ def _run_framework_benchmark(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracke
         ).strip()
         passed = False
         metric_value = None
+        row = None
 
     issue_board.append_framework_benchmark(
         progress_path,
@@ -1903,29 +2017,31 @@ def _run_framework_benchmark(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracke
         retry,
         command=base_command,
         passed=passed,
-        metric_name=result_spec.metric,
+        metric_name=metric_name,
         metric_value=metric_value,
         output=output[-8000:],
     )
     ctx.snapshot_workspace(f"round-{round_number}-retry-{retry}-framework-benchmark")
     if passed:
-        ctx.lprint(f"[framework-benchmark] PASS: {result_spec.metric}={metric_value}")
-        if ctx.supervisor is not None and metric_value is not None:
+        ctx.lprint(f"[framework-benchmark] PASS: {metric_name}={metric_value}")
+        if ctx.supervisor is not None and metric_name is not None and metric_value is not None:
             ctx.supervisor.record(
                 EventType.BENCHMARK_RESULT,
                 status=EventStatus.COMPLETED,
                 round_label=f"round-{round_number}",
                 data=BenchmarkResultData(
-                    metric=result_spec.metric,
+                    metric=metric_name,
                     value=metric_value,
-                    unit=result_spec.metric,
+                    unit=metric_name,
                 ),
             )
-        return None, metric_value
+        return FrameworkBenchmarkOutcome(
+            metric_name=metric_name, metric_value=metric_value, row=row
+        )
 
     feedback = f"Framework benchmark failed.\n{output[-4000:]}"
     ctx.lprint(f"[framework-benchmark] FAIL: {output[-1000:]}")
-    return feedback, None
+    return FrameworkBenchmarkOutcome(feedback=feedback)
 
 
 def _reconcile_model_requests(ctx: LoopContext) -> str | None:
@@ -1959,6 +2075,8 @@ def _run_framework_gates(  # noqa: PLR0913  # tracked: #288
     ctx: LoopContext,
     *,
     benchmark_result: BenchmarkResult | None,
+    benchmark_result_protocol: Literal[1] | None = None,
+    objectives: Sequence[Objective] = (),
     round_number: int,
     retry: int,
     progress_path: Path,
@@ -1966,12 +2084,18 @@ def _run_framework_gates(  # noqa: PLR0913  # tracked: #288
     benchmark_timeout_seconds: int | None = None,
     reuse_accuracy_pass: bool = False,
     candidate_revision: str | None = None,
-) -> tuple[str | None, float | None, bool]:
+) -> tuple[str | None, FrameworkBenchmarkOutcome, bool]:
+    """Run the framework-owned gates, returning the first failure's feedback.
+
+    The benchmark outcome is always returned so a passing protocol-path run can
+    carry its complete metric row to the round record; it is empty whenever the
+    benchmark did not run.
+    """
     if ctx.agent_runner.backend_name == "stub":
-        return None, None, False
+        return None, FrameworkBenchmarkOutcome(), False
     resource_feedback = _reconcile_model_requests(ctx)
     if resource_feedback is not None:
-        return resource_feedback, None, False
+        return resource_feedback, FrameworkBenchmarkOutcome(), False
     if reuse_accuracy_pass:
         feedback = None
         issue_board.append_framework_accuracy_gate(
@@ -1994,20 +2118,25 @@ def _run_framework_gates(  # noqa: PLR0913  # tracked: #288
             progress_path=progress_path,
             timeout_seconds=accuracy_timeout_seconds,
             candidate_revision=candidate_revision,
-            release_deployment_after=(benchmark_result is None or not ctx.judge_benchmark_command),
+            release_deployment_after=(
+                (benchmark_result is None and benchmark_result_protocol is None)
+                or not ctx.judge_benchmark_command
+            ),
         )
     if feedback is not None:
-        return feedback, None, False
-    benchmark_feedback, metric = _run_framework_benchmark(
+        return feedback, FrameworkBenchmarkOutcome(), False
+    benchmark = _run_framework_benchmark(
         ctx,
         result_spec=benchmark_result,
+        result_protocol=benchmark_result_protocol,
+        objectives=objectives,
         round_number=round_number,
         retry=retry,
         progress_path=progress_path,
         timeout_seconds=benchmark_timeout_seconds,
         candidate_revision=candidate_revision,
     )
-    return benchmark_feedback, metric, True
+    return benchmark.feedback, benchmark, True
 
 
 # ---------------------------------------------------------------------------
@@ -2032,6 +2161,7 @@ def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
     evaluator_path: Path | None = None,
     evaluator_package_root: Path | None = None,
     benchmark_result: BenchmarkResult | None = None,
+    benchmark_result_protocol: Literal[1] | None = None,
     accuracy_timeout_seconds: int | None = None,
     benchmark_timeout_seconds: int | None = None,
     max_rounds: int = 24,
@@ -2109,6 +2239,11 @@ def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
     # per-role files carry language, tooling, and use-case-specific contracts.
     domain_definition = resolve_domain(domain)
     objectives = list(objectives or [])
+    # Either result contract means a framework-owned benchmark runs this round,
+    # which is what the prompts and the official-evaluation record key off.
+    framework_benchmark_configured = benchmark_result is not None or (
+        benchmark_result_protocol is not None
+    )
     if modality is None and domain_definition.name is DomainName.LLM_SERVING:
         modality = "text_generation"
     run_environment = run_environment or make_run_environment_spec()
@@ -2280,7 +2415,7 @@ def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
                         modality=modality,
                         interface=interface,
                         domain_definition=domain_definition,
-                        framework_benchmark_enabled=benchmark_result is not None,
+                        framework_benchmark_enabled=framework_benchmark_configured,
                         official_eval_every=official_eval_every,
                         provisional_candidates=provisional_candidates,
                         official_eval_cadence_due=(
@@ -2387,6 +2522,7 @@ def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
                 implementation: ImplementerResponse | None = None
                 single_agent_response: SingleAgentRoundResponse | None = None
                 framework_perf_metric: float | None = None
+                framework_benchmark = FrameworkBenchmarkOutcome()
                 accepted_metrics: dict[str, float] = {}
                 accepted_evaluation_artifact: str | None = None
                 completed_official_evaluation_reason: str | None = None
@@ -2441,7 +2577,7 @@ def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
                             progress_path=progress_path,
                             progress_location=progress_location,
                             pareto_archive_location=pareto_archive_location,
-                            framework_benchmark_enabled=benchmark_result is not None,
+                            framework_benchmark_enabled=framework_benchmark_configured,
                             official_evaluation_due=(planned_official_reason is not None),
                             official_evaluation_reason=planned_official_reason,
                             prior_attempt_artifact_locations=prior_attempt_artifact_locations,
@@ -2546,7 +2682,7 @@ def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
                             gate_approved_evaluation_artifact=(
                                 active_hypothesis.gate_approved_evaluation_artifact
                             ),
-                            framework_benchmark_enabled=benchmark_result is not None,
+                            framework_benchmark_enabled=framework_benchmark_configured,
                             official_evaluation_due=(planned_official_reason is not None),
                             official_evaluation_reason=planned_official_reason,
                             pareto_archive_conflict=candidate_archive_conflict,
@@ -2650,11 +2786,13 @@ def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
                             )
                             (
                                 gate_feedback,
-                                framework_perf_metric,
+                                framework_benchmark,
                                 accuracy_passed,
                             ) = _run_framework_gates(
                                 ctx,
                                 benchmark_result=benchmark_result,
+                                benchmark_result_protocol=benchmark_result_protocol,
+                                objectives=objectives,
                                 round_number=round_number,
                                 retry=retry,
                                 progress_path=progress_path,
@@ -2663,6 +2801,7 @@ def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
                                 reuse_accuracy_pass=reuse_accuracy_pass,
                                 candidate_revision=candidate_commit,
                             )
+                            framework_perf_metric = framework_benchmark.metric_value
                             if gate_feedback is None:
                                 passed = True
                                 completed_official_evaluation_reason = official_reason
@@ -2696,7 +2835,7 @@ def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
                             profile_focus=last_profile_focus,
                             official_evaluation_due=(planned_official_reason is not None),
                             official_evaluation_reason=planned_official_reason,
-                            framework_benchmark_enabled=benchmark_result is not None,
+                            framework_benchmark_enabled=framework_benchmark_configured,
                             pareto_records=records,
                             objectives=objectives,
                         )
@@ -2747,11 +2886,13 @@ def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
                             )
                             (
                                 gate_feedback,
-                                framework_perf_metric,
+                                framework_benchmark,
                                 accuracy_passed,
                             ) = _run_framework_gates(
                                 ctx,
                                 benchmark_result=benchmark_result,
+                                benchmark_result_protocol=benchmark_result_protocol,
+                                objectives=objectives,
                                 round_number=round_number,
                                 retry=retry,
                                 progress_path=progress_path,
@@ -2760,6 +2901,7 @@ def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
                                 reuse_accuracy_pass=reuse_accuracy_pass,
                                 candidate_revision=candidate_commit,
                             )
+                            framework_perf_metric = framework_benchmark.metric_value
                             if gate_feedback is None:
                                 passed = True
                                 completed_official_evaluation_reason = official_reason
@@ -2792,9 +2934,7 @@ def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
                         and completed_official_evaluation_reason is not None
                     ):
                         single_agent_response.perf_metric = framework_perf_metric
-                        single_agent_response.perf_unit = (
-                            benchmark_result.metric if benchmark_result else None
-                        )
+                        single_agent_response.perf_unit = framework_benchmark.metric_name
                     profile_skipped = single_agent_response is None or (
                         single_agent_response.perf_metric is None
                     )
@@ -2849,7 +2989,7 @@ def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
                         and completed_official_evaluation_reason is not None
                     ):
                         perf_metric = framework_perf_metric
-                        perf_unit = benchmark_result.metric if benchmark_result else None
+                        perf_unit = framework_benchmark.metric_name
                     elif implementation_metric is not None:
                         perf_metric = implementation_metric
                         if implementation is not None and implementation.perf_metric is not None:
@@ -2931,13 +3071,18 @@ def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
                     candidate_retention_reason = (
                         active_hypothesis.gate_approved_candidate_retention_reason
                     )
-                # An official framework benchmark reports a single trusted
+                # A result-protocol benchmark measures the complete objective
+                # row, so it replaces the provisional metrics outright.
+                if perf_metric is not None and framework_benchmark.row is not None:
+                    accepted_metrics = dict(framework_benchmark.row)
+                # A legacy [benchmark.result] benchmark reports a single trusted
                 # scalar via perf_metric/perf_unit but leaves accepted_metrics
                 # empty (only implementer-reported evals populate it). Without a
                 # comparable objective row, _record_candidate_metrics falls back
                 # to the provisional candidate_metrics for frontier dominance.
                 # Promote the trusted scalar into the objective row so official
-                # framework measurements drive the frontier.
+                # framework measurements drive the frontier. Does not apply when
+                # a protocol row is present: the row above is already complete.
                 if not accepted_metrics and perf_metric is not None and perf_unit is not None:
                     accepted_metrics = {perf_unit: perf_metric}
                 completed_record = RoundRecord(
@@ -2960,13 +3105,13 @@ def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
                         passed
                         and completed_official_evaluation_reason is not None
                         and ctx.agent_runner.backend_name != "stub"
-                        and bool(ctx.judge_accuracy_command or benchmark_result)
+                        and (bool(ctx.judge_accuracy_command) or framework_benchmark_configured)
                     ),
                     official_evaluation_reason=(
                         completed_official_evaluation_reason
                         if (
                             ctx.agent_runner.backend_name != "stub"
-                            and bool(ctx.judge_accuracy_command or benchmark_result)
+                            and (bool(ctx.judge_accuracy_command) or framework_benchmark_configured)
                         )
                         else None
                     ),

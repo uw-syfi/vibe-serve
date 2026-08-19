@@ -23,6 +23,7 @@ type benchmarkConfig struct {
 	warmup      time.Duration
 	repetitions int
 	seed        int64
+	checkBudget time.Duration
 }
 
 type benchmarkResult struct {
@@ -145,6 +146,7 @@ func runBenchmark(config benchmarkConfig) (benchmarkResult, error) {
 		producers:       config.producers,
 		consumers:       config.consumers,
 		seed:            config.seed,
+		checkBudget:     config.checkBudget,
 	}
 	if err := runAccuracy(gate); err != nil {
 		return benchmarkResult{}, fmt.Errorf("correctness gate: %w", err)

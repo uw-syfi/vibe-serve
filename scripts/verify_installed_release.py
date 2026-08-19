@@ -32,6 +32,7 @@ from vs_project import Project, ProjectError
 
 FRAMEWORK_PACKAGES = (
     "vibesys",
+    "vs_evaluator_protocol",
     "vs_feature_flags",
     "vs_github",
     "vs_issue_board",

@@ -110,11 +110,12 @@ The correctness gate probes actual lengths 0, 1, 7, 8, 9, intermediate, and
 maximum for 8-byte, 257-byte, and 1 MiB queue profiles. It also checks input
 retention, undersized-output retry, concurrent short/full-buffer consumers, and
 unchanged output on empty and invalid dequeues before running concurrent
-Porcupine histories.
+Porcupine histories. Each history is decided under a time budget, and a history
+the checker cannot decide within it fails the gate exactly as a violation does.
 
-The evaluator may run multiple independent benchmark repetitions. Its
-`total_ops_per_sec` field is the median repetition, and the JSON output includes
-the individual `total_ops_per_sec_samples` values.
+The evaluator may run multiple independent benchmark repetitions. The reported
+`total_ops_per_sec` is the median repetition; the detailed JSON report also
+lists the individual `total_ops_per_sec_samples` values.
 
 ## Unsupported contracts
 

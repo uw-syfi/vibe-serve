@@ -32,7 +32,7 @@ func TestReservationAwareModelRejectsInvalidHistories(t *testing.T) {
 
 	for name, history := range tests {
 		t.Run(name, func(t *testing.T) {
-			if checkReservationAwareFIFOHistory(1, history) {
+			if reservationFIFOAccepts(t, 1, history) {
 				t.Fatal("invalid reservation-aware history was accepted")
 			}
 		})
@@ -47,7 +47,7 @@ func TestReservationAwareModelAcceptsDuplicateOutstandingReservations(t *testing
 	full := enqueueRecord(2, 20, false, 3)
 	empty := dequeueRecord(3, nil, 5)
 
-	if !checkReservationAwareFIFOHistory(
+	if !reservationFIFOAccepts(t,
 		2,
 		[]recordedOperation{first, second, full, empty},
 	) {
@@ -63,7 +63,7 @@ func TestReservationAwareModelUsesPublicationOrderForFIFO(t *testing.T) {
 	dequeueSecond := dequeueRecord(2, value(20), 6)
 	dequeueFirst := dequeueRecord(2, value(10), 11)
 
-	if !checkReservationAwareFIFOHistory(
+	if !reservationFIFOAccepts(t,
 		2,
 		[]recordedOperation{first, second, dequeueSecond, dequeueFirst},
 	) {
@@ -93,7 +93,7 @@ func TestReservationAwareModelRejectsMalformedHistories(t *testing.T) {
 
 	for name, history := range tests {
 		t.Run(name, func(t *testing.T) {
-			if checkReservationAwareFIFOHistory(1, history) {
+			if reservationFIFOAccepts(t, 1, history) {
 				t.Fatal("malformed history was accepted")
 			}
 		})
@@ -106,7 +106,7 @@ func TestReservationAwareFullCountsAllUsedCapacity(t *testing.T) {
 	full := enqueueRecord(1, 20, false, 3)
 	history := []recordedOperation{first, full}
 
-	if checkReservationAwareFIFOHistory(2, history) {
+	if reservationFIFOAccepts(t, 2, history) {
 		t.Fatal("FULL was accepted with one reservation and two slots of capacity")
 	}
 
@@ -114,7 +114,7 @@ func TestReservationAwareFullCountsAllUsedCapacity(t *testing.T) {
 	reserved := enqueueRecord(1, 10, true, 3)
 	reserved.Return = 10
 	full = enqueueRecord(2, 20, false, 5)
-	if !checkReservationAwareFIFOHistory(
+	if !reservationFIFOAccepts(t,
 		2,
 		[]recordedOperation{published, reserved, full},
 	) {

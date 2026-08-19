@@ -58,7 +58,7 @@ The source is organized as follows:
 
 | Path | Responsibility |
 | --- | --- |
-| `*.go` | CLI, candidate process control, histories, Porcupine checking, benchmark aggregation |
+| `*.go` | CLI, candidate process control, histories, Porcupine checking, benchmark aggregation, evaluator result stream |
 | `native_runner/src/abi.rs` | Dynamic loading and typed ownership of the candidate C ABI |
 | `native_runner/src/protocol.rs` | Correctness worker and per-lane socket protocol |
 | `native_runner/src/probe.rs` | ABI edge-case and copying-lifetime probes |
@@ -70,6 +70,14 @@ Go owns the correctness model because Porcupine is a mature Go implementation.
 Rust owns all candidate FFI so C ABI loading, native handle lifetimes, and direct
 benchmark calls are implemented once. The candidate never interacts directly
 with Go.
+
+VibeSys copies this package to `_evaluator/<name>` in the candidate workspace
+before running it, so it must build from a relocated tree with no path back to
+this repository. Every Go dependency, including the evaluator SDK
+(`github.com/uw-syfi/vibesys/sdk/vs-evaluator/vseval`), is an ordinary published
+module requirement resolved from the module proxy: no relative `replace`, no
+committed `vendor/`. To change the SDK and this evaluator together, use a
+developer-local Go workspace, described in [sdk/README.md](../../../sdk/README.md).
 
 ## Repository and Evaluator Integrity
 
@@ -143,8 +151,9 @@ scenario the evaluator performs these steps:
 4. Run independently seeded concurrent histories with the scenario's producer
    and consumer counts.
 5. Convert the recorded operations into a Porcupine history and check the
-   bounded FIFO model.
-6. Optionally write the first rejected history as JSON for reproduction.
+   bounded FIFO model within a per-history time budget.
+6. Optionally write the first rejected or undecided history as JSON for
+   reproduction.
 
 ### ABI Probes
 
@@ -200,6 +209,32 @@ Go, not the candidate, owns:
 
 Histories are limited to 32 approximate operations. Increasing the number of
 trials provides more schedules without making one Porcupine search intractable.
+
+### Check Budget
+
+Porcupine's search is worst-case exponential in the number of overlapping
+operations, so history size alone does not bound the work. Real histories decide
+in milliseconds, but some interleavings of a wide producer/consumer history run
+for minutes.
+
+Every history is therefore decided with `CheckOperationsTimeout` under a budget,
+default 20 seconds per history and overridable with `--check-budget` on both
+`check` and `benchmark`. The verdict is tri-state:
+
+| Verdict | Meaning | Gate outcome |
+| --- | --- | --- |
+| `Ok` | A legal linearization exists | Pass |
+| `Illegal` | No legal linearization exists | Fail as a contract violation |
+| `Unknown` | The budget expired first | Fail as an undecided history |
+
+An undecided history is a failure, not a pass. The checker is the candidate's
+adversary, so folding `Unknown` into `Ok` would let a candidate win by producing
+histories the checker cannot decide. The failure names the history, the
+scenario, and the budget, so a task can raise `--check-budget` or narrow the
+worker counts deliberately.
+
+Zero is rejected rather than passed through: Porcupine reads a zero timeout as
+unlimited, which is the unbounded search the budget exists to prevent.
 
 ### Queue Models
 
@@ -265,7 +300,11 @@ hanging the checker.
 
 The Go benchmark command first runs a reduced correctness gate. It does not
 benchmark a candidate that fails ABI probes, boundary checks, or its concurrent
-history.
+history, and it does not benchmark one whose history cannot be decided within
+the check budget. The gate decides five histories (four boundary, one
+concurrent), so the default budget keeps it inside the framework's benchmark
+timeout with room for the measured run. A gate failure reaches the framework as
+an evaluator error record carrying that reason.
 
 For each requested repetition, Go starts the Rust `benchmark` command. Rust
 loads the candidate and calls the C ABI directly from native producer and
@@ -301,9 +340,33 @@ inconsistent attempt totals. An odd number of repetitions is required, and
 `total_ops_per_sec` is taken from the median repetition while all samples are
 retained.
 
-For manifests with `[benchmark.result]`, VibeSys runs the immutable benchmark
-command and accepts only one finite numeric field with the declared name.
-SPSC, MPSC, and MPMC declare `total_ops_per_sec`.
+### Benchmark Output
+
+The benchmark command writes two independent outputs, and both flags are
+optional.
+
+`--vs-output` names the VibeSys evaluator record stream, the framework-facing
+result channel specified by `sdk/vs-evaluator/PROTOCOL.md`. The command declares
+one metric, `total_ops_per_sec` in `ops/s` with direction `max`. The hello
+record is written before the first repetition, so a crashed or timed-out run
+still leaves a stream that names its metric. The stream then closes with either
+a result record carrying the median rate or an error record naming why no rate
+exists. Protocol 1 carries one row, so a run that reports the stream measures a
+single `--scenario`; `--scenario all` with `--vs-output` is rejected before any
+measurement.
+
+`--output-json` keeps the detailed report: per-scenario counters, duration,
+worker counts, and every repetition sample. It is human debugging output, not
+the metric channel, and it still accepts `--scenario all`.
+
+Omitting `--vs-output` reports nothing to the framework and leaves the printed
+summary and the detailed report unchanged. Standalone baseline invocations use
+that form.
+
+`[benchmark.result]` in a task manifest selects the `--output-json` path
+instead: VibeSys runs the immutable benchmark command and accepts only one
+finite numeric field with the declared name. SPSC, MPSC, and MPMC declare
+`total_ops_per_sec`.
 
 ## Trust Model
 
@@ -336,6 +399,9 @@ extension.
   worker crashes fail evaluation.
 - Worker output is capped at 64 KiB before inclusion in an error.
 - A rejected linearizability history can be persisted for reproduction.
+- Linearizability checking is bounded per history; an undecided history fails
+  the gate with the scenario and budget in its reason rather than hanging until
+  the surrounding command timeout kills the run.
 - The evaluator does not currently impose its own per-operation deadline. Command
   timeout enforcement belongs to the surrounding execution layer.
 - Correctness schedules are sampled, not exhaustive.

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 
@@ -334,6 +335,39 @@ def test_manifest_rejects_unknown_evaluator_keys(tmp_path: Path) -> None:
     )
 
     with pytest.raises(ValueError, match="Extra inputs are not permitted"):
+        load_input_bundle(bundle)
+
+
+def test_manifest_accepts_benchmark_result_protocol(tmp_path: Path) -> None:
+    project_root = tmp_path / "project"
+    bundle_path = _write_bundle(project_root, "result_protocol = 1")
+
+    bundle = load_input_bundle(bundle_path)
+
+    assert bundle.benchmark_result_protocol == 1
+    assert bundle.benchmark_result is None
+
+
+def test_manifest_rejects_both_benchmark_result_contracts(tmp_path: Path) -> None:
+    project_root = tmp_path / "project"
+    bundle = _write_bundle(
+        project_root,
+        "result_protocol = 1\n\n[benchmark.result]\n"
+        'json_argument = "--output-json"\nmetric = "ops"',
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=re.escape("benchmark.result and benchmark.result_protocol are mutually exclusive"),
+    ):
+        load_input_bundle(bundle)
+
+
+def test_manifest_rejects_unsupported_benchmark_result_protocol(tmp_path: Path) -> None:
+    project_root = tmp_path / "project"
+    bundle = _write_bundle(project_root, "result_protocol = 2")
+
+    with pytest.raises(ValueError, match="result_protocol"):
         load_input_bundle(bundle)
 
 

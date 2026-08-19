@@ -12,7 +12,7 @@ func TestExactFIFOModelAcceptsBoundedFIFOHistory(t *testing.T) {
 		dequeueRecord(0, value(20), 11),
 		dequeueRecord(0, nil, 13),
 	}
-	if !checkExactFIFOHistory(2, history) {
+	if !exactFIFOAccepts(t, 2, history) {
 		t.Fatal("valid bounded FIFO history was rejected")
 	}
 }
@@ -43,7 +43,7 @@ func TestExactFIFOModelRejectsIncorrectHistories(t *testing.T) {
 
 	for name, history := range tests {
 		t.Run(name, func(t *testing.T) {
-			if checkExactFIFOHistory(1, history) {
+			if exactFIFOAccepts(t, 1, history) {
 				t.Fatal("invalid history was accepted")
 			}
 		})
@@ -57,7 +57,7 @@ func TestExactFIFOModelAcceptsDuplicatePayloads(t *testing.T) {
 		dequeueRecord(0, value(10), 5),
 		dequeueRecord(0, value(10), 7),
 	}
-	if !checkExactFIFOHistory(2, history) {
+	if !exactFIFOAccepts(t, 2, history) {
 		t.Fatal("valid duplicate payloads were rejected")
 	}
 }
@@ -84,7 +84,7 @@ func TestExactFIFOModelRejectsMalformedHistories(t *testing.T) {
 
 	for name, history := range tests {
 		t.Run(name, func(t *testing.T) {
-			if checkExactFIFOHistory(1, history) {
+			if exactFIFOAccepts(t, 1, history) {
 				t.Fatal("malformed history was accepted")
 			}
 		})

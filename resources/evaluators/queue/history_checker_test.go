@@ -1,6 +1,51 @@
 package main
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/anishathalye/porcupine"
+)
+
+// The fixtures in these model tests hold a handful of operations, so the check
+// budget is never the limiting factor and the verdict is effectively boolean.
+// An undecided verdict means the fixture, not the model, is wrong, so these
+// helpers fail the test rather than folding Unknown into either answer.
+
+func exactFIFOAccepts(t *testing.T, capacity int, history []recordedOperation) bool {
+	t.Helper()
+	return decidedVerdict(t, checkExactFIFOHistory(capacity, history, defaultCheckBudget))
+}
+
+func reservationFIFOAccepts(t *testing.T, capacity int, history []recordedOperation) bool {
+	t.Helper()
+	return decidedVerdict(
+		t,
+		checkReservationAwareFIFOHistory(capacity, history, defaultCheckBudget),
+	)
+}
+
+func scenarioAccepts(
+	t *testing.T,
+	s scenario,
+	capacity int,
+	history []recordedOperation,
+) bool {
+	t.Helper()
+	return decidedVerdict(t, checkScenarioHistory(s, capacity, history, defaultCheckBudget))
+}
+
+func decidedVerdict(t *testing.T, verdict porcupine.CheckResult) bool {
+	t.Helper()
+	switch verdict {
+	case porcupine.Ok:
+		return true
+	case porcupine.Illegal:
+		return false
+	default:
+		t.Fatalf("fixture history was undecided within %s: %s", defaultCheckBudget, verdict)
+		return false
+	}
+}
 
 func enqueueRecord(client int, value uint64, ok bool, call int64) recordedOperation {
 	return recordedOperation{
@@ -38,13 +83,13 @@ func TestScenarioModelsApplyDistinctReservationSemantics(t *testing.T) {
 	empty := dequeueRecord(2, nil, 5)
 	history := []recordedOperation{first, full, empty}
 
-	if checkScenarioHistory(scenarioSPSC, 1, history) {
+	if scenarioAccepts(t, scenarioSPSC, 1, history) {
 		t.Fatal("exact SPSC model accepted FULL and EMPTY around an unpublished enqueue")
 	}
-	if checkScenarioHistory(scenarioMPSC, 1, history) {
+	if scenarioAccepts(t, scenarioMPSC, 1, history) {
 		t.Fatal("exact MPSC model accepted FULL and EMPTY around an unpublished enqueue")
 	}
-	if !checkScenarioHistory(scenarioMPMC, 1, history) {
+	if !scenarioAccepts(t, scenarioMPMC, 1, history) {
 		t.Fatal("reservation-aware MPMC model rejected a reserved but unpublished enqueue")
 	}
 }
@@ -79,8 +124,8 @@ func TestModelsAgreeOnSequentialHistories(t *testing.T) {
 
 	for name, history := range tests {
 		t.Run(name, func(t *testing.T) {
-			exact := checkExactFIFOHistory(1, history)
-			reservationAware := checkReservationAwareFIFOHistory(1, history)
+			exact := exactFIFOAccepts(t, 1, history)
+			reservationAware := reservationFIFOAccepts(t, 1, history)
 			if exact != reservationAware {
 				t.Fatalf(
 					"sequential verdicts differ: exact=%t reservation-aware=%t",

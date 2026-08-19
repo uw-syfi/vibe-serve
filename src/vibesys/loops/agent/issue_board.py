@@ -630,12 +630,16 @@ def append_framework_benchmark(  # noqa: D103, PLR0913  # tracked: #288
     *,
     command: str,
     passed: bool,
-    metric_name: str,
+    metric_name: str | None,
     metric_value: float | None,
     output: str,
 ) -> None:
     verdict = "pass" if passed else "fail"
-    metric_line = f"- **{metric_name}**: {metric_value}\n" if metric_value is not None else ""
+    metric_line = (
+        f"- **{metric_name}**: {metric_value}\n"
+        if metric_name is not None and metric_value is not None
+        else ""
+    )
     block = (
         f"## Round {round_number} — Framework benchmark (attempt {retry})\n"
         f"- **verdict**: {verdict}\n"

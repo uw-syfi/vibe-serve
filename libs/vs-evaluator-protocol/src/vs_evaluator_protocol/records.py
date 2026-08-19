@@ -1,0 +1,114 @@
+"""Record definitions and line parsing for the evaluator result protocol."""
+
+from __future__ import annotations
+
+import json
+from typing import Literal, NoReturn
+
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, ValidationError
+
+from vs_evaluator_protocol.errors import ReasonCode, reject
+
+PROTOCOL_VERSION: int = 1
+
+
+class _StrictRecord(BaseModel):
+    """Base for records that reject unknown keys and type coercion."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+
+class MetricSpec(_StrictRecord):
+    """Advisory metadata for one declared metric.
+
+    Neither field selects objectives: `unit` is human-facing and `direction`
+    states the metric's intrinsic better-direction.
+    """
+
+    unit: str | None = None
+    direction: Literal["max", "min"] | None = None
+
+
+class Hello(_StrictRecord):
+    """Opening record declaring the protocol version and produced metrics."""
+
+    kind: Literal["hello"] = "hello"
+    protocol: int
+    metrics: dict[str, MetricSpec]
+
+
+class Result(_StrictRecord):
+    """Measured row for one operating point.
+
+    `values` is intentionally untyped beyond JSON: rejecting non-numbers,
+    booleans, and non-finite numbers is the reader's job and carries its own
+    reason codes.
+    """
+
+    kind: Literal["result"] = "result"
+    label: str = ""
+    values: dict[str, JsonValue]
+
+
+class ErrorRecord(_StrictRecord):
+    """Terminating record reporting that the evaluator produced no row."""
+
+    kind: Literal["error"] = "error"
+    message: str = Field(min_length=1)
+
+
+Record = Hello | Result | ErrorRecord
+
+_RECORD_TYPES: dict[str, type[Record]] = {
+    "hello": Hello,
+    "result": Result,
+    "error": ErrorRecord,
+}
+
+
+def parse_records(text: str) -> list[Record]:
+    """Parse a record stream into typed records, one per non-blank line.
+
+    Validates each line on its own: JSON shape, record kind, key set, and
+    field types. Cross-record obligations belong to `read_measurement`.
+
+    Raises:
+        ProtocolError: when a line is not a record of a known kind, carries an
+            unknown key, or has a field that violates the record definition.
+    """
+    return [
+        _parse_line(line, number)
+        for number, line in enumerate(text.splitlines(), start=1)
+        if line.strip()
+    ]
+
+
+def _parse_line(line: str, number: int) -> Record:
+    """Parse one non-blank line into the record its `kind` names."""
+    try:
+        payload = json.loads(line)
+    except json.JSONDecodeError:
+        reject(ReasonCode.MALFORMED_LINE, f"line {number} is not valid JSON")
+    if not isinstance(payload, dict):
+        reject(ReasonCode.MALFORMED_LINE, f"line {number} is not a JSON object")
+    kind = payload.get("kind")
+    if not isinstance(kind, str) or kind not in _RECORD_TYPES:
+        reject(ReasonCode.UNKNOWN_KIND, f"line {number} has unknown record kind {kind!r}")
+    try:
+        return _RECORD_TYPES[kind].model_validate_json(line)
+    except ValidationError as error:
+        _reject_invalid_record(error, line=number, kind=kind)
+
+
+def _reject_invalid_record(error: ValidationError, *, line: int, kind: str) -> NoReturn:
+    """Translate a pydantic failure into the reason code the protocol names."""
+    details = error.errors()
+    unknown_key = next((detail for detail in details if detail["type"] == "extra_forbidden"), None)
+    detail = unknown_key or details[0]
+    key = ".".join(str(part) for part in detail["loc"])
+    if unknown_key is not None:
+        reject(ReasonCode.UNKNOWN_KEY, f"line {line}: {kind} record has unknown key {key!r}")
+    reject(
+        ReasonCode.INVALID_RECORD,
+        f"line {line}: {kind} record has invalid key {key!r}: {detail['msg']}",
+    )

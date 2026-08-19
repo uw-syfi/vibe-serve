@@ -153,7 +153,15 @@ jobs:
             resources/evaluators/queue/go.sum
             resources/evaluators/microservice/go.sum
 
+      # Bounded because an apt mirror or a service-restart prompt makes this
+      # hang rather than fail: three runs on this branch sat here for tens of
+      # minutes each and never reached a test. A timeout turns that into a
+      # legible failure in minutes instead of a job that burns hours.
       - name: Install managed-candidate containment dependency
+        timeout-minutes: 10
+        env:
+          DEBIAN_FRONTEND: noninteractive
+          NEEDRESTART_MODE: a
         run: |
           sudo apt-get update
           sudo apt-get install -y bubblewrap
@@ -187,6 +195,21 @@ jobs:
       - name: Test queue candidate
         working-directory: examples/data-structures/repositories/queue-rs
         run: cargo test --locked
+
+      # The SDK is consumed by `go get`, so a module path that disagrees with
+      # its directory fails only for outside consumers and never for us.
+      - name: Check evaluator SDK module path
+        run: |
+          declared=$(sed -n 's/^module //p' sdk/vs-evaluator/vseval/go.mod)
+          expected=github.com/uw-syfi/vibesys/sdk/vs-evaluator/vseval
+          if [ "$declared" != "$expected" ]; then
+            echo "go.mod declares $declared but its directory requires $expected"
+            exit 1
+          fi
+
+      - name: Test evaluator SDK
+        working-directory: sdk/vs-evaluator/vseval
+        run: go test -race ./...
 
       - name: Test queue evaluator
         working-directory: resources/evaluators/queue
@@ -264,7 +287,15 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      # Bounded for the same reason as the containment-dependency install in
+      # `queue-native`: this apt install intermittently hangs on these runners
+      # instead of failing, and an unbounded step reports nothing while it
+      # burns the job's budget.
       - name: Install bubblewrap
+        timeout-minutes: 10
+        env:
+          DEBIAN_FRONTEND: noninteractive
+          NEEDRESTART_MODE: a
         run: |
           sudo apt-get update
           sudo apt-get install -y bubblewrap
