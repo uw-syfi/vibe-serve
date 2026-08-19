@@ -3,13 +3,22 @@
 from __future__ import annotations
 
 import json
-from typing import Literal, NoReturn
+from typing import Literal, NoReturn, Self
 
-from pydantic import BaseModel, ConfigDict, Field, JsonValue, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, ValidationError, model_validator
 
 from vs_evaluator_protocol.errors import ReasonCode, reject
 
-PROTOCOL_VERSION: int = 1
+PROTOCOL_VERSION: int = 2
+
+# TRANSITIONAL: the two Go evaluators in this repository still emit protocol 1,
+# so the reader keeps accepting it until they are rebuilt against an SDK that
+# emits protocol 2. Version 1 has no `required` key, so a version 1 stream is
+# read as declaring every metric required. Delete `LEGACY_PROTOCOL_VERSION`,
+# `SUPPORTED_PROTOCOL_VERSIONS`, and `Hello._require_every_legacy_metric` in
+# that follow-up; nothing else carries version 1 behavior.
+LEGACY_PROTOCOL_VERSION: int = 1
+SUPPORTED_PROTOCOL_VERSIONS: frozenset[int] = frozenset({LEGACY_PROTOCOL_VERSION, PROTOCOL_VERSION})
 
 
 class _StrictRecord(BaseModel):
@@ -19,14 +28,19 @@ class _StrictRecord(BaseModel):
 
 
 class MetricSpec(_StrictRecord):
-    """Advisory metadata for one declared metric.
+    """Declaration of one metric the evaluator produces.
 
-    Neither field selects objectives: `unit` is human-facing and `direction`
-    states the metric's intrinsic better-direction.
+    `unit` and `direction` are advisory and select nothing: `unit` is
+    human-facing and `direction` states the metric's intrinsic
+    better-direction. `required` is not advisory: it says whether every
+    successful run must report the metric. An optional metric is still
+    declared, so it can never be reported under a name the reader has not
+    seen, but it may be absent from a result row.
     """
 
     unit: str | None = None
     direction: Literal["max", "min"] | None = None
+    required: bool = True
 
 
 class Hello(_StrictRecord):
@@ -35,6 +49,22 @@ class Hello(_StrictRecord):
     kind: Literal["hello"] = "hello"
     protocol: int
     metrics: dict[str, MetricSpec]
+
+    @model_validator(mode="after")
+    def _require_every_legacy_metric(self) -> Self:
+        """Read a version 1 declaration as marking every metric required.
+
+        TRANSITIONAL, removed with the rest of version 1 support. Version 1
+        has no `required` key, so normalizing here keeps every consumer of a
+        `Hello`, `read_measurement` and `check_objectives` alike, from having
+        to branch on the protocol version.
+        """
+        if self.protocol == LEGACY_PROTOCOL_VERSION:
+            self.metrics = {
+                name: spec.model_copy(update={"required": True})
+                for name, spec in self.metrics.items()
+            }
+        return self
 
 
 class Result(_StrictRecord):

@@ -9,6 +9,7 @@ from typing import Any
 import pytest
 
 from vs_evaluator_protocol import (
+    Hello,
     Measurement,
     ProtocolError,
     ReasonCode,
@@ -61,9 +62,18 @@ def test_valid_stream_reads_the_expected_outcome(stream: Path) -> None:
         assert not measurement.failed
         assert measurement.failure is None
         assert measurement.values == expected["values"]
-        assert set(measurement.metrics) == set(expected["values"])
+        assert measurement.metrics is not None
+        reported = set(expected["values"])
+        declared = set(measurement.metrics)
+        required = {name for name, spec in measurement.metrics.items() if spec.required}
+        assert reported <= declared
+        assert required <= reported
     else:
         assert measurement.failed
         assert measurement.values is None
         assert measurement.failure
-        assert measurement.metrics
+        # A failed stream carries the declaration only when it had one: an
+        # error may arrive with no preceding hello.
+        records = parse_records(stream.read_text(encoding="utf-8"))
+        declares = any(isinstance(record, Hello) for record in records)
+        assert (measurement.metrics is not None) == declares

@@ -1,2 +1,2 @@
-{"kind":"hello","protocol":1,"metrics":{"primary_value":{}}}
+{"kind":"hello","protocol":2,"metrics":{"primary_value":{}}}
 {"kind":"result","label":"","values":{"primary_value":0.0}}

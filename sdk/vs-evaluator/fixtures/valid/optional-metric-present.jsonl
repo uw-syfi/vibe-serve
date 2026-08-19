@@ -1,0 +1,2 @@
+{"kind":"hello","protocol":2,"metrics":{"operations_per_second":{"unit":"operations/s","direction":"max"},"p99_latency_ms":{"unit":"ms","direction":"min","required":false}}}
+{"kind":"result","label":"","values":{"operations_per_second":50.9,"p99_latency_ms":812.0}}

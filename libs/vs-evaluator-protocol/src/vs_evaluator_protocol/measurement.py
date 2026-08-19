@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 from vs_evaluator_protocol.errors import ReasonCode, reject
 from vs_evaluator_protocol.records import (
     PROTOCOL_VERSION,
+    SUPPORTED_PROTOCOL_VERSIONS,
     ErrorRecord,
     Hello,
     Result,
@@ -26,12 +27,17 @@ if TYPE_CHECKING:
 class Measurement:
     """One validated evaluator outcome.
 
-    `metrics` is the declaration from `hello`. Exactly one of `values` (the
-    measured row, keyed by declared metric name) and `failure` (why the
-    evaluator produced no row) is set.
+    Exactly one of `values` (the measured row, keyed by declared metric name)
+    and `failure` (why the evaluator produced no row) is set.
+
+    `metrics` is the declaration from `hello`, or `None` when the evaluator
+    failed before it declared anything: an `error` is the one record the
+    protocol lets arrive with no preceding `hello`, so a failed measurement
+    need not carry a declaration. A measured row always does, since the row
+    was validated against it.
     """
 
-    metrics: Mapping[str, MetricSpec]
+    metrics: Mapping[str, MetricSpec] | None
     values: Mapping[str, float] | None = None
     failure: str | None = None
 
@@ -39,6 +45,9 @@ class Measurement:
         """Reject an outcome that is neither exactly a row nor a failure."""
         if (self.values is None) == (self.failure is None):
             message = "a measurement carries either values or a failure message"
+            raise ValueError(message)
+        if self.values is not None and self.metrics is None:
+            message = "a measured row carries the metric declaration it was validated against"
             raise ValueError(message)
 
     @property
@@ -64,6 +73,13 @@ def read_measurement(records: Iterable[Record]) -> Measurement:
         if isinstance(record, Hello):
             hello = _read_hello(record, hello=hello, position=position)
         elif hello is None:
+            if isinstance(record, ErrorRecord) and position == 1:
+                # An error is the one record that may replace hello: an
+                # evaluator whose metric identity comes from configuration
+                # cannot declare anything until that configuration loads, and
+                # a failure before then must still reach the framework as a
+                # reason rather than as a missing file.
+                return Measurement(metrics=None, failure=record.message)
             # A hello may still arrive; whether this is HELLO_NOT_FIRST or
             # MISSING_HELLO is only decided once the stream is exhausted.
             continue
@@ -82,20 +98,38 @@ def read_measurement(records: Iterable[Record]) -> Measurement:
 def check_objectives(hello: Hello, objective_names: Set[str]) -> None:
     """Check that the evaluator declares every metric the task optimizes for.
 
+    An objective must be declared *and* declared required. An optional metric
+    may be absent from a successful run, so a task cannot rank on one: the
+    frontier would silently lose the round.
+
     Separate from `read_measurement` on purpose: objectives belong to the
     task, not to the evaluator, which never learns which metrics are
     optimized.
 
     Raises:
-        ProtocolError: when an objective is absent from `hello.metrics`.
+        ProtocolError: when an objective is absent from `hello.metrics` or is
+            declared there as optional.
     """
-    missing = sorted(name for name in objective_names if name not in hello.metrics)
-    if missing:
-        reject(
-            ReasonCode.MISSING_METRIC,
-            f"objectives {', '.join(repr(name) for name in missing)} are not declared by "
-            f"the evaluator; hello record declares {_names(hello.metrics)}",
+    undeclared = sorted(name for name in objective_names if name not in hello.metrics)
+    optional = sorted(
+        name
+        for name in objective_names
+        if name in hello.metrics and not hello.metrics[name].required
+    )
+    if not undeclared and not optional:
+        return
+    faults: list[str] = []
+    if undeclared:
+        faults.append(f"objectives {_names(undeclared)} are not declared by the evaluator")
+    if optional:
+        faults.append(
+            f"objectives {_names(optional)} are declared optional, so a successful run may "
+            "omit them and the task cannot rank on them"
         )
+    reject(
+        ReasonCode.MISSING_METRIC,
+        f"{'; '.join(faults)}; hello record declares {_names(hello.metrics)}",
+    )
 
 
 def _read_hello(record: Hello, *, hello: Hello | None, position: int) -> Hello:
@@ -104,7 +138,7 @@ def _read_hello(record: Hello, *, hello: Hello | None, position: int) -> Hello:
         reject(ReasonCode.DUPLICATE_HELLO, f"record {position} is a second hello record")
     if position != 1:
         reject(ReasonCode.HELLO_NOT_FIRST, f"record {position} is a hello but is not first")
-    if record.protocol != PROTOCOL_VERSION:
+    if record.protocol not in SUPPORTED_PROTOCOL_VERSIONS:
         reject(
             ReasonCode.UNSUPPORTED_PROTOCOL,
             f"hello record has key 'protocol' = {record.protocol}, "
@@ -129,18 +163,22 @@ def _read_values(
     values: Mapping[str, float] | None,
     position: int,
 ) -> Mapping[str, float]:
-    """Validate one measured row against the declared metrics."""
+    """Validate one measured row against the declared metrics.
+
+    Every reported name must be declared, and every metric declared required
+    must be reported. A declared optional metric may be absent.
+    """
     if values is not None:
         reject(
             ReasonCode.INVALID_RECORD,
             f"record {position} is a second result record, "
-            "but protocol 1 carries at most one operating point",
+            f"but protocol {PROTOCOL_VERSION} carries at most one operating point",
         )
     if record.label:
         reject(
             ReasonCode.UNSUPPORTED_LABEL,
             f"record {position} has key 'label' = {record.label!r}, "
-            "but protocol 1 accepts only the default label",
+            f"but protocol {PROTOCOL_VERSION} accepts only the default label",
         )
     unknown = sorted(name for name in record.values if name not in hello.metrics)
     if unknown:
@@ -149,11 +187,13 @@ def _read_values(
             f"record {position} has key 'values' with undeclared metrics "
             f"{_names(unknown)}; hello record declares {_names(hello.metrics)}",
         )
-    missing = sorted(name for name in hello.metrics if name not in record.values)
+    missing = sorted(
+        name for name, spec in hello.metrics.items() if spec.required and name not in record.values
+    )
     if missing:
         reject(
             ReasonCode.MISSING_METRIC,
-            f"record {position} has key 'values' missing declared metrics {_names(missing)}",
+            f"record {position} has key 'values' missing required metrics {_names(missing)}",
         )
     return {
         name: _read_value(value, name=name, position=position)

@@ -1,2 +1,2 @@
-{"kind":"hello","protocol":1,"metrics":{"total_ops_per_sec":{"unit":"ops/s"}}}
+{"kind":"hello","protocol":2,"metrics":{"total_ops_per_sec":{"unit":"ops/s"}}}
 {"kind":"error","message":"queue runner exited before the workload completed"}

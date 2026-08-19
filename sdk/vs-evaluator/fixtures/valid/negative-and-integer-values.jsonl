@@ -1,2 +1,2 @@
-{"kind":"hello","protocol":1,"metrics":{"drift_ratio":{},"enqueued":{"unit":"ops"}}}
+{"kind":"hello","protocol":2,"metrics":{"drift_ratio":{},"enqueued":{"unit":"ops"}}}
 {"kind":"result","label":"","values":{"drift_ratio":-0.25,"enqueued":1048576}}

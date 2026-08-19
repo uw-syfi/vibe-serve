@@ -1,5 +1,5 @@
 {
-  "comment": "Reason code every conforming reader must report for each invalid stream. Codes are part of the protocol contract; error message wording is not.",
+  "comment": "Reason code every conforming reader must report for each invalid stream. Codes are part of the protocol contract; error message wording is not. `legacy-protocol-1` is transitional: it exists only until the Go evaluators are rebuilt against an SDK that emits protocol 2, and is removed with protocol 1 support.",
   "invalid": {
     "boolean-value": "NON_NUMERIC_VALUE",
     "duplicate-hello": "DUPLICATE_HELLO",
@@ -14,6 +14,7 @@
     "no-outcome": "NO_OUTCOME",
     "non-finite-value": "NON_FINITE_VALUE",
     "non-numeric-value": "NON_NUMERIC_VALUE",
+    "required-metric-missing": "MISSING_METRIC",
     "second-result": "INVALID_RECORD",
     "unknown-key": "UNKNOWN_KEY",
     "unknown-kind": "UNKNOWN_KIND",
@@ -31,11 +32,36 @@
     "error": {
       "outcome": "error"
     },
+    "error-first-ignores-later-records": {
+      "outcome": "error"
+    },
+    "error-without-hello": {
+      "outcome": "error"
+    },
+    "legacy-protocol-1": {
+      "outcome": "result",
+      "values": {
+        "total_ops_per_sec": 41250.3
+      }
+    },
     "negative-and-integer-values": {
       "outcome": "result",
       "values": {
         "drift_ratio": -0.25,
         "enqueued": 1048576.0
+      }
+    },
+    "optional-metric-absent": {
+      "outcome": "result",
+      "values": {
+        "operations_per_second": 50.9
+      }
+    },
+    "optional-metric-present": {
+      "outcome": "result",
+      "values": {
+        "operations_per_second": 50.9,
+        "p99_latency_ms": 812.0
       }
     },
     "single-metric": {

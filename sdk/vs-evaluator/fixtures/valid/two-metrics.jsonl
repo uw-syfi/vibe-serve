@@ -1,2 +1,2 @@
-{"kind":"hello","protocol":1,"metrics":{"aggregate_throughput":{"unit":"tok/s","direction":"max"},"p99_latency_ms":{"unit":"ms","direction":"min"}}}
+{"kind":"hello","protocol":2,"metrics":{"aggregate_throughput":{"unit":"tok/s","direction":"max"},"p99_latency_ms":{"unit":"ms","direction":"min"}}}
 {"kind":"result","label":"","values":{"aggregate_throughput":1180.4,"p99_latency_ms":812.0}}

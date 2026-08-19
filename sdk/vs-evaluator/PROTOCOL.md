@@ -1,6 +1,6 @@
 # VibeSys evaluator result protocol
 
-Version 1.
+Version 2.
 
 An evaluator reports its measurements to the VibeSys framework as a **record
 stream**: a sequence of JSON objects, one per line, written to the file named by
@@ -19,10 +19,11 @@ are rejected. Unknown keys inside a known record are rejected.
 
 ### `hello`
 
-Exactly one, and it must be the first record.
+Exactly one. It must be first, unless the stream is a single `error` (see
+below).
 
 ```json
-{"kind":"hello","protocol":1,"metrics":{"total_ops_per_sec":{"unit":"ops/s","direction":"max"}}}
+{"kind":"hello","protocol":2,"metrics":{"total_ops_per_sec":{"unit":"ops/s","direction":"max"}}}
 ```
 
 - `protocol` (int, required): protocol version. Readers reject versions they do
@@ -31,13 +32,23 @@ Exactly one, and it must be the first record.
   produces. Each value is a spec object:
   - `unit` (string, optional): human-facing unit. Never parsed for meaning.
   - `direction` (`"max"` or `"min"`, optional): intrinsic better-direction of
-    the metric. Advisory metadata. It does not select objectives.
+    the metric. Advisory metadata. It does not select objectives. Only these two
+    spellings are valid on the wire. An SDK may accept `maximize`/`minimize` at
+    its own API boundary, since that is how task configs spell them, but must
+    write the short form.
+  - `required` (bool, optional, default `true`): whether every successful run
+    must report this metric. Producers omit the key when a metric is required,
+    since the corpus compares records semantically and an explicit `true` would
+    not match its counterpart. Mark a metric optional when the evaluator can only
+    sometimes produce it, for example a latency distribution that is empty when
+    no sample matched. An optional metric is still declared, so it can never be
+    reported under a name the reader has not seen.
 
 Metric names must be non-empty and contain no whitespace.
 
 ### `result`
 
-Zero or one per stream in protocol 1. A stream with no `result` and no `error`
+Zero or one per stream. A stream with no `result` and no `error`
 is invalid.
 
 ```json
@@ -45,14 +56,26 @@ is invalid.
 ```
 
 - `label` (string, optional, default `""`): names the operating point. Reserved
-  for future multi-point streams; protocol 1 readers accept only the default.
-- `values` (object, required): the measured row. Its key set must equal the
-  `metrics` key set from `hello` exactly: no missing names, no extra names.
-  Every value must be a finite JSON number. Booleans are not numbers.
+  for future multi-point streams; version 2 readers accept only the default.
+- `values` (object, required): the measured row. Every name in it must be
+  declared in `hello`, and every metric `hello` marked required must appear.
+  An optional metric may be absent. Every value must be a finite JSON number.
+  Booleans are not numbers.
 
 ### `error`
 
 Terminates the stream. Any `result` in the same stream is ignored.
+
+An `error` may appear without a preceding `hello`, and is the only record that
+may. An evaluator whose metric identity comes from configuration cannot declare
+anything until that configuration loads, and a failure before then still needs
+to reach the framework as a reason rather than as a missing file.
+
+Precisely: an `error` in the first position is accepted whether or not a `hello`
+ever arrives, and, as with any `error`, later records are not checked. A `hello`
+that arrives after any other record is still `HELLO_NOT_FIRST`, and a stream
+that reaches its end with neither a first-position `error` nor a `hello` is
+`MISSING_HELLO`.
 
 ```json
 {"kind":"error","message":"vLLM server did not become ready within 300s"}
@@ -72,22 +95,25 @@ Terminates the stream. Any `result` in the same stream is ignored.
 A conforming reader must reject a stream when any of these hold, and must name
 the offending record and key in its error:
 
-1. no `hello`, or `hello` is not first, or more than one `hello`
+1. no `hello`, or `hello` is not first, or more than one `hello`. A stream
+   whose only record is an `error` is the one exception
 2. `protocol` is not a version the reader implements
 3. `metrics` is empty, or a metric name is empty or contains whitespace
 4. neither `result` nor `error` is present
-5. `values` has a key not in `metrics`, or is missing a key in `metrics`
+5. `values` has a key not in `metrics`, or is missing a metric `metrics` marked
+   required
 6. a value is not a number, is a boolean, or is not finite
 7. `label` is not `""`
 8. a record has an unknown `kind`, or a known record has an unknown key
 9. a line is not a JSON object
-10. a second `result` appears. Protocol 1 carries one operating point, so a
+10. a second `result` appears. Protocol 2 carries one operating point, so a
     second row is a producer bug, not a value to silently overwrite.
 
 Rules 1 through 9 are per-record and can be applied as records arrive. Rule 1
 splits by position: a `hello` at any position after the first is
 `HELLO_NOT_FIRST`, reported immediately; the absence of a `hello` is
-`MISSING_HELLO`, and can only be reported once the stream ends. A reader may
+`MISSING_HELLO`, and can only be reported once the stream ends, since an
+`error`-only stream is valid and is not distinguishable until then. A reader may
 therefore not fail on the first offending record in that one case.
 
 An `error` record terminates the stream. Records after it are not checked.
@@ -113,16 +139,22 @@ Three of these need their boundaries stated:
 
 ## Objectives
 
-The framework applies one further check outside the protocol: every objective
-named by the task must appear in `hello.metrics`. That check is separate because
-objectives belong to the task, not to the evaluator. A failure reuses
-`MISSING_METRIC`, naming the objectives that are missing and listing the metrics
+The framework applies two further checks outside the protocol, because
+objectives belong to the task and the evaluator never learns them:
+
+1. Every objective named by the task must appear in `hello.metrics`.
+2. Every objective must be declared `required`. An optional metric may be
+   absent from a successful run, so a task cannot rank on one: the frontier
+   would silently lose the round, which is the failure this protocol exists to
+   prevent.
+
+Both reuse `MISSING_METRIC`, naming the offending objectives and listing what
 the evaluator declared.
 
-## Version 1 limits
+## Version 2 limits
 
 **One row per stream.** `label` exists so a later version can carry several
-operating points, but version 1 readers accept only `""`. This is deliberate:
+operating points, but version 2 readers accept only `""`. This is deliberate:
 the framework has no model for multi-operating-point measurements, so putting
 labelled rows on the wire would move the problem rather than solve it. An
 evaluator with a genuine multi-point mode should reject the combination of that

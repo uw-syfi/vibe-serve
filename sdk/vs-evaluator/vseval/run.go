@@ -1,46 +1,23 @@
 package vseval
 
 import (
-	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
 	"math"
-	"os"
 	"strings"
 )
 
-// FailureFallbackMessage is the error record message written when a caller
-// fails a run without a usable one. The protocol requires a non-empty message,
-// so a nil or blank cause must not be allowed to produce an invalid stream.
-const FailureFallbackMessage = "evaluator failed without a message"
-
-// Run is a live evaluator report. Its hello record is already written; what
-// remains is to set every declared metric and call [Run.Emit], or to report a
-// failure with [Run.Fail].
+// Run is a declared evaluator report. Its hello record is already written;
+// what remains is to set the declared metrics and call [Run.Emit], or to
+// report a failure with [Run.EmitError] or [Run.Fail].
 //
 // A Run is not safe for concurrent use.
 type Run struct {
-	schema    *Schema
-	w         io.Writer
-	closer    io.Closer
-	reporting bool
-	values    []float64
-	set       []bool
-	err       error
-	done      bool
-	exit      func(int)
+	report *Report
+	schema *Schema
+	values []float64
+	set    []bool
+	err    error
 }
-
-// Reporting reports whether this run writes a stream anyone will read. It is
-// false for a run started without an output path, which discards every record
-// so that measurement code needs no branch of its own.
-//
-// Branch on it only for behavior that the report itself constrains. Protocol 1
-// carries a single result row, for example, so an evaluator that can sweep
-// several operating points has to narrow the sweep to one when it reports, and
-// need not when it does not.
-func (r *Run) Reporting() bool { return r.reporting }
 
 // Set records the measured value of a declared metric.
 //
@@ -54,7 +31,7 @@ func (r *Run) Set(m Metric, value float64) {
 		return
 	}
 	if m.index >= len(r.values) {
-		r.setErr(fmt.Errorf("metric %q was declared after the run started, so it is not in the hello record", m.name))
+		r.setErr(fmt.Errorf("metric %q was declared after the schema, so it is not in the hello record", m.name))
 		return
 	}
 	if math.IsNaN(value) {
@@ -70,17 +47,18 @@ func (r *Run) Set(m Metric, value float64) {
 }
 
 // Emit writes the result record and flushes it. It does not close the output:
-// the caller that started the run owns the close, normally as a deferred
-// [Run.Close].
+// the caller that opened the report owns the close, normally as a deferred
+// [Report.Close].
 //
-// It fails, writing nothing, if a declared metric was never set, or if any
-// [Run.Set] call was rejected. An unset metric is an error rather than a zero:
-// Go's zero value must not pass for a measurement. After a failed Emit no
-// outcome has been written, so the caller can still report the failure with
-// [Run.EmitError] or [Run.Fail].
+// It fails, writing nothing, if a required metric was never set, or if any
+// [Run.Set] call was rejected. An unset required metric is an error rather
+// than a zero: Go's zero value must not pass for a measurement. A metric
+// declared with [Optional] may be absent, and is then left out of the row.
+// After a failed Emit no outcome has been written, so the caller can still
+// report the failure with [Run.EmitError] or [Run.Fail].
 func (r *Run) Emit() error {
-	if r.done {
-		return errors.New("the outcome record was already written")
+	if r.report.outcome {
+		return errOutcomeWritten
 	}
 	if r.err != nil {
 		return r.err
@@ -91,101 +69,43 @@ func (r *Run) Emit() error {
 		return err
 	}
 	var missing []string
-	for i, ok := range r.set {
-		if !ok {
+	values := make(map[string]float64, len(r.values))
+	for i := range r.set {
+		switch {
+		case r.set[i]:
+			values[r.schema.names[i]] = r.values[i]
+		case r.schema.specs[i].required():
 			missing = append(missing, r.schema.names[i])
 		}
 	}
 	if len(missing) > 0 {
-		return fmt.Errorf("declared metrics were never set: %s", strings.Join(missing, ", "))
+		return fmt.Errorf("required metrics were never set: %s", strings.Join(missing, ", "))
 	}
-	values := make(map[string]float64, len(r.values))
-	for i, name := range r.schema.names {
-		values[name] = r.values[i]
-	}
-	rec := resultRecord{Kind: kindResult, Label: "", Values: values}
-	if err := r.write(rec); err != nil {
+	if err := r.report.write(resultRecord{Kind: kindResult, Label: "", Values: values}); err != nil {
 		return err
 	}
-	r.done = true
+	r.report.outcome = true
 	return nil
 }
 
-// EmitError writes an error record and flushes it; like [Run.Emit] it leaves
-// the close to the caller. Use it when the evaluator cannot produce a row. A
-// nil cause, or one with a blank message, is reported as
-// [FailureFallbackMessage] so the stream stays valid.
-func (r *Run) EmitError(cause error) error {
-	if r.done {
-		return errors.New("the outcome record was already written")
-	}
-	message := ""
-	if cause != nil {
-		message = strings.TrimSpace(cause.Error())
-	}
-	if message == "" {
-		message = FailureFallbackMessage
-	}
-	if err := r.write(errorRecord{Kind: kindError, Message: message}); err != nil {
-		return err
-	}
-	r.done = true
-	return nil
-}
+// EmitError writes an error record on this run's report. See
+// [Report.EmitError].
+func (r *Run) EmitError(cause error) error { return r.report.EmitError(cause) }
 
-// Fail writes an error record and terminates the process with a non-zero
-// status. It is the terminal form of [Run.EmitError] for evaluators whose
-// main function has nothing left to do; a failure to write the record is
-// reported on stderr, since no one is left to receive it.
-//
-// Fail calls os.Exit, so no deferred function runs, including a deferred
-// [Run.Close]. Use [Run.EmitError] instead wherever the caller has deferred
-// cleanup or an error to return, which is every path but the outermost one.
-func (r *Run) Fail(cause error) {
-	if err := r.EmitError(cause); err != nil {
-		fmt.Fprintf(os.Stderr, "vseval: %v\n", err)
-	}
-	r.exit(1)
-}
+// Fail writes an error record on this run's report and terminates the process.
+// See [Report.Fail].
+func (r *Run) Fail(cause error) { r.report.Fail(cause) }
 
-// Close releases the output file if this Run opened one. Defer it right after
-// the run starts: it is the only thing that closes the output, and it is
-// idempotent, so a second call after an early one is harmless. A Run started
-// with [Schema.StartWriter], or one that is not reporting, owns no file and
-// Close is a no-op.
-func (r *Run) Close() error {
-	if r.closer == nil {
-		return nil
-	}
-	closer := r.closer
-	r.closer = nil
-	return closer.Close()
-}
+// Reporting reports whether this run writes a stream anyone will read. See
+// [Report.Reporting].
+func (r *Run) Reporting() bool { return r.report.Reporting() }
+
+// OutcomeWritten reports whether the stream already carries its outcome. See
+// [Report.OutcomeWritten].
+func (r *Run) OutcomeWritten() bool { return r.report.OutcomeWritten() }
 
 func (r *Run) setErr(err error) {
 	if r.err == nil {
 		r.err = err
 	}
-}
-
-// flusher is implemented by buffered writers such as *bufio.Writer. Records
-// must reach the file as they are produced, not when the process exits.
-type flusher interface {
-	Flush() error
-}
-
-func (r *Run) write(record any) error {
-	line, err := json.Marshal(record)
-	if err != nil {
-		return fmt.Errorf("encode %T: %w", record, err)
-	}
-	if _, err := r.w.Write(append(line, '\n')); err != nil {
-		return fmt.Errorf("write evaluator record: %w", err)
-	}
-	if f, ok := r.w.(flusher); ok {
-		if err := f.Flush(); err != nil {
-			return fmt.Errorf("flush evaluator record: %w", err)
-		}
-	}
-	return nil
 }

@@ -17,6 +17,20 @@ const fixtureDir = "../fixtures/valid"
 // buildFixture writes the stream of one fixture through the public API.
 type buildFixture func(t *testing.T, w *bytes.Buffer)
 
+// unproducible names the fixtures this SDK is not expected to be able to
+// produce, with the reason. It is not a way to excuse a stream the SDK ought to
+// write: every other file in fixtures/valid must have a counterpart below.
+var unproducible = map[string]string{
+	// Transitional fixture kept until the Go evaluators are rebuilt against
+	// this SDK. It carries protocol 1; this SDK emits protocol 2 and has no
+	// way to ask for an older version, by design.
+	"legacy-protocol-1.jsonl": "protocol 1 stream, superseded by single-metric.jsonl",
+	// Pins a reader rule rather than a producer one: a first-position error is
+	// accepted and later records are not checked. This SDK refuses to write a
+	// second outcome record at all, so it cannot emit this stream by design.
+	"error-first-ignores-later-records.jsonl": "reader-only rule; the SDK writes at most one outcome record",
+}
+
 // fixtures maps every stream in fixtures/valid to the SDK calls that produce
 // it. PROTOCOL.md compares records semantically, so the assertions below parse
 // both sides rather than comparing bytes.
@@ -24,15 +38,25 @@ var fixtures = map[string]buildFixture{
 	"bare-metric-spec.jsonl": func(t *testing.T, w *bytes.Buffer) {
 		schema := vseval.NewSchema()
 		value := schema.Number("primary_value")
-		run := start(t, schema, w)
+		run := declare(t, schema, w)
 		run.Set(value, 0.0)
 		mustEmit(t, run)
 	},
 	"error.jsonl": func(t *testing.T, w *bytes.Buffer) {
 		schema := vseval.NewSchema()
 		schema.Number("total_ops_per_sec", vseval.Unit("ops/s"))
-		run := start(t, schema, w)
+		run := declare(t, schema, w)
 		if err := run.EmitError(errors.New("queue runner exited before the workload completed")); err != nil {
+			t.Fatalf("EmitError: %v", err)
+		}
+	},
+	"error-without-hello.jsonl": func(t *testing.T, w *bytes.Buffer) {
+		// The failure the two-phase shape exists for: the output is open, but
+		// the config that names the metrics never loaded, so there is no
+		// schema to declare.
+		report := vseval.OpenWriter(w)
+		cause := errors.New("workload config failed to parse, so no metric identity exists yet")
+		if err := report.EmitError(cause); err != nil {
 			t.Fatalf("EmitError: %v", err)
 		}
 	},
@@ -40,15 +64,32 @@ var fixtures = map[string]buildFixture{
 		schema := vseval.NewSchema()
 		drift := schema.Number("drift_ratio")
 		enqueued := schema.Number("enqueued", vseval.Unit("ops"))
-		run := start(t, schema, w)
+		run := declare(t, schema, w)
 		run.Set(drift, -0.25)
 		run.Set(enqueued, 1048576)
+		mustEmit(t, run)
+	},
+	"optional-metric-absent.jsonl": func(t *testing.T, w *bytes.Buffer) {
+		schema := vseval.NewSchema()
+		ops := schema.Number("operations_per_second", vseval.Unit("operations/s"), vseval.Direction(vseval.Max))
+		schema.Number("p99_latency_ms", vseval.Unit("ms"), vseval.Direction(vseval.Min), vseval.Optional())
+		run := declare(t, schema, w)
+		run.Set(ops, 50.9)
+		mustEmit(t, run)
+	},
+	"optional-metric-present.jsonl": func(t *testing.T, w *bytes.Buffer) {
+		schema := vseval.NewSchema()
+		ops := schema.Number("operations_per_second", vseval.Unit("operations/s"), vseval.Direction(vseval.Max))
+		p99 := schema.Number("p99_latency_ms", vseval.Unit("ms"), vseval.Direction(vseval.Min), vseval.Optional())
+		run := declare(t, schema, w)
+		run.Set(ops, 50.9)
+		run.Set(p99, 812.0)
 		mustEmit(t, run)
 	},
 	"single-metric.jsonl": func(t *testing.T, w *bytes.Buffer) {
 		schema := vseval.NewSchema()
 		ops := schema.Number("total_ops_per_sec", vseval.Unit("ops/s"), vseval.Direction(vseval.Max))
-		run := start(t, schema, w)
+		run := declare(t, schema, w)
 		run.Set(ops, 41250.3)
 		mustEmit(t, run)
 	},
@@ -56,7 +97,7 @@ var fixtures = map[string]buildFixture{
 		schema := vseval.NewSchema()
 		throughput := schema.Number("aggregate_throughput", vseval.Unit("tok/s"), vseval.Direction(vseval.Max))
 		p99 := schema.Number("p99_latency_ms", vseval.Unit("ms"), vseval.Direction(vseval.Min))
-		run := start(t, schema, w)
+		run := declare(t, schema, w)
 		run.Set(throughput, 1180.4)
 		run.Set(p99, 812.0)
 		mustEmit(t, run)
@@ -73,8 +114,12 @@ func TestValidFixturesRoundTrip(t *testing.T) {
 		if entry.IsDir() || filepath.Ext(entry.Name()) != ".jsonl" {
 			continue
 		}
-		seen++
 		name := entry.Name()
+		if reason, skip := unproducible[name]; skip {
+			t.Logf("skipping %s: %s", name, reason)
+			continue
+		}
+		seen++
 		build, ok := fixtures[name]
 		if !ok {
 			t.Errorf("fixture %s has no SDK counterpart in this test", name)
@@ -91,16 +136,17 @@ func TestValidFixturesRoundTrip(t *testing.T) {
 		})
 	}
 	if seen != len(fixtures) {
-		t.Errorf("found %d fixture files but the test declares %d", seen, len(fixtures))
+		t.Errorf("found %d producible fixture files but the test declares %d", seen, len(fixtures))
 	}
 }
 
-// start begins a run against buf, failing the test if the schema is invalid.
-func start(t *testing.T, schema *vseval.Schema, buf *bytes.Buffer) *vseval.Run {
+// declare opens a report on buf and declares schema, failing the test if the
+// schema is invalid.
+func declare(t *testing.T, schema *vseval.Schema, buf *bytes.Buffer) *vseval.Run {
 	t.Helper()
-	run, err := schema.StartWriter(buf)
+	run, err := vseval.OpenWriter(buf).Declare(schema)
 	if err != nil {
-		t.Fatalf("StartWriter: %v", err)
+		t.Fatalf("Declare: %v", err)
 	}
 	return run
 }
