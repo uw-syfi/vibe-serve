@@ -287,7 +287,15 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      # Bounded for the same reason as the containment-dependency install in
+      # `queue-native`: this apt install intermittently hangs on these runners
+      # instead of failing, and an unbounded step reports nothing while it
+      # burns the job's budget.
       - name: Install bubblewrap
+        timeout-minutes: 10
+        env:
+          DEBIAN_FRONTEND: noninteractive
+          NEEDRESTART_MODE: a
         run: |
           sudo apt-get update
           sudo apt-get install -y bubblewrap
