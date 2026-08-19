@@ -532,6 +532,29 @@ multi-profile or multi-objective benchmarks whose result cannot be represented
 by one scalar. Named profiles and benchmark parameter schemas are not part of
 manifest version 1.
 
+`benchmark.result_protocol` is the alternative, and the two are mutually
+exclusive. It declares that the benchmark speaks the evaluator result protocol
+of that version, so VibeSys reads a complete metric row instead of scraping one
+named field:
+
+```toml
+[benchmark]
+entrypoint = "vibesys-queue"
+args = ["benchmark", "--workspace", "${PROJECT_ROOT}", "--scenario", "spsc"]
+result_protocol = 1
+```
+
+VibeSys appends `--vs-output` with a path, and the benchmark writes a record
+stream there: a `hello` record declaring every metric it produces, then one
+`result` record carrying their values, or an `error` record explaining why it
+could not measure. The framework validates the row against the declaration and
+fails the round when they disagree, when a value is missing or not finite, or
+when a configured objective names a metric the benchmark does not produce. The
+protocol is specified in
+[sdk/vs-evaluator/PROTOCOL.md](https://github.com/uw-syfi/vibesys/blob/main/sdk/vs-evaluator/PROTOCOL.md),
+and `sdk/vs-evaluator/go` is a Go SDK for emitting it. Use this form for
+multi-objective benchmarks, which the scalar block cannot represent.
+
 Task resources, including held-out evaluation sets, remain at their repository
 paths. VibeSys does not relocate them. `.vibesys` is read-only to coding agents,
 so task commands must write scratch data outside `.vibesys` (for example under

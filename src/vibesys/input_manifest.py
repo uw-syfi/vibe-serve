@@ -195,9 +195,25 @@ class BenchmarkResult(BaseModel):
 
 
 class BenchmarkCommand(InputCommand):
-    """Benchmark command with an optional trusted scalar-result contract."""
+    """Benchmark command with an optional trusted result contract.
+
+    A task declares at most one contract. ``[benchmark.result]`` scrapes one
+    named scalar out of arbitrary benchmark JSON. ``result_protocol`` says the
+    benchmark speaks the evaluator result protocol of that version and reports
+    a complete validated metric row instead.
+    """
 
     result: BenchmarkResult | None = None
+    result_protocol: Literal[1] | None = None
+
+    @model_validator(mode="after")
+    def _one_result_contract(self) -> BenchmarkCommand:
+        if self.result is not None and self.result_protocol is not None:
+            raise ValueError(  # noqa: TRY003  # tracked: #288
+                "benchmark.result and benchmark.result_protocol are mutually exclusive; "
+                "declare only one"
+            )
+        return self
 
 
 class AgentInput(BaseModel):
@@ -426,6 +442,11 @@ class InputBundle(BaseModel):
     @property
     def benchmark_result(self) -> BenchmarkResult | None:  # noqa: D102  # tracked: #288
         return self.manifest.benchmark.result
+
+    @property
+    def benchmark_result_protocol(self) -> Literal[1] | None:
+        """Return the evaluator result protocol version the benchmark speaks."""
+        return self.manifest.benchmark.result_protocol
 
     @property
     def modal_entrypoint(self) -> str | None:

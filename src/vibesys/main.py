@@ -1671,6 +1671,10 @@ def _run_validate(argv: list[str]) -> None:
         print(f"  evaluator source: {bundle.evaluator_path}")  # noqa: T201  # tracked: #288
     if bundle.benchmark_result is not None:
         print(f"  benchmark metric: {bundle.benchmark_result.metric}")  # noqa: T201  # tracked: #288
+    if bundle.benchmark_result_protocol is not None:
+        print(  # noqa: T201  # tracked: #288
+            f"  benchmark result protocol: {bundle.benchmark_result_protocol}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1994,6 +1998,7 @@ def _run_agent(args: argparse.Namespace) -> None:
         evaluator_path=bundle.evaluator_path,
         evaluator_package_root=bundle.evaluator_package_root,
         benchmark_result=bundle.benchmark_result,
+        benchmark_result_protocol=bundle.benchmark_result_protocol,
         accuracy_timeout_seconds=bundle.manifest.accuracy.timeout_seconds,
         benchmark_timeout_seconds=bundle.manifest.benchmark.timeout_seconds,
         objective=objective,

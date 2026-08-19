@@ -22,7 +22,4 @@ args = [
   "--scenario", "mpmc", "--repetitions", "3",
 ]
 timeout_seconds = 300
-
-[benchmark.result]
-json_argument = "--output-json"
-metric = "total_ops_per_sec"
+result_protocol = 1
