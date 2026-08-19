@@ -153,7 +153,15 @@ jobs:
             resources/evaluators/queue/go.sum
             resources/evaluators/microservice/go.sum
 
+      # Bounded because an apt mirror or a service-restart prompt makes this
+      # hang rather than fail: three runs on this branch sat here for tens of
+      # minutes each and never reached a test. A timeout turns that into a
+      # legible failure in minutes instead of a job that burns hours.
       - name: Install managed-candidate containment dependency
+        timeout-minutes: 10
+        env:
+          DEBIAN_FRONTEND: noninteractive
+          NEEDRESTART_MODE: a
         run: |
           sudo apt-get update
           sudo apt-get install -y bubblewrap
