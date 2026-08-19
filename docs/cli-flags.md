@@ -541,7 +541,7 @@ named field:
 [benchmark]
 entrypoint = "vibesys-queue"
 args = ["benchmark", "--workspace", "${PROJECT_ROOT}", "--scenario", "spsc"]
-result_protocol = 1
+result_protocol = 2
 ```
 
 VibeSys appends `--vs-output` with a path, and the benchmark writes a record

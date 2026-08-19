@@ -147,7 +147,7 @@ def test_queue_task_manifests_use_versioned_evaluator_entrypoint():  # noqa: ANN
             assert manifest[section]["args"] == args
         # The benchmark speaks the evaluator result protocol, so it reports a
         # complete validated metric row instead of one scraped scalar.
-        assert manifest["benchmark"]["result_protocol"] == 1
+        assert manifest["benchmark"]["result_protocol"] == 2
         assert "result" not in manifest["benchmark"]
 
     evaluator = _queue_evaluator(project_root)

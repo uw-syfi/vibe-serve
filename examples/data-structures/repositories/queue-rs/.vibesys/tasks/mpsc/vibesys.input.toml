@@ -22,4 +22,4 @@ args = [
   "--scenario", "mpsc", "--repetitions", "3",
 ]
 timeout_seconds = 300
-result_protocol = 1
+result_protocol = 2

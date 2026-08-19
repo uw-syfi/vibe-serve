@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 
@@ -12,35 +13,44 @@ import (
 // It declares one metric, total_ops_per_sec, and carries either its measured
 // value or the reason no value exists.
 //
-// Without --vs-output the SDK run discards every record. Standalone
+// Without --vs-output the SDK report discards every record. Standalone
 // invocations that only want the printed summary and the --output-json report
 // therefore behave exactly as before.
 type benchmarkStream struct {
-	run *vseval.Run
-	ops vseval.Metric
+	report *vseval.Report
+	run    *vseval.Run
+	ops    vseval.Metric
 }
 
 // startBenchmarkStream registers --vs-output on flags, parses args into them,
 // and writes the hello record.
 //
-// The hello record lands before the first repetition runs, so a crashed or
-// timed-out benchmark still leaves a stream that names its metric.
+// The metric is a constant, so both reporting phases happen here: the output
+// opens as soon as the argv is parsed, and the schema is declared immediately
+// after. The hello record therefore lands before the first repetition runs, so
+// a crashed or timed-out benchmark still leaves a stream that names its metric.
 func startBenchmarkStream(flags *flag.FlagSet, args []string) (*benchmarkStream, error) {
+	report, err := vseval.OpenFlagSet(flags, args)
+	if err != nil {
+		return nil, err
+	}
 	schema := vseval.NewSchema()
 	ops := schema.Number(
 		"total_ops_per_sec",
 		vseval.Unit("ops/s"),
 		vseval.Direction(vseval.Max),
 	)
-	run, err := schema.StartFlagSet(flags, args)
+	run, err := report.Declare(schema)
 	if err != nil {
-		return nil, err
+		// The output is already open, so a schema this command could not
+		// declare still reaches the framework as a reason.
+		return nil, errors.Join(err, report.EmitError(err), report.Close())
 	}
-	return &benchmarkStream{run: run, ops: ops}, nil
+	return &benchmarkStream{report: report, run: run, ops: ops}, nil
 }
 
 // requireSingleRow rejects a scenario count the stream cannot represent.
-// Protocol 1 carries one result record, so a reported run measures exactly one
+// Protocol 2 carries one result record, so a reported run measures exactly one
 // scenario. An unreported run sweeps as many as it likes.
 func (s *benchmarkStream) requireSingleRow(scenarios int) error {
 	if !s.run.Reporting() || scenarios == 1 {
@@ -76,7 +86,7 @@ func (s *benchmarkStream) fail(cause error) error {
 }
 
 // Close releases the output file. It is the only close in the command: the SDK
-// leaves it to whoever started the run.
+// leaves it to whoever opened the report.
 func (s *benchmarkStream) Close() error {
-	return s.run.Close()
+	return s.report.Close()
 }

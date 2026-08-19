@@ -41,9 +41,8 @@ def test_legacy_microservice_scenario_uses_source_evaluator() -> None:
         "run",
         "./cmd/servicebench",
     )
-    assert bundle.benchmark_result is not None
-    assert bundle.benchmark_result.json_argument == "--output-json"
-    assert bundle.benchmark_result.metric == "primary_value"
+    assert bundle.benchmark_result is None
+    assert bundle.benchmark_result_protocol == 2
     assert ("--seed", "random") in _adjacent_pairs(bundle.benchmark_command)
     assert ("--fixture-seed", "random") in _adjacent_pairs(bundle.benchmark_command)
 

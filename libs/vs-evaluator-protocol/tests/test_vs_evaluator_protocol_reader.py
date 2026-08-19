@@ -183,26 +183,13 @@ def test_read_measurement_rejects_an_error_that_follows_a_record_without_a_hello
     assert rejection.value.code == ReasonCode.MISSING_HELLO
 
 
-def test_read_measurement_reads_a_protocol_1_stream_as_all_metrics_required() -> None:
-    legacy_hello = (
-        '{"kind":"hello","protocol":1,"metrics":{"throughput":{"unit":"ops/s","direction":"max"}}}'
-    )
-
-    measurement = read_measurement(parse_records(f"{legacy_hello}\n{RESULT_LINE}"))
-
-    assert measurement.values == {"throughput": 41250.3}
-    assert measurement.metrics is not None
-    assert measurement.metrics["throughput"].required
-
-
-def test_read_measurement_rejects_a_protocol_1_row_missing_a_metric() -> None:
-    legacy_hello = '{"kind":"hello","protocol":1,"metrics":{"throughput":{},"latency_ms":{}}}'
+def test_read_measurement_rejects_a_superseded_protocol_version() -> None:
+    superseded = '{"kind":"hello","protocol":1,"metrics":{"throughput":{}}}'
 
     with pytest.raises(ProtocolError) as rejection:
-        read_measurement(parse_records(f"{legacy_hello}\n{RESULT_LINE}"))
+        read_measurement(parse_records(f"{superseded}\n{RESULT_LINE}"))
 
-    assert rejection.value.code == ReasonCode.MISSING_METRIC
-    assert "'latency_ms'" in str(rejection.value)
+    assert rejection.value.code == ReasonCode.UNSUPPORTED_PROTOCOL
 
 
 def test_read_measurement_reports_every_undeclared_metric() -> None:

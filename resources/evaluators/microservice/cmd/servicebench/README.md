@@ -12,7 +12,9 @@ The command is responsible for:
 - validating command-line overrides and registered extensions;
 - hashing the fully resolved workload;
 - signal-aware execution;
-- atomically writing the summary JSON and optionally writing raw NDJSON; and
+- atomically writing the summary JSON and optionally writing raw NDJSON;
+- reporting the workload's objective metric, and the latency percentiles it
+  measured, on the evaluator record stream when `--vs-output` names one; and
 - returning a nonzero status for invalid benchmark results.
 
 `--mode benchmark` is the default. `--mode accuracy` uses the same resolved

@@ -1714,7 +1714,7 @@ def test_framework_benchmark_rejects_ambiguous_metric(tmp_path):  # noqa: ANN001
 
 
 _HELLO = (
-    '{"kind":"hello","protocol":1,"metrics":'
+    '{"kind":"hello","protocol":2,"metrics":'
     '{"total_ops_per_sec":{"unit":"ops/s","direction":"max"},'
     '"p99_latency_ns":{"unit":"ns","direction":"min"}}}'
 )
@@ -1833,7 +1833,7 @@ def test_read_protocol_benchmark_uses_the_only_declared_metric_without_objective
     from vibesys.loops.agent.loop import _read_protocol_benchmark  # noqa: PLC0415  # tracked: #288
 
     stream = (
-        '{"kind":"hello","protocol":1,"metrics":{"total_ops_per_sec":{"unit":"ops/s"}}}\n'
+        '{"kind":"hello","protocol":2,"metrics":{"total_ops_per_sec":{"unit":"ops/s"}}}\n'
         '{"kind":"result","values":{"total_ops_per_sec":7.5}}'
     )
 

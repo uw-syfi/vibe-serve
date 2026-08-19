@@ -347,13 +347,14 @@ optional.
 
 `--vs-output` names the VibeSys evaluator record stream, the framework-facing
 result channel specified by `sdk/vs-evaluator/PROTOCOL.md`. The command declares
-one metric, `total_ops_per_sec` in `ops/s` with direction `max`. The hello
-record is written before the first repetition, so a crashed or timed-out run
-still leaves a stream that names its metric. The stream then closes with either
-a result record carrying the median rate or an error record naming why no rate
-exists. Protocol 1 carries one row, so a run that reports the stream measures a
-single `--scenario`; `--scenario all` with `--vs-output` is rejected before any
-measurement.
+one required metric, `total_ops_per_sec` in `ops/s` with direction `max`. The
+output opens as soon as the argv parses, and the hello record is written before
+the first repetition, so a rejected invocation reaches the framework as a reason
+and a crashed or timed-out run still leaves a stream that names its metric. The
+stream then closes with either a result record carrying the median rate or an
+error record naming why no rate exists. Protocol 2 carries one row, so a run
+that reports the stream measures a single `--scenario`; `--scenario all` with
+`--vs-output` is rejected before any measurement.
 
 `--output-json` keeps the detailed report: per-scenario counters, duration,
 worker counts, and every repetition sample. It is human debugging output, not

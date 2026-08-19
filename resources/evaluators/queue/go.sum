@@ -1,4 +1,4 @@
 github.com/anishathalye/porcupine v1.3.0 h1:yo51Niv8Tg0tAAn5XOG2UVvJXUregK4WFuLrBRoowP8=
 github.com/anishathalye/porcupine v1.3.0/go.mod h1:WM0SsFjWNl2Y4BqHr/E/ll2yY1GY1jqn+W7Z/84Zoog=
-github.com/uw-syfi/vibesys/sdk/vs-evaluator/vseval v0.1.0 h1:OGFZWt+0+/BLiydMSm+E9lm2Fo5mURBwY2rDhHT4CEg=
-github.com/uw-syfi/vibesys/sdk/vs-evaluator/vseval v0.1.0/go.mod h1:F1FaSrDktADJ2IlwTmBeWmCeQwS7DST8rrwHHr0qXII=
+github.com/uw-syfi/vibesys/sdk/vs-evaluator/vseval v0.2.0 h1:RKi6fBUJNYM0f72GCp0AUwpPXPb2OmuPFdF8Mb6ZM8w=
+github.com/uw-syfi/vibesys/sdk/vs-evaluator/vseval v0.2.0/go.mod h1:F1FaSrDktADJ2IlwTmBeWmCeQwS7DST8rrwHHr0qXII=

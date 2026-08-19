@@ -340,11 +340,11 @@ def test_manifest_rejects_unknown_evaluator_keys(tmp_path: Path) -> None:
 
 def test_manifest_accepts_benchmark_result_protocol(tmp_path: Path) -> None:
     project_root = tmp_path / "project"
-    bundle_path = _write_bundle(project_root, "result_protocol = 1")
+    bundle_path = _write_bundle(project_root, "result_protocol = 2")
 
     bundle = load_input_bundle(bundle_path)
 
-    assert bundle.benchmark_result_protocol == 1
+    assert bundle.benchmark_result_protocol == 2
     assert bundle.benchmark_result is None
 
 
@@ -352,7 +352,7 @@ def test_manifest_rejects_both_benchmark_result_contracts(tmp_path: Path) -> Non
     project_root = tmp_path / "project"
     bundle = _write_bundle(
         project_root,
-        "result_protocol = 1\n\n[benchmark.result]\n"
+        "result_protocol = 2\n\n[benchmark.result]\n"
         'json_argument = "--output-json"\nmetric = "ops"',
     )
 
@@ -363,9 +363,13 @@ def test_manifest_rejects_both_benchmark_result_contracts(tmp_path: Path) -> Non
         load_input_bundle(bundle)
 
 
-def test_manifest_rejects_unsupported_benchmark_result_protocol(tmp_path: Path) -> None:
+@pytest.mark.parametrize("version", ["1", "3"])
+def test_manifest_rejects_unsupported_benchmark_result_protocol(
+    tmp_path: Path, version: str
+) -> None:
+    """Version 1 is superseded and version 3 does not exist; neither may be declared."""
     project_root = tmp_path / "project"
-    bundle = _write_bundle(project_root, "result_protocol = 2")
+    bundle = _write_bundle(project_root, f"result_protocol = {version}")
 
     with pytest.raises(ValueError, match="result_protocol"):
         load_input_bundle(bundle)

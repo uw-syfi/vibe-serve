@@ -21,10 +21,6 @@ type buildFixture func(t *testing.T, w *bytes.Buffer)
 // produce, with the reason. It is not a way to excuse a stream the SDK ought to
 // write: every other file in fixtures/valid must have a counterpart below.
 var unproducible = map[string]string{
-	// Transitional fixture kept until the Go evaluators are rebuilt against
-	// this SDK. It carries protocol 1; this SDK emits protocol 2 and has no
-	// way to ask for an older version, by design.
-	"legacy-protocol-1.jsonl": "protocol 1 stream, superseded by single-metric.jsonl",
 	// Pins a reader rule rather than a producer one: a first-position error is
 	// accepted and later records are not checked. This SDK refuses to write a
 	// second outcome record at all, so it cannot emit this stream by design.

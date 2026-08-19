@@ -25,7 +25,4 @@ command = [
 	"--fixture-seed", "random",
 ]
 timeout_seconds = 300
-
-[benchmark.result]
-json_argument = "--output-json"
-metric = "primary_value"
+result_protocol = 2

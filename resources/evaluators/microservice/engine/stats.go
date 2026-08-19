@@ -65,6 +65,51 @@ func aggregate(values []float64) Aggregate {
 	return result
 }
 
+// LatencyMS reports the run's successful-operation latency distribution: each
+// field is the median of that field across trials, which is how PrimaryValue
+// aggregates a repeated measurement, and Count is the total sample count. Every
+// field is nil when no trial measured a latency, which is the case for a run in
+// which nothing succeeded.
+func (s Summary) LatencyMS() Distribution {
+	result := Distribution{}
+	var mean, p50, p90, p95, p99, p999, max []float64
+	for _, trial := range s.Trials {
+		latency := trial.LatencyMS
+		result.Count += latency.Count
+		mean = appendValue(mean, latency.Mean)
+		p50 = appendValue(p50, latency.P50)
+		p90 = appendValue(p90, latency.P90)
+		p95 = appendValue(p95, latency.P95)
+		p99 = appendValue(p99, latency.P99)
+		p999 = appendValue(p999, latency.P999)
+		max = appendValue(max, latency.Max)
+	}
+	result.Mean = medianOf(mean)
+	result.P50 = medianOf(p50)
+	result.P90 = medianOf(p90)
+	result.P95 = medianOf(p95)
+	result.P99 = medianOf(p99)
+	result.P999 = medianOf(p999)
+	result.Max = medianOf(max)
+	return result
+}
+
+func appendValue(values []float64, value *float64) []float64 {
+	if value == nil {
+		return values
+	}
+	return append(values, *value)
+}
+
+func medianOf(values []float64) *float64 {
+	if len(values) == 0 {
+		return nil
+	}
+	ordered := append([]float64(nil), values...)
+	sort.Float64s(ordered)
+	return pointer(percentile(ordered, 50))
+}
+
 func bootstrapMedianCI(values []float64, repetitions int, seed int64) []float64 {
 	rng := rand.New(rand.NewSource(seed))
 	medians := make([]float64, repetitions)

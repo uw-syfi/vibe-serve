@@ -76,7 +76,7 @@ func TestBenchmarkStreamDeclaresAndReportsMedianRate(t *testing.T) {
 		t.Fatalf("stream records = %v, want hello and result", records)
 	}
 	hello := records[0]
-	if hello["kind"] != "hello" || hello["protocol"] != float64(1) {
+	if hello["kind"] != "hello" || hello["protocol"] != float64(2) {
 		t.Fatalf("hello record = %v", hello)
 	}
 	metrics, ok := hello["metrics"].(map[string]any)
@@ -89,6 +89,11 @@ func TestBenchmarkStreamDeclaresAndReportsMedianRate(t *testing.T) {
 	}
 	if spec["unit"] != "ops/s" || spec["direction"] != "max" {
 		t.Fatalf("total_ops_per_sec spec = %v", spec)
+	}
+	// The metric is always measured, so it is declared required, which the
+	// protocol spells by leaving the key off the wire.
+	if _, present := spec["required"]; present {
+		t.Fatalf("total_ops_per_sec spec = %v, want no required key", spec)
 	}
 
 	result := records[1]

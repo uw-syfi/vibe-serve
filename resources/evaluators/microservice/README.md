@@ -157,8 +157,9 @@ bytes remain visible separately. A trial is invalid when it:
 - violates a success-rate, error-rate, or per-operation coverage constraint; or
 - fails during reset, setup, execution, or interruption.
 
-An invalid run omits `primary_value`, preventing the optimization loop from
-treating a fast-but-incorrect or client-limited result as an improvement.
+An invalid run omits `primary_value` and reports the failure rather than a
+number, preventing the optimization loop from treating a fast-but-incorrect or
+client-limited result as an improvement.
 
 The summary aggregates trial-level primary values rather than pooling every
 operation across trials. It reports median, median absolute deviation (MAD), and
@@ -230,6 +231,41 @@ go -C resources/evaluators/microservice run ./cmd/servicebench \
   --output-json /tmp/result.json \
   --output-raw /tmp/requests.ndjson
 ```
+
+### Benchmark output
+
+Benchmark mode writes two independent outputs, and both flags are optional.
+
+`--vs-output` names the VibeSys evaluator record stream, the framework-facing
+result channel specified by `sdk/vs-evaluator/PROTOCOL.md`. The stream opens as
+soon as the flags are parsed, so a workload that does not load or does not
+validate reaches the framework as an error record rather than as a missing file.
+
+The command then declares one required metric, the workload's own `objective`,
+under its declared `metric` name, `unit`, and direction (`maximize` becomes
+`max`, `minimize` becomes `min`). The Train Ticket workload therefore reports
+`operations_per_second` in `operations/s` with direction `max`. Beside it the
+command declares `latency_ms.p50` and `latency_ms.p99` in `ms` with direction
+`min` as optional metrics: the summary measures both over every successful
+operation, and a run that completed nothing measures neither. An objective that
+already names one of them keeps it as the required metric instead.
+
+The hello record is written once the resolved workload is valid and before any
+traffic runs, so a crashed or timed-out run still leaves a stream that names its
+metrics. The stream then closes with either a result record carrying
+`primary_value`, plus whichever latency percentiles the run measured, or an
+error record naming why no value exists.
+
+`--output-json` keeps the versioned summary: per-trial distributions, generator
+health, constraint reasons, and optional telemetry. It is diagnostic output, not
+the metric channel.
+
+Omitting `--vs-output` reports nothing to the framework and leaves the printed
+summary, the detailed report, and the exit status unchanged. Standalone and
+baseline invocations use that form. The flag is benchmark-only: accuracy mode
+still communicates through its exit status, and `--validate-only` runs no
+measurement, so both reject it, and the rejection itself is reported on the
+stream the flag named.
 
 Validate a workload and its registered extensions without running traffic:
 

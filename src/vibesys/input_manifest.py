@@ -204,7 +204,7 @@ class BenchmarkCommand(InputCommand):
     """
 
     result: BenchmarkResult | None = None
-    result_protocol: Literal[1] | None = None
+    result_protocol: Literal[2] | None = None
 
     @model_validator(mode="after")
     def _one_result_contract(self) -> BenchmarkCommand:
@@ -444,7 +444,7 @@ class InputBundle(BaseModel):
         return self.manifest.benchmark.result
 
     @property
-    def benchmark_result_protocol(self) -> Literal[1] | None:
+    def benchmark_result_protocol(self) -> Literal[2] | None:
         """Return the evaluator result protocol version the benchmark speaks."""
         return self.manifest.benchmark.result_protocol
 

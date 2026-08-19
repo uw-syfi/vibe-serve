@@ -19,6 +19,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/uw-syfi/vibesys/sdk/vs-evaluator/vseval"
+
 	"vibesys/microservice-evaluator/accuracy"
 	accuracyhotel "vibesys/microservice-evaluator/accuracyapps/hotel"
 	accuracytrainticket "vibesys/microservice-evaluator/accuracyapps/trainticket"
@@ -45,6 +47,8 @@ type modeFlagConfig struct {
 	trace              bool
 	explicit           map[string]bool
 	outputRaw          string
+	streamOutput       string
+	validateOnly       bool
 	casesMin           int
 	casesMax           int
 	startupTimeout     float64
@@ -156,11 +160,26 @@ func run() (resultErr error) {
 	flag.IntVar(&traceMaxRoots, "trace-max-roots", 10, "maximum root groups in rendered trace output")
 	flag.IntVar(&traceMaxNodes, "trace-max-nodes", 30, "maximum nodes per root in rendered trace output")
 	flag.IntVar(&traceTimelineWidth, "trace-timeline-width", 48, "representative waterfall width")
+	// The SDK owns the name and usage of the result-stream flag. Registering it
+	// here rather than through vseval.Open keeps flag parsing in one place.
+	streamOutput := vseval.RegisterFlags(flag.CommandLine)
 	flag.Parse()
+	// The stream opens before the first thing that can fail, so a rejected flag
+	// combination or a workload that does not load reaches the framework as an
+	// error record instead of as a missing file. Close runs last; finish
+	// reports whatever the command returns, including a managed-candidate
+	// cleanup failure, as the stream's error record.
+	stream, err := openBenchmarkStream(*streamOutput)
+	if err != nil {
+		return err
+	}
+	defer stream.Close()
+	defer func() { resultErr = stream.finish(resultErr) }()
 	explicitFlags := make(map[string]bool)
 	flag.Visit(func(used *flag.Flag) { explicitFlags[used.Name] = true })
 	if err := validateModeFlags(modeFlagConfig{
 		mode: mode, trace: traceMode, explicit: explicitFlags, outputRaw: outputRaw,
+		streamOutput: *streamOutput, validateOnly: validateOnly,
 		casesMin: casesMin, casesMax: casesMax, startupTimeout: startupTimeout,
 		runCommandJSON: runCommandJSON, stopCommandJSON: stopCommandJSON,
 		cleanupCommandJSON: cleanupCommandJSON,
@@ -224,6 +243,11 @@ func run() (resultErr error) {
 	}
 	if err := config.Validate(workload); err != nil {
 		return fmt.Errorf("invalid command-line override: %w", err)
+	}
+	// The metrics are the resolved workload's own, so the schema is declared
+	// here, once it is valid and before anything is measured.
+	if err := stream.declare(workload.Objective); err != nil {
+		return err
 	}
 	canonical, err := config.CanonicalJSON(workload)
 	if err != nil {
@@ -427,10 +451,7 @@ func run() (resultErr error) {
 	} else {
 		fmt.Println(string(encoded))
 	}
-	if !runResult.Summary.Valid {
-		return errors.New("benchmark result is invalid; inspect constraints and trial invalid_reasons")
-	}
-	return nil
+	return stream.emit(runResult.Summary)
 }
 
 // shouldCollectTelemetry reports whether servicebench invokes the telemetry
@@ -477,11 +498,18 @@ func validateModeFlags(config modeFlagConfig) error {
 		config.explicit["trace-max-roots"] || config.explicit["trace-max-nodes"] || config.explicit["trace-timeline-width"] {
 		return errors.New("trace graph flags require the servicebench trace subcommand")
 	}
+	if config.streamOutput != "" && config.validateOnly {
+		return fmt.Errorf(
+			"--%s reports a measurement, so it cannot be combined with --validate-only",
+			vseval.OutputFlag,
+		)
+	}
 	accuracyOnly := []string{"cases-min", "cases-max", "state-dir", "state-env"}
 	benchmarkOnly := []string{
 		"output-raw", "skip-prepare", "fixture-seed", "rate", "duration", "warmup", "concurrency", "repetitions",
 		"telemetry-command-json", "telemetry-output", "telemetry-timeout",
 		"trace-graph-json", "trace-graph-text", "trace-max-roots", "trace-max-nodes", "trace-timeline-width",
+		vseval.OutputFlag,
 	}
 	if config.mode == "benchmark" {
 		for _, name := range accuracyOnly {

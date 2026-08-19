@@ -1,5 +1,5 @@
 {
-  "comment": "Reason code every conforming reader must report for each invalid stream. Codes are part of the protocol contract; error message wording is not. `legacy-protocol-1` is transitional: it exists only until the Go evaluators are rebuilt against an SDK that emits protocol 2, and is removed with protocol 1 support.",
+  "comment": "Reason code every conforming reader must report for each invalid stream. Codes are part of the protocol contract; error message wording is not.",
   "invalid": {
     "boolean-value": "NON_NUMERIC_VALUE",
     "duplicate-hello": "DUPLICATE_HELLO",
@@ -37,12 +37,6 @@
     },
     "error-without-hello": {
       "outcome": "error"
-    },
-    "legacy-protocol-1": {
-      "outcome": "result",
-      "values": {
-        "total_ops_per_sec": 41250.3
-      }
     },
     "negative-and-integer-values": {
       "outcome": "result",

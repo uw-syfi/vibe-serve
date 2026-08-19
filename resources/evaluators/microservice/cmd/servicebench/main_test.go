@@ -1,6 +1,10 @@
 package main
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/uw-syfi/vibesys/sdk/vs-evaluator/vseval"
+)
 
 func TestParseCommandJSONRejectsMalformedAndEmptyArguments(t *testing.T) {
 	for _, raw := range []string{
@@ -161,6 +165,21 @@ func TestValidateModeFlagsRejectsIgnoredOrMalformedCombinations(t *testing.T) {
 			},
 		},
 		{
+			name: "accuracy result stream",
+			config: modeFlagConfig{
+				mode: "accuracy", explicit: map[string]bool{vseval.OutputFlag: true},
+				streamOutput: "stream.jsonl",
+				casesMin:     2, casesMax: 5, startupTimeout: 15, stateEnv: "VIBESYS_STATE_DIR",
+			},
+		},
+		{
+			name: "result stream without a measurement",
+			config: modeFlagConfig{
+				mode: "benchmark", explicit: map[string]bool{vseval.OutputFlag: true},
+				streamOutput: "stream.jsonl", validateOnly: true, startupTimeout: 15,
+			},
+		},
+		{
 			name: "telemetry timeout without command",
 			config: modeFlagConfig{
 				mode: "benchmark", startupTimeout: 15,
@@ -181,6 +200,11 @@ func TestValidateModeFlagsRejectsIgnoredOrMalformedCombinations(t *testing.T) {
 	}
 	if err := validateModeFlags(validBenchmark); err != nil {
 		t.Fatalf("valid benchmark flags: %v", err)
+	}
+	validBenchmark.streamOutput = "stream.jsonl"
+	validBenchmark.explicit = map[string]bool{vseval.OutputFlag: true}
+	if err := validateModeFlags(validBenchmark); err != nil {
+		t.Fatalf("valid benchmark result stream: %v", err)
 	}
 	validBenchmark.telemetryCommand = `["./collector"]`
 	validBenchmark.telemetryOutput = "telemetry.json"

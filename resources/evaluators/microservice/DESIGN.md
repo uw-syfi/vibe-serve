@@ -240,3 +240,26 @@ include every failed attempt. `primary_value` is omitted unless every trial:
 Individual trials are the independent aggregation units. The summary reports
 their median, MAD, IQR, and a deterministic bootstrap interval when at least two
 valid trials are available.
+
+### Reporting the measurement
+
+`--vs-output` names the evaluator record stream specified by
+`sdk/vs-evaluator/PROTOCOL.md`. The stream declares the workload's own
+objective: its `metric` name, `unit`, and direction, read from the loaded
+workload rather than fixed by the command. The framework therefore sees the
+metric the task declared, and a task objective can name it directly instead of
+scraping a generically named summary field.
+
+The objective is the only required metric, because it is the only quantity
+every accepted run produces. The latency percentiles the summary already
+measures, `latency_ms.p50` and `latency_ms.p99`, are declared optional and are
+reported when the run produced them, so a task can use one as a secondary axis
+without a run that completed nothing failing the protocol. Objectives must be
+required metrics, so an optional axis is reported, never ranked on.
+
+The stream opens before the workload is read, so a workload that does not parse
+or does not validate is reported rather than lost: an error record on its own is
+a complete stream. A run without a `primary_value`, and any failure the command
+reaches after that point, closes the stream with an error record naming the
+reason, so a failed benchmark reaches the framework as a reported failure rather
+than only as an exit status. The summary JSON stays diagnostic evidence.

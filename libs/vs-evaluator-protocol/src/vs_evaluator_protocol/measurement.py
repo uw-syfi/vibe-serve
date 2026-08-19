@@ -9,7 +9,6 @@ from typing import TYPE_CHECKING
 from vs_evaluator_protocol.errors import ReasonCode, reject
 from vs_evaluator_protocol.records import (
     PROTOCOL_VERSION,
-    SUPPORTED_PROTOCOL_VERSIONS,
     ErrorRecord,
     Hello,
     Result,
@@ -138,7 +137,7 @@ def _read_hello(record: Hello, *, hello: Hello | None, position: int) -> Hello:
         reject(ReasonCode.DUPLICATE_HELLO, f"record {position} is a second hello record")
     if position != 1:
         reject(ReasonCode.HELLO_NOT_FIRST, f"record {position} is a hello but is not first")
-    if record.protocol not in SUPPORTED_PROTOCOL_VERSIONS:
+    if record.protocol != PROTOCOL_VERSION:
         reject(
             ReasonCode.UNSUPPORTED_PROTOCOL,
             f"hello record has key 'protocol' = {record.protocol}, "
