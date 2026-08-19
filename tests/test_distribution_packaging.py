@@ -21,6 +21,7 @@ if TYPE_CHECKING:
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 INTERNAL_DISTRIBUTIONS = {
+    "vs-evaluator-protocol",
     "vs-feature-flags",
     "vs-github",
     "vs-issue-board",
@@ -29,6 +30,7 @@ INTERNAL_DISTRIBUTIONS = {
     "vs-sandbox",
 }
 INTERNAL_IMPORT_PACKAGES = {
+    "vs_evaluator_protocol",
     "vs_feature_flags",
     "vs_github",
     "vs_issue_board",

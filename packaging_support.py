@@ -8,6 +8,7 @@ from pathlib import Path
 
 PACKAGE_SOURCE_ROOTS = (
     Path("src"),
+    Path("libs/vs-evaluator-protocol/src"),
     Path("libs/vs-feature-flags/src"),
     Path("libs/vs-github/src"),
     Path("libs/vs-issue-board/src"),

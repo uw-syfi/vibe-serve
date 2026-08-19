@@ -17,6 +17,7 @@ from wheel_targets import TARGETS  # pyright: ignore[reportMissingImports]
 
 FRAMEWORK_PACKAGES = (
     "vibesys",
+    "vs_evaluator_protocol",
     "vs_feature_flags",
     "vs_github",
     "vs_issue_board",
@@ -45,6 +46,7 @@ dependencies = ["example>=1"]
     _source_file(root, "pyproject.toml", pyproject.encode())
     roots = {
         "vibesys": "src/vibesys",
+        "vs_evaluator_protocol": "libs/vs-evaluator-protocol/src/vs_evaluator_protocol",
         "vs_feature_flags": "libs/vs-feature-flags/src/vs_feature_flags",
         "vs_github": "libs/vs-github/src/vs_github",
         "vs_issue_board": "libs/vs-issue-board/src/vs_issue_board",
@@ -80,6 +82,7 @@ dependencies = ["example>=1"]
 def _packaged_source_files(source_root: Path) -> dict[str, bytes]:
     mappings = {
         "src/vibesys": "vibesys",
+        "libs/vs-evaluator-protocol/src/vs_evaluator_protocol": "vs_evaluator_protocol",
         "libs/vs-feature-flags/src/vs_feature_flags": "vs_feature_flags",
         "libs/vs-github/src/vs_github": "vs_github",
         "libs/vs-issue-board/src/vs_issue_board": "vs_issue_board",
