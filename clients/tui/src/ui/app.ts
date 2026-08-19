@@ -229,6 +229,7 @@ export function createOpenTuiApp(renderer: CliRenderer, controller: SessionContr
       input.destroy();
       chat.destroy();
       roundStrip.destroy();
+      agentMap.destroy();
       root.destroyRecursively();
       markdownStyle.destroy();
     },

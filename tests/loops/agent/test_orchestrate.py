@@ -2951,10 +2951,11 @@ def test_loop_orchestrator_requests_profile_before_plan(tmp_path, ref_file):  # 
     profiler_prompts: list[str] = []
     runner = _make_orchestrate_runner(
         pre_decisions=[
+            PreRoundDecision(need_profile=False, profile_focus="", reasoning="read the source"),
             PreRoundDecision(need_profile=True, profile_focus="kernels", reasoning="need data"),
         ],
         plans=[
-            # Round 1 cold-start plan (no pre-decision invoked on round 1).
+            # Round 1 plan: its own decision declined, so no profile precedes it.
             OrchestratorPlan(
                 task="Build server",
                 pass_criteria="ok",  # noqa: S106  # tracked: #288
@@ -2994,10 +2995,8 @@ def test_loop_orchestrator_requests_profile_before_plan(tmp_path, ref_file):  # 
 
     result = _invoke_orchestrate(tmp_path, ref_file, runner, max_rounds=2)
     assert result is True
-    # Round 1 cold-start: no pre → just plan.
-    # Round 2: pre → profiler → plan.
-    assert call_order[:1] == ["plan"]
-    assert "profiler" in call_order
+    # Round 1: pre declined → just plan. Round 2: pre → profiler → plan.
+    assert call_order == ["pre", "plan", "pre", "profiler", "plan"]
     plan_idx = [i for i, c in enumerate(call_order) if c == "plan"]
     prof_idx = call_order.index("profiler")
     # Profiler must come BEFORE the round-2 plan call.
@@ -3022,7 +3021,8 @@ def test_loop_skips_profiler_when_pre_round_decision_says_no(tmp_path, ref_file)
     result = _invoke_orchestrate(tmp_path, ref_file, runner, max_rounds=2)
 
     assert result is True
-    assert runner.counters["orch_pre"] == 1
+    # Both rounds decide, including round 1; neither asked for a profile.
+    assert runner.counters["orch_pre"] == 2
     assert runner.counters["prof"] == 0
 
 
@@ -3050,7 +3050,8 @@ def test_loop_skips_profiler_when_profiler_kind_is_none(tmp_path, ref_file):  # 
     )
 
     assert result is True
-    assert runner.counters["orch_pre"] == 1
+    # Both rounds decide, including round 1; neither asked for a profile.
+    assert runner.counters["orch_pre"] == 2
     assert runner.counters["prof"] == 0
 
 
@@ -3085,8 +3086,121 @@ def test_loop_generic_auto_profiler_resolves_to_macos_cpu(tmp_path, ref_file):  
         )
 
     assert result is True
-    assert runner.counters["orch_pre"] == 1
+    assert runner.counters["orch_pre"] == 2
     assert runner.counters["prof"] == 1
+
+
+def test_loop_asks_whether_to_profile_before_the_first_plan(tmp_path, ref_file):  # noqa: ANN001, ANN201  # tracked: #288
+    """Round 1 routes through the same decision as every other round.
+
+    It used to skip that decision outright, which also skipped the profiler
+    nested under it: the round holding the least evidence was the one round
+    where nothing could ask for measurement.
+    """
+    call_order: list[str] = []
+    plan_prompts: list[str] = []
+    pre_prompts: list[str] = []
+    runner = _make_orchestrate_runner(
+        pre_decisions=[
+            PreRoundDecision(need_profile=True, profile_focus="decode", reasoning="it runs"),
+        ],
+        plans=[
+            OrchestratorPlan(
+                task="Cut the measured hotspot",
+                pass_criteria="ok",  # noqa: S106  # tracked: #288
+                reasoning="the profile named it",
+            ),
+        ],
+        profiler_responses=[
+            ProfilerSummary(
+                analysis="decode is launch-bound",
+                bottlenecks="host-side sync",
+                suggestions="cuda graph",
+                perf_metric=5.0,
+                perf_unit="req/s",
+            ),
+        ],
+    )
+    real_invoke = runner.invoke.side_effect
+
+    def spy_invoke(*, kind, response_cls, **kwargs):  # noqa: ANN001, ANN003, ANN202  # tracked: #288
+        if kind == "profiler":
+            call_order.append("profiler")
+        elif kind == "orchestrator" and response_cls is OrchestratorPlan:
+            call_order.append("plan")
+            plan_prompts.append(kwargs.get("system_prompt", ""))
+        elif kind == "orchestrator" and response_cls is PreRoundDecision:
+            call_order.append("pre")
+            pre_prompts.append(kwargs.get("system_prompt", ""))
+        return real_invoke(kind=kind, response_cls=response_cls, **kwargs)
+
+    runner.invoke.side_effect = spy_invoke
+
+    result = _invoke_orchestrate(tmp_path, ref_file, runner, max_rounds=1)
+
+    assert result is True
+    # The decision precedes the profiler, which precedes the plan it informs.
+    assert call_order == ["pre", "profiler", "plan"]
+    # Round 1 is told it has no history and may establish runnability itself.
+    assert "This is\nround 1" in pre_prompts[0]
+    assert "one cheap check" in pre_prompts[0]
+    # The measurement reaches the planner rather than merely being collected.
+    # The plan prompt is path-only, so it names the evidence instead of
+    # embedding it; that section renders only when a summary was threaded in.
+    assert "The fresh profiler result is recorded" in plan_prompts[0]
+
+
+def test_loop_first_round_profiles_only_when_its_decision_asks(tmp_path, ref_file):  # noqa: ANN001, ANN201  # tracked: #288
+    """A round-1 decline costs no profiler turn.
+
+    A campaign that builds from scratch has nothing to profile yet. The
+    decision is what keeps that run from spending the turn, so a declined
+    round 1 must reach its plan with no profiler call at all.
+    """
+    runner = _make_orchestrate_runner(
+        pre_decisions=[
+            PreRoundDecision(
+                need_profile=False,
+                profile_focus="",
+                reasoning="nothing runs yet; round 1 must make it build",
+            ),
+        ],
+        plans=[
+            OrchestratorPlan(
+                task="Make the service build",
+                pass_criteria="compiles",  # noqa: S106  # tracked: #288
+                reasoning="no measurable system yet",
+            ),
+        ],
+    )
+
+    result = _invoke_orchestrate(tmp_path, ref_file, runner, max_rounds=1)
+
+    assert result is True
+    assert runner.counters["orch_pre"] == 1
+    assert runner.counters["prof"] == 0
+
+
+def test_loop_records_the_first_round_decision_in_the_progress_artifact(tmp_path, ref_file):  # noqa: ANN001, ANN201  # tracked: #288
+    """Round 1's reasoning is auditable rather than an unrecorded skip."""
+    runner = _make_orchestrate_runner(
+        pre_decisions=[
+            PreRoundDecision(
+                need_profile=False,
+                profile_focus="",
+                reasoning="the candidate does not build yet",
+            ),
+        ],
+        plans=[
+            OrchestratorPlan(task="Make it build", pass_criteria="ok", reasoning="broken"),  # noqa: S106  # tracked: #288
+        ],
+    )
+
+    _invoke_orchestrate(tmp_path, ref_file, runner, max_rounds=1)
+
+    progress = (_created_project(tmp_path) / "progress.md").read_text()
+    assert "## Round 1 — Orchestrator (pre-round)" in progress
+    assert "the candidate does not build yet" in progress
 
 
 def test_loop_runs_full_max_rounds_budget(tmp_path, ref_file):  # noqa: ANN001, ANN201  # tracked: #288

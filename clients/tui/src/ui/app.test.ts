@@ -61,6 +61,8 @@ describe('OpenTUI presentation', () => {
 
     const frame = await testRenderer.waitForFrame(value => value.includes('fast_path()'));
     expect(frame).toContain('running · optimizer · round 2');
+    // No round is selected, so the agent strip is headed by the run.
+    expect(frame).toContain('Run flow');
     expect(frame).toContain('Rounds');
     expect(frame).toContain('● optimizer');
     expect(frame).toContain('Result');
@@ -100,6 +102,72 @@ describe('OpenTUI presentation', () => {
     expect(frame).not.toContain('fail');
   });
 
+  it('heads the agent strip with the elapsed time of the running round', async () => {
+    const testRenderer = await createTestRenderer({width: 100, height: 18});
+    const activeStartedAt = new Date(Date.now() - 65_000).toISOString();
+    const controller = new FakeController({
+      ...initialSessionState(),
+      rounds: [
+        {
+          number: 2,
+          status: 'active',
+          startedAt: activeStartedAt,
+          activeAgentStarts: {'judge:judge-1': activeStartedAt},
+        },
+      ],
+      phases: [{kind: 'judge', status: 'active', roundNumber: 2, roundLabel: 'round-2-judge'}],
+      conversation: [{id: 'live', kind: 'assistant', label: 'Agent', content: 'live output'}],
+    });
+    const app = createOpenTuiApp(testRenderer.renderer, controller);
+    registerCleanup(testRenderer.renderer, app);
+
+    const frame = await testRenderer.waitForFrame(value => value.includes('Round 2 flow'));
+
+    expect(frame).toMatch(/Round 2 flow · 1m \d+s/);
+  });
+
+  it('holds the agent-active elapsed time of a finished round', async () => {
+    const testRenderer = await createTestRenderer({width: 100, height: 18});
+    const controller = new FakeController({
+      ...initialSessionState(),
+      rounds: [
+        {
+          number: 1,
+          status: 'completed',
+          // 60s of wall clock with a 15s gap where no agent was running.
+          agentIntervals: [
+            {startedAt: '2026-01-01T00:00:00Z', finishedAt: '2026-01-01T00:00:30Z'},
+            {startedAt: '2026-01-01T00:00:45Z', finishedAt: '2026-01-01T00:01:00Z'},
+          ],
+        },
+      ],
+      phases: [{kind: 'judge', status: 'completed', roundNumber: 1, roundLabel: 'round-1-judge'}],
+      conversation: [{id: 'live', kind: 'assistant', label: 'Agent', content: 'live output'}],
+    });
+    const app = createOpenTuiApp(testRenderer.renderer, controller);
+    registerCleanup(testRenderer.renderer, app);
+
+    const frame = await testRenderer.waitForFrame(value => value.includes('Round 1 flow'));
+
+    expect(frame).toContain('Round 1 flow · 45s');
+  });
+
+  it('omits the elapsed time for a round with no recorded agent time', async () => {
+    const testRenderer = await createTestRenderer({width: 100, height: 18});
+    const controller = new FakeController({
+      ...initialSessionState(),
+      rounds: [{number: 1, status: 'completed'}],
+      phases: [{kind: 'judge', status: 'completed', roundNumber: 1, roundLabel: 'round-1-judge'}],
+      conversation: [{id: 'live', kind: 'assistant', label: 'Agent', content: 'live output'}],
+    });
+    const app = createOpenTuiApp(testRenderer.renderer, controller);
+    registerCleanup(testRenderer.renderer, app);
+
+    const frame = await testRenderer.waitForFrame(value => value.includes('Round 1 flow'));
+
+    expect(frame).not.toContain('Round 1 flow ·');
+  });
+
   it('submits typed commands when Enter is pressed', async () => {
     const testRenderer = await createTestRenderer({width: 80, height: 16});
     const controller = new FakeController(initialSessionState());
@@ -130,18 +198,18 @@ describe('OpenTUI presentation', () => {
     const app = createOpenTuiApp(testRenderer.renderer, controller);
     registerCleanup(testRenderer.renderer, app);
 
-    await testRenderer.mockInput.typeText('/hi');
+    await testRenderer.mockInput.typeText('/pa');
     const suggestions = await testRenderer.waitForFrame(value => value.includes('[Tab]'));
-    expect(suggestions).toContain('/history');
+    expect(suggestions).toContain('/pause');
     expect(suggestions).not.toContain('/help  ');
     expect(suggestions).not.toContain('/perf');
-    expect(suggestions.indexOf('/history')).toBeLessThan(suggestions.indexOf('Ask or command'));
+    expect(suggestions.indexOf('/pause')).toBeLessThan(suggestions.indexOf('Ask or command'));
     expect(testRenderer.renderer.root.findDescendantById('input-box')?.height).toBe(3);
 
     testRenderer.mockInput.pressKey('TAB');
     testRenderer.mockInput.pressEnter();
     await testRenderer.waitForFrame(() => controller.submissions.length === 1);
-    expect(controller.submissions).toEqual(['/history']);
+    expect(controller.submissions).toEqual(['/pause']);
   });
 
   it('highlights a leading slash-command token', async () => {

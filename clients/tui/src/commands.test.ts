@@ -3,13 +3,6 @@ import {parseInput, slashCommandRange, suggestSlashCommands} from './commands.js
 
 describe('parseInput', () => {
   it('accepts the intentionally small slash-command surface', () => {
-    expect(parseInput('/history')).toEqual({experimentLog: true});
-    expect(parseInput('/experiments')).toEqual({experimentLog: true});
-    expect(parseInput('/history rounds')).toMatchObject({
-      request: {type: 'query.history'},
-      responseView: 'history',
-    });
-    expect(parseInput('/history agents').error).toContain('Unknown history scope: agents');
     expect(parseInput('/open-round')).toEqual({openRound: {}});
     expect(parseInput('/open-round --3')).toEqual({openRound: {round: 3}});
     expect(parseInput('/open-round 3')).toEqual({openRound: {round: 3}});
@@ -18,10 +11,6 @@ describe('parseInput', () => {
     expect(parseInput('/perf')).toMatchObject({
       request: {type: 'query.performance'},
       paneView: 'perf',
-    });
-    expect(parseInput('/history rounds')).toMatchObject({
-      request: {type: 'query.history'},
-      paneView: 'timeline',
     });
     // Modal surfaces stay modal: no pane routing on any of them.
     expect(parseInput('/help').paneView).toBeUndefined();
@@ -56,6 +45,12 @@ describe('parseInput', () => {
       request: {type: 'query.chat', text: 'what is happening?'},
     });
     expect(parseInput('')).toEqual({error: 'Enter a question or use /help.'});
+  });
+
+  it('rejects the removed experiment-log commands', () => {
+    expect(parseInput('/history').error).toContain('Unknown command: /history');
+    expect(parseInput('/history rounds').error).toContain('Unknown command: /history rounds');
+    expect(parseInput('/experiments').error).toContain('Unknown command: /experiments');
   });
 
   it('keeps inspection commands out of the public command surface', () => {
@@ -98,23 +93,21 @@ describe('slash-command input helpers', () => {
       '/pause',
       '/resume',
       '/steer',
-      '/history',
-      '/experiments',
       '/open-round',
       '/perf',
       '/theme',
     ]);
-    expect(suggestSlashCommands('/hi').map(command => command.name)).toEqual(['/history']);
-    expect(suggestSlashCommands('/e').map(command => command.name)).toEqual(['/experiments']);
+    expect(suggestSlashCommands('/h').map(command => command.name)).toEqual(['/help']);
+    expect(suggestSlashCommands('/e')).toEqual([]);
     expect(suggestSlashCommands('/open').map(command => command.name)).toEqual(['/open-round']);
-    expect(suggestSlashCommands('/history ')).toEqual([]);
-    expect(suggestSlashCommands('history')).toEqual([]);
+    expect(suggestSlashCommands('/perf ')).toEqual([]);
+    expect(suggestSlashCommands('perf')).toEqual([]);
   });
 
   it('finds a leading slash-command token for syntax highlighting', () => {
-    expect(slashCommandRange('/history')).toEqual({start: 0, end: 8});
+    expect(slashCommandRange('/open-round')).toEqual({start: 0, end: 11});
     expect(slashCommandRange('/steer inspect the cache')).toEqual({start: 0, end: 6});
     expect(slashCommandRange('/')).toBeNull();
-    expect(slashCommandRange('show /history')).toBeNull();
+    expect(slashCommandRange('show /perf')).toBeNull();
   });
 });

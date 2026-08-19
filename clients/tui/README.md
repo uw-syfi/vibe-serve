@@ -29,9 +29,6 @@ available slash commands are:
 | `/pause` | Pause after the current agent call finishes. |
 | `/resume` | Resume a paused run. |
 | `/steer <message>` | Queue an instruction that is appended to the next agent invocation's prompt. |
-| `/history` | Return to the experiment log, one row per hypothesis. |
-| `/history rounds` | List rounds with agent-active elapsed time, in the right pane. |
-| `/experiments` | Same as `/history`. |
 | `/open-round` | Open the rounds behind the selected hypothesis. |
 | `/open-round --N` | Open round N, inside whichever hypothesis owns it. |
 | `/perf` | Plot the recorded performance metric by round, in the right pane. |
@@ -49,6 +46,10 @@ outcome until it resolves. `Proven` reads in the theme's success color and
 `Disproven` in its error color; the word is always spelled out, so the reading
 does not depend on color.
 
+The log is the landing view and the root of the client, so no command is
+needed to reach it: it is what the client opens on, and Escape or Ctrl+L
+returns to it from anywhere.
+
 Arrow keys move the selection, the wheel and trackpad scroll the table
 independently of it, and clicking a row selects it. Enter on an empty input, or
 `/open-round`, opens the rounds behind the selected hypothesis: the ordinary
@@ -59,6 +60,13 @@ jumps straight to round N inside whichever hypothesis owns it. Escape steps
 back to the table with the selection intact. The log is the root view, so
 opening a hypothesis is the only route to per-round output; there is no
 unfiltered live transcript to fall back to.
+
+The agent strip is headed `Round N flow · 45s` for the round on screen. That
+elapsed time is agent-active: wall clock minus the gaps where no agent was
+running, the same measure the rounds strip reports under `r2`. It ticks once a
+second while an agent is running and holds its final value once the round
+finishes. `Run flow` heads the strip when no round is selected, and a round
+with no recorded agent time is headed `Round N flow` alone.
 
 `Measured` shows the verified metric for the round that resolved the
 hypothesis, as a delta against the last measurement preceding it once there is
@@ -75,10 +83,10 @@ terminal narrows; hypothesis, rounds, and outcome always survive.
 ### Split panes
 
 Visualization commands render beside the current view rather than over it.
-`/perf` and `/history rounds` put their output in a right pane and leave the
-transcript, the chat, or the experiment log in the left one, both live at the
-same time. A second visualization command replaces the pane's contents rather
-than stacking another surface on top.
+`/perf` puts its output in a right pane and leaves the transcript, the chat,
+or the experiment log in the left one, both live at the same time. A second
+visualization command replaces the pane's contents rather than stacking
+another surface on top.
 
 `Ctrl+W` moves focus between the panes; the focused one carries the theme's
 focus border and says so in its title. Page Up and Page Down scroll whichever
@@ -104,8 +112,8 @@ the reply says so and falls back to a read-only keyword summary of the recorded
 events rather than presenting that summary as the answer.
 
 Text typed in the chat that starts with `/` is parsed as a slash command
-through the same path as the main input, so `/history` there does exactly what
-`/history` does anywhere else. Anything else is a question for the agent, and a
+through the same path as the main input, so `/perf` there does exactly what
+`/perf` does anywhere else. Anything else is a question for the agent, and a
 question containing a slash mid-sentence is still a question.
 
 Inside a hypothesis the footer shows keyboard navigation. `[` and `]` select rounds, Tab and

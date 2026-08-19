@@ -122,6 +122,11 @@ func WaitReady(
 	}
 }
 
+// WaitStopped waits until no probe answers. Which failure it reports is decided
+// by the last conclusive sweep rather than by where the phase deadline lands: a
+// candidate observed still answering is named as reachable whether the deadline
+// expires mid-sweep or between sweeps, and only a phase that never reached a
+// serving endpoint reports a bare timeout.
 func WaitStopped(
 	ctx context.Context,
 	runtime api.Runtime,
@@ -133,9 +138,10 @@ func WaitStopped(
 	}
 	phase, cancel := context.WithTimeout(ctx, options.PhaseTimeout)
 	defer cancel()
+	reachable := make([]string, 0)
 	for {
 		if err := phase.Err(); err != nil {
-			return fmt.Errorf("candidate did not stop within %s", options.PhaseTimeout)
+			return stopFailure(options.PhaseTimeout, reachable)
 		}
 		serving := make([]string, 0)
 		for _, probe := range probes {
@@ -145,15 +151,25 @@ func WaitStopped(
 			}
 		}
 		if len(serving) == 0 {
+			// Probe failures collected after the deadline describe the expired
+			// context, not the candidate, so they cannot prove it stopped.
 			if err := phase.Err(); err != nil {
-				return fmt.Errorf("candidate did not stop within %s", options.PhaseTimeout)
+				return stopFailure(options.PhaseTimeout, reachable)
 			}
 			return nil
 		}
+		reachable = serving
 		if err := sleep(phase, options.Interval); err != nil {
-			return fmt.Errorf("candidate endpoints remained reachable after stop: %v", serving)
+			return stopFailure(options.PhaseTimeout, serving)
 		}
 	}
+}
+
+func stopFailure(phaseTimeout time.Duration, reachable []string) error {
+	if len(reachable) == 0 {
+		return fmt.Errorf("candidate did not stop within %s", phaseTimeout)
+	}
+	return fmt.Errorf("candidate endpoints remained reachable after stop: %v", reachable)
 }
 
 // Run executes every protocol probe exactly once, sequentially, under one

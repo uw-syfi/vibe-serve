@@ -1,11 +1,7 @@
 import {describe, expect, it} from 'bun:test';
 import type {EventSubscription} from './client.js';
 import type {ProtocolResponse, RequestInput, RunEvent, ServerMessage} from './protocol.js';
-import {
-  renderRoundHistory,
-  SocketSessionController,
-  type SupervisionTransport,
-} from './session-controller.js';
+import {SocketSessionController, type SupervisionTransport} from './session-controller.js';
 
 describe('session controller', () => {
   it('shows local help without sending a backend command', async () => {
@@ -15,7 +11,7 @@ describe('session controller', () => {
     await controller.submit('/help');
 
     expect(controller.state.overlay?.kind).toBe('help');
-    expect(controller.state.overlay?.content).toContain('/history');
+    expect(controller.state.overlay?.content).toContain('/open-round');
     expect(controller.state.overlay?.content).toContain('Planned');
     expect(transport.requests).toEqual([]);
   });
@@ -57,69 +53,6 @@ describe('session controller', () => {
 
     expect(controller.state.status).toBe('completed');
     expect(controller.state.overlay).toBeNull();
-  });
-
-  it('summarizes completed and running round durations', () => {
-    const events = [
-      {
-        ...event(1, 'phase_started'),
-        round_label: 'round-1-plan',
-        timestamp: '2026-01-01T00:00:00Z',
-        agent_kind: 'orchestrator',
-        invocation_id: 'orchestrator-1',
-      },
-      {
-        ...event(2, 'phase_finished'),
-        round_label: 'round-1-plan',
-        timestamp: '2026-01-01T00:00:20Z',
-        agent_kind: 'orchestrator',
-        invocation_id: 'orchestrator-1',
-      },
-      {
-        ...event(3, 'phase_started'),
-        round_label: 'round-1-implement',
-        timestamp: '2026-01-01T00:00:10Z',
-        agent_kind: 'implementer',
-        invocation_id: 'implementer-1',
-      },
-      {
-        ...event(4, 'phase_finished'),
-        round_label: 'round-1-implement',
-        timestamp: '2026-01-01T00:00:30Z',
-        agent_kind: 'implementer',
-        invocation_id: 'implementer-1',
-      },
-      {
-        ...event(5, 'phase_started'),
-        round_label: 'round-1-judge',
-        timestamp: '2026-01-01T00:01:00Z',
-        agent_kind: 'judge',
-        invocation_id: 'judge-1',
-      },
-      {
-        ...event(6, 'phase_finished'),
-        round_label: 'round-1-judge',
-        timestamp: '2026-01-01T00:01:15Z',
-        agent_kind: 'judge',
-        invocation_id: 'judge-1',
-      },
-      {...event(7, 'round_finished'), round_label: 'round-1', timestamp: '2026-01-01T00:02:05Z'},
-      {
-        ...event(8, 'phase_started'),
-        round_label: 'round-2-plan',
-        timestamp: '2026-01-01T00:03:00Z',
-        agent_kind: 'implementer',
-        invocation_id: 'implementer-1',
-      },
-    ];
-
-    expect(renderRoundHistory(events, new Date('2026-01-01T00:03:42Z'))).toBe(
-      [
-        'Rounds',
-        'Round 1 · completed · 45s · orchestrator -> implementer -> judge',
-        'Round 2 · running · 42s · implementer',
-      ].join('\n'),
-    );
   });
 
   it('renders a performance curve from the perf command', async () => {
@@ -365,29 +298,51 @@ describe('session controller', () => {
     expect(transport.requests).toEqual([]);
   });
 
-  it('makes the experiment log the default view of run history', async () => {
+  it('makes the experiment log the landing view without a command', async () => {
     const transport = new FakeTransport();
     transport.experiments = [entry('H-01', 1, 1, {resolved_outcome: 'proven'})];
     const controller = new SocketSessionController(transport);
 
-    await controller.submit('/history');
+    await controller.start();
 
-    expect(transport.requests).toEqual([{type: 'query.experiments'}]);
+    expect(transport.requests).toContainEqual({type: 'query.experiments'});
     expect(controller.state.experimentLog?.entries).toHaveLength(1);
     expect(controller.state.experimentLog?.selectedId).toBe('H-01');
     expect(controller.state.overlay).toBeNull();
   });
 
-  it('keeps the flat round list reachable as /history rounds', async () => {
+  it('rejects the removed experiment-log commands without reaching the backend', async () => {
     const transport = new FakeTransport();
     const controller = new SocketSessionController(transport);
 
-    await controller.submit('/history rounds');
+    await controller.submit('/history');
+    expect(controller.state.overlay?.kind).toBe('error');
+    expect(controller.state.overlay?.content).toContain('Unknown command: /history');
 
-    expect(transport.requests).toEqual([{type: 'query.history'}]);
-    expect(controller.state.layout.right?.view).toBe('timeline');
-    expect(controller.state.layout.right?.content).toContain('No rounds have started yet.');
+    await controller.submit('/history rounds');
+    expect(controller.state.overlay?.content).toContain('Unknown command: /history rounds');
+
+    await controller.submit('/experiments');
+    expect(controller.state.overlay?.content).toContain('Unknown command: /experiments');
+
+    expect(transport.requests).toEqual([]);
+  });
+
+  it('returns to the experiment log from a hypothesis without a command', async () => {
+    const transport = new FakeTransport();
+    transport.experiments = [
+      entry('H-01', 1, 1, {rounds: [{round: 1, passed: true, reviewed: true}]}),
+    ];
+    const controller = new SocketSessionController(transport);
+    await controller.start();
+    controller.enterExperimentDrilldown();
+    expect(controller.state.hypothesisScope).not.toBeNull();
+
+    // What Ctrl+L and Escape are bound to.
+    controller.live();
+
     expect(controller.state.hypothesisScope).toBeNull();
+    expect(controller.state.experimentLog?.entries).toHaveLength(1);
   });
 
   it('refetches the log when a round finishes and keeps the selected row', async () => {
@@ -589,23 +544,6 @@ describe('session controller', () => {
     expect(controller.state.hypothesisScope).toMatchObject({id: 'H-01'});
   });
 
-  it('swaps the pane contents when a second visualization command runs', async () => {
-    const transport = new FakeTransport(
-      [],
-      [{round: 1, perf_metric: 1200, perf_unit: 'ops', passed: true, profile_skipped: false}],
-    );
-    const controller = new SocketSessionController(transport);
-    await controller.start();
-
-    await controller.submit('/perf');
-    expect(controller.state.layout.right?.view).toBe('perf');
-
-    await controller.submit('/history rounds');
-
-    expect(controller.state.layout.right?.view).toBe('timeline');
-    expect(controller.state.overlay).toBeNull();
-  });
-
   it('keeps the open pane current as rounds land', async () => {
     const transport = new FakeTransport(
       [],
@@ -694,12 +632,14 @@ describe('session controller', () => {
     await controller.submit('/chat');
     const before = transport.requests.length;
 
-    // The flat round list, which is the command that still answers with an
-    // overlay now that bare /history returns to the experiment log.
-    await controller.submitChat('/history rounds');
+    // The performance plot, which is the command that answers in the right
+    // pane now that the experiment log is reached without a command.
+    await controller.submitChat('/perf');
 
     // Handled as a command, not forwarded to the chat agent.
-    expect(transport.requests.slice(before)).toEqual([{type: 'query.history'}]);
+    expect(transport.requests.slice(before)).toEqual([{type: 'query.performance'}]);
+    expect(controller.state.layout.right?.view).toBe('perf');
+    expect(controller.state.layout.right?.content).toContain('No performance data yet.');
     expect(controller.state.chatConversation).toHaveLength(0);
   });
 

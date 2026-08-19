@@ -4,6 +4,7 @@ import {type RoundSummary, roundAgentElapsedMs} from '../run-map.js';
 import type {SessionController} from '../session-controller.js';
 import type {SessionState} from '../session-model.js';
 import {scopedRounds, visibleRoundNumber} from '../session-model.js';
+import {elapsedLabel} from './previews.js';
 import type {Theme} from './theme.js';
 
 export class RoundStripView {
@@ -105,8 +106,7 @@ export class RoundStripView {
 
   #roundLabel(round: RoundSummary, selected: number | null): string {
     const isSelected = round.number === selected;
-    const elapsed =
-      round.status === 'active' ? ` ${formatElapsed(roundAgentElapsedMs(round))}` : '';
+    const elapsed = round.status === 'active' ? ` ${elapsedLabel(roundAgentElapsedMs(round))}` : '';
     return `${isSelected ? '[' : ' '} r${round.number}${elapsed} ${isSelected ? ']' : ' '}`;
   }
 
@@ -128,14 +128,4 @@ export class RoundStripView {
 
 function latestActiveRoundNumber(rounds: RoundSummary[]): number | null {
   return [...rounds].reverse().find(round => round.status === 'active')?.number ?? null;
-}
-
-function formatElapsed(elapsedMs: number): string {
-  const totalSeconds = Math.max(0, Math.floor(elapsedMs / 1000));
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
-  if (hours > 0) return `${hours}h ${minutes}m`;
-  if (minutes > 0) return `${minutes}m ${seconds}s`;
-  return `${seconds}s`;
 }

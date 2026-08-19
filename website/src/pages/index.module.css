@@ -37,5 +37,12 @@
 }
 
 .architecture {
-  padding: 2rem 0 4rem;
+  padding: 1.5rem 0 2.5rem;
+}
+
+.architectureNote {
+  max-width: 720px;
+  margin: 0 auto 1.25rem;
+  font-size: 0.9rem;
+  opacity: 0.75;
 }

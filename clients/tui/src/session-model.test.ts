@@ -619,29 +619,19 @@ describe('right pane layout', () => {
     expect(state.layout.focus).toBe('right');
   });
 
-  it('replaces the pane contents when a second command runs, rather than stacking', () => {
-    const perf = setPaneContent(openPane(initialSessionState(), 'perf'), 'perf', 'chart');
-    const timeline = openPane(perf, 'timeline');
-
-    expect(timeline.layout.right?.view).toBe('timeline');
-    expect(timeline.layout.right?.title).toBe('Round timeline');
-    // The previous command's output must not sit under the new title.
-    expect(timeline.layout.right?.content).toBe('');
-  });
-
   it('keeps the old chart on screen while the same view refreshes', () => {
     const perf = setPaneContent(openPane(initialSessionState(), 'perf'), 'perf', 'chart');
 
     expect(openPane(perf, 'perf').layout.right?.content).toBe('chart');
   });
 
-  it('ignores a response for a pane the operator has since replaced', () => {
-    const timeline = openPane(openPane(initialSessionState(), 'perf'), 'timeline');
+  it('ignores a response for a pane the operator has since closed', () => {
+    const closed = closePane(openPane(initialSessionState(), 'perf'));
 
-    const stale = setPaneContent(timeline, 'perf', 'late chart');
+    const stale = setPaneContent(closed, 'perf', 'late chart');
 
-    expect(stale).toBe(timeline);
-    expect(failPane(timeline, 'perf', 'late failure')).toBe(timeline);
+    expect(stale).toBe(closed);
+    expect(failPane(closed, 'perf', 'late failure')).toBe(closed);
   });
 
   it('reports a failed query in the pane without closing it', () => {

@@ -7,9 +7,7 @@ export type ParsedInput = {
   chatMessage?: string;
   themeName?: ThemeName;
   request?: RequestInput;
-  responseView?: 'history' | 'perf';
-  /** Opens the interactive experiment log rather than a one-shot overlay. */
-  experimentLog?: boolean;
+  responseView?: 'perf';
   /** Opens a hypothesis trajectory: the selected row, or the given round. */
   openRound?: {round?: number};
   /**
@@ -32,8 +30,6 @@ export const SLASH_COMMANDS: readonly SlashCommand[] = [
   {name: '/pause', description: 'Pause after the current agent call'},
   {name: '/resume', description: 'Resume a paused run'},
   {name: '/steer', description: 'Guide the next agent invocation: /steer <message>'},
-  {name: '/history', description: 'Experiment log by hypothesis (/history rounds for rounds)'},
-  {name: '/experiments', description: 'Experiment log by hypothesis'},
   {
     name: '/open-round',
     description: 'Open the selected hypothesis, or /open-round --N for round N',
@@ -86,18 +82,6 @@ export function parseInput(text: string): ParsedInput {
     if (!message) return {error: 'Usage: /steer <message>'};
     return {request: {type: 'command.steer', text: message}};
   }
-  // The experiment log is the default view of a run's history; the flat round
-  // list stays reachable as an explicit argument.
-  const history = text.match(/^\/history(?:\s+(.*))?$/);
-  if (history) {
-    const scope = history[1]?.trim();
-    if (!scope) return {experimentLog: true};
-    if (scope === 'rounds') {
-      return {request: {type: 'query.history'}, responseView: 'history', paneView: 'timeline'};
-    }
-    return {error: `Unknown history scope: ${scope}. Use /history or /history rounds.`};
-  }
-  if (text === '/experiments') return {experimentLog: true};
   const openRound = text.match(/^\/open-round(?:\s+(.*))?$/);
   if (openRound) {
     const argument = openRound[1]?.trim();

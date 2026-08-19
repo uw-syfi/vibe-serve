@@ -87,7 +87,7 @@ export interface HypothesisScope {
  * over it. Content is pre-rendered text so the pane stays agnostic about which
  * command produced it and a new command needs no new layout code.
  */
-export type PaneView = 'perf' | 'timeline';
+export type PaneView = 'perf';
 
 export interface RightPane {
   view: PaneView;
@@ -323,7 +323,6 @@ export function selectedExperiment(state: SessionState): HypothesisEntry | null 
 
 export const PANE_TITLES: Record<PaneView, string> = {
   perf: 'Performance',
-  timeline: 'Round timeline',
 };
 
 /**

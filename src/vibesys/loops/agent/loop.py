@@ -743,6 +743,7 @@ def _run_pre_round_decision(  # noqa: PLR0913  # tracked: #288
     carry: _CarryOver,
     progress_path: Path,
     progress_location: str,
+    has_history: bool = True,
 ) -> PreRoundDecision:
     system_prompt = render_template(
         "orchestrator_pre_round_prompt.j2",
@@ -754,6 +755,7 @@ def _run_pre_round_decision(  # noqa: PLR0913  # tracked: #288
         progress_location=progress_location,
         profiler_kind=ctx.profiler_kind.value,
         profile_execution=ctx.run_environment_view.profile_execution,
+        has_history=has_history,
     )
     decision = _invoke_read_only_role(
         ctx,
@@ -2230,30 +2232,33 @@ def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
                 pre_decision: PreRoundDecision | None = None
                 if active_hypothesis is None:
                     if inner_loop == "multi-agent":
-                        if not _is_fresh_cold_start(round_number, records):
-                            pre_decision = _run_pre_round_decision(
+                        # Round 1 used to skip this decision, which also skipped
+                        # the profiler nested under it: the round holding the
+                        # least evidence was the one round where nothing could
+                        # ask for measurement. It now decides like every other
+                        # round, told by ``has_history`` that it has no prior
+                        # entry to read and must establish runnability itself.
+                        pre_decision = _run_pre_round_decision(
+                            ctx,
+                            round_number=round_number,
+                            objective=objective,
+                            carry=carry,
+                            progress_path=progress_path,
+                            progress_location=progress_location,
+                            has_history=not _is_fresh_cold_start(round_number, records),
+                        )
+                        if pre_decision.need_profile and ctx.profiler_kind is not ProfilerKind.NONE:
+                            profiler_summary = _run_profiler(
                                 ctx,
                                 round_number=round_number,
-                                objective=objective,
-                                carry=carry,
+                                profile_focus=pre_decision.profile_focus
+                                or "general steady-state benchmark hotspots",
+                                modality=modality,
+                                interface=interface,
+                                domain_definition=domain_definition,
                                 progress_path=progress_path,
-                                progress_location=progress_location,
+                                objective=objective,
                             )
-                            if (
-                                pre_decision.need_profile
-                                and ctx.profiler_kind is not ProfilerKind.NONE
-                            ):
-                                profiler_summary = _run_profiler(
-                                    ctx,
-                                    round_number=round_number,
-                                    profile_focus=pre_decision.profile_focus
-                                    or "general steady-state benchmark hotspots",
-                                    modality=modality,
-                                    interface=interface,
-                                    domain_definition=domain_definition,
-                                    progress_path=progress_path,
-                                    objective=objective,
-                                )
                     elif last_single_agent_response is not None:
                         profiler_summary = _profiler_summary_from_single_agent(
                             last_single_agent_response

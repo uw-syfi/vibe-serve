@@ -80,3 +80,75 @@ func TestValidateRequiresCompleteKnownTargetCoverage(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func stopProbe(name string) api.ReadinessProbe {
+	return api.ReadinessProbe{
+		Name: name, Invocation: api.Invocation{Target: "service"},
+		Validate: func(api.ProtocolResult) error { return nil },
+	}
+}
+
+func TestWaitStoppedReturnsWhenEndpointsGoQuiet(t *testing.T) {
+	answers := make(chan struct{}, 1)
+	answers <- struct{}{}
+	err := WaitStopped(context.Background(), runtimeFunc(
+		func(context.Context, api.Invocation) api.ProtocolResult {
+			select {
+			case <-answers:
+				return api.ProtocolResult{TransportSuccess: true}
+			default:
+				return api.ProtocolResult{ErrorCategory: "transport", ErrorMessage: "refused"}
+			}
+		},
+	), []api.ReadinessProbe{stopProbe("one")}, testOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A candidate observed still answering must be named as reachable no matter
+// where the phase deadline lands. The first sweep answers immediately and every
+// later probe blocks until the deadline, so the deadline expires mid-sweep and
+// the sweep it interrupts proves nothing. That path used to report a bare
+// timeout, which is what made this flaky under load.
+func TestWaitStoppedNamesReachableEndpointsWhenTheDeadlineLandsMidSweep(t *testing.T) {
+	options := testOptions()
+	options.PhaseTimeout = 30 * time.Millisecond
+	options.ProbeTimeout = 50 * time.Millisecond
+	// Probes are invoked sequentially from the calling goroutine, so a plain
+	// counter is enough to make the first sweep the only conclusive one.
+	sweeps := 0
+	err := WaitStopped(context.Background(), runtimeFunc(
+		func(ctx context.Context, _ api.Invocation) api.ProtocolResult {
+			sweeps++
+			if sweeps == 1 {
+				return api.ProtocolResult{TransportSuccess: true}
+			}
+			<-ctx.Done()
+			return api.ProtocolResult{ErrorCategory: "transport", ErrorMessage: ctx.Err().Error()}
+		},
+	), []api.ReadinessProbe{stopProbe("one")}, options)
+	if err == nil || !strings.Contains(err.Error(), "remained reachable") {
+		t.Fatalf("err=%v", err)
+	}
+	if !strings.Contains(err.Error(), "one") {
+		t.Fatalf("reachable endpoints not named: %v", err)
+	}
+}
+
+// Nothing was ever observed serving, so there is no reachable endpoint to name
+// and the timeout is the only honest report.
+func TestWaitStoppedReportsATimeoutWhenNoEndpointWasEverReachable(t *testing.T) {
+	options := testOptions()
+	options.PhaseTimeout = 20 * time.Millisecond
+	options.ProbeTimeout = 50 * time.Millisecond
+	err := WaitStopped(context.Background(), runtimeFunc(
+		func(ctx context.Context, _ api.Invocation) api.ProtocolResult {
+			<-ctx.Done()
+			return api.ProtocolResult{ErrorCategory: "transport", ErrorMessage: ctx.Err().Error()}
+		},
+	), []api.ReadinessProbe{stopProbe("one")}, options)
+	if err == nil || !strings.Contains(err.Error(), "did not stop within") {
+		t.Fatalf("err=%v", err)
+	}
+}

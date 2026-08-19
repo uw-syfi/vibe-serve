@@ -3,13 +3,6 @@ import {HELP_TEXT, parseInput} from './commands.js';
 import {renderPerformanceCurve} from './performance-chart.js';
 import type {ProtocolResponse, RequestInput, RunEvent, ServerMessage} from './protocol.js';
 import {
-  activeTimingElapsedMs,
-  closeActiveAgentTimings,
-  finishAgentTiming,
-  type RoundTimingState,
-  startAgentTiming,
-} from './round-timing.js';
-import {
   applyEvent,
   applySnapshot,
   type ConversationEntry,
@@ -206,7 +199,10 @@ export class SocketSessionController implements SessionController {
     }
     const scope = this.#state.hypothesisScope;
     if (scope !== null) {
-      return showDetail(this.#state, `Already inside ${scope.id}. Esc returns to /experiments.`);
+      return showDetail(
+        this.#state,
+        `Already inside ${scope.id}. Esc returns to the experiment log.`,
+      );
     }
     const opened = enterExperimentDrilldown(this.#state);
     return opened === this.#state
@@ -241,14 +237,9 @@ export class SocketSessionController implements SessionController {
   }
 
   async #requestPane(view: PaneView): Promise<void> {
-    const request: RequestInput =
-      view === 'perf' ? {type: 'query.performance'} : {type: 'query.history'};
     try {
-      const response = await this.client.request(request);
-      const content =
-        view === 'perf'
-          ? renderPerformanceCurve(response.performance ?? [], response.events ?? [])
-          : renderRoundHistory(response.events ?? []);
+      const response = await this.client.request({type: 'query.performance'});
+      const content = renderPerformanceCurve(response.performance ?? [], response.events ?? []);
       this.#setState(setPaneContent(this.#state, view, content));
     } catch (error) {
       this.#setState(failPane(this.#state, view, String(error)));
@@ -399,10 +390,6 @@ export class SocketSessionController implements SessionController {
       if (parsed.chatMessage) await this.sendChat(parsed.chatMessage);
       return;
     }
-    if (parsed.experimentLog) {
-      await this.openExperimentLog();
-      return;
-    }
     if (parsed.openRound) {
       this.openRound(parsed.openRound.round);
       return;
@@ -478,95 +465,11 @@ function appendChatEntry(
 function renderResponse(
   request: RequestInput,
   response: ProtocolResponse,
-  responseView?: 'history' | 'perf',
+  responseView?: 'perf',
 ): string | null {
   if (response.ack) return `${response.ack.action}: ${response.ack.status}`;
   if (request.type === 'query.performance' || responseView === 'perf') {
     return renderPerformanceCurve(response.performance ?? [], response.events ?? []);
   }
-  if (request.type === 'query.history') return renderRoundHistory(response.events ?? []);
   return null;
-}
-
-export function renderRoundHistory(events: ProtocolResponse['events'], now = new Date()): string {
-  const rounds = new Map<number, HistoryRound>();
-  for (const event of events ?? []) {
-    const match = event.round_label?.match(/^round-(\d+)/);
-    if (!match) continue;
-    const round = Number(match[1]);
-    rounds.set(round, applyHistoryEvent(rounds.get(round), event));
-  }
-  if (rounds.size === 0) return 'No rounds have started yet.';
-  const lines = ['Rounds'];
-  for (const [round, history] of [...rounds.entries()].sort(([a], [b]) => a - b)) {
-    const elapsedMs = activeTimingElapsedMs(history.timing, now);
-    const elapsedSeconds = Math.max(0, Math.floor(elapsedMs / 1000));
-    const phases = [...history.phases].join(' -> ') || 'no agent phases yet';
-    lines.push(
-      `Round ${round} · ${history.status} · ${formatDuration(elapsedSeconds)} · ${phases}`,
-    );
-  }
-  return lines.join('\n');
-}
-
-interface HistoryRound {
-  startedAt: string;
-  finishedAt?: string;
-  status: 'running' | 'completed' | 'failed';
-  phases: Set<string>;
-  timing: RoundTimingState;
-}
-
-function applyHistoryEvent(
-  current: HistoryRound | undefined,
-  event: NonNullable<ProtocolResponse['events']>[number],
-): HistoryRound {
-  let next: HistoryRound = {
-    phases: current?.phases ?? new Set(),
-    status: current?.status ?? 'running',
-    timing: current?.timing ?? {},
-    ...(current?.finishedAt ? {finishedAt: current.finishedAt} : {}),
-    startedAt: earliestTimestamp(current?.startedAt, event.timestamp) ?? event.timestamp,
-  };
-  if (event.agent_kind) next.phases.add(event.agent_kind);
-  if (event.type === 'phase_started')
-    next = {...next, timing: startAgentTiming(next.timing, event)};
-  if (event.type === 'phase_finished') {
-    next = {...next, timing: finishAgentTiming(next.timing, event)};
-  }
-  if (event.type === 'run_failed' || event.type === 'run_interrupted') {
-    return {
-      ...next,
-      status: 'failed',
-      finishedAt: event.timestamp,
-      timing: closeActiveAgentTimings(next.timing, event.timestamp),
-    };
-  }
-  if (event.type === 'round_finished') {
-    return {
-      ...next,
-      status: event.status === 'failed' ? 'failed' : 'completed',
-      finishedAt: event.timestamp,
-      timing: closeActiveAgentTimings(next.timing, event.timestamp),
-    };
-  }
-  return next;
-}
-
-function earliestTimestamp(
-  left: string | undefined,
-  right: string | undefined,
-): string | undefined {
-  if (!left) return right;
-  if (!right) return left;
-  return new Date(right).getTime() < new Date(left).getTime() ? right : left;
-}
-
-function formatDuration(totalSeconds: number): string {
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
-  if (hours > 0) return `${hours}h ${minutes}m ${seconds}s`;
-  if (minutes > 0) return `${minutes}m ${seconds}s`;
-  return `${seconds}s`;
 }

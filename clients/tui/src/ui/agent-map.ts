@@ -1,7 +1,10 @@
 import {BoxRenderable, type CliRenderer, TextRenderable} from '@opentui/core';
-import type {AgentPhase} from '../run-map.js';
+import {hasActiveAgentTiming} from '../round-timing.js';
+import type {AgentPhase, RoundSummary} from '../run-map.js';
+import {roundAgentElapsedMs} from '../run-map.js';
 import type {SessionState} from '../session-model.js';
-import {visiblePhases, visibleRoundNumber} from '../session-model.js';
+import {scopedRounds, visiblePhases, visibleRoundNumber} from '../session-model.js';
+import {elapsedLabel} from './previews.js';
 import type {Theme} from './theme.js';
 
 const STATUS_MARKER: Record<AgentPhase['status'], string> = {
@@ -22,6 +25,8 @@ export class AgentMapView {
   readonly output: BoxRenderable;
   #theme: Theme;
   #renderedState: SessionState | null = null;
+  #elapsedTimer: ReturnType<typeof setInterval> | null = null;
+  #runningRound: {round: RoundSummary; text: TextRenderable} | null = null;
 
   constructor(
     private readonly renderer: CliRenderer,
@@ -65,13 +70,19 @@ export class AgentMapView {
     }
 
     const roundNumber = visibleRoundNumber(state);
-    this.output.add(
-      new TextRenderable(this.renderer, {
-        content: roundNumber === null ? 'Run flow' : `Round ${roundNumber} flow`,
-        fg: this.#theme.textPrimary,
-        width: '100%',
-      }),
-    );
+    const round =
+      roundNumber === null
+        ? null
+        : (scopedRounds(state).find(item => item.number === roundNumber) ?? null);
+    const heading = new TextRenderable(this.renderer, {
+      content: headingLabel(roundNumber, round),
+      fg: this.#theme.textPrimary,
+      width: '100%',
+    });
+    this.output.add(heading);
+    // Elapsed time only advances while an agent is running, so the heading
+    // ticks for exactly as long as one is.
+    if (round !== null && hasActiveAgentTiming(round)) this.#runningRound = {round, text: heading};
     for (const [index, phase] of phases.entries()) {
       this.output.add(this.#renderPhase(phase, state.selectedAgentKind === phase.kind));
       if (index < phases.length - 1) {
@@ -84,9 +95,31 @@ export class AgentMapView {
         );
       }
     }
+    this.#syncElapsedTimer();
+  }
+
+  destroy(): void {
+    this.#stopElapsedTimer();
+  }
+
+  #syncElapsedTimer(): void {
+    if (this.#runningRound === null || this.#elapsedTimer !== null) return;
+    this.#elapsedTimer = setInterval(() => {
+      if (this.#runningRound === null) return;
+      const {round, text} = this.#runningRound;
+      text.content = headingLabel(round.number, round);
+    }, 1000);
+  }
+
+  #stopElapsedTimer(): void {
+    if (this.#elapsedTimer === null) return;
+    clearInterval(this.#elapsedTimer);
+    this.#elapsedTimer = null;
   }
 
   #clear(): void {
+    this.#runningRound = null;
+    this.#stopElapsedTimer();
     for (const child of [...this.output.getChildren()]) {
       this.output.remove(child);
       child.destroyRecursively();
@@ -132,4 +165,16 @@ export class AgentMapView {
     }
     return row;
   }
+}
+
+/**
+ * The agent-active elapsed time of the round on screen: wall clock minus the
+ * gaps where no agent was running, which is what the rounds strip reports for
+ * the running round.
+ */
+function headingLabel(roundNumber: number | null, round: RoundSummary | null): string {
+  if (roundNumber === null) return 'Run flow';
+  const elapsedMs = round === null ? 0 : roundAgentElapsedMs(round);
+  if (elapsedMs <= 0) return `Round ${roundNumber} flow`;
+  return `Round ${roundNumber} flow · ${elapsedLabel(elapsedMs)}`;
 }
