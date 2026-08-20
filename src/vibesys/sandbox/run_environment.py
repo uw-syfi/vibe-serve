@@ -42,11 +42,13 @@ from vibesys.domains.environment import EnvironmentBindMount  # noqa: TC001  # t
 from vibesys.evaluators import PROJECT_ROOT_TOKEN, load_evaluator_package
 from vibesys.input_manifest import WorkspaceSource  # noqa: TC001  # tracked: #288
 from vibesys.profilers import ProfilerKind
+from vibesys.prompts import PROMPTS_DIR, render_template
 from vs_project import RunEnvironmentRecord
 from vs_sandbox import ProjectPathPolicy
 
 _SHELL_COMMAND_ARG_COUNT = 3
 _RECORDED_ENVIRONMENT_NAMES = frozenset({"local", "docker", "modal"})
+_ENVIRONMENTS_TEMPLATE_DIR = PROMPTS_DIR / "environments"
 
 if TYPE_CHECKING:
     # Annotation only; deepagents pulls langchain + anthropic (~seconds).
@@ -314,10 +316,10 @@ class DockerEnvironment:  # noqa: D101  # tracked: #288
             sandbox=sandbox,
             view=RunEnvironmentView(
                 paths=_isolated_paths(request),
-                prompt_notes=(
-                    "Commands run inside the active execution environment. "
-                    "Use normal shell commands to start, stop, and test the server."
-                    + _git_history_prompt_note(request.git_history_root)
+                prompt_notes=render_template(
+                    "docker/prompt_notes.j2",
+                    template_dir=_ENVIRONMENTS_TEMPLATE_DIR,
+                    history_root=request.git_history_root,
                 ),
                 isolated=True,
                 cli_sandboxed=True,
@@ -448,13 +450,15 @@ class ModalEnvironment(_NoopWorkspaceRecovery):  # noqa: D101  # tracked: #288
         runtime_document = request.log_dir / "runtime-environment.md"
         reference_path = _reference_container_path(request).removeprefix("/workspace/")
         runtime_document.write_text(
-            _modal_runtime_notes(
-                self.config.gpu,
-                app_name,
-                request.workspace_sources,
+            render_template(
+                "modal/runtime_notes.j2",
+                template_dir=_ENVIRONMENTS_TEMPLATE_DIR,
+                gpu=self.config.gpu,
+                app_name=app_name,
+                workspace_sources=request.workspace_sources,
                 reference_path=reference_path,
+                history_root=request.git_history_root,
             )
-            + _git_history_runtime_notes(request.git_history_root)
         )
         runtime_container_path = "/opt/vibesys-runtime/environment.md"
         bind_mounts.append((str(runtime_document), runtime_container_path, True))
@@ -530,10 +534,10 @@ class ModalEnvironment(_NoopWorkspaceRecovery):  # noqa: D101  # tracked: #288
                         request.profiler_support_name if request.profiler_support_path else None
                     ),
                 ),
-                prompt_notes=(
-                    f"Runtime instructions are at `{runtime_container_path}`. Read that "
-                    "file before executing, deploying, benchmarking, or profiling; it "
-                    "contains the authoritative environment and lifecycle rules."
+                prompt_notes=render_template(
+                    "modal/prompt_notes.j2",
+                    template_dir=_ENVIRONMENTS_TEMPLATE_DIR,
+                    runtime_container_path=runtime_container_path,
                 ),
                 isolated=True,
                 cli_sandboxed=True,
@@ -649,11 +653,12 @@ class ModalEnvironment(_NoopWorkspaceRecovery):  # noqa: D101  # tracked: #288
             return CandidateRuntime(view.prompt_notes)
         candidate_name = candidate_modal_app_name(base_name, generation, child_idx)
         return CandidateRuntime(
-            prompt_notes=(
-                f"{view.prompt_notes} Candidate-specific namespace override: replace "
-                f"the base namespace `{base_name}` with `{candidate_name}` everywhere "
-                "the runtime contract uses it, including app, endpoint, and auxiliary "
-                "resource names. This candidate override is authoritative."
+            prompt_notes=render_template(
+                "modal/candidate_override.j2",
+                template_dir=_ENVIRONMENTS_TEMPLATE_DIR,
+                prompt_notes=view.prompt_notes,
+                base_name=base_name,
+                candidate_name=candidate_name,
             ),
             deployment_name=candidate_name,
         )
@@ -761,224 +766,6 @@ def candidate_modal_app_name(base_app_name: str, generation: int, child_idx: int
     keep = 63 - len(suffix)
     trimmed = base_app_name[:keep].rstrip("-")
     return f"{trimmed}{suffix}"
-
-
-def _seeded_checkout_modal_note(workspace_sources: tuple[WorkspaceSource, ...]) -> str:
-    """The Modal-runtime bullet for seeded starting-point checkouts, or ``""``.
-
-    Seeded checkouts share the ``reference/`` trap: they are materialized into
-    the local editor workspace only, so a deployed Modal container cannot
-    import them unless the implementer bakes them into the image.
-    """
-    if not workspace_sources:
-        return ""
-    dests = ", ".join(f"`{source.dest}/`" for source in workspace_sources)
-    plural = len(workspace_sources) > 1
-    recipes = " ".join(
-        f"`image.add_local_dir({source.dest!r}, '/root/{source.dest}', copy=True)` "
-        f"then e.g. `image.run_commands('pip install -e /root/{source.dest}')` "
-        "(or add it to `sys.path` at `@modal.enter()` time)."
-        for source in workspace_sources
-    )
-    return (
-        f"  - **The seeded starting-point checkout{'s' if plural else ''} "
-        f"({dests}) likewise exist{'' if plural else 's'} ONLY in this local "
-        "editor container — NOT inside the deployed Modal container.** The "
-        "objective expects the server to be built from this code, so bake it "
-        f"into the Modal image explicitly: {recipes} Use `copy=True` so later "
-        "`run_commands(...)` build steps can see the files. Verify the import "
-        "works via the candidate's declared Modal entrypoint before relying on "
-        "the endpoint.\n"
-    )
-
-
-def _modal_runtime_notes(
-    gpu: str,
-    app_name: str,
-    workspace_sources: tuple[WorkspaceSource, ...] = (),
-    *,
-    reference_path: str = "reference",
-) -> str:
-    """Render the Modal-mode runtime instructions for agent prompts.
-
-    Kept task-agnostic: doesn't name specific model IDs, volume names, or
-    mount points — those are workload-specific and the implementer reads
-    them from the input metadata files (``reference/meta.json`` etc.) at
-    setup time.  Pre-staged Modal Volumes follow the framework's
-    ``vibesys-model-<normalized-model-id>`` convention; the implementer
-    can derive the volume name from the ``model_id`` in those metadata
-    files (or just call ``modal.Volume.from_name(name)`` once it knows it).
-    """
-    return (
-        "Execution model — read carefully:\n"
-        "  - You are inside a *local* Docker container for editing "
-        "and lightweight testing only. The container does NOT have a "
-        "GPU attached.\n"
-        f"  - **Per-run namespace prefix (REQUIRED, do not change)**: "
-        f"this run's unique Modal namespace prefix is `{app_name}`. Use "
-        "it on every Modal-namespace name you create so concurrent runs "
-        "do not clobber each other's deploys, web endpoints, dicts, "
-        "queues, or auxiliary volumes:\n"
-        f"      • App: `app = modal.App({app_name!r})`\n"
-        f"      • Web endpoint labels (if any): "
-        f'`@modal.fastapi_endpoint(label="{app_name}-<purpose>")` — '
-        "without a unique label two runs collide on the same public URL "
-        "and the second deploy overwrites the first.\n"
-        f"      • Auxiliary Volumes / Dicts / Queues / Secrets you "
-        f"create: prefix the name with `{app_name}-` "
-        f'(e.g. `modal.Volume.from_name("{app_name}-traces", '
-        "create_if_missing=True)`).\n"
-        "    Model-weight Volumes that the framework pre-stages "
-        "(named `vibesys-model-<...>`, see below) are intentionally "
-        "*shared* across runs — never rename those, never recreate them "
-        "under the per-run prefix.\n"
-        "  - All GPU-bound work (model loading, attention forwards, "
-        "benchmarking, profiling) must run on Modal. Structure the "
-        "implementation around `modal.App`: define the server as "
-        f"`@app.cls(image=..., gpu={gpu!r}, volumes={{...}})` with "
-        "`@modal.enter()` for model load and `@modal.method()` for "
-        "inference. Define benchmark / profile entry points as "
-        f"`@app.function(image=..., gpu={gpu!r}, volumes=...)`.\n"
-        f"  - **Accelerator identity is an experimental contract.** Use the "
-        f"configured Modal GPU spec `{gpu}` verbatim on every candidate, "
-        "controller, benchmark, and profiler function; do not weaken or "
-        "substitute it. Before paid measurement, record the accelerator name "
-        "from the remote runtime and fail closed if a strict spec is not "
-        "satisfied. In particular, Modal may upgrade bare `H100` requests to "
-        "H200; `H100!` requests an exact H100 for reproducible benchmarking.\n"
-        "  - Treat the Modal container as the authoritative runtime. The "
-        "Python, accelerator, package, compiler, and library versions in "
-        "this editor container may differ and must not be used to infer "
-        "remote compatibility. When diagnosing an environment or dependency "
-        "failure, first capture the relevant runtime fingerprint from a "
-        "small function using the same Modal image and hardware as the "
-        "candidate (for example, the actual package/runtime versions and "
-        "toolchain paths named by the error). Preserve that output with the "
-        "experiment, then base compatibility changes on the remote evidence.\n"
-        "  - To run GPU work, use `uv run modal run "
-        "<candidate-modal-module>::<function>`. Discover the module from the "
-        "candidate's build/deployment path; no incumbent filename is fixed. "
-        "The Modal CLI is installed and authenticated (`~/.modal.toml` "
-        "is mounted from the host). Use local-entrypoint Click options "
-        "directly in kebab-case; do not insert a `--` separator. A remote "
-        "function's completion message does not mean the local entrypoint "
-        "has exited: it may still be copying returned artifacts into the "
-        "workspace. Do not interrupt the wrapper until the command exits "
-        "cleanly and every required local output exists. If writeback seems "
-        "delayed, poll that process and the expected files instead of "
-        "launching a duplicate Modal job.\n"
-        "  - Before any paid or official measurement, persist an exact snapshot "
-        "of every implementer-owned source and build input used by that runtime "
-        "beside the raw result. Record its content hash in the raw artifact. A "
-        "manifest containing only per-file hashes is not sufficient when source "
-        "may be edited later in the same turn; retain the source bytes, a source "
-        "archive, or an exact checkpoint plus a machine-readable diff. Create "
-        "this provenance artifact before launch, not retrospectively.\n"
-        "  - `.venv` and `UV_CACHE_DIR=/workspace/.cache/uv` persist outside "
-        "Git checkpoints. Reuse them; do not delete or recreate `.venv` unless "
-        "dependency metadata changed or its project interpreter cannot import a "
-        "declared runtime dependency. Run Python tools through "
-        "`.venv/bin/python -m ...`, and keep source/evidence searches scoped to "
-        "named paths while excluding `.venv` and `.cache`.\n"
-        "  - Model weights are pre-staged in Modal Volumes by the "
-        "framework before this round started. Read the model metadata "
-        "files in your reference/input directory (typically "
-        f"`{reference_path}/meta.json`, plus metadata for any optional auxiliary "
-        "model declared by the input) to learn each `model_id`. "
-        "The framework normalizes each `model_id` into the volume "
-        "name with this exact rule (matches "
-        "`vibesys/modal_model_setup.py::_volume_name_for`):\n"
-        '      `re.sub(r"[^a-z0-9]+", "-", model_id.lower()).strip("-")`\n'
-        "    prefixed with `vibesys-model-`. Every run of non-"
-        "alphanumeric characters (slashes, dots, underscores, etc.) "
-        "collapses to a single `-`. So `org/Foo-1.2-X` becomes "
-        "`vibesys-model-org-foo-1-2-x` (the dot in `1.2` becomes a "
-        "dash, not preserved). When in doubt run `modal volume list` "
-        "to see the actual names the framework provisioned. "
-        "Use `modal.Volume.from_name(<that-name>)` and mount it at "
-        "whatever container path you prefer (no fixed convention is "
-        "required).\n"
-        "  - If your implementation needs model weights beyond those the "
-        "task pre-stages, declare them in `.vibesys/models.json` in your "
-        'workspace root: a JSON list of `{"id": "<huggingface-repo-id>", '
-        '"revision": "<optional>"}` entries (or `{"models": [...]}`). Between '
-        "rounds, before measurement, the framework stages each requested "
-        "repository into its own `vibesys-model-<normalized-id>` Volume using "
-        "the exact naming rule above; mount them the same way. This request "
-        "covers model weights only and cannot change the GPU or benchmark "
-        "configuration. An operator allowlist may restrict which repositories "
-        "are permitted; a rejected request comes back as gate feedback.\n"
-        f"  - **The `{reference_path}/` directory (meta.json, config.json, "
-        "reference.py) exists ONLY in this local editor container — it is "
-        "NOT present inside the deployed Modal container.** Reading "
-        f"`{reference_path}/meta.json` or `{reference_path}/config.json` from a relative "
-        "path at `@app.cls`/module import or `@modal.enter()` time will "
-        "crash the container with `FileNotFoundError` before `/health` can "
-        "serve, which fails every gate. Do NOT read local `reference/` "
-        "files at container runtime. Instead: (a) the pre-staged "
-        "model-weight Volume already contains the full HuggingFace snapshot "
-        "— `config.json`, tokenizer files, and the safetensors — so load "
-        "the model config and tokenizer from the *mounted volume path* at "
-        "runtime; and (b) if you need a value only found in "
-        f"`{reference_path}/meta.json` (e.g. the `model_id`), read it in the editor "
-        "at build time and embed it as a module-level constant, or bake the "
-        "file into the image explicitly "
-        f"(`image.add_local_file({reference_path + '/meta.json'!r}, "
-        "'/root/reference/meta.json')`). Verify startup with "
-        "the candidate's declared `modal run` entrypoint or a deploy + "
-        "`/health` probe BEFORE "
-        "relying on the endpoint.\n"
-        + _seeded_checkout_modal_note(workspace_sources)
-        + "  - Set `scaledown_window` on `@app.cls` large enough that the "
-        "container stays warm across the entire measurement, not just between "
-        "back-to-back calls. 120s suits fast-starting apps, but a model whose "
-        "cold start (weight load + graph capture) takes minutes will scale "
-        "down mid-warmup and repeatedly cold-start under a short window; size "
-        "it above the cold-start plus benchmark duration (e.g. several hundred "
-        "up to ~900s for large-model serving). Note: Modal renamed "
-        "`container_idle_timeout` to `scaledown_window` (Feb 2025); the old "
-        "name raises a deprecation error in current Modal SDK versions, so do "
-        "NOT use it.\n"
-        "  - Do NOT start a long-lived GPU server inside this editor "
-        "container; there is no GPU here. Remote method calls or the "
-        "candidate's declared `modal run` entrypoint are the testing "
-        "interface.\n"
-        "\n"
-        "Profiling on Modal — REQUIRED entry point:\n"
-        "  Profiling must run on the Modal GPU container, NOT in this "
-        "editor container. The framework's profiler agent expects the "
-        "following two symbols in the candidate's Modal module and will "
-        "invoke the declared local entrypoint; without these, it cannot "
-        "capture real GPU traces and will fall back to synthetic data.\n"
-        "\n"
-        f"  1. `@app.function(image=..., gpu={gpu!r}, volumes=...)` "
-        "called `profile_remote(num_iters, max_tokens, prompt)` — runs "
-        "on Modal, wraps a representative steady-state workload "
-        "(e.g. several `Server().generate.local(...)` calls or direct "
-        "model.generate calls inside the function) in `torch.profiler."
-        "profile(activities=[CPU, CUDA])`, summarizes the captured "
-        "events into the JSON schema documented at "
-        "`torch_profiler/analyze_torch_profile.py`, and **returns the dict**.\n"
-        "  2. `@app.local_entrypoint()` called `modal_profile(output: "
-        "str = '/workspace/prof.json', num_iters: int = 20, max_tokens: "
-        "int = 32, prompt: str = 'The capital of France is')` — calls "
-        "`profile_remote.remote(...)` and writes the returned dict as "
-        "JSON to `output` so the analyzer subcommands "
-        "(`tables`, `kernels`, `summary`, …) can read it.\n"
-        "\n"
-        "  Read the module docstring and `_summarize_prof` helper in "
-        "`torch_profiler/analyze_torch_profile.py` for the authoritative JSON "
-        "shape and implementation. That source is mounted in the workspace; "
-        "do not reconstruct the schema from prompt prose.\n"
-        "  Wrap your representative workload (a torch.profiler.schedule "
-        "with wait/warmup/active is recommended; otherwise profile "
-        "inside a plain `with torch.profiler.profile(...) as prof:` "
-        "block followed by `torch.cuda.synchronize()`).\n"
-        "  After the function returns, `modal_profile` should append "
-        "`captured_at` (ISO-8601 UTC), `mode='model'`, `device='cuda'`, "
-        "`dtype` (whatever was loaded), and `wall_time_sec` to the "
-        "dict before writing to disk."
-    )
 
 
 def _materialize_effective_objective(request: RunEnvironmentRequest) -> Path | None:
@@ -1369,39 +1156,6 @@ def _container_project_policy_mounts(
         relative = hidden.path.relative_to(workspace).as_posix()
         mounts.append((str(mask), f"/workspace/{relative}", True))
     return mounts
-
-
-def _git_history_prompt_note(history_root: Path | None) -> str:
-    if history_root is None:
-        return ""
-    return (
-        " Framework-owned Git history is mounted read-only at "
-        "`/opt/vibesys-history`; inspect it with `git -c "
-        "safe.directory=/opt/vibesys-history -C /opt/vibesys-history log --oneline`. "
-        "Before a paid or official measurement, retain the exact measured source "
-        "bytes, archive, or checkpoint plus diff beside the raw result; hashes "
-        "without recoverable source are insufficient provenance."
-    )
-
-
-def _git_history_runtime_notes(history_root: Path | None) -> str:
-    if history_root is None:
-        return ""
-    return (
-        "\nCheckpoint history:\n"
-        "  - The framework-owned experiment repository is mounted read-only at "
-        "`/opt/vibesys-history`; `/workspace` alone may not contain discoverable "
-        "`.git` metadata. Inspect history with `git -c "
-        "safe.directory=/opt/vibesys-history -C /opt/vibesys-history log --oneline` "
-        "and list a checkpoint with `git -c "
-        "safe.directory=/opt/vibesys-history -C /opt/vibesys-history ls-tree -r "
-        "--name-only <commit>`. Retrieve exact bytes with the corresponding "
-        "`git ... show <commit>:<tree-path>` command. Do not run `git checkout`, "
-        "`git switch`, or `git reset` in the candidate workspace. Request a "
-        "round rollback through the structured plan; the framework restores "
-        "that source tree while preserving Git HEAD, roadmap/progress/Pareto "
-        "memory, `.venv`, and caches.\n"
-    )
 
 
 def _cli_container_setup(

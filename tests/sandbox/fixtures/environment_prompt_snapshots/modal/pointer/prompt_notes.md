@@ -1,0 +1,1 @@
+Runtime instructions are at `/opt/vibesys-runtime/environment.md`. Read that file before executing, deploying, benchmarking, or profiling; it contains the authoritative environment and lifecycle rules.
