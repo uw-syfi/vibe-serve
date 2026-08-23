@@ -892,6 +892,7 @@ def _assemble_run_context(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: 
         state=RunState(project, git, run_id),
         run_id=run_id,
         round_transaction_coordinator=round_transaction_coordinator,
+        agent_host_resources=agent_host_resources,
     )
     construction_complete = True
     return result
@@ -1057,6 +1058,10 @@ def _assemble_candidate_context(  # noqa: PLR0913  # tracked: #288
         log_dir=log_dir,
         project_path_policy=project_path_policy,
         require_host_sandbox=not session.view.cli_sandboxed,
+        # A candidate runs the same domain as its parent, so it needs the same
+        # container access; recomputing is impossible here because a candidate
+        # context carries neither the profiler domain nor the task name.
+        host_resources=parent.agent_host_resources,
     )
 
     paths = RunPaths(
@@ -1103,6 +1108,7 @@ def _assemble_candidate_context(  # noqa: PLR0913  # tracked: #288
         project=parent.project,
         state=parent.state,
         run_id=parent.run_id,
+        agent_host_resources=parent.agent_host_resources,
     )
 
 
@@ -1161,8 +1167,13 @@ class _RunContext:
         state: RunState,
         run_id: str,
         round_transaction_coordinator: RoundTransactionCoordinator | None = None,
+        agent_host_resources: tuple[HostResource, ...] = (),
     ):
         self.backend = backend
+        # Retained so a candidate sub-context can hand its own agent runner the
+        # same declarations the parent computed, rather than recomputing them
+        # from state a candidate context does not carry.
+        self.agent_host_resources = agent_host_resources
         self.run_environment = run_environment
         self.supervisor = supervisor
         self.logger = logger
