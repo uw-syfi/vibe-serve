@@ -170,6 +170,44 @@ def _provider_state(ctx: HostResourceContext) -> Iterable[HostResource]:
     )
 
 
+#: Conventional host scratch root for a repository-native task. Container
+#: workloads bind-mount capture directories from here, and Docker resolves a
+#: bind source in the daemon's namespace rather than the agent's, so the path
+#: only works when it names the same directory inside and outside confinement.
+TASK_SCRATCH_ROOT = Path("/tmp")  # noqa: S108  # tracked: #288
+
+
+def task_scratch_dir(task_name: str) -> Path:
+    """Return the host scratch directory shared with a task's containers."""
+    return TASK_SCRATCH_ROOT / f"vibesys-{task_name}"
+
+
+def container_runtime_resources(env: Mapping[str, str] | None = None) -> tuple[HostResource, ...]:
+    """Declare the Docker control socket for tasks that orchestrate containers.
+
+    A microservice benchmark *is* a container topology: without the socket the
+    agent cannot build, start, or profile the system it is optimizing, and the
+    round-one routing check concludes the candidate does not run. The default
+    Linux confinement exposes no ``/var/run``, so the socket has to be imported
+    deliberately.
+
+    This is a real widening. Access to the daemon is equivalent to root on the
+    host, so it is declared only for the domain that needs it rather than for
+    every local agent. Run with ``--docker`` when the workload should be
+    confined to a container instead.
+    """
+    env = env if env is not None else os.environ
+    paths = [Path("/var/run/docker.sock")]  # tracked: #288
+    host = env.get("DOCKER_HOST", "")
+    if host.startswith("unix://"):
+        paths.append(Path(host.removeprefix("unix://")))
+    return _resources(
+        paths,
+        access=HostResourceAccess.READ_WRITE,
+        purpose="Docker control socket",
+    )
+
+
 def _operator_allowlist(ctx: HostResourceContext) -> Iterable[HostResource]:
     raw = ctx.env.get(ALLOW_ENV, "")
     paths = (Path(path).expanduser() for path in raw.split(os.pathsep) if path.strip())

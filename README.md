@@ -72,8 +72,10 @@ requires `bubblewrap`, and a kernel that lets it create an unprivileged user
 namespace; macOS includes the required `sandbox-exec` command. Where user
 namespaces are blocked and installing bubblewrap needs root you do not have,
 `VIBESYS_AGENT_SANDBOX=landlock` selects a weaker but root-free backend (see
-the [CLI reference](docs/cli-flags.md) for what it stops enforcing). Then
-install VibeSys:
+the [CLI reference](docs/cli-flags.md) for what it stops enforcing). Tasks whose
+candidate is a container topology, such as the `microservices` examples, also
+need Docker Engine reachable without `sudo` (add your user to the `docker`
+group) and a Go toolchain on `PATH`. Then install VibeSys:
 
 ```bash
 uv tool install vibesys

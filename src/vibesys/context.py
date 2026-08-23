@@ -17,6 +17,10 @@ from pydantic import BaseModel
 from vibesys import backends
 from vibesys.agents import build_agent_runner
 from vibesys.agents.base import AgentRunner
+from vibesys.agents.host_resource_declarations import (
+    container_runtime_resources,
+    task_scratch_dir,
+)
 from vibesys.agents.progress import AgentProgress
 from vibesys.backends.base import ComputeBackendImpl, ContentionMonitor
 from vibesys.config import Config, as_config
@@ -83,6 +87,7 @@ from vs_project import (
     StateTransition,
     generate_run_id,
 )
+from vs_sandbox import HostResource, HostResourceAccess
 
 if TYPE_CHECKING:
     from vibesys.server.supervisor import RunSupervisor
@@ -791,6 +796,28 @@ def _assemble_run_context(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: 
     teardown_stack.callback(device.close)
     device.start_monitor()
 
+    # A microservice candidate is a container topology, so the local agent
+    # needs the Docker socket and a scratch directory that names the same
+    # path inside and outside confinement for container bind mounts to
+    # resolve. Other domains keep the narrower default resource set.
+    agent_host_resources: tuple[HostResource, ...] = ()
+    if profiler_domain is DomainName.MICROSERVICES:
+        scratch_resources: tuple[HostResource, ...] = ()
+        if task_name is not None:
+            scratch = task_scratch_dir(task_name)
+            scratch.mkdir(parents=True, exist_ok=True)
+            scratch_resources = (
+                HostResource(
+                    scratch,
+                    HostResourceAccess.READ_WRITE,
+                    "task container scratch",
+                ),
+            )
+        # Container backends run the agent inside their own image and own
+        # resource exposure themselves, so the declarations are host-only.
+        if not session.view.cli_sandboxed:
+            agent_host_resources = (*container_runtime_resources(), *scratch_resources)
+
     # Build the backend-agnostic agent runner. Loops invoke this instead
     # of calling create_deep_agent / vibesys._agent_cli directly. The cli
     # backend is rejected if --docker is set; build_agent_runner raises
@@ -825,6 +852,7 @@ def _assemble_run_context(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: 
         log_dir=log_dir,
         project_path_policy=project_path_policy,
         require_host_sandbox=not session.view.cli_sandboxed,
+        host_resources=agent_host_resources,
     )
 
     result = _RunContext(

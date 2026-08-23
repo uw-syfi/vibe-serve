@@ -42,10 +42,10 @@ Benchmark command: {{ benchmark_command }}
    telemetry report and a versioned trace graph for the same measurement
    windows. The command's `--telemetry-output` and `--trace-graph-json`
    arguments name those two artifact paths: read them from the benchmark
-   command above and pass them to the tools directly. Artifacts a previous
-   round wrote outside this workspace (for example under `/tmp`) are not
-   visible to this turn, so produce them in this turn or use evidence retained
-   under the round artifact directory.
+   command above and pass them to the tools directly. Those paths stay
+   readable across rounds, so check whether the current round's benchmark
+   already wrote them before spending a turn on another capture. Re-run only
+   when they are missing, or when they predate the edit you are attributing.
 2. Call the `{{ profiler_mcp_name }}` MCP tools to read the evidence:
    `summary(path=...)` for ranked service, span, and datastore latency;
    `trace_breakdown(path=..., telemetry_path=...)` for the call graph with

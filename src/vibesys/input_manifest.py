@@ -449,6 +449,20 @@ class InputBundle(BaseModel):
         return self.manifest.benchmark.result_protocol
 
     @property
+    def provisions_trace_telemetry(self) -> bool:
+        """Whether the benchmark command captures a distributed trace graph.
+
+        OTel profiling is only meaningful when the task itself provisions
+        instrumentation and a collector and emits the two artifacts the
+        profiler reads. A benchmark that names both ``--telemetry-output`` and
+        ``--trace-graph-json`` is making exactly that declaration, so this is
+        the capability signal ``auto`` profiler resolution keys off rather than
+        a separate hand-maintained flag that could drift from the command.
+        """
+        arguments = set(self.resolved_benchmark_command)
+        return {"--telemetry-output", "--trace-graph-json"} <= arguments
+
+    @property
     def modal_entrypoint(self) -> str | None:
         """Return the task's project-relative Modal deployment file, if declared."""
         environment = self.manifest.environment

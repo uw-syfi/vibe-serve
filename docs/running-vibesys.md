@@ -87,6 +87,31 @@ entrypoint = "vibesys-queue"
 args = ["benchmark", "--workspace", "${PROJECT_ROOT}", "--scenario", "spsc"]
 ```
 
+## Container Topologies
+
+A `microservices` candidate is not a process the agent starts on its own: it is
+a Docker Compose topology the agent must build, start, and trace. Such a task
+needs Docker Engine reachable without `sudo` and, when its benchmark shells out
+to Go helpers, a Go toolchain on `PATH`.
+
+A local run in this domain therefore imports two host resources the default
+confinement withholds: the Docker control socket, and the task scratch
+directory `/tmp/vibesys-<task>`. The scratch directory is shared with the host
+rather than masked by the sandbox's private `/tmp`, because Docker resolves a
+bind-mount source in the daemon's namespace, not the agent's, so a capture
+directory only resolves when the path names the same directory inside and
+outside confinement. Sharing it also makes the benchmark's telemetry artifacts
+durable and readable by the profiler in later rounds. Reaching the Docker
+socket is equivalent to root on the host, so this widening is scoped to this
+domain; use `--docker` to confine the workload to a container instead.
+
+A benchmark command that names both `--telemetry-output` and
+`--trace-graph-json` declares that the task provisions instrumentation and a
+collector. `--profiler auto` selects the OpenTelemetry profiler for such a task,
+which gives the loop service, span, datastore, critical-path, and trace
+breakdown evidence. Tasks without those flags stay on `none`, since OTel
+profiling has nothing to read.
+
 ## Legacy Input Bundles
 
 Root-level `OBJECTIVE.md` plus `vibesys.input.toml`, `[workspace]`,

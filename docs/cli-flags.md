@@ -96,6 +96,16 @@ legacy root-level task inputs, or `_evaluator/`, and cannot read
 rejected when a root `.env*` file or `agent.toml` is recoverable from Git refs
 or reflogs.
 
+Local runs in the `microservices` domain import two extra host resources,
+because a microservice candidate is a container topology rather than a process
+the agent can start on its own: the Docker control socket, and the task scratch
+directory `/tmp/vibesys-<task>`. The scratch directory is shared with the host
+rather than masked by the sandbox's private `/tmp`, because Docker resolves a
+bind-mount source in the daemon's namespace, so a capture directory only works
+when the path names the same directory inside and outside confinement. Access
+to the Docker socket is equivalent to root on the host, so it is granted only
+for this domain; use `--docker` to confine the workload to a container instead.
+
 `VIBESYS_AGENT_SANDBOX` selects the Linux mechanism. `auto` (the default) and
 `bwrap` both require bubblewrap. `landlock` opts in to a weaker backend for
 hosts that block unprivileged user namespaces, which is the common reason
@@ -344,7 +354,7 @@ defaults, and is one-way.
 | `nsys` | NVIDIA Nsight Systems. Requires a CUDA/NVIDIA profiling environment. |
 | `torch` | PyTorch profiler. Used for in-process Python profiling and Modal GPU dispatch. |
 | `neuron` | AWS Neuron profiler for Trainium. |
-| `otel` | OpenTelemetry service, span, and datastore latency for microservice benchmarks. Opt-in only (`auto` never selects it) and needs an input bundle that provisions instrumentation and a collector. |
+| `otel` | OpenTelemetry service, span, datastore, and critical-path latency for microservice benchmarks. Needs an input bundle that provisions instrumentation and a collector; `auto` selects it when the bundle's benchmark command declares both `--telemetry-output` and `--trace-graph-json`, and resolves to `none` otherwise. |
 | `macos_cpu` | Instruments Time Profiler with a supported `/usr/bin/sample` fallback. |
 | `linux_cpu` | Linux `perf` profiler for native and mixed-language CPU workloads. |
 

@@ -106,3 +106,46 @@ def test_provider_state_is_scoped_to_selected_agent(tmp_path, provider, expected
 
     assert expected in writable
     assert forbidden not in writable
+
+
+class TestContainerRuntimeResources:
+    """Microservice candidates are container topologies the agent must drive."""
+
+    def test_docker_socket_is_declared_writable(self):  # noqa: ANN201  # tracked: #288
+        declarations = host_resource_declarations.container_runtime_resources({})
+
+        writable = {
+            resource.path
+            for resource in declarations
+            if resource.access is HostResourceAccess.READ_WRITE
+        }
+        assert Path("/var/run/docker.sock") in writable
+
+    def test_custom_unix_docker_host_is_declared(self):  # noqa: ANN201  # tracked: #288
+        declarations = host_resource_declarations.container_runtime_resources(
+            {"DOCKER_HOST": "unix:///run/user/1000/docker.sock"}
+        )
+
+        paths = {resource.path for resource in declarations}
+        assert Path("/run/user/1000/docker.sock") in paths
+
+    def test_tcp_docker_host_declares_no_extra_path(self):  # noqa: ANN201  # tracked: #288
+        declarations = host_resource_declarations.container_runtime_resources(
+            {"DOCKER_HOST": "tcp://127.0.0.1:2375"}
+        )
+
+        assert {resource.path for resource in declarations} == {Path("/var/run/docker.sock")}
+
+
+class TestTaskScratchDir:
+    """Container bind sources resolve in the daemon's namespace, not the agent's.
+
+    The scratch path therefore has to name the same directory inside and
+    outside confinement, so it is a fixed host path rather than anything
+    derived from the sandbox's private ``/tmp``.
+    """
+
+    def test_scratch_dir_follows_the_task_naming_convention(self):  # noqa: ANN201  # tracked: #288
+        assert host_resource_declarations.task_scratch_dir("hotel-reservation") == Path(
+            "/tmp/vibesys-hotel-reservation"  # noqa: S108  # tracked: #288
+        )

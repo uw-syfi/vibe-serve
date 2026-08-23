@@ -1573,3 +1573,96 @@ def test_main_routes_to_the_selected_loop(
 
     runner.assert_called_once()
     assert runner.call_args.args[0].input_bundle.root == project.resolve()
+
+
+def _write_microservice_project(parent: Path, *, traced: bool, name: str = "hotel") -> Path:
+    """Write a microservice bundle that does or does not capture a trace graph."""
+    project = parent / name
+    (project / "src").mkdir(parents=True)
+    (project / "OBJECTIVE.md").write_text("Make the request path faster.\n")
+    telemetry = (
+        ', "--telemetry-output", "/tmp/otel/telemetry.json"'
+        ', "--trace-graph-json", "/tmp/otel/trace-graph.json"'
+        if traced
+        else ""
+    )
+    (project / "vibesys.input.toml").write_text(
+        f"""\
+version = 1
+
+[agent]
+domain = "microservices"
+
+[accuracy]
+command = ["python", "-c", "print('ok')"]
+
+[benchmark]
+command = ["servicebench", "trace", "--candidate-dir", "svc"{telemetry}]
+
+[benchmark.result]
+json_argument = "--output-json"
+metric = "primary_value"
+"""
+    )
+    return project
+
+
+def test_instrumented_microservice_task_profiles_with_otel_by_default(tmp_path: Path) -> None:
+    """A task that provisions tracing is why ``auto`` can safely mean OTel.
+
+    Without this the default run resolves to ``none`` for microservices, the
+    profiler role never executes, and no critical-path evidence is produced.
+    """
+    import vibesys.main as cli  # noqa: PLC0415
+
+    project = _write_microservice_project(tmp_path, traced=True)
+    args = cli._build_agent_parser().parse_args(["--input", str(project)])  # noqa: SLF001
+    args.input_bundle = load_input_bundle(project)
+
+    assert args.profiler is ProfilerKind.AUTO
+    cli._apply_bundle_profiler_default(args)  # noqa: SLF001
+
+    assert args.profiler is ProfilerKind.OTEL
+
+
+def test_uninstrumented_microservice_task_keeps_auto(tmp_path: Path) -> None:
+    """Without a collector there is nothing for the OTel profiler to read."""
+    import vibesys.main as cli  # noqa: PLC0415
+
+    project = _write_microservice_project(tmp_path, traced=False)
+    args = cli._build_agent_parser().parse_args(["--input", str(project)])  # noqa: SLF001
+    args.input_bundle = load_input_bundle(project)
+
+    cli._apply_bundle_profiler_default(args)  # noqa: SLF001
+
+    assert args.profiler is ProfilerKind.AUTO
+
+
+def test_explicit_profiler_flag_overrides_the_task_default(tmp_path: Path) -> None:
+    """The bundle only supplies a default; the operator stays in control."""
+    import vibesys.main as cli  # noqa: PLC0415
+
+    project = _write_microservice_project(tmp_path, traced=True)
+    args = cli._build_agent_parser().parse_args(  # noqa: SLF001
+        ["--input", str(project), "--profiler", "none"]
+    )
+    args.input_bundle = load_input_bundle(project)
+
+    cli._apply_bundle_profiler_default(args)  # noqa: SLF001
+
+    assert args.profiler is ProfilerKind.NONE
+
+
+def test_non_microservice_task_is_unaffected_by_trace_arguments(tmp_path: Path) -> None:
+    """OTel is microservices-only; a generic bundle must not be upgraded."""
+    import vibesys.main as cli  # noqa: PLC0415
+
+    project = _write_microservice_project(tmp_path, traced=True, name="generic-task")
+    manifest = project / "vibesys.input.toml"
+    manifest.write_text(manifest.read_text().replace('"microservices"', '"generic"'))
+    args = cli._build_agent_parser().parse_args(["--input", str(project)])  # noqa: SLF001
+    args.input_bundle = load_input_bundle(project)
+
+    cli._apply_bundle_profiler_default(args)  # noqa: SLF001
+
+    assert args.profiler is ProfilerKind.AUTO

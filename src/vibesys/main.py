@@ -1926,6 +1926,8 @@ def _validate_target_inputs(args: argparse.Namespace) -> None:
     except (FileNotFoundError, ProjectLayoutError, ValueError) as exc:
         _configuration_error(str(exc), code="invalid_input", stage="input_loading")
 
+    _apply_bundle_profiler_default(args)
+
     if args.resume is None and args.runs_dir is None:
         workspace = args.input_bundle.manifest.workspace
         if workspace is not None and workspace.sources:
@@ -1935,6 +1937,26 @@ def _validate_target_inputs(args: argparse.Namespace) -> None:
                 code="direct_project_materialization_unsupported",
                 stage="input_validation",
             )
+
+
+def _apply_bundle_profiler_default(args: argparse.Namespace) -> None:
+    """Upgrade ``--profiler auto`` to OTel when the task provisions tracing.
+
+    ``resolve_profiler_kind`` keeps bare microservice ``auto`` on ``none``
+    because OTel needs instrumentation and a collector that only the task can
+    provide. A benchmark command that emits a normalized telemetry report and a
+    trace graph has provided exactly that, so honoring it here is what makes an
+    instrumented task profile out of the box. An explicit ``--profiler`` always
+    wins: this only ever replaces ``auto``.
+    """
+    bundle = getattr(args, "input_bundle", None)
+    if bundle is None or getattr(args, "profiler", None) is not ProfilerKind.AUTO:
+        return
+    if bundle.domain is not DomainName.MICROSERVICES:
+        return
+    if not bundle.provisions_trace_telemetry:
+        return
+    args.profiler = ProfilerKind.OTEL
 
 
 def _resolve_implicit_input(args: argparse.Namespace, standalone: list[str]) -> Path:
