@@ -22,6 +22,10 @@ Present:
   micro-optimization.
 - `judge.md` — what to check: output-equivalence, behavioral-consistency, the
   in-place / no-rearchitecture discipline, and reward-hack guards.
+- `orchestrator.md` — how the planner should pick round-sized micro-optimization
+  tasks and write pass criteria in cost-metric + output-equivalence terms.
+- `profiler.md` — how to capture a profile of the engine on the scored workload
+  to locate the hot path without displacing the benchmark's headline metric.
 
 The behavioral-consistency gates (determinism, crash/restart recovery,
 race-freedom) are named generically here; their concrete checker wiring is added

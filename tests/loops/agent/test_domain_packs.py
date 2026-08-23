@@ -379,6 +379,26 @@ def test_generic_orchestrator_has_no_llm_serving_method():  # noqa: ANN201  # tr
     assert "## Task granularity" in out  # base skeleton intact
 
 
+def test_database_provides_in_place_orchestrator_method():  # noqa: ANN201  # tracked: #288
+    section = render_domain_section(
+        resolve_domain(DomainName.DATABASE),
+        DomainRole.ORCHESTRATOR,
+        modality="dataflow",
+        workspace_sources=(),
+    )
+    assert "In-place optimization planning guidance" in section
+    # round-sized, one-change-per-round, correctness-gated micro-opt framing
+    assert "micro-optimization" in section.lower()
+    assert "one micro-optimization per round" in section.lower()
+    assert "output-equivalence" in section.lower()
+
+
+def test_database_method_is_injected_into_plan():  # noqa: ANN201  # tracked: #288
+    out = _render_orchestrator(DomainName.DATABASE)
+    assert "In-place optimization planning guidance" in out
+    assert "## Task granularity" in out  # base skeleton intact
+
+
 def test_llm_serving_profiler_branches_on_remote_execution_not_provider():  # noqa: ANN201  # tracked: #288
     domain = resolve_domain(DomainName.LLM_SERVING)
 
@@ -391,6 +411,19 @@ def test_llm_serving_profiler_branches_on_remote_execution_not_provider():  # no
     assert "bounded controller/profile command" in remote
     assert "Modal" not in local
     assert "Modal" not in remote
+
+
+def test_render_database_profiler_has_content():  # noqa: ANN201  # tracked: #288
+    section = render_domain_section(
+        resolve_domain(DomainName.DATABASE),
+        DomainRole.PROFILER,
+        profile_execution="local",
+    )
+    assert "Engine profile capture" in section
+    # locate the hot path without displacing the scored metric
+    assert "flamegraph" in section.lower()
+    assert "headline cost metric" in section.lower()
+    assert "output-equivalence" in section.lower()
 
 
 def test_torch_profiler_remote_capture_is_provider_neutral():  # noqa: ANN201  # tracked: #288
