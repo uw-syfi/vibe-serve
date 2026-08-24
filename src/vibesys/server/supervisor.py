@@ -9,7 +9,7 @@ from collections.abc import Callable, Generator  # noqa: TC003  # tracked: #288
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path  # noqa: TC003  # tracked: #288
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from vibesys.server.diagnostics import (
     Diagnostic,
@@ -39,6 +39,16 @@ from vibesys.server.events import (
 from vibesys.server.protocol import RunSnapshot
 
 _MAX_EXCEPTION_CHAIN = 8
+_DIAGNOSTIC_FAILURE_EVENTS = frozenset(
+    {
+        EventType.CONFIGURATION_FAILED,
+        EventType.INVOCATION_FINISHED,
+        EventType.PHASE_FINISHED,
+        EventType.RUN_FAILED,
+        EventType.RUN_INTERRUPTED,
+    }
+)
+_NONTERMINAL_FAILURE_EVENTS = frozenset({EventType.INVOCATION_FINISHED, EventType.PHASE_FINISHED})
 
 if TYPE_CHECKING:
     from vs_project import Project, StateSnapshot
@@ -189,7 +199,13 @@ class RunSupervisor:
         *,
         data: EventData | None = None,
         **fields: Any,  # noqa: ANN401  # tracked: #288
-    ) -> RunEvent | None:
+    ) -> RunEvent:
+        if (
+            event_type in _DIAGNOSTIC_FAILURE_EVENTS
+            and fields.get("status") in {EventStatus.FAILED, EventStatus.FAILED.value}
+            and fields.get("diagnostic") is None
+        ):
+            raise ValueError(f"Failed {event_type.value} events must include a diagnostic")  # noqa: TRY003  # contract violation, not a user-facing error
         event = make_event(event_type, text, data=data, **fields)
         with self._condition:
             store = self._store
@@ -201,6 +217,104 @@ class RunSupervisor:
         if audit_store is not None:
             audit_store.append(event)
         return recorded
+
+    def record_failure(  # noqa: PLR0913  # failure event fields belong at this boundary
+        self,
+        event_type: EventType,
+        error: BaseException,
+        *,
+        scope: DiagnosticScope,
+        operation: str,
+        data: EventData | Callable[[Diagnostic], EventData] | None = None,
+        text: str | None = None,
+        severity: DiagnosticSeverity = DiagnosticSeverity.ERROR,
+        diagnostic: Diagnostic | None = None,
+        **fields: Any,  # noqa: ANN401  # tracked: #288
+    ) -> RunEvent:
+        """Record a failed operational event with its canonical diagnostic.
+
+        This API handles nonterminal invocation and phase boundaries. Pass an
+        existing diagnostic when related events must share an identity.
+        Terminal failures remain owned by ``finish`` and ``run_server``.
+        """
+        if event_type not in _NONTERMINAL_FAILURE_EVENTS:
+            raise ValueError(f"Cannot record {event_type.value} without owning run termination")  # noqa: TRY003  # contract violation, not a user-facing error
+        return self._record_failure_event(
+            event_type,
+            error,
+            scope=scope,
+            operation=operation,
+            data=data,
+            text=text,
+            severity=severity,
+            diagnostic=diagnostic,
+            **fields,
+        )
+
+    def _record_failure_event(  # noqa: PLR0913  # failure event fields belong at this boundary
+        self,
+        event_type: EventType,
+        error: BaseException,
+        *,
+        scope: DiagnosticScope,
+        operation: str,
+        data: EventData | Callable[[Diagnostic], EventData] | None = None,
+        text: str | None = None,
+        severity: DiagnosticSeverity = DiagnosticSeverity.ERROR,
+        diagnostic: Diagnostic | None = None,
+        **fields: Any,  # noqa: ANN401  # tracked: #288
+    ) -> RunEvent:
+        """Record an operational failure after its lifecycle owner is known."""
+        if event_type not in _DIAGNOSTIC_FAILURE_EVENTS:
+            raise ValueError(f"{event_type.value} is not an operational failure event")  # noqa: TRY003  # contract violation, not a user-facing error
+        diagnostic = diagnostic or self._diagnostic_for(error, scope, operation=operation)
+        if diagnostic.severity is not severity:
+            diagnostic = diagnostic.model_copy(update={"severity": severity})
+        event_data = data(diagnostic) if callable(data) else data
+        return self.record(
+            event_type,
+            diagnostic.summary if text is None else text,
+            status=EventStatus.FAILED,
+            data=event_data,
+            diagnostic=diagnostic,
+            **fields,
+        )
+
+    @contextmanager
+    def capture_failure(  # noqa: PLR0913  # failure event fields belong at this boundary
+        self,
+        *,
+        event_type: EventType,
+        scope: DiagnosticScope,
+        operation: str,
+        data: EventData | Callable[[Diagnostic], EventData] | None = None,
+        text: str | None = None,
+        severity: DiagnosticSeverity = DiagnosticSeverity.ERROR,
+        **fields: Any,  # noqa: ANN401  # tracked: #288
+    ) -> Generator[None]:
+        """Capture one independent background operation's failure.
+
+        Use only for new entry points without an existing failure boundary.
+        Do not wrap LoopContext agent calls or ``run_server``: ``after_agent``
+        and ``finish`` already record those failures. This helper records one
+        failure and re-raises it, but never finishes the run.
+        """
+        if event_type not in _NONTERMINAL_FAILURE_EVENTS:
+            raise ValueError(f"Cannot capture {event_type.value} without owning run termination")  # noqa: TRY003  # contract violation, not a user-facing error
+        try:
+            yield
+        except BaseException as error:
+            self.record_failure(
+                event_type,
+                error,
+                scope=scope,
+                operation=operation,
+                data=data,
+                text=text,
+                severity=severity,
+                **fields,
+            )
+            raise
 
     def read_events(self, after_sequence: int = 0) -> list[RunEvent]:  # noqa: D102  # tracked: #288
         store = self._store
@@ -377,31 +491,49 @@ class RunSupervisor:
                 self._pause_after_call = False
                 self._paused = True
 
-        diagnostic = (
-            self._diagnostic_for(error, DiagnosticScope.INVOCATION, operation="Agent invocation")
-            if error
-            else None
-        )
-        self.record(
-            EventType.INVOCATION_FINISHED,
-            status=EventStatus.FAILED if error else EventStatus.COMPLETED,
-            agent_kind=kind,
-            round_label=round_label,
-            invocation_id=invocation_id,
-            data=InvocationFinishedData(
-                result=json_value(result), error=diagnostic.summary if diagnostic else None
-            ),
-            diagnostic=diagnostic,
-        )
-        self.record(
-            EventType.PHASE_FINISHED,
-            status=EventStatus.FAILED if error else EventStatus.COMPLETED,
-            agent_kind=kind,
-            round_label=round_label,
-            invocation_id=invocation_id,
-            data=PhaseData(phase=kind, attempt=_attempt_from_label(round_label)),
-            diagnostic=diagnostic,
-        )
+        phase = PhaseData(phase=kind, attempt=_attempt_from_label(round_label))
+        if error is not None:
+            invocation_event = self.record_failure(
+                EventType.INVOCATION_FINISHED,
+                error,
+                scope=DiagnosticScope.INVOCATION,
+                operation="Agent invocation",
+                data=lambda diagnostic: InvocationFinishedData(
+                    result=json_value(result), error=diagnostic.summary
+                ),
+                agent_kind=kind,
+                round_label=round_label,
+                invocation_id=invocation_id,
+            )
+            invocation_diagnostic = cast("Diagnostic", invocation_event.diagnostic)
+            self.record_failure(
+                EventType.PHASE_FINISHED,
+                error,
+                scope=DiagnosticScope.INVOCATION,
+                operation="Agent invocation",
+                data=phase,
+                diagnostic=invocation_diagnostic,
+                agent_kind=kind,
+                round_label=round_label,
+                invocation_id=invocation_id,
+            )
+        else:
+            self.record(
+                EventType.INVOCATION_FINISHED,
+                status=EventStatus.COMPLETED,
+                data=InvocationFinishedData(result=json_value(result)),
+                agent_kind=kind,
+                round_label=round_label,
+                invocation_id=invocation_id,
+            )
+            self.record(
+                EventType.PHASE_FINISHED,
+                status=EventStatus.COMPLETED,
+                data=phase,
+                agent_kind=kind,
+                round_label=round_label,
+                invocation_id=invocation_id,
+            )
         if should_pause:
             self.record(
                 EventType.CONTROL,
@@ -426,9 +558,13 @@ class RunSupervisor:
         record_event: bool = True,
         diagnostic: Diagnostic | None = None,
     ) -> None:
-        event_diagnostic = diagnostic or (
-            self._diagnostic_for(error, DiagnosticScope.RUN, operation="Run") if error else None
-        )
+        with self._condition:
+            if self._run_status in {"completed", "failed"}:
+                return
+            self._run_status = "failed" if error else "completed"
+            self._condition.notify_all()
+
+        event_diagnostic = diagnostic
         if error is not None and event_diagnostic is not None:
             # A terminal run failure is fatal, but it may originate at an
             # earlier boundary. Preserve that origin and stable identity so
@@ -436,18 +572,27 @@ class RunSupervisor:
             event_diagnostic = event_diagnostic.model_copy(
                 update={"severity": DiagnosticSeverity.FATAL}
             )
-        with self._condition:
-            self._run_status = "failed" if error else "completed"
-            self._condition.notify_all()
-            self._error_diagnostics.clear()
-        if not record_event:
-            return
-        self.record(
-            EventType.RUN_FAILED if error else EventType.RUN_FINISHED,
-            event_diagnostic.summary if event_diagnostic else "",
-            status=EventStatus.FAILED if error else EventStatus.COMPLETED,
-            diagnostic=event_diagnostic,
-        )
+        try:
+            if not record_event:
+                return
+            if error is not None and event_diagnostic is None:
+                self._record_failure_event(
+                    EventType.RUN_FAILED,
+                    error,
+                    scope=DiagnosticScope.RUN,
+                    operation="Run",
+                    severity=DiagnosticSeverity.FATAL,
+                )
+                return
+            self.record(
+                EventType.RUN_FAILED if error else EventType.RUN_FINISHED,
+                event_diagnostic.summary if event_diagnostic else "",
+                status=EventStatus.FAILED if error else EventStatus.COMPLETED,
+                diagnostic=event_diagnostic,
+            )
+        finally:
+            with self._condition:
+                self._error_diagnostics.clear()
 
     def _diagnostic_for(
         self, error: BaseException, scope: DiagnosticScope, *, operation: str

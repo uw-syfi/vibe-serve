@@ -123,6 +123,24 @@ def test_diagnostic_redacts_explicit_text_on_construction_and_round_trip() -> No
     assert restored == diagnostic
 
 
+def test_failure_factories_keep_legacy_fields_consistent_and_sanitized() -> None:
+    error = PermissionError("OPENAI_API_KEY=secret")
+    response = Response.from_exception("request", error, operation="Codex startup")
+    assert response.ok is False
+    assert response.diagnostic is not None
+    assert response.error == response.diagnostic.summary
+    assert response.error == "Codex startup was denied"
+    assert response.diagnostic.detail == "PermissionError: OPENAI_API_KEY=[REDACTED]"
+
+    protocol_error = ProtocolErrorMessage.from_exception(
+        error, request_id="request", operation="Event stream", code="stream_failed"
+    )
+    assert protocol_error.diagnostic is not None
+    assert protocol_error.code == protocol_error.diagnostic.code == "stream_failed"
+    assert protocol_error.message == protocol_error.diagnostic.summary
+    assert "secret" not in protocol_error.model_dump_json()
+
+
 def test_empty_exception_uses_exception_type_as_user_message() -> None:
     assert exception_detail(RuntimeError()) == "RuntimeError"
     assert (

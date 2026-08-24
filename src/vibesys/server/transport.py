@@ -13,7 +13,6 @@ from pathlib import Path  # noqa: TC003  # tracked: #288
 
 from pydantic import BaseModel, TypeAdapter
 
-from vibesys.server.diagnostics import DiagnosticScope, exception_to_diagnostic
 from vibesys.server.protocol import (
     EventBatchMessage,
     EventMessage,
@@ -50,16 +49,10 @@ class _RequestHandler(socketserver.StreamRequestHandler):
                     return
                 response = service.execute(request)
             except Exception as exc:  # noqa: BLE001  # tracked: #288
-                diagnostic = exception_to_diagnostic(
+                response = Response.from_exception(
+                    request_id,
                     exc,
-                    scope=DiagnosticScope.REQUEST,
                     operation="Request",
-                )
-                response = Response(
-                    request_id=request_id,
-                    ok=False,
-                    error=diagnostic.summary,
-                    diagnostic=diagnostic,
                 )
             self.wfile.write(response.model_dump_json().encode() + b"\n")
             self.wfile.flush()
@@ -92,21 +85,14 @@ class _RequestHandler(socketserver.StreamRequestHandler):
 
     def _write_stream_error(self, request_id: str, error: Exception) -> None:
         """Report a replay or stream failure without hiding a live connection."""
-        diagnostic = exception_to_diagnostic(
+        protocol_error = ProtocolErrorMessage.from_exception(
             error,
-            scope=DiagnosticScope.PROTOCOL,
             operation="Event stream",
             code="stream_failed",
+            request_id=request_id,
         )
         with suppress(BrokenPipeError, ConnectionResetError):
-            self._write_message(
-                ProtocolErrorMessage(
-                    request_id=request_id,
-                    code=diagnostic.code,
-                    message=diagnostic.summary,
-                    diagnostic=diagnostic,
-                )
-            )
+            self._write_message(protocol_error)
 
     def _client_disconnected(self) -> bool:
         try:

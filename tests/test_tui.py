@@ -24,8 +24,15 @@ from vibesys.server.diagnostics import (
     DiagnosticRetryability,
     DiagnosticScope,
     DiagnosticSeverity,
+    exception_to_diagnostic,
 )
-from vibesys.server.events import ConfigurationFailedData
+from vibesys.server.events import (
+    ConfigurationFailedData,
+    EventStatus,
+    JudgeResultData,
+    PhaseData,
+    RoundFinishedData,
+)
 from vibesys.server.protocol import (
     ChatQuery,
     EventsQuery,
@@ -440,6 +447,136 @@ def test_generic_run_failure_is_fatal_with_unknown_retryability(tmp_path):  # no
     assert terminal.diagnostic.scope is DiagnosticScope.RUN
     assert terminal.diagnostic.severity is DiagnosticSeverity.FATAL
     assert terminal.diagnostic.retryability is DiagnosticRetryability.UNKNOWN
+    assert sum(event.type is EventType.RUN_FAILED for event in supervisor.read_events()) == 1
+
+
+@pytest.mark.parametrize(
+    "event_type",
+    [
+        EventType.CONFIGURATION_FAILED,
+        EventType.INVOCATION_FINISHED,
+        EventType.PHASE_FINISHED,
+        EventType.RUN_FAILED,
+        EventType.RUN_INTERRUPTED,
+    ],
+)
+def test_operational_failure_events_require_diagnostics(tmp_path, event_type):  # noqa: ANN001, ANN201  # tracked: #288
+    supervisor = RunSupervisor()
+    supervisor.attach(tmp_path)
+
+    for status in (EventStatus.FAILED, "failed"):
+        with pytest.raises(ValueError, match="must include a diagnostic"):
+            supervisor.record(event_type, status=status)
+
+
+def test_semantic_failure_events_remain_valid_without_diagnostics(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+    supervisor = RunSupervisor()
+    supervisor.attach(tmp_path)
+
+    judge = supervisor.record(
+        EventType.JUDGE_RESULT,
+        status=EventStatus.FAILED,
+        data=JudgeResultData(verdict="fail", feedback="incorrect", attempt=1),
+    )
+    round_finished = supervisor.record(
+        EventType.ROUND_FINISHED,
+        status=EventStatus.FAILED,
+        data=RoundFinishedData(attempts=1, judge_verdict="fail"),
+    )
+
+    assert judge is not None
+    assert judge.diagnostic is None
+    assert round_finished is not None
+    assert round_finished.diagnostic is None
+
+
+def test_capture_failure_emits_nothing_on_success(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+    supervisor = RunSupervisor()
+    supervisor.attach(tmp_path)
+    before = supervisor.read_events()
+
+    with supervisor.capture_failure(
+        event_type=EventType.PHASE_FINISHED,
+        scope=DiagnosticScope.PHASE,
+        operation="Background maintenance",
+    ):
+        pass
+
+    assert supervisor.read_events() == before
+    assert supervisor.snapshot().status == "running"
+
+
+def test_failure_helpers_reject_non_operational_and_terminal_events(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+    supervisor = RunSupervisor()
+    supervisor.attach(tmp_path)
+    before = supervisor.read_events()
+
+    with pytest.raises(ValueError, match="without owning run termination"):
+        supervisor.record_failure(
+            EventType.JUDGE_RESULT,
+            RuntimeError("incorrect result"),
+            scope=DiagnosticScope.PHASE,
+            operation="Judge",
+        )
+    error = RuntimeError("worker failed")
+    for event_type in (EventType.CONFIGURATION_FAILED, EventType.RUN_FAILED):
+        with (
+            pytest.raises(ValueError, match="without owning run termination"),
+            supervisor.capture_failure(
+                event_type=event_type,
+                scope=DiagnosticScope.RUN,
+                operation="Background maintenance",
+            ),
+        ):
+            raise error
+
+    assert supervisor.read_events() == before
+
+
+def test_finish_is_idempotent(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+    supervisor = RunSupervisor()
+    supervisor.attach(tmp_path)
+
+    supervisor.finish(RuntimeError("first failure"))
+    supervisor.finish(RuntimeError("second failure"))
+
+    terminal = [event for event in supervisor.read_events() if event.type is EventType.RUN_FAILED]
+    assert len(terminal) == 1
+    assert terminal[0].diagnostic is not None
+    assert terminal[0].diagnostic.detail == "RuntimeError: first failure"
+
+
+def test_capture_failure_records_once_and_reraises_without_finishing(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+    supervisor = RunSupervisor()
+    supervisor.attach(tmp_path)
+    error = KeyboardInterrupt("background worker stopped")
+    before = supervisor.read_events()
+
+    with (
+        pytest.raises(KeyboardInterrupt) as raised,
+        supervisor.capture_failure(
+            event_type=EventType.PHASE_FINISHED,
+            scope=DiagnosticScope.PHASE,
+            operation="Background maintenance",
+            data=PhaseData(phase="maintenance", attempt=1),
+            agent_kind="maintenance",
+            round_label="round 1",
+        ),
+    ):
+        raise error
+
+    assert raised.value is error
+    events = supervisor.read_events()
+    assert len(events) == len(before) + 1
+    captured = events[-1]
+    assert captured.type is EventType.PHASE_FINISHED
+    assert captured.status is EventStatus.FAILED
+    assert captured.data == PhaseData(phase="maintenance", attempt=1)
+    assert captured.agent_kind == "maintenance"
+    assert captured.diagnostic is not None
+    assert captured.diagnostic.summary == "Background maintenance failed"
+    assert supervisor.snapshot().status == "running"
+    assert not any(event.type is EventType.RUN_FAILED for event in events)
 
 
 def test_terminal_wrapper_reuses_an_invocation_diagnostic(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
@@ -547,6 +684,7 @@ def test_keyword_fallback_does_not_advertise_slash_commands(tmp_path):  # noqa: 
 def test_chat_explains_configuration_failure_without_a_run_context(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     supervisor = RunSupervisor()
     supervisor.attach(tmp_path)
+    error = RuntimeError("agent.toml was not found")
     supervisor.record(
         EventType.CONFIGURATION_FAILED,
         status="failed",
@@ -556,6 +694,11 @@ def test_chat_explains_configuration_failure_without_a_run_context(tmp_path):  #
             message="agent.toml was not found",
             usage=None,
             exit_code=2,
+        ),
+        diagnostic=exception_to_diagnostic(
+            error,
+            scope=DiagnosticScope.CONFIGURATION,
+            operation="Configuration",
         ),
     )
 

@@ -8,7 +8,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, FiniteFloat
 
-from vibesys.server.diagnostics import Diagnostic
+from vibesys.server.diagnostics import Diagnostic, DiagnosticScope, exception_to_diagnostic
 from vibesys.server.events import RunEvent
 
 PROTOCOL_VERSION = 1
@@ -178,6 +178,20 @@ class Response(ProtocolModel):  # noqa: D101  # tracked: #288
     performance: list[PerformanceRound] = Field(default_factory=list)
     experiments: list[HypothesisEntry] = Field(default_factory=list)
 
+    @classmethod
+    def from_exception(
+        cls,
+        request_id: str,
+        error: BaseException,
+        *,
+        operation: str = "Request",
+        scope: DiagnosticScope = DiagnosticScope.REQUEST,
+        code: str | None = None,
+    ) -> Response:
+        """Build a failed response with consistent legacy and typed errors."""
+        diagnostic = exception_to_diagnostic(error, scope=scope, operation=operation, code=code)
+        return cls(request_id=request_id, ok=False, error=diagnostic.summary, diagnostic=diagnostic)
+
 
 class SubscribedMessage(ProtocolModel):  # noqa: D101  # tracked: #288
     type: Literal["subscribed"] = "subscribed"
@@ -202,6 +216,25 @@ class ProtocolErrorMessage(ProtocolModel):  # noqa: D101  # tracked: #288
     code: str
     message: str
     diagnostic: Diagnostic | None = None
+
+    @classmethod
+    def from_exception(
+        cls,
+        error: BaseException,
+        *,
+        request_id: str | None = None,
+        operation: str = "Protocol operation",
+        scope: DiagnosticScope = DiagnosticScope.PROTOCOL,
+        code: str | None = None,
+    ) -> ProtocolErrorMessage:
+        """Build a protocol error with consistent legacy and typed errors."""
+        diagnostic = exception_to_diagnostic(error, scope=scope, operation=operation, code=code)
+        return cls(
+            request_id=request_id,
+            code=diagnostic.code,
+            message=diagnostic.summary,
+            diagnostic=diagnostic,
+        )
 
 
 ServerMessage = Annotated[
