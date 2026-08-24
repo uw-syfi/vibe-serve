@@ -95,6 +95,9 @@ describe('OpenTUI presentation', () => {
       errorBanner: {
         title: 'Run failed',
         message: 'RuntimeError: app-server initialization was denied\nOperation not permitted',
+        detail: 'The run server exited before accepting a client.',
+        hint: 'Check the startup log and retry.',
+        diagnosticId: 'diagnostic-1',
         severity: 'fatal',
         scope: 'run',
         agentKind: 'orchestrator',
@@ -109,6 +112,8 @@ describe('OpenTUI presentation', () => {
     );
     expect(frame).toContain('Run failed · orchestrator · round-1-pre');
     expect(frame).toContain('Operation not permitted');
+    expect(frame).toContain('Detail: The run server exited before accepting a client.');
+    expect(frame).toContain('Hint: Check the startup log and retry.');
     expect(frame).toContain('Experiments');
 
     expect(frame).toContain('Ctrl+PgUp/PgDn: scroll');

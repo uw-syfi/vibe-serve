@@ -20,6 +20,11 @@ from vibesys.server import (
     RunInspector,
     RunSupervisor,
 )
+from vibesys.server.diagnostics import (
+    DiagnosticRetryability,
+    DiagnosticScope,
+    DiagnosticSeverity,
+)
 from vibesys.server.events import ConfigurationFailedData
 from vibesys.server.protocol import (
     ChatQuery,
@@ -389,6 +394,77 @@ def test_chat_reports_structured_failed_invocation(tmp_path):  # noqa: ANN001, A
     assert "agent process exited" in answer
 
 
+def test_failure_events_share_and_promote_a_human_facing_diagnostic(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+    supervisor = RunSupervisor()
+    supervisor.attach(tmp_path)
+    error = RuntimeError("token=super-secret agent process exited")
+    supervisor.before_agent("implementer", "round 5", "prompt")
+    supervisor.after_agent("implementer", "round 5", error=error)
+    supervisor.finish(error)
+
+    invocation, phase, terminal = [
+        event
+        for event in supervisor.read_events()
+        if event.type
+        in {
+            EventType.INVOCATION_FINISHED,
+            EventType.PHASE_FINISHED,
+            EventType.RUN_FAILED,
+        }
+    ]
+    assert invocation.diagnostic is not None
+    assert phase.diagnostic == invocation.diagnostic
+    assert terminal.diagnostic is not None
+    assert terminal.diagnostic.id == invocation.diagnostic.id
+    assert terminal.diagnostic.scope is DiagnosticScope.INVOCATION
+    assert terminal.diagnostic.summary == invocation.diagnostic.summary
+    assert terminal.diagnostic.detail == invocation.diagnostic.detail
+    assert invocation.diagnostic.severity is DiagnosticSeverity.ERROR
+    assert terminal.diagnostic.severity is DiagnosticSeverity.FATAL
+    assert terminal.diagnostic.retryability is DiagnosticRetryability.UNKNOWN
+    assert invocation.data.error == "Agent invocation failed"  # pyright: ignore[reportOptionalMemberAccess]  # tracked: #297
+    assert terminal.text == "Agent invocation failed"
+    assert terminal.diagnostic.detail == "RuntimeError: token=[REDACTED] agent process exited"
+    assert "RuntimeError(" not in terminal.text
+
+
+def test_generic_run_failure_is_fatal_with_unknown_retryability(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+    supervisor = RunSupervisor()
+    supervisor.attach(tmp_path)
+    supervisor.finish(RuntimeError("worker failed"))
+
+    terminal = next(
+        event for event in supervisor.read_events() if event.type is EventType.RUN_FAILED
+    )
+    assert terminal.diagnostic is not None
+    assert terminal.diagnostic.scope is DiagnosticScope.RUN
+    assert terminal.diagnostic.severity is DiagnosticSeverity.FATAL
+    assert terminal.diagnostic.retryability is DiagnosticRetryability.UNKNOWN
+
+
+def test_terminal_wrapper_reuses_an_invocation_diagnostic(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+    supervisor = RunSupervisor()
+    supervisor.attach(tmp_path)
+    cause = RuntimeError("token=super-secret agent process exited")
+    supervisor.before_agent("implementer", "round 5", "prompt")
+    supervisor.after_agent("implementer", "round 5", error=cause)
+    wrapper = RuntimeError("run cleanup failed")
+    wrapper.__cause__ = cause
+    supervisor.finish(wrapper)
+
+    invocation, terminal = [
+        event
+        for event in supervisor.read_events()
+        if event.type in {EventType.INVOCATION_FINISHED, EventType.RUN_FAILED}
+    ]
+    assert invocation.diagnostic is not None
+    assert terminal.diagnostic is not None
+    assert terminal.diagnostic.id == invocation.diagnostic.id
+    assert terminal.diagnostic.detail == (
+        "RuntimeError: run cleanup failed <- RuntimeError: token=[REDACTED] agent process exited"
+    )
+
+
 def test_service_accepts_chat(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     (tmp_path / "logs").mkdir()
     supervisor = RunSupervisor()
@@ -585,7 +661,9 @@ def test_socket_transport_returns_clear_chat_agent_errors(tmp_path):  # noqa: AN
     supervisor.attach(tmp_path / "logs")
 
     def fail_chat(question: str) -> str:
-        raise RuntimeError(f"Chat agent failed while answering: {question}")  # noqa: TRY003  # tracked: #288
+        raise RuntimeError(  # noqa: TRY003  # tracked: #288
+            f"token=super-secret Chat agent failed while answering: {question}"
+        )
 
     supervisor.set_chat_handler(fail_chat)
     socket_path = Path("/tmp") / f"vibesys-test-{uuid.uuid4().hex}.sock"  # noqa: S108  # tracked: #288
@@ -599,7 +677,13 @@ def test_socket_transport_returns_clear_chat_agent_errors(tmp_path):  # noqa: AN
             response = json.loads(stream.readline())
 
     assert response["ok"] is False
-    assert response["error"] == "Chat agent failed while answering: what happened?"
+    assert response["error"] == "Request failed"
+    assert "super-secret" not in response["error"]
+    assert response["diagnostic"]["scope"] == "request"
+    assert response["diagnostic"]["summary"] == "Request failed"
+    assert response["diagnostic"]["detail"] == (
+        "RuntimeError: token=[REDACTED] Chat agent failed while answering: what happened?"
+    )
 
 
 def test_socket_subscription_replays_then_streams_new_events(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
@@ -625,6 +709,48 @@ def test_socket_subscription_replays_then_streams_new_events(tmp_path):  # noqa:
     assert replay["type"] == "event_batch"
     assert streamed["type"] == "event"
     assert streamed["event"]["type"] == "chat"
+
+
+def test_socket_subscription_reports_structured_stream_failures(tmp_path, monkeypatch):  # noqa: ANN001, ANN201  # tracked: #288
+    supervisor = RunSupervisor()
+    supervisor.attach(tmp_path / "logs")
+    service = SupervisionService(supervisor)
+    socket_path = Path("/tmp") / f"vibesys-test-{uuid.uuid4().hex}.sock"  # noqa: S108  # tracked: #288
+
+    def fail_replay(after_sequence: int):  # noqa: ANN202  # tracked: #288
+        del after_sequence
+        raise RuntimeError("event store is unavailable")  # noqa: TRY003  # tracked: #288
+
+    monkeypatch.setattr(service, "events", fail_replay)
+    with SupervisionSocketServer(socket_path, service):  # noqa: SIM117  # tracked: #288
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+            client.settimeout(2)
+            client.connect(str(socket_path))
+            stream = client.makefile("rwb")
+            stream.write(SubscribeRequest(after_sequence=0).model_dump_json().encode() + b"\n")
+            stream.flush()
+            subscribed = json.loads(stream.readline())
+            failure = json.loads(stream.readline())
+
+    assert subscribed["type"] == "subscribed"
+    assert failure == {
+        "type": "protocol_error",
+        "request_id": subscribed["request_id"],
+        "code": "stream_failed",
+        "message": "Event stream failed",
+        "diagnostic": {
+            "id": failure["diagnostic"]["id"],
+            "code": "stream_failed",
+            "summary": "Event stream failed",
+            "detail": "RuntimeError: event store is unavailable",
+            "hint": None,
+            "scope": "protocol",
+            "severity": "error",
+            "retryability": "unknown",
+            "cause_id": None,
+            "debug_ref": None,
+        },
+    }
 
 
 def test_cli_parse_failure_is_streamed_after_client_attaches():  # noqa: ANN201  # tracked: #288
@@ -696,7 +822,7 @@ def test_cli_parse_failure_is_streamed_after_client_attaches():  # noqa: ANN201 
     assert stderr == ""
 
 
-def test_supervision_runtime_streams_configuration_failure_before_exiting():  # noqa: ANN201  # tracked: #288
+def test_supervision_runtime_streams_configuration_failure_before_exiting():  # noqa: ANN201, PLR0915  # tracked: #288
     session_dir = Path("/tmp") / f"vs-runtime-test-{uuid.uuid4().hex}"  # noqa: S108  # tracked: #288
     socket_path = session_dir / "control.sock"
     received_events = []
@@ -738,8 +864,8 @@ def test_supervision_runtime_streams_configuration_failure_before_exiting():  # 
         ConfigurationDiagnostic(
             code="invalid_arguments",
             stage="argument_parsing",
-            message="unknown option --bad",
-            usage="usage: vibesys ...",
+            message="unknown token=super-secret option --bad",
+            usage="usage: vibesys --token=super-secret",
         )
     )
     try:
@@ -755,13 +881,21 @@ def test_supervision_runtime_streams_configuration_failure_before_exiting():  # 
             "kind": "configuration_failed",
             "code": "invalid_arguments",
             "stage": "argument_parsing",
-            "message": "unknown option --bad",
-            "usage": "usage: vibesys ...",
+            "message": "unknown token=[REDACTED] option --bad",
+            "usage": "usage: vibesys --token=[REDACTED]",
             "exit_code": 2,
         }
+        assert configuration_event["text"] == "unknown token=[REDACTED] option --bad"
+        assert (
+            configuration_event["diagnostic"]["summary"] == "unknown token=[REDACTED] option --bad"
+        )
+        assert configuration_event["diagnostic"]["detail"] == (
+            "Stage: argument_parsing\nExit code: 2"
+        )
+        assert configuration_event["diagnostic"]["hint"] == "usage: vibesys --token=[REDACTED]"
         assert not any(event["type"] == "run_failed" for event in received_events)
         assert chat_responses[0]["ok"] is True
-        assert "unknown option --bad" in chat_responses[0]["chat"]["answer"]
+        assert "unknown token=[REDACTED] option --bad" in chat_responses[0]["chat"]["answer"]
     finally:
         subscriber.join(timeout=5)
         shutil.rmtree(session_dir, ignore_errors=True)

@@ -146,6 +146,50 @@ describe('session event model', () => {
     });
   });
 
+  it('prefers structured diagnostics and deduplicates their ids across terminal events', () => {
+    let state = applyEvent(initialSessionState(), {
+      ...event(1, 'invocation_finished', {
+        kind: 'invocation_finished',
+        error: 'legacy invocation error',
+      }),
+      text: 'legacy invocation text',
+      diagnostic: {
+        id: 'failure-1',
+        code: 'unrecognized_future_code',
+        summary: 'The worker could not start.',
+        detail: 'PermissionError: sandbox rejected the worker.',
+        hint: 'Check the sandbox permissions.',
+        scope: 'invocation',
+        severity: 'error',
+        retryability: 'manual',
+      },
+    });
+    state = applyEvent(state, {
+      ...event(2, 'run_failed'),
+      text: 'legacy terminal text',
+      diagnostic: {
+        id: 'failure-1',
+        code: 'unrecognized_future_code',
+        summary: 'The worker could not start.',
+        detail: 'PermissionError: sandbox rejected the worker.\nExit code: 1',
+        hint: 'Check the sandbox permissions.',
+        scope: 'invocation',
+        severity: 'fatal',
+        retryability: 'manual',
+      },
+    });
+
+    expect(state.errorBanner).toMatchObject({
+      title: 'Invocation failed',
+      message: 'The worker could not start.',
+      detail: 'PermissionError: sandbox rejected the worker.\nExit code: 1',
+      hint: 'Check the sandbox permissions.',
+      diagnosticId: 'failure-1',
+      severity: 'fatal',
+      count: 2,
+    });
+  });
+
   it('keeps the more detailed terminal message when a failure is deduplicated', () => {
     let state = applyEvent(initialSessionState(), {
       ...event(1, 'invocation_finished', {
@@ -185,18 +229,27 @@ describe('session event model', () => {
   });
 
   it('shows structured interruption details when no event text is present', () => {
-    const state = applyEvent(
-      initialSessionState(),
-      event(1, 'run_interrupted', {
+    const state = applyEvent(initialSessionState(), {
+      ...event(1, 'run_interrupted', {
         kind: 'run_interrupted',
         reason: 'launcher_terminated',
         signal: 'SIGTERM',
       }),
-    );
+      diagnostic: {
+        id: 'interrupted-1',
+        code: 'interrupted',
+        summary: 'Run interrupted',
+        detail: 'RuntimeError: launcher_terminated (SIGTERM)',
+        scope: 'run',
+        severity: 'fatal',
+        retryability: 'never',
+      },
+    });
 
     expect(state.errorBanner).toMatchObject({
       title: 'Run interrupted',
-      message: 'launcher_terminated (SIGTERM)',
+      message: 'Run interrupted',
+      detail: 'RuntimeError: launcher_terminated (SIGTERM)',
       severity: 'fatal',
     });
   });

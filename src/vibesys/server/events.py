@@ -12,6 +12,8 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, FiniteFloat, ValidationError
 
+from vibesys.server.diagnostics import Diagnostic
+
 
 class EventType(StrEnum):  # noqa: D101  # tracked: #288
     SERVER_STARTED = "server_started"
@@ -235,6 +237,7 @@ class RunEvent(BaseModel):
     timestamp: datetime
     type: EventType
     text: str = ""
+    diagnostic: Diagnostic | None = None
     status: EventStatus | None = None
     round_label: str | None = None
     agent_kind: str | None = None

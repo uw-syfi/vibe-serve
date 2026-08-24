@@ -11,6 +11,14 @@ from dataclasses import dataclass
 from pathlib import Path  # noqa: TC003  # tracked: #288
 from typing import TYPE_CHECKING, Any
 
+from vibesys.server.diagnostics import (
+    Diagnostic,
+    DiagnosticRetryability,
+    DiagnosticScope,
+    DiagnosticSeverity,
+    exception_detail,
+    exception_to_diagnostic,
+)
 from vibesys.server.events import (
     AgentOutputChannel,
     AgentOutputChunkData,
@@ -29,6 +37,8 @@ from vibesys.server.events import (
     make_event,
 )
 from vibesys.server.protocol import RunSnapshot
+
+_MAX_EXCEPTION_CHAIN = 8
 
 if TYPE_CHECKING:
     from vs_project import Project, StateSnapshot
@@ -68,6 +78,10 @@ class RunSupervisor:
         self._current_round: str | None = None
         self._chat_handler: Callable[[str], str] | None = None
         self._presentation_local = threading.local()
+        # An invocation and its terminal run failure often carry the same
+        # exception. Keep one diagnostic object so both events identify the
+        # same operator-visible failure without reformatting it at each layer.
+        self._error_diagnostics: dict[int, tuple[BaseException, Diagnostic]] = {}
 
     @property
     def current_round(self) -> str | None:  # noqa: D102  # tracked: #288
@@ -363,6 +377,11 @@ class RunSupervisor:
                 self._pause_after_call = False
                 self._paused = True
 
+        diagnostic = (
+            self._diagnostic_for(error, DiagnosticScope.INVOCATION, operation="Agent invocation")
+            if error
+            else None
+        )
         self.record(
             EventType.INVOCATION_FINISHED,
             status=EventStatus.FAILED if error else EventStatus.COMPLETED,
@@ -370,8 +389,9 @@ class RunSupervisor:
             round_label=round_label,
             invocation_id=invocation_id,
             data=InvocationFinishedData(
-                result=json_value(result), error=repr(error) if error else None
+                result=json_value(result), error=diagnostic.summary if diagnostic else None
             ),
+            diagnostic=diagnostic,
         )
         self.record(
             EventType.PHASE_FINISHED,
@@ -380,6 +400,7 @@ class RunSupervisor:
             round_label=round_label,
             invocation_id=invocation_id,
             data=PhaseData(phase=kind, attempt=_attempt_from_label(round_label)),
+            diagnostic=diagnostic,
         )
         if should_pause:
             self.record(
@@ -398,22 +419,86 @@ class RunSupervisor:
             round_label = self._current_round or "no round yet"
         return f"{state} · {kind} · {round_label}"
 
-    def finish(self, error: BaseException | None = None, *, record_event: bool = True) -> None:  # noqa: D102  # tracked: #288
+    def finish(  # noqa: D102  # tracked: #288
+        self,
+        error: BaseException | None = None,
+        *,
+        record_event: bool = True,
+        diagnostic: Diagnostic | None = None,
+    ) -> None:
+        event_diagnostic = diagnostic or (
+            self._diagnostic_for(error, DiagnosticScope.RUN, operation="Run") if error else None
+        )
+        if error is not None and event_diagnostic is not None:
+            # A terminal run failure is fatal, but it may originate at an
+            # earlier boundary. Preserve that origin and stable identity so
+            # consumers can coalesce the invocation, phase, and run events.
+            event_diagnostic = event_diagnostic.model_copy(
+                update={"severity": DiagnosticSeverity.FATAL}
+            )
         with self._condition:
             self._run_status = "failed" if error else "completed"
             self._condition.notify_all()
+            self._error_diagnostics.clear()
         if not record_event:
             return
         self.record(
             EventType.RUN_FAILED if error else EventType.RUN_FINISHED,
-            repr(error) if error else "",
+            event_diagnostic.summary if event_diagnostic else "",
             status=EventStatus.FAILED if error else EventStatus.COMPLETED,
+            diagnostic=event_diagnostic,
         )
+
+    def _diagnostic_for(
+        self, error: BaseException, scope: DiagnosticScope, *, operation: str
+    ) -> Diagnostic:
+        """Return the canonical diagnostic for one exception instance."""
+        key = id(error)
+        with self._condition:
+            for item in _exception_chain(error):
+                cached = self._error_diagnostics.get(id(item))
+                if cached is None or cached[0] is not item:
+                    continue
+                if item is error:
+                    return cached[1]
+                diagnostic = cached[1].model_copy(update={"detail": exception_detail(error)})
+                self._error_diagnostics[key] = (error, diagnostic)
+                return diagnostic
+        diagnostic = exception_to_diagnostic(
+            error,
+            scope=scope,
+            operation=operation,
+            severity=DiagnosticSeverity.ERROR,
+            retryability=DiagnosticRetryability.UNKNOWN,
+        )
+        with self._condition:
+            self._error_diagnostics[key] = (error, diagnostic)
+        return diagnostic
 
 
 def _attempt_from_label(round_label: str) -> int | None:
     match = re.search(r"retry-(\d+)", round_label)
     return int(match.group(1)) if match else None
+
+
+def _exception_chain(error: BaseException) -> list[BaseException]:
+    """Follow causes and contexts without depending on diagnostic internals."""
+    chain: list[BaseException] = []
+    seen: set[int] = set()
+    current: BaseException | None = error
+    while current is not None and len(chain) < _MAX_EXCEPTION_CHAIN:
+        marker = id(current)
+        if marker in seen:
+            break
+        seen.add(marker)
+        chain.append(current)
+        if current.__cause__ is not None:
+            current = current.__cause__
+        elif not current.__suppress_context__:
+            current = current.__context__
+        else:
+            current = None
+    return chain
 
 
 def _with_steering(user_prompt: str, messages: list[str]) -> str:

@@ -277,6 +277,125 @@
       "title": "ConfigurationFailedData",
       "type": "object"
     },
+    "Diagnostic": {
+      "additionalProperties": false,
+      "description": "Structured, provider-neutral description of an operator diagnostic.",
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "code": {
+          "title": "Code",
+          "type": "string"
+        },
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        },
+        "detail": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Detail"
+        },
+        "hint": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Hint"
+        },
+        "scope": {
+          "$ref": "#/$defs/DiagnosticScope"
+        },
+        "severity": {
+          "$ref": "#/$defs/DiagnosticSeverity",
+          "default": "error"
+        },
+        "retryability": {
+          "$ref": "#/$defs/DiagnosticRetryability",
+          "default": "unknown"
+        },
+        "cause_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cause Id"
+        },
+        "debug_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Debug Ref"
+        }
+      },
+      "required": [
+        "code",
+        "summary",
+        "scope"
+      ],
+      "title": "Diagnostic",
+      "type": "object"
+    },
+    "DiagnosticRetryability": {
+      "description": "Whether retrying the failed operation is expected to help.",
+      "enum": [
+        "automatic",
+        "manual",
+        "never",
+        "unknown"
+      ],
+      "title": "DiagnosticRetryability",
+      "type": "string"
+    },
+    "DiagnosticScope": {
+      "description": "Boundary at which a diagnostic was raised.",
+      "enum": [
+        "configuration",
+        "invocation",
+        "phase",
+        "run",
+        "request",
+        "protocol",
+        "transport"
+      ],
+      "title": "DiagnosticScope",
+      "type": "string"
+    },
+    "DiagnosticSeverity": {
+      "description": "Operator-visible seriousness of a diagnostic.",
+      "enum": [
+        "warning",
+        "error",
+        "fatal"
+      ],
+      "title": "DiagnosticSeverity",
+      "type": "string"
+    },
     "EventBatchMessage": {
       "additionalProperties": false,
       "properties": {
@@ -957,6 +1076,17 @@
         "message": {
           "title": "Message",
           "type": "string"
+        },
+        "diagnostic": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Diagnostic"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "required": [
@@ -1000,6 +1130,17 @@
           ],
           "default": null,
           "title": "Error"
+        },
+        "diagnostic": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Diagnostic"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "ack": {
           "anyOf": [
@@ -1176,6 +1317,17 @@
           "default": "",
           "title": "Text",
           "type": "string"
+        },
+        "diagnostic": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Diagnostic"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "status": {
           "anyOf": [

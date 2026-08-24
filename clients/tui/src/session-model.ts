@@ -1,4 +1,4 @@
-import type {HypothesisEntry, RunEvent, RunSnapshot} from './protocol.js';
+import type {Diagnostic, HypothesisEntry, RunEvent, RunSnapshot} from './protocol.js';
 import {
   type AgentPhase,
   applyRunMapEvent,
@@ -68,6 +68,7 @@ export type ErrorSeverity = 'recoverable' | 'fatal';
 export type ErrorScope =
   | 'configuration'
   | 'invocation'
+  | 'phase'
   | 'run'
   | 'protocol'
   | 'request'
@@ -76,7 +77,11 @@ export type ErrorScope =
 
 export interface ErrorBannerState {
   title: string;
+  /** Human-facing summary, shown before structured detail and hint. */
   message: string;
+  detail: string | null;
+  hint: string | null;
+  diagnosticId: string | null;
   severity: ErrorSeverity;
   scope: ErrorScope;
   agentKind: string | null;
@@ -839,6 +844,7 @@ export interface ErrorReport {
   scope: ErrorScope;
   severity?: ErrorSeverity;
   title?: string;
+  diagnostic?: Diagnostic | null;
   agentKind?: string | null;
   roundLabel?: string | null;
   invocationId?: string | null;
@@ -854,12 +860,17 @@ export function reportError(
   message: string,
   report: ErrorReport,
 ): SessionState {
-  const severity = report.severity ?? 'recoverable';
+  const diagnostic = report.diagnostic ?? null;
+  const scope = diagnostic?.scope ?? report.scope;
+  const severity = diagnosticSeverity(diagnostic?.severity) ?? report.severity ?? 'recoverable';
   const banner: ErrorBannerState = {
-    title: report.title ?? errorTitle(report.scope),
-    message: message || 'An unknown error occurred.',
+    title: report.title ?? errorTitle(scope),
+    message: diagnostic?.summary || message || 'An unknown error occurred.',
+    detail: diagnostic?.detail ?? null,
+    hint: diagnostic?.hint ?? null,
+    diagnosticId: diagnostic?.id ?? null,
     severity,
-    scope: report.scope,
+    scope,
     agentKind: report.agentKind ?? null,
     roundLabel: report.roundLabel ?? null,
     invocationId: report.invocationId ?? null,
@@ -875,9 +886,12 @@ export function reportError(
     errorBanner: {
       ...existing,
       message: moreInformativeMessage(existing.message, banner.message),
+      detail: moreInformativeMessage(existing.detail ?? '', banner.detail ?? '') || null,
+      hint: moreInformativeMessage(existing.hint ?? '', banner.hint ?? '') || null,
       severity: promoted,
       title: promoted === 'fatal' ? banner.title : existing.title,
       scope: promoted === 'fatal' ? banner.scope : existing.scope,
+      diagnosticId: existing.diagnosticId ?? banner.diagnosticId,
       agentKind: existing.agentKind ?? banner.agentKind,
       roundLabel: existing.roundLabel ?? banner.roundLabel,
       invocationId: existing.invocationId ?? banner.invocationId,
@@ -888,6 +902,16 @@ export function reportError(
 
 function applyFailureEvent(state: SessionState, event: RunEvent): SessionState {
   const data = event.data;
+  if (event.diagnostic !== null && event.diagnostic !== undefined) {
+    return reportError(state, event.text ?? '', {
+      scope: 'protocol',
+      diagnostic: event.diagnostic,
+      ...(event.type === 'run_interrupted' ? {title: 'Run interrupted'} : {}),
+      agentKind: event.agent_kind ?? null,
+      roundLabel: event.round_label ?? null,
+      invocationId: event.invocation_id ?? null,
+    });
+  }
   if (data?.kind === 'configuration_failed') {
     return reportError(state, formatConfigurationFailure(event), {
       scope: 'configuration',
@@ -934,6 +958,7 @@ function moreInformativeMessage(current: string, later: string): string {
 }
 
 function equivalentError(left: ErrorBannerState, right: ErrorBannerState): boolean {
+  if (left.diagnosticId !== null && left.diagnosticId === right.diagnosticId) return true;
   if (left.invocationId !== null && left.invocationId === right.invocationId) return true;
   const leftMessage = left.message.trim();
   const rightMessage = right.message.trim();
@@ -950,6 +975,7 @@ function errorTitle(scope: ErrorScope): string {
   const titles: Record<ErrorScope, string> = {
     configuration: 'Configuration failed',
     invocation: 'Invocation failed',
+    phase: 'Phase failed',
     run: 'Run failed',
     protocol: 'Protocol error',
     request: 'Request failed',
@@ -957,6 +983,13 @@ function errorTitle(scope: ErrorScope): string {
     input: 'Input error',
   };
   return titles[scope];
+}
+
+function diagnosticSeverity(
+  severity: Diagnostic['severity'] | undefined,
+): ErrorSeverity | undefined {
+  if (severity === undefined) return undefined;
+  return severity === 'fatal' ? 'fatal' : 'recoverable';
 }
 
 function formatConfigurationFailure(event: RunEvent): string {

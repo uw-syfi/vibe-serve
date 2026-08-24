@@ -62,6 +62,25 @@ export type RequestId10 = string;
 export type Timestamp10 = string;
 export type Ok = boolean;
 export type Error = string | null;
+export type Id = string;
+export type Code = string;
+export type Summary = string;
+export type Detail = string | null;
+export type Hint = string | null;
+/**
+ * Boundary at which a diagnostic was raised.
+ */
+export type DiagnosticScope = "configuration" | "invocation" | "phase" | "run" | "request" | "protocol" | "transport";
+/**
+ * Operator-visible seriousness of a diagnostic.
+ */
+export type DiagnosticSeverity = "warning" | "error" | "fatal";
+/**
+ * Whether retrying the failed operation is expected to help.
+ */
+export type DiagnosticRetryability = "automatic" | "manual" | "never" | "unknown";
+export type CauseId = string | null;
+export type DebugRef = string | null;
 export type Action = "pause" | "resume" | "steer";
 export type Status = "pending" | "consumed";
 export type Question = string;
@@ -150,7 +169,7 @@ export type Kind6 = "run_interrupted";
 export type Reason = string;
 export type Signal = string | null;
 export type Kind7 = "configuration_failed";
-export type Code = string;
+export type Code1 = string;
 export type Stage = string;
 export type Message = string;
 export type Usage = string | null;
@@ -241,7 +260,7 @@ export type Type12 = "event_batch";
 export type Events1 = RunEvent[];
 export type Type13 = "protocol_error";
 export type RequestId12 = string | null;
-export type Code1 = string;
+export type Code2 = string;
 export type Message1 = string;
 
 export interface ProtocolDocument {
@@ -327,12 +346,28 @@ export interface Response {
   timestamp?: Timestamp10;
   ok?: Ok;
   error?: Error;
+  diagnostic?: Diagnostic | null;
   ack?: CommandAck | null;
   chat?: ChatResult | null;
   snapshot?: RunSnapshot | null;
   events?: Events;
   performance?: Performance;
   experiments?: Experiments;
+}
+/**
+ * Structured, provider-neutral description of an operator diagnostic.
+ */
+export interface Diagnostic {
+  id?: Id;
+  code: Code;
+  summary: Summary;
+  detail?: Detail;
+  hint?: Hint;
+  scope: DiagnosticScope;
+  severity?: DiagnosticSeverity;
+  retryability?: DiagnosticRetryability;
+  cause_id?: CauseId;
+  debug_ref?: DebugRef;
 }
 export interface CommandAck {
   action: Action;
@@ -361,6 +396,7 @@ export interface RunEvent {
   timestamp: Timestamp11;
   type: EventType;
   text?: Text2;
+  diagnostic?: Diagnostic | null;
   status?: EventStatus | null;
   round_label?: RoundLabel1;
   agent_kind?: AgentKind1;
@@ -414,7 +450,7 @@ export interface RunInterruptedData {
 }
 export interface ConfigurationFailedData {
   kind?: Kind7;
-  code: Code;
+  code: Code1;
   stage: Stage;
   message: Message;
   usage?: Usage;
@@ -577,6 +613,7 @@ export interface EventBatchMessage {
 export interface ProtocolErrorMessage {
   type?: Type13;
   request_id?: RequestId12;
-  code: Code1;
+  code: Code2;
   message: Message1;
+  diagnostic?: Diagnostic | null;
 }

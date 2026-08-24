@@ -8,6 +8,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, FiniteFloat
 
+from vibesys.server.diagnostics import Diagnostic
 from vibesys.server.events import RunEvent
 
 PROTOCOL_VERSION = 1
@@ -169,6 +170,7 @@ class Response(ProtocolModel):  # noqa: D101  # tracked: #288
     timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
     ok: bool = True
     error: str | None = None
+    diagnostic: Diagnostic | None = None
     ack: CommandAck | None = None
     chat: ChatResult | None = None
     snapshot: RunSnapshot | None = None
@@ -199,6 +201,7 @@ class ProtocolErrorMessage(ProtocolModel):  # noqa: D101  # tracked: #288
     request_id: str | None = None
     code: str
     message: str
+    diagnostic: Diagnostic | None = None
 
 
 ServerMessage = Annotated[

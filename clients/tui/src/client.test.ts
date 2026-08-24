@@ -3,7 +3,7 @@ import {randomUUID} from 'node:crypto';
 import {unlink} from 'node:fs/promises';
 import {createServer, type Server, type Socket} from 'node:net';
 import {join} from 'node:path';
-import {SupervisionClient, type SupervisionClientOptions} from './client.js';
+import {SupervisionClient, type SupervisionClientOptions, SupervisionError} from './client.js';
 
 let socketPath: string | undefined;
 
@@ -67,12 +67,31 @@ describe('SupervisionClient', () => {
               timestamp: new Date().toISOString(),
               ok: false,
               error: 'invalid request',
+              diagnostic: {
+                id: 'request-1',
+                code: 'future_backend_code',
+                summary: 'The request could not be completed.',
+                detail: 'The backend rejected the command.',
+                hint: 'Retry after checking the run state.',
+                scope: 'request',
+                severity: 'error',
+                retryability: 'manual',
+              },
               events: [],
             })}\n`,
           );
         }),
       async client => {
-        await expect(client.request({type: 'query.snapshot'})).rejects.toThrow('invalid request');
+        const rejected = client.request({type: 'query.snapshot'});
+        await expect(rejected).rejects.toBeInstanceOf(SupervisionError);
+        await expect(rejected).rejects.toMatchObject({
+          name: 'SupervisionError',
+          message: 'invalid request',
+          diagnostic: {
+            id: 'request-1',
+            summary: 'The request could not be completed.',
+          },
+        });
       },
     );
   });
@@ -184,6 +203,49 @@ describe('SupervisionClient', () => {
         );
         await new Promise(resolve => setTimeout(resolve, 20));
         expect(disconnects).toHaveLength(1);
+      },
+    );
+  });
+
+  it('keeps a structured protocol error when the stream closes afterward', async () => {
+    await withServer(
+      socket =>
+        respondToLines(socket, request => {
+          if (request['type'] !== 'subscribe') return;
+          socket.write(
+            `${JSON.stringify({
+              type: 'subscribed',
+              request_id: request['request_id'],
+              run_id: 'run-1',
+              latest_sequence: 0,
+            })}\n${JSON.stringify({
+              type: 'protocol_error',
+              code: 'stream_failed',
+              message: 'Event stream failed',
+              diagnostic: {
+                id: 'stream-1',
+                code: 'stream_failed',
+                summary: 'Event stream failed',
+                detail: 'RuntimeError: event store is unavailable',
+                scope: 'protocol',
+                severity: 'error',
+              },
+            })}\n`,
+            () => socket.destroy(),
+          );
+        }),
+      async client => {
+        const messages: string[] = [];
+        const disconnects: Error[] = [];
+        await client.subscribe(
+          0,
+          message => messages.push(String(message.type)),
+          error => disconnects.push(error),
+        );
+        await new Promise(resolve => setTimeout(resolve, 20));
+
+        expect(messages).toEqual(['subscribed', 'protocol_error']);
+        expect(disconnects).toEqual([]);
       },
     );
   });

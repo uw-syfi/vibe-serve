@@ -1,6 +1,12 @@
 import {randomUUID} from 'node:crypto';
 import {createConnection, type Socket} from 'node:net';
-import type {ProtocolRequest, ProtocolResponse, RequestInput, ServerMessage} from './protocol.js';
+import type {
+  Diagnostic,
+  ProtocolRequest,
+  ProtocolResponse,
+  RequestInput,
+  ServerMessage,
+} from './protocol.js';
 
 export interface EventSubscription {
   close(): Promise<void>;
@@ -13,6 +19,17 @@ export interface SupervisionClientOptions {
 
 const DEFAULT_CONNECT_TIMEOUT_MS = 5_000;
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
+
+/** A failed supervision response, including its optional structured diagnostic. */
+export class SupervisionError extends Error {
+  constructor(
+    message: string,
+    readonly diagnostic: Diagnostic | null = null,
+  ) {
+    super(message);
+    this.name = 'SupervisionError';
+  }
+}
 
 export class SupervisionClient {
   readonly #socket: Socket;
@@ -98,6 +115,7 @@ export class SupervisionClient {
       let subscribed = false;
       let closing = false;
       let disconnected = false;
+      let protocolErrorReceived = false;
       const handshakeTimeout = setTimeout(() => {
         disconnect(
           new Error(`Supervision subscription timed out after ${this.#connectTimeoutMs}ms`),
@@ -108,6 +126,7 @@ export class SupervisionClient {
         if (disconnected || closing) return;
         disconnected = true;
         clearTimeout(handshakeTimeout);
+        if (subscribed && protocolErrorReceived) return;
         if (subscribed) onDisconnect(error);
         else reject(error);
       };
@@ -145,6 +164,7 @@ export class SupervisionClient {
             socket.destroy();
             return;
           }
+          if (message.type === 'protocol_error') protocolErrorReceived = true;
           if (!subscribed && message.type === 'subscribed') {
             subscribed = true;
             clearTimeout(handshakeTimeout);
@@ -199,7 +219,13 @@ export class SupervisionClient {
       this.#pending.delete(response.request_id);
       clearTimeout(pending.timeout);
       if (response.ok) pending.resolve(response);
-      else pending.reject(new Error(response.error ?? 'Unknown supervision error'));
+      else
+        pending.reject(
+          new SupervisionError(
+            response.error ?? 'Unknown supervision error',
+            response.diagnostic ?? null,
+          ),
+        );
     }
   }
 

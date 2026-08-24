@@ -1,4 +1,4 @@
-import type {EventSubscription} from './client.js';
+import {type EventSubscription, SupervisionError} from './client.js';
 import {helpText, parseInput} from './commands.js';
 import {renderPerformanceCurve} from './performance-chart.js';
 import type {ProtocolResponse, RequestInput, RunEvent, ServerMessage} from './protocol.js';
@@ -115,6 +115,7 @@ export class SocketSessionController implements SessionController {
   /** Single-flight guard: phase events arrive faster than the fetch settles. */
   #experimentFetch: Promise<void> | null = null;
   #paneFetch: Promise<void> | null = null;
+  #streamProtocolError = false;
 
   constructor(
     private readonly client: SupervisionTransport,
@@ -132,7 +133,7 @@ export class SocketSessionController implements SessionController {
       const response = await this.client.request({type: 'query.snapshot'});
       if (response.snapshot) this.#setState(applySnapshot(this.#state, response.snapshot));
     } catch (error) {
-      this.#setState(reportError(this.#state, String(error), {scope: 'request'}));
+      this.#setState(reportCaughtError(this.#state, error, 'request'));
     }
     // The log is the landing view, so it is populated before the first frame
     // rather than on demand.
@@ -145,13 +146,13 @@ export class SocketSessionController implements SessionController {
           // A terminal event already carries the actual outcome. The socket
           // closing afterward is lifecycle cleanup, not a second failure that
           // should replace the useful diagnostic in the banner.
-          if (!this.#state.terminal) {
-            this.#setState(reportError(this.#state, String(error), {scope: 'transport'}));
+          if (!this.#state.terminal && !this.#streamProtocolError) {
+            this.#setState(reportCaughtError(this.#state, error, 'transport'));
           }
         },
       );
     } catch (error) {
-      this.#setState(reportError(this.#state, String(error), {scope: 'transport'}));
+      this.#setState(reportCaughtError(this.#state, error, 'transport'));
     }
   }
 
@@ -339,9 +340,8 @@ export class SocketSessionController implements SessionController {
       const content = renderPerformanceCurve(response.performance ?? [], response.events ?? []);
       this.#setState(setPaneContent(this.#state, view, content));
     } catch (error) {
-      this.#setState(
-        reportError(failPane(this.#state, view, String(error)), String(error), {scope: 'request'}),
-      );
+      const message = errorMessage(error);
+      this.#setState(reportCaughtError(failPane(this.#state, view, message), error, 'request'));
     }
   }
 
@@ -387,9 +387,8 @@ export class SocketSessionController implements SessionController {
       const response = await this.client.request({type: 'query.experiments'});
       this.#setState(setExperiments(this.#state, response.experiments ?? []));
     } catch (error) {
-      this.#setState(
-        reportError(failExperiments(this.#state, String(error)), String(error), {scope: 'request'}),
-      );
+      const message = errorMessage(error);
+      this.#setState(reportCaughtError(failExperiments(this.#state, message), error, 'request'));
     }
   }
 
@@ -469,14 +468,15 @@ export class SocketSessionController implements SessionController {
       }
       this.#setState(state);
     } catch (error) {
+      const message = errorMessage(error);
       this.#setState({
-        ...reportError(this.#state, String(error), {scope: 'request'}),
+        ...reportCaughtError(this.#state, error, 'request'),
         chatConversation: appendChatEntry(this.#state.chatConversation, {
           id: `chat-error-${++this.#chatMessageId}`,
           kind: 'result',
           label: 'Chat failed',
           tone: 'failure',
-          content: String(error),
+          content: message,
         }),
       });
     }
@@ -526,7 +526,7 @@ export class SocketSessionController implements SessionController {
       const rendered = renderResponse(parsed.request, response, parsed.responseView);
       if (rendered !== null) this.#setState(showDetail(this.#state, rendered));
     } catch (error) {
-      this.#setState(reportError(this.#state, String(error), {scope: 'request'}));
+      this.#setState(reportCaughtError(this.#state, error, 'request'));
     }
   }
 
@@ -544,7 +544,13 @@ export class SocketSessionController implements SessionController {
       this.#refreshPaneFor(message.events);
     }
     if (message.type === 'protocol_error') {
-      this.#setState(reportError(this.#state, message.message, {scope: 'protocol'}));
+      this.#streamProtocolError = true;
+      this.#setState(
+        reportError(this.#state, message.message, {
+          scope: 'protocol',
+          diagnostic: message.diagnostic ?? null,
+        }),
+      );
     }
   }
 
@@ -570,6 +576,21 @@ export class SocketSessionController implements SessionController {
     this.#state = normalizeFocus(state);
     for (const listener of this.#listeners) listener(this.#state);
   }
+}
+
+function reportCaughtError(
+  state: SessionState,
+  error: unknown,
+  scope: 'request' | 'transport',
+): SessionState {
+  return reportError(state, errorMessage(error), {
+    scope,
+    diagnostic: error instanceof SupervisionError ? error.diagnostic : null,
+  });
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function appendChatEntry(

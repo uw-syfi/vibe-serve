@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'bun:test';
-import type {EventSubscription} from './client.js';
+import {type EventSubscription, SupervisionError} from './client.js';
 import type {ProtocolResponse, RequestInput, RunEvent, ServerMessage} from './protocol.js';
 import {SocketSessionController, type SupervisionTransport} from './session-controller.js';
 import {chatPaneVisible, experimentLogVisible} from './session-model.js';
@@ -58,6 +58,59 @@ describe('session controller', () => {
     expect(controller.state.status).toBe('completed');
     expect(controller.state.overlay).toBeNull();
     expect(controller.state.errorBanner).toBeNull();
+  });
+
+  it('prefers structured response and protocol diagnostics over legacy messages', async () => {
+    const diagnostic = {
+      id: 'request-1',
+      code: 'unknown_future_code',
+      summary: 'The requested operation was rejected.',
+      detail: 'PermissionError: missing capability.',
+      hint: 'Request the required capability.',
+      scope: 'request' as const,
+      severity: 'error' as const,
+      retryability: 'manual' as const,
+    };
+    const transport = new FakeTransport(
+      [],
+      [],
+      undefined,
+      new SupervisionError('legacy request message', diagnostic),
+    );
+    const controller = new SocketSessionController(transport);
+
+    await controller.submit('/resume');
+
+    expect(controller.state.errorBanner).toMatchObject({
+      message: diagnostic.summary,
+      detail: diagnostic.detail,
+      hint: diagnostic.hint,
+      diagnosticId: diagnostic.id,
+      scope: 'request',
+    });
+
+    const protocolTransport = new FakeTransport();
+    const protocolController = new SocketSessionController(protocolTransport);
+    await protocolController.start();
+    protocolTransport.emit({
+      type: 'protocol_error',
+      code: 'unknown_protocol_code',
+      message: 'legacy protocol message',
+      diagnostic: {...diagnostic, id: 'protocol-1', scope: 'protocol', severity: 'warning'},
+    });
+
+    expect(protocolController.state.errorBanner).toMatchObject({
+      message: diagnostic.summary,
+      diagnosticId: 'protocol-1',
+      scope: 'protocol',
+      severity: 'recoverable',
+    });
+    protocolTransport.disconnect(new Error('Supervision event stream disconnected'));
+    expect(protocolController.state.errorBanner).toMatchObject({
+      message: diagnostic.summary,
+      diagnosticId: 'protocol-1',
+      scope: 'protocol',
+    });
   });
 
   it('renders a performance curve from the perf command', async () => {
@@ -329,7 +382,7 @@ describe('session controller', () => {
       kind: 'result',
       label: 'Chat failed',
       tone: 'failure',
-      content: 'Error: Codex exited with code 1',
+      content: 'Codex exited with code 1',
     });
   });
 

@@ -8,13 +8,16 @@ import socket
 import socketserver
 import threading
 import time
+from contextlib import suppress
 from pathlib import Path  # noqa: TC003  # tracked: #288
 
 from pydantic import BaseModel, TypeAdapter
 
+from vibesys.server.diagnostics import DiagnosticScope, exception_to_diagnostic
 from vibesys.server.protocol import (
     EventBatchMessage,
     EventMessage,
+    ProtocolErrorMessage,
     ProtocolRequest,
     Response,
     SubscribedMessage,
@@ -40,15 +43,23 @@ class _RequestHandler(socketserver.StreamRequestHandler):
                         self._stream(request)
                     except (BrokenPipeError, ConnectionResetError):
                         pass
+                    except Exception as exc:  # noqa: BLE001  # tracked: #288
+                        self._write_stream_error(request.request_id, exc)
                     finally:
                         self.server.client_disconnected.set()  # type: ignore[attr-defined]
                     return
                 response = service.execute(request)
             except Exception as exc:  # noqa: BLE001  # tracked: #288
+                diagnostic = exception_to_diagnostic(
+                    exc,
+                    scope=DiagnosticScope.REQUEST,
+                    operation="Request",
+                )
                 response = Response(
                     request_id=request_id,
                     ok=False,
-                    error=str(exc),
+                    error=diagnostic.summary,
+                    diagnostic=diagnostic,
                 )
             self.wfile.write(response.model_dump_json().encode() + b"\n")
             self.wfile.flush()
@@ -78,6 +89,24 @@ class _RequestHandler(socketserver.StreamRequestHandler):
             for event in events:
                 self._write_message(EventMessage(event=event))
                 cursor = event.sequence
+
+    def _write_stream_error(self, request_id: str, error: Exception) -> None:
+        """Report a replay or stream failure without hiding a live connection."""
+        diagnostic = exception_to_diagnostic(
+            error,
+            scope=DiagnosticScope.PROTOCOL,
+            operation="Event stream",
+            code="stream_failed",
+        )
+        with suppress(BrokenPipeError, ConnectionResetError):
+            self._write_message(
+                ProtocolErrorMessage(
+                    request_id=request_id,
+                    code=diagnostic.code,
+                    message=diagnostic.summary,
+                    diagnostic=diagnostic,
+                )
+            )
 
     def _client_disconnected(self) -> bool:
         try:

@@ -92,6 +92,26 @@ export class ErrorBannerView {
         wrapMode: 'word',
       }),
     );
+    if (banner.detail !== null) {
+      this.#scroll.add(
+        new TextRenderable(this.renderer, {
+          content: `Detail: ${banner.detail}`,
+          fg: this.#theme.textPrimary,
+          width: '100%',
+          wrapMode: 'word',
+        }),
+      );
+    }
+    if (banner.hint !== null) {
+      this.#scroll.add(
+        new TextRenderable(this.renderer, {
+          content: `Hint: ${banner.hint}`,
+          fg: this.#theme.warning,
+          width: '100%',
+          wrapMode: 'word',
+        }),
+      );
+    }
     this.output.add(
       new TextRenderable(this.renderer, {
         content: 'Ctrl+PgUp/PgDn: scroll',
