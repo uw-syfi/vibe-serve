@@ -101,10 +101,8 @@ when the executor closes. Cargo keeps its conventional workspace `target`
 directory. VibeSys explicitly masks every declared hidden project path and
 `.codex-tmp`, scans only top-level dot paths, and fails if that scan exceeds
 Omnigent's entry limit. This avoids a partial recursive scan silently exposing
-a declared secret. Cargo's generated `.cargo-lock`, `.fingerprint`, and
-`.rustc_info.json` basenames remain allowed for compatibility with its shell
-helpers. The Rust grant bypasses rustup's host metadata and does not expose or
-scan `~/.rustup`.
+a declared secret. The Rust grant bypasses rustup's host metadata and does not
+expose or scan `~/.rustup`.
 Omnigent 0.10.0 cannot make `.git` and `.vibesys` read-only beneath a writable
 workspace. The run contract therefore protects those control directories, and
 local operational state lives outside the repository by default. The two

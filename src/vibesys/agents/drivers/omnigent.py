@@ -8,7 +8,6 @@ import asyncio
 import contextlib
 import json
 import os
-import shutil
 import sys
 import tempfile
 from importlib import import_module
@@ -45,9 +44,6 @@ _TOOL_EXECUTOR_ATTR = "_tool_executor"
 
 _OMNIGENT_INTERNAL_HIDDEN = frozenset({".codex-tmp"})
 """Runtime-owned workspace paths that OS tools must not traverse."""
-
-_CARGO_GENERATED_HIDDEN = frozenset({".cargo-lock", ".fingerprint", ".rustc_info.json"})
-"""Cargo-generated basenames needed beneath the conventional target directory."""
 
 
 class OmnigentDriverError(RuntimeError):
@@ -435,7 +431,6 @@ class OmnigentDriver:
             and entry.name not in _OMNIGENT_INTERNAL_HIDDEN
             and Path(entry.name) not in hidden
         ]
-        allow_hidden.extend(sorted(_CARGO_GENERATED_HIDDEN))
         environment = {**os.environ, **dict(spec.environment)}
         read_paths = None
         if include_toolchain:
@@ -489,13 +484,6 @@ class OmnigentDriver:
                     "RUSTUP_AUTO_INSTALL": "0",
                 }
             )
-            if sys.platform.startswith("linux"):
-                linker = shutil.which("cc", path=environment.get("PATH")) or shutil.which(
-                    "gcc", path=environment.get("PATH")
-                )
-                if linker is not None:
-                    host = rust_toolchain[1].parent.name.upper().replace("-", "_")
-                    tool_environment[f"CARGO_TARGET_{host}_LINKER"] = str(Path(linker).resolve())
         try:
             shell_os_env_spec = self._build_os_env(
                 spec,
