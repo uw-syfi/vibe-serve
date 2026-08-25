@@ -305,7 +305,7 @@ def test_os_policy_exposes_control_dotdirs_and_keeps_hidden_dotfiles_masked(
 
     spec = driver._build_os_env(  # noqa: SLF001
         _spec(tmp_path, policy=AgentExecutionPolicy(project_paths=policy)),
-        env_passthrough=("CARGO_TARGET_DIR",),
+        env_passthrough=("CARGO_HOME",),
         include_toolchain=True,
     )
 
@@ -313,8 +313,14 @@ def test_os_policy_exposes_control_dotdirs_and_keeps_hidden_dotfiles_masked(
     assert spec.sandbox.write_paths == [str(tmp_path)]
     assert spec.sandbox.write_files is None
     assert spec.sandbox.read_paths == [str(toolchain)]
-    assert spec.sandbox.env_passthrough == ["CARGO_TARGET_DIR"]
-    assert set(spec.sandbox.cwd_allow_hidden or ()) == {".git", ".vibesys"}
+    assert spec.sandbox.env_passthrough == ["CARGO_HOME"]
+    assert set(spec.sandbox.cwd_allow_hidden or ()) == {
+        ".cargo-lock",
+        ".fingerprint",
+        ".git",
+        ".rustc_info.json",
+        ".vibesys",
+    }
 
 
 def test_codex_executor_disables_native_tools(
@@ -364,12 +370,10 @@ def test_codex_executor_disables_native_tools(
         rust_sysroot / "bin"
     )
     cargo_home = Path(captured["tool_environment"]["CARGO_HOME"])
-    cargo_target = Path(captured["tool_environment"]["CARGO_TARGET_DIR"])
     assert cargo_home.name == "cargo-home"
-    assert cargo_target.name == "target"
-    assert cargo_home.parent == cargo_target.parent
     assert cargo_home.parent.is_dir()
     assert not cargo_home.is_relative_to(tmp_path)
+    assert "CARGO_TARGET_DIR" not in captured["tool_environment"]
     assert captured["tool_environment"]["CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER"] == str(
         Path("/usr/bin/gcc").resolve()
     )
