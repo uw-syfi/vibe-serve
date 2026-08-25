@@ -172,10 +172,10 @@ def test_timeout_poisons_session_and_cleanup_is_idempotent(tmp_path: Path) -> No
         (
             {
                 "policy": AgentExecutionPolicy(
-                    project_paths=ProjectPathPolicy(read_only_paths=(".vibesys",)),
+                    project_paths=ProjectPathPolicy(read_only_paths=("src/protected",)),
                 )
             },
-            "read-only",
+            "top-level",
         ),
         ({"policy": AgentExecutionPolicy(containerized=True)}, "container"),
     ],
@@ -195,6 +195,42 @@ def test_create_session_rejects_unsupported_requirements_before_building(
 
     with pytest.raises(OmnigentDriverError, match=message):
         driver.create_session(_spec(tmp_path, **change))
+
+
+def test_create_session_accepts_supported_top_level_project_policy(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    driver = OmnigentDriver()
+    executor = _FakeExecutor([])
+    monkeypatch.setattr(driver, "_build_executor", lambda _spec: (executor, []))
+    policy = ProjectPathPolicy(
+        read_only_paths=(".git", ".vibesys"),
+        hidden_paths=(".env",),
+    )
+
+    session = driver.create_session(
+        _spec(tmp_path, policy=AgentExecutionPolicy(project_paths=policy))
+    )
+
+    session.close()
+    driver.close()
+
+
+def test_create_session_rejects_non_dot_hidden_path(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    driver = OmnigentDriver()
+    monkeypatch.setattr(
+        driver,
+        "_build_executor",
+        lambda _spec: pytest.fail("executor must not be built"),
+    )
+    policy = ProjectPathPolicy(hidden_paths=("agent.toml",))
+
+    with pytest.raises(OmnigentDriverError, match=r"agent\.toml"):
+        driver.create_session(_spec(tmp_path, policy=AgentExecutionPolicy(project_paths=policy)))
 
 
 def test_driver_owns_session_cleanup(
@@ -236,9 +272,66 @@ def test_missing_private_tool_executor_seam_fails_during_setup(
 def test_os_policy_is_always_sandboxed_and_workspace_scoped(tmp_path: Path) -> None:
     driver = OmnigentDriver()
 
-    spec = driver._build_os_env(tmp_path)  # noqa: SLF001
+    spec = driver._build_os_env(_spec(tmp_path))  # noqa: SLF001
 
     assert spec.sandbox is not None
     assert spec.sandbox.type != "none"
     assert spec.sandbox.write_paths == [str(tmp_path)]
     assert spec.cwd == str(tmp_path)
+
+
+def test_os_policy_exposes_control_dotdirs_and_keeps_hidden_dotfiles_masked(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    (tmp_path / ".git").mkdir()
+    (tmp_path / ".vibesys").mkdir()
+    (tmp_path / ".env").write_text("secret", encoding="utf-8")
+    (tmp_path / "src").mkdir()
+    (tmp_path / "Cargo.toml").write_text("[package]", encoding="utf-8")
+    toolchain = tmp_path.parent / "toolchain"
+    toolchain.mkdir(exist_ok=True)
+    policy = ProjectPathPolicy(
+        read_only_paths=(".git", ".vibesys"),
+        hidden_paths=(".env",),
+    )
+    driver = OmnigentDriver()
+    monkeypatch.setattr(
+        "vibesys.agents.drivers.omnigent.declare_rust_toolchain_resources",
+        lambda *_args, **_kwargs: (HostResource(toolchain, purpose="Rust toolchain"),),
+    )
+
+    spec = driver._build_os_env(  # noqa: SLF001
+        _spec(tmp_path, policy=AgentExecutionPolicy(project_paths=policy))
+    )
+
+    assert spec.sandbox is not None
+    assert spec.sandbox.write_paths == [str(tmp_path)]
+    assert spec.sandbox.write_files is None
+    assert spec.sandbox.read_paths == sorted((str(tmp_path), str(toolchain)))
+    assert set(spec.sandbox.cwd_allow_hidden or ()) == {".git", ".vibesys"}
+
+
+def test_codex_executor_disables_native_tools(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    class Executor(_FakeExecutor):
+        def __init__(self, **kwargs: Any) -> None:  # noqa: ANN401
+            captured.update(kwargs)
+            super().__init__([])
+
+    driver = OmnigentDriver()
+    monkeypatch.setattr(driver, "_executor_class", lambda _spec: Executor)
+    monkeypatch.setattr(driver, "_build_os_env", lambda _spec: object())
+    monkeypatch.setattr(
+        "vibesys.agents.drivers.omnigent._build_os_tools",
+        lambda _os_env, _workspace: ([], lambda _name, _args: None),
+    )
+
+    executor, _schemas = driver._build_executor(_spec(tmp_path))  # noqa: SLF001
+
+    assert captured["disable_native_tools"] is True
+    driver.close_executor(executor)
