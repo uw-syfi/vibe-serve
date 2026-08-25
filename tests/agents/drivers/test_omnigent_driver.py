@@ -286,6 +286,7 @@ def test_os_policy_exposes_control_dotdirs_and_keeps_hidden_dotfiles_masked(
 ) -> None:
     (tmp_path / ".git").mkdir()
     (tmp_path / ".vibesys").mkdir()
+    (tmp_path / ".codex-tmp").mkdir()
     (tmp_path / ".env").write_text("secret", encoding="utf-8")
     (tmp_path / "src").mkdir()
     (tmp_path / "Cargo.toml").write_text("[package]", encoding="utf-8")
