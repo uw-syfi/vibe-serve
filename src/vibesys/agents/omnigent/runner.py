@@ -1,4 +1,4 @@
-"""Omnigent-backed implementation of :class:`~vibesys.agents.base.AgentRunner`.
+"""Pre-driver Omnigent client retained for compatibility tests.
 
 This is the opt-in alternative to :class:`~vibesys.agents.cli_runner.CliAgentRunner`,
 selected only when :attr:`~vibesys.features.FeatureFlag.OMNIGENT_AGENT_BACKEND`
@@ -333,19 +333,17 @@ async def _drive_turn(
 
 
 class OmnigentAgentRunner:
-    """:class:`AgentRunner` backed by Omnigent's in-process executors.
+    """Direct compatibility client backed by Omnigent's in-process executors.
 
-    Constructed only by :func:`vibesys.agents.build_agent_runner` when the
-    ``omnigent_agent_backend`` flag is on. Construction validates the provider
-    eagerly so an unsupported combination fails before the loop starts rather
-    than mid-round.
+    Construction validates the provider eagerly so an unsupported combination
+    fails before the loop starts rather than mid-round.
     """
 
     backend_name = "omnigent"
 
     @property
     def capabilities(self) -> AgentCapabilities:
-        """Compatibility metadata for the superseded concrete runner."""
+        """Return the direct client's supported features."""
         return AgentCapabilities(timeouts=False)
 
     def __init__(  # noqa: D107, PLR0913  # tracked: #288

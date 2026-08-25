@@ -2092,7 +2092,7 @@ def _run_framework_gates(  # noqa: PLR0913  # tracked: #288
     carry its complete metric row to the round record; it is empty whenever the
     benchmark did not run.
     """
-    if ctx.agent_runner.backend_name == "stub":
+    if ctx.agent_client.backend_name == "stub":
         return None, FrameworkBenchmarkOutcome(), False
     resource_feedback = _reconcile_model_requests(ctx)
     if resource_feedback is not None:
@@ -3109,13 +3109,13 @@ def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
                     official_evaluation=(
                         passed
                         and completed_official_evaluation_reason is not None
-                        and ctx.agent_runner.backend_name != "stub"
+                        and ctx.agent_client.backend_name != "stub"
                         and (bool(ctx.judge_accuracy_command) or framework_benchmark_configured)
                     ),
                     official_evaluation_reason=(
                         completed_official_evaluation_reason
                         if (
-                            ctx.agent_runner.backend_name != "stub"
+                            ctx.agent_client.backend_name != "stub"
                             and (bool(ctx.judge_accuracy_command) or framework_benchmark_configured)
                         )
                         else None

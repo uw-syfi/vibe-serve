@@ -722,8 +722,8 @@ def test_run_context_chat_exposes_trajectory_without_inlining_it_in_prompt(tmp_p
     supervisor.attach(store.state.log_directory(run_id), project=store, run_id=run_id)
     ctx = _RunContext.__new__(_RunContext)
     ctx.supervisor = supervisor
-    ctx.agent_runner = Mock()
-    ctx.agent_runner.invoke_text.return_value = "It improved in round 2."
+    ctx.agent_client = Mock()
+    ctx.agent_client.invoke_text.return_value = "It improved in round 2."
     ctx._paths = RunPaths(  # noqa: SLF001  # tracked: #288
         project_root=store.root,
         log_dir=store.state.log_directory(run_id),
@@ -741,7 +741,7 @@ def test_run_context_chat_exposes_trajectory_without_inlining_it_in_prompt(tmp_p
     answer = ctx.chat("what improved?")
 
     assert answer == "It improved in round 2."
-    invocation = ctx.agent_runner.invoke_text.call_args.kwargs
+    invocation = ctx.agent_client.invoke_text.call_args.kwargs
     assert invocation["kind"] == "chat"
     assert "response_cls" not in invocation
     assert invocation["user_prompt"] == "what improved?"
@@ -760,10 +760,10 @@ def test_run_context_chat_exposes_trajectory_without_inlining_it_in_prompt(tmp_p
         "answer": "It improved in round 2.",
     }
 
-    ctx.agent_runner.invoke_text.side_effect = RuntimeError("agent unavailable")
+    ctx.agent_client.invoke_text.side_effect = RuntimeError("agent unavailable")
     with pytest.raises(RuntimeError, match="Chat agent failed: RuntimeError: agent unavailable"):
         ctx.chat("what is the current status?")
-    continuation = ctx.agent_runner.invoke_text.call_args.kwargs
+    continuation = ctx.agent_client.invoke_text.call_args.kwargs
     assert continuation["user_prompt"] == "what is the current status?"
     assert "It improved in round 2." not in continuation["user_prompt"]
     assert "_vibesys_chat/instructions.md" in continuation["system_prompt"]
@@ -1049,8 +1049,8 @@ def test_run_context_records_invocation_boundary(tmp_path):  # noqa: ANN001, ANN
     supervisor.attach(tmp_path)
     ctx = _RunContext.__new__(_RunContext)
     ctx.supervisor = supervisor
-    ctx.agent_runner = Mock()
-    ctx.agent_runner.invoke.return_value = {"summary": "measured"}
+    ctx.agent_client = Mock()
+    ctx.agent_client.invoke.return_value = {"summary": "measured"}
     ctx._paths = RunPaths(  # noqa: SLF001  # tracked: #288
         project_root=tmp_path,
         log_dir=tmp_path / "logs",
@@ -1069,7 +1069,7 @@ def test_run_context_records_invocation_boundary(tmp_path):  # noqa: ANN001, ANN
     )
 
     assert result == {"summary": "measured"}
-    sent_prompt = ctx.agent_runner.invoke.call_args.kwargs["user_prompt"]
+    sent_prompt = ctx.agent_client.invoke.call_args.kwargs["user_prompt"]
     assert sent_prompt == "original"
     events = _events(tmp_path / "run-events.jsonl")
     started = next(event for event in events if event["type"] == "invocation_started")

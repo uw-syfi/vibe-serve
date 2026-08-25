@@ -1,4 +1,4 @@
-"""Deepagents implementation of :class:`AgentRunner`.
+"""Deepagents implementation of :class:`AgentClient`.
 
 Wraps ``deepagents.create_deep_agent`` and the existing
 ``vibesys.agent_runner.run_typed_agent`` plumbing — no behavior
@@ -26,6 +26,7 @@ from vibesys.agent_runner import (
     run_typed_agent,
 )
 from vibesys.agents.callbacks import AgentLogger
+from vibesys.agents.client import AgentClient
 from vibesys.agents.contracts import AgentCapabilities
 from vibesys.agents.progress import AgentProgress  # noqa: TC001  # tracked: #288
 
@@ -37,8 +38,8 @@ def _agent_label(kind: str) -> str:
     return kind.replace("_", " ").title()
 
 
-class DeepAgentsRunner:
-    """:class:`AgentRunner` backed by ``deepagents.create_deep_agent``."""
+class DeepAgentsClient(AgentClient):
+    """:class:`AgentClient` backed by ``deepagents.create_deep_agent``."""
 
     backend_name = "deepagents"
 
@@ -75,7 +76,7 @@ class DeepAgentsRunner:
         self._agents: dict[str, Any] = {}
         self._agent_signatures: dict[str, tuple[Any, ...]] = {}
         self._checkpointers: dict[str, MemorySaver] = {}
-        self._sessions: dict[str, tuple[MemorySaver, str]] = {}
+        self._deepagents_sessions: dict[str, tuple[MemorySaver, str]] = {}
 
     def _checkpointer(self, kind: str) -> MemorySaver:
         """Return the checkpointer shared by one kind's cached graphs."""
@@ -93,9 +94,9 @@ class DeepAgentsRunner:
         if not reuse_session or kind == "chat":
             return checkpointer, uuid.uuid4().hex
         key = f"{kind}:{session_key}" if session_key else kind
-        if key not in self._sessions:
-            self._sessions[key] = (checkpointer, uuid.uuid4().hex)
-        return self._sessions[key]
+        if key not in self._deepagents_sessions:
+            self._deepagents_sessions[key] = (checkpointer, uuid.uuid4().hex)
+        return self._deepagents_sessions[key]
 
     def _get_agent(
         self,

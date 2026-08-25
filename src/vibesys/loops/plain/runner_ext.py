@@ -1,15 +1,15 @@
 """Issue-tracker runner customization.
 
-Wraps any :class:`~vibesys.agents.base.AgentRunner` and injects
+Wraps any :class:`~vibesys.agents.client.AgentClient` and injects
 tracker access for the ``judge`` and ``perf_eval`` phases. The wrapper
 picks the right transport (MCP server spec or in-process ``@tool`` callables)
-from the inner runner's declared capabilities.
+from the inner client's declared capabilities.
 
 This module is the only place that knows BOTH:
   - the issue-tracker policy (creator/iteration/cap/types per phase)
   - the per-backend translation (``MCPServerSpec`` vs ``list[BaseTool]``)
 
-The base AgentRunner implementations stay agnostic — they only see the
+The base AgentClient implementations stay agnostic — they only see the
 generic ``mcp_servers``/``tools`` injection-point kwargs.
 
 Implementer phase: passes through unmodified. The relevant issue is
@@ -19,14 +19,16 @@ tools are needed there.
 
 from __future__ import annotations
 
+from pathlib import Path  # noqa: TC003
 from typing import Any, TypeVar
 
 from langchain_core.tools import BaseTool  # noqa: TC002  # tracked: #288
 from pydantic import BaseModel
 
 from vibesys._agent_cli.base import MCPServerSpec  # noqa: TC001  # tracked: #288
-from vibesys.agents.base import AgentRunner  # noqa: TC001  # tracked: #288
+from vibesys.agents.client import AgentClient
 from vibesys.agents.contracts import AgentCapabilities  # noqa: TC001
+from vibesys.agents.progress import AgentProgress  # noqa: TC001
 from vibesys.loops.plain.mcp_config import build_issue_mcp_spec
 from vibesys.loops.plain.tools import build_issue_tools
 from vs_issue_board import IssueBoard, IssueType
@@ -44,10 +46,10 @@ _PERF_EVAL_ALLOWED_TYPES: frozenset[IssueType] = frozenset(
 _JUDGE_CAP: int = 1
 
 
-class PlainLoopAgentRunner:
-    """Wrap an AgentRunner and inject tracker access for judge/perf_eval.
+class PlainLoopAgentClient(AgentClient):
+    """Wrap an AgentClient and inject tracker access for judge/perf_eval.
 
-    The wrapper preserves the AgentRunner Protocol surface for the kwargs
+    The wrapper preserves the AgentClient surface for the kwargs
     the issue loop actually uses. The only addition is an explicit
     ``iteration`` kwarg on ``invoke()`` that the wrapper consumes (it
     determines the per-iteration cap scope) and does not forward.
@@ -55,7 +57,7 @@ class PlainLoopAgentRunner:
 
     def __init__(  # noqa: ANN204, D107  # tracked: #288
         self,
-        inner: AgentRunner,
+        inner: AgentClient,
         *,
         store: IssueBoard,
         max_issues_per_perf_eval: int,
@@ -70,18 +72,50 @@ class PlainLoopAgentRunner:
 
     @property
     def capabilities(self) -> AgentCapabilities:
-        """Preserve the inner runner's declared capabilities."""
+        """Preserve the inner client's declared capabilities."""
         return self._inner.capabilities
 
     def set_log_file(self, stream: Any) -> None:  # noqa: ANN401
-        """Retarget inner-runner logs when the run changes log files."""
+        """Retarget inner-client logs when the run changes log files."""
         setter = getattr(self._inner, "set_log_file", None)
         if callable(setter):
             setter(stream)
 
     def close(self) -> None:
-        """Close the inner runner."""
+        """Close the inner client."""
         self._inner.close()
+
+    def invoke_text(  # noqa: PLR0913
+        self,
+        *,
+        kind: str,
+        workspace: Path,
+        system_prompt: str,
+        user_prompt: str,
+        round_label: str,
+        env: dict[str, str] | None = None,
+        invocation_id: str | None = None,
+        progress: AgentProgress | None = None,
+        mcp_servers: list[MCPServerSpec] | None = None,
+        tools: list[BaseTool] | None = None,
+        reuse_session: bool | None = None,
+        session_key: str | None = None,
+    ) -> str:
+        """Delegate an unstructured turn without changing tracker policy."""
+        return self._inner.invoke_text(
+            kind=kind,
+            workspace=workspace,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            round_label=round_label,
+            env=env,
+            invocation_id=invocation_id,
+            progress=progress,
+            mcp_servers=mcp_servers,
+            tools=tools,
+            reuse_session=reuse_session,
+            session_key=session_key,
+        )
 
     def invoke(  # noqa: D102  # tracked: #288
         self,
@@ -96,7 +130,7 @@ class PlainLoopAgentRunner:
         if kind in ("judge", "perf_eval"):
             if iteration is None:
                 raise ValueError(  # noqa: TRY003  # tracked: #288
-                    f"PlainLoopAgentRunner.invoke(kind={kind!r}) requires "
+                    f"PlainLoopAgentClient.invoke(kind={kind!r}) requires "
                     "iteration= so the cap can be scoped per-iteration"
                 )
             if kind == "judge":

@@ -34,7 +34,7 @@ from vibesys.domains.base import DomainName  # noqa: TC001  # tracked: #288
 from vibesys.domains.registry import resolve_domain
 from vibesys.input_manifest import WorkspaceSource  # noqa: TC001  # tracked: #288
 from vibesys.loops.plain.render import render_all
-from vibesys.loops.plain.runner_ext import PlainLoopAgentRunner
+from vibesys.loops.plain.runner_ext import PlainLoopAgentClient
 from vibesys.loops.plain.state import PlainStateStore
 from vibesys.profilers import ProfilerKind
 from vibesys.prompts import PROMPTS_DIR, Prompt
@@ -384,10 +384,9 @@ def run_plain_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
         # MCP server spec under cli). The wrapper consumes an extra
         # ``iteration=`` kwarg on invoke() that the loop passes per call.
         # See vibesys/plain/runner_ext.py.
-        # Duck-typed wrapper: preserves the AgentRunner surface the issue
-        # loop uses (see PlainLoopAgentRunner docstring).
-        ctx.agent_runner = PlainLoopAgentRunner(  # pyright: ignore[reportAttributeAccessIssue]
-            ctx.agent_runner,
+        # The wrapper preserves the AgentClient surface while adding issue tools.
+        ctx.agent_client = PlainLoopAgentClient(
+            ctx.agent_client,
             store=store,
             max_issues_per_perf_eval=max_issues_per_perf_eval,
         )
@@ -570,7 +569,7 @@ def run_plain_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
 
                     ctx.wait_for_debug(f"Judge step on issue #{issue.id}")
                     ctx.lprint(f"\n>>> Judge reviewing issue #{issue.id}...")
-                    # PlainLoopAgentRunner injects tracker access (in-process
+                    # PlainLoopAgentClient injects tracker access (in-process
                     # @tool callables under deepagents, MCPServerSpec under
                     # cli) for kind="judge" — see
                     # vibesys/plain/runner_ext.py. The judge may file
@@ -694,7 +693,7 @@ def run_plain_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
 
                 ctx.wait_for_debug("Perf evaluator step")
                 ctx.lprint("\n>>> Performance Evaluator benchmarking...")
-                # PlainLoopAgentRunner injects tracker access for kind="perf_eval"
+                # PlainLoopAgentClient injects tracker access for kind="perf_eval"
                 # and scopes the per-iteration cap by the iteration kwarg below,
                 # so issues filed here are counted against iter_label's budget.
                 # See vibesys/plain/runner_ext.py.

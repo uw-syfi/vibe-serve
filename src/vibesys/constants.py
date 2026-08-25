@@ -65,5 +65,5 @@ KNOWN_COMPUTE_BACKENDS: tuple[str, ...] = tuple(b.value for b in ComputeBackend)
 
 # Agent backend used when neither the ``--agent-backend`` flag nor an
 # ``[agent].backend`` config key is set. Resolved in a single place so
-# build_agent_runner and ComputeContext cannot drift.
+# build_agent_client and ComputeContext cannot drift.
 DEFAULT_AGENT_BACKEND = "cli"

@@ -1,6 +1,6 @@
-"""Tests for PlainLoopAgentRunner — the issue-loop's runner customization.
+"""Tests for PlainLoopAgentClient — the issue-loop's runner customization.
 
-The wrapper sits in front of any AgentRunner and injects issue-tracker
+The wrapper sits in front of any AgentClient and injects issue-tracker
 access for ``judge`` and ``perf_eval`` phases. Under the cli backend it
 materializes an MCPServerSpec; under deepagents it materializes
 LangChain ``@tool`` callables. Implementer phase passes through.
@@ -12,9 +12,9 @@ import pytest
 from pydantic import BaseModel
 
 from vibesys._agent_cli.base import MCPServerSpec
-from vibesys.agents.base import AgentRunner
+from vibesys.agents.client import AgentClient
 from vibesys.agents.contracts import AgentCapabilities
-from vibesys.loops.plain.runner_ext import PlainLoopAgentRunner
+from vibesys.loops.plain.runner_ext import PlainLoopAgentClient
 from vs_issue_board import IssueBoard
 
 _EXPECTED_TOOL_NAMES = {"list_issues", "get_issue", "search_issues", "create_issue"}
@@ -25,7 +25,7 @@ class _Resp(BaseModel):
 
 
 def _mock_runner(backend_name: str) -> MagicMock:
-    runner = MagicMock(spec=AgentRunner)
+    runner = MagicMock(spec=AgentClient)
     runner.backend_name = backend_name
     runner.capabilities = AgentCapabilities(
         mcp_servers=backend_name == "cli",
@@ -52,7 +52,7 @@ class TestDeepAgentsBackend:
     def test_judge_receives_in_process_tools(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         store = _make_store(tmp_path)
         inner = _mock_runner("deepagents")
-        wrapper = PlainLoopAgentRunner(inner, store=store, max_issues_per_perf_eval=3)
+        wrapper = PlainLoopAgentClient(inner, store=store, max_issues_per_perf_eval=3)
 
         wrapper.invoke(response_cls=_Resp, kind="judge", iteration=2, round_label="r")
 
@@ -65,7 +65,7 @@ class TestDeepAgentsBackend:
     def test_perf_eval_receives_in_process_tools(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         store = _make_store(tmp_path)
         inner = _mock_runner("deepagents")
-        wrapper = PlainLoopAgentRunner(inner, store=store, max_issues_per_perf_eval=4)
+        wrapper = PlainLoopAgentClient(inner, store=store, max_issues_per_perf_eval=4)
 
         wrapper.invoke(response_cls=_Resp, kind="perf_eval", iteration=5, round_label="r")
 
@@ -79,7 +79,7 @@ class TestDeepAgentsBackend:
         issues and the 6th must be rejected with the cap-reached error."""
         store = _make_store(tmp_path)
         inner = _mock_runner("deepagents")
-        wrapper = PlainLoopAgentRunner(inner, store=store, max_issues_per_perf_eval=5)
+        wrapper = PlainLoopAgentClient(inner, store=store, max_issues_per_perf_eval=5)
 
         wrapper.invoke(response_cls=_Resp, kind="perf_eval", iteration=1, round_label="r")
         tools = inner.invoke.call_args.kwargs["tools"]
@@ -96,7 +96,7 @@ class TestDeepAgentsBackend:
         """Judge is bug-only — feature/perf must be rejected by policy."""
         store = _make_store(tmp_path)
         inner = _mock_runner("deepagents")
-        wrapper = PlainLoopAgentRunner(inner, store=store, max_issues_per_perf_eval=3)
+        wrapper = PlainLoopAgentClient(inner, store=store, max_issues_per_perf_eval=3)
 
         wrapper.invoke(response_cls=_Resp, kind="judge", iteration=1, round_label="r")
         tools = inner.invoke.call_args.kwargs["tools"]
@@ -116,7 +116,7 @@ class TestCliBackend:
     def test_judge_receives_mcp_server_spec(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         store = _make_store(tmp_path)
         inner = _mock_runner("cli")
-        wrapper = PlainLoopAgentRunner(inner, store=store, max_issues_per_perf_eval=3)
+        wrapper = PlainLoopAgentClient(inner, store=store, max_issues_per_perf_eval=3)
 
         wrapper.invoke(response_cls=_Resp, kind="judge", iteration=7, round_label="r")
 
@@ -139,7 +139,7 @@ class TestCliBackend:
     def test_perf_eval_receives_mcp_server_spec_with_all_types(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         store = _make_store(tmp_path)
         inner = _mock_runner("cli")
-        wrapper = PlainLoopAgentRunner(inner, store=store, max_issues_per_perf_eval=4)
+        wrapper = PlainLoopAgentClient(inner, store=store, max_issues_per_perf_eval=4)
 
         wrapper.invoke(response_cls=_Resp, kind="perf_eval", iteration=2, round_label="r")
 
@@ -160,10 +160,40 @@ class TestCliBackend:
 
 
 class TestPassThrough:
+    def test_text_turn_delegates_to_inner_client(self, tmp_path):  # noqa: ANN001, ANN201
+        store = _make_store(tmp_path)
+        inner = _mock_runner("cli")
+        inner.invoke_text.return_value = "answer"
+        wrapper = PlainLoopAgentClient(inner, store=store, max_issues_per_perf_eval=3)
+
+        result = wrapper.invoke_text(
+            kind="chat",
+            workspace=tmp_path,
+            system_prompt="system",
+            user_prompt="question",
+            round_label="chat",
+        )
+
+        assert result == "answer"
+        inner.invoke_text.assert_called_once_with(
+            kind="chat",
+            workspace=tmp_path,
+            system_prompt="system",
+            user_prompt="question",
+            round_label="chat",
+            env=None,
+            invocation_id=None,
+            progress=None,
+            mcp_servers=None,
+            tools=None,
+            reuse_session=None,
+            session_key=None,
+        )
+
     def test_implementer_passes_through_under_deepagents(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         store = _make_store(tmp_path)
         inner = _mock_runner("deepagents")
-        wrapper = PlainLoopAgentRunner(inner, store=store, max_issues_per_perf_eval=3)
+        wrapper = PlainLoopAgentClient(inner, store=store, max_issues_per_perf_eval=3)
 
         wrapper.invoke(response_cls=_Resp, kind="implementer", round_label="r")
 
@@ -175,7 +205,7 @@ class TestPassThrough:
     def test_implementer_passes_through_under_cli(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         store = _make_store(tmp_path)
         inner = _mock_runner("cli")
-        wrapper = PlainLoopAgentRunner(inner, store=store, max_issues_per_perf_eval=3)
+        wrapper = PlainLoopAgentClient(inner, store=store, max_issues_per_perf_eval=3)
 
         wrapper.invoke(response_cls=_Resp, kind="implementer", round_label="r")
 
@@ -185,10 +215,10 @@ class TestPassThrough:
 
     def test_iteration_kwarg_is_consumed_not_forwarded(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         """The wrapper consumes ``iteration=`` and must not pass it to the
-        inner runner — the AgentRunner Protocol has no such kwarg."""
+        inner client, whose public invoke API has no such kwarg."""
         store = _make_store(tmp_path)
         inner = _mock_runner("deepagents")
-        wrapper = PlainLoopAgentRunner(inner, store=store, max_issues_per_perf_eval=3)
+        wrapper = PlainLoopAgentClient(inner, store=store, max_issues_per_perf_eval=3)
 
         wrapper.invoke(response_cls=_Resp, kind="judge", iteration=1, round_label="r")
 
@@ -199,7 +229,7 @@ class TestPassThrough:
         reach the inner runner unchanged."""
         store = _make_store(tmp_path)
         inner = _mock_runner("deepagents")
-        wrapper = PlainLoopAgentRunner(inner, store=store, max_issues_per_perf_eval=3)
+        wrapper = PlainLoopAgentClient(inner, store=store, max_issues_per_perf_eval=3)
 
         wrapper.invoke(
             response_cls=_Resp,
@@ -221,7 +251,7 @@ class TestPassThrough:
 class TestValidation:
     def test_judge_without_iteration_raises(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         store = _make_store(tmp_path)
-        wrapper = PlainLoopAgentRunner(
+        wrapper = PlainLoopAgentClient(
             _mock_runner("deepagents"),
             store=store,
             max_issues_per_perf_eval=3,
@@ -231,7 +261,7 @@ class TestValidation:
 
     def test_perf_eval_without_iteration_raises(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         store = _make_store(tmp_path)
-        wrapper = PlainLoopAgentRunner(
+        wrapper = PlainLoopAgentClient(
             _mock_runner("cli"),
             store=store,
             max_issues_per_perf_eval=3,
@@ -244,9 +274,9 @@ class TestBackendName:
     def test_backend_name_proxies_inner(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         store = _make_store(tmp_path)
         inner = _mock_runner("deepagents")
-        wrapper = PlainLoopAgentRunner(inner, store=store, max_issues_per_perf_eval=3)
+        wrapper = PlainLoopAgentClient(inner, store=store, max_issues_per_perf_eval=3)
         assert wrapper.backend_name == "deepagents"
 
         inner_cli = _mock_runner("cli")
-        wrapper_cli = PlainLoopAgentRunner(inner_cli, store=store, max_issues_per_perf_eval=3)
+        wrapper_cli = PlainLoopAgentClient(inner_cli, store=store, max_issues_per_perf_eval=3)
         assert wrapper_cli.backend_name == "cli"

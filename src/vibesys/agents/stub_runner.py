@@ -1,4 +1,4 @@
-"""Fast deterministic agent runner for end-to-end interface smoke tests."""
+"""Fast deterministic agent client for end-to-end interface smoke tests."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, TypeVar
 from pydantic import BaseModel
 
 from vibesys._agent_cli.base import MCPServerSpec  # noqa: TC001  # tracked: #288
+from vibesys.agents.client import AgentClient
 from vibesys.agents.contracts import AgentCapabilities
 from vibesys.agents.progress import AgentProgress  # noqa: TC001  # tracked: #288
 from vibesys.schemas import HypothesisOutcome
@@ -21,10 +22,13 @@ if TYPE_CHECKING:
 T = TypeVar("T", bound=BaseModel)
 
 
-class StubAgentRunner:
+class StubAgentClient(AgentClient):
     """Return valid canned responses without invoking an external agent."""
 
     backend_name = "stub"
+
+    def __init__(self) -> None:
+        """Create a stateless deterministic client."""
 
     @property
     def capabilities(self) -> AgentCapabilities:
@@ -33,6 +37,10 @@ class StubAgentRunner:
 
     def close(self) -> None:
         """The deterministic stub owns no external resources."""
+
+    def set_log_file(self, stream: object) -> None:
+        """Accept log retargeting; the deterministic stub emits no file logs."""
+        del stream
 
     def invoke(  # noqa: D102, PLR0913  # tracked: #288
         self,

@@ -1,7 +1,6 @@
 import subprocess
 import sys
 from pathlib import Path
-from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -50,7 +49,7 @@ class _RecordingHooks:
 @pytest.fixture(autouse=True)
 def _context_dependencies(monkeypatch):  # pyright: ignore[reportUnusedFunction]  # noqa: ANN001, ANN202
     monkeypatch.setattr("vibesys.context.backends.get", lambda *_args, **_kwargs: _FakeBackend())
-    monkeypatch.setattr("vibesys.context.build_agent_runner", lambda *_args, **_kwargs: MagicMock())
+    monkeypatch.setattr("vibesys.context.build_agent_client", lambda *_args, **_kwargs: MagicMock())
     monkeypatch.setattr(
         "vibesys.context.preflight_profiler_kind",
         lambda kind: ProfilerPreflightResult(kind, True),  # noqa: FBT003
@@ -181,7 +180,7 @@ def test_direct_run_uses_one_project_root_and_canonical_state(tmp_path):  # noqa
     evaluator = _write_project(project)
     runner = MagicMock()
 
-    with patch("vibesys.context.build_agent_runner", return_value=runner) as build_runner:
+    with patch("vibesys.context.build_agent_client", return_value=runner) as build_runner:
         with _create_context(project, evaluator=evaluator) as ctx:
             assert ctx.project_root == project
             assert ctx.workspace == project
@@ -539,7 +538,7 @@ def test_construction_failure_removes_new_copy_and_tears_down_hooks(tmp_path):  
     hooks = _RecordingHooks()
 
     with (
-        patch("vibesys.context.build_agent_runner", side_effect=RuntimeError("runner failed")),
+        patch("vibesys.context.build_agent_client", side_effect=RuntimeError("runner failed")),
         pytest.raises(RuntimeError, match="runner failed"),
     ):
         _create_context(source, runs_dir=runs_dir, evaluator=evaluator, hooks=hooks)
@@ -574,11 +573,12 @@ def test_log_switch_retargets_stderr_tee(tmp_path):  # noqa: ANN001, ANN201
         run_log_path=ctx.logger.path,
     )
     original_file = ctx.logger.file
-    ctx.agent_runner = SimpleNamespace(_run_log_file=ctx.run_log_file)
+    ctx.agent_client = MagicMock()
 
     ctx.switch_log_file("round001")
 
     assert original_file.closed
+    ctx.agent_client.set_log_file.assert_called_once_with(ctx.logger.writer)
     print("\033[31mcolored diagnostic\033[0m", file=sys.stderr)  # noqa: T201
     ctx.logger.close()
     assert sys.stderr is original_stderr

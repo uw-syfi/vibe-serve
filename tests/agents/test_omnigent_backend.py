@@ -2,7 +2,7 @@
 
 The contract these tests protect is asymmetric on purpose:
 
-- With ``omnigent_agent_backend`` off (the default), ``build_agent_runner``
+- With ``omnigent_agent_backend`` off (the default), ``build_agent_client``
   must behave exactly as it did before the flag existed — same runner class,
   same provider resolution, same Docker handling. Those cases are the
   regression guard for the agentshim path.
@@ -31,7 +31,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from vibesys.agents import build_agent_runner
+from vibesys.agents import build_agent_client
 from vibesys.agents.client import AgentClient
 from vibesys.agents.drivers.agentshim import AgentShimDriver
 from vibesys.agents.drivers.omnigent import OmnigentDriver, OmnigentDriverError
@@ -70,7 +70,7 @@ def _build(config: Config, **overrides):  # noqa: ANN003, ANN202  # tracked: #28
         "use_docker": False,
     }
     kwargs.update(overrides)
-    return build_agent_runner(config, **kwargs)  # pyright: ignore[reportArgumentType]  # tracked: #297
+    return build_agent_client(config, **kwargs)  # pyright: ignore[reportArgumentType]  # tracked: #297
 
 
 def _judge_fallback() -> JudgeResponse:

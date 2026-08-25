@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from .base import AgentRunner, ResponseFallback
+from .base import ResponseFallback
 from .progress import AgentProgress, CandidateProgress, RoundProgress
 
 if TYPE_CHECKING:
@@ -17,17 +17,16 @@ if TYPE_CHECKING:
     from vs_sandbox import HostResource, ProjectPathPolicy
 
     from .client import AgentClient
-    from .deepagents_runner import DeepAgentsRunner
+    from .deepagents_runner import DeepAgentsClient
 
 __all__ = [
     "AgentClient",
     "AgentProgress",
-    "AgentRunner",
     "CandidateProgress",
-    "DeepAgentsRunner",
+    "DeepAgentsClient",
     "ResponseFallback",
     "RoundProgress",
-    "build_agent_runner",
+    "build_agent_client",
 ]
 
 
@@ -37,14 +36,14 @@ def __getattr__(name: str) -> Any:  # noqa: ANN401
         from .client import AgentClient  # noqa: PLC0415
 
         return AgentClient
-    if name == "DeepAgentsRunner":
-        from .deepagents_runner import DeepAgentsRunner  # noqa: PLC0415
+    if name == "DeepAgentsClient":
+        from .deepagents_runner import DeepAgentsClient  # noqa: PLC0415
 
-        return DeepAgentsRunner
+        return DeepAgentsClient
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")  # noqa: TRY003
 
 
-def build_agent_runner(  # noqa: PLR0913
+def build_agent_client(  # noqa: PLR0913
     config: Config,
     *,
     agent_backend: str | None,
@@ -61,9 +60,9 @@ def build_agent_runner(  # noqa: PLR0913
     host_resources: Iterable[HostResource] = (),
     project_path_policy: ProjectPathPolicy | None = None,
     require_host_sandbox: bool = False,
-) -> AgentRunner:
+) -> AgentClient:
     """Build an agent service through the application composition module."""
-    from .factory import build_agent_runner as build  # noqa: PLC0415
+    from .factory import build_agent_client as build  # noqa: PLC0415
 
     return build(
         config,

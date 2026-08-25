@@ -15,8 +15,7 @@ from typing import TYPE_CHECKING, Any, TextIO, TypeVar, overload
 from pydantic import BaseModel
 
 from vibesys import backends
-from vibesys.agents import build_agent_runner
-from vibesys.agents.base import AgentRunner
+from vibesys.agents import AgentClient, build_agent_client
 from vibesys.agents.progress import AgentProgress
 from vibesys.backends.base import ComputeBackendImpl, ContentionMonitor
 from vibesys.config import Config, as_config
@@ -791,11 +790,11 @@ def _assemble_run_context(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: 
     teardown_stack.callback(device.close)
     device.start_monitor()
 
-    # Build the backend-agnostic agent runner. Loops invoke this instead
+    # Build the backend-agnostic agent client. Loops invoke this instead
     # of calling create_deep_agent / vibesys._agent_cli directly. The cli
-    # backend is rejected if --docker is set; build_agent_runner raises
+    # backend is rejected if --docker is set; build_agent_client raises
     # SystemExit with a clear message in that case.
-    agent_runner = build_agent_runner(
+    agent_client = build_agent_client(
         config,
         agent_backend=agent_backend,
         cli_provider=cli_provider,
@@ -826,9 +825,9 @@ def _assemble_run_context(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: 
         project_path_policy=project_path_policy,
         require_host_sandbox=not session.view.cli_sandboxed,
     )
-    close_agent_runner = getattr(agent_runner, "close", None)
-    if callable(close_agent_runner):
-        teardown_stack.callback(close_agent_runner)
+    close_agent_client = getattr(agent_client, "close", None)
+    if callable(close_agent_client):
+        teardown_stack.callback(close_agent_client)
 
     result = _RunContext(
         backend=backend,
@@ -862,7 +861,7 @@ def _assemble_run_context(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: 
         run_environment_session=session,
         commands=commands,
         device=device,
-        agent_runner=agent_runner,
+        agent_client=agent_client,
         project=project,
         state=RunState(project, git, run_id),
         run_id=run_id,
@@ -892,7 +891,7 @@ def create_candidate_context(  # noqa: PLR0913  # tracked: #288
     - a **git worktree** checked out at ``parent_commit`` (isolated working
       tree / index / detached HEAD; edits never touch the shared tree);
     - a fresh **run-environment session** (its own isolated editor sandbox);
-    - its own **agent runner** (the CLI runner is not thread-safe);
+    - its own **agent client** (the CLI session is not thread-safe);
     - a **no-tee ``RunLogger``** writing only to the candidate's log file — only
       the top-level run logger may own the process ``sys.stderr``.
 
@@ -1010,7 +1009,7 @@ def _assemble_candidate_context(  # noqa: PLR0913  # tracked: #288
         profiler_benchmark_command=session.view.paths.benchmark_command,
     )
 
-    agent_runner = build_agent_runner(
+    agent_client = build_agent_client(
         config,
         agent_backend=agent_backend,
         cli_provider=cli_provider,
@@ -1033,9 +1032,9 @@ def _assemble_candidate_context(  # noqa: PLR0913  # tracked: #288
         project_path_policy=project_path_policy,
         require_host_sandbox=not session.view.cli_sandboxed,
     )
-    close_agent_runner = getattr(agent_runner, "close", None)
-    if callable(close_agent_runner):
-        teardown_stack.callback(close_agent_runner)
+    close_agent_client = getattr(agent_client, "close", None)
+    if callable(close_agent_client):
+        teardown_stack.callback(close_agent_client)
 
     paths = RunPaths(
         project_root=workspace,
@@ -1077,7 +1076,7 @@ def _assemble_candidate_context(  # noqa: PLR0913  # tracked: #288
         run_environment_session=session,
         commands=commands,
         device=parent.device,  # shared under the environment's parallel contract
-        agent_runner=agent_runner,
+        agent_client=agent_client,
         project=parent.project,
         state=parent.state,
         run_id=parent.run_id,
@@ -1094,7 +1093,7 @@ class _RunContext:
     Instances are assembled by :func:`create_run_context`, which owns every
     construction side effect (project state, log files, candidate worktree,
     model, compute backend, copied helper inputs, Git snapshot tracking,
-    run-environment session, agent runner, GPU monitor).  Environment-specific
+    run-environment session, agent client, GPU monitor). Environment-specific
     setup should stay in ``vibesys.sandbox.run_environment``; this class only
     asks the selected run environment for policy decisions and the opened
     sandbox session.
@@ -1134,7 +1133,7 @@ class _RunContext:
         run_environment_session: RunEnvironmentSession,
         commands: RunCommands,
         device: DeviceLease,
-        agent_runner: AgentRunner,
+        agent_client: AgentClient,
         project: Project,
         state: RunState,
         run_id: str,
@@ -1183,7 +1182,7 @@ class _RunContext:
         self.device = device
         # Expose the picked device for legacy callers (gpu monitor tests etc).
         self.selected_gpu = device.selected_device
-        self.agent_runner = agent_runner
+        self.agent_client = agent_client
         self._closed = False
         self._progress_stack: list[AgentProgress] = []
         self._chat_lock = threading.Lock()
@@ -1256,7 +1255,7 @@ class _RunContext:
         self.device.monitor = monitor
 
     def gpu_env(self) -> dict[str, str]:
-        """Env vars for the host-running cli agent runner — see :meth:`DeviceLease.gpu_env`."""
+        """Env vars for the host-running CLI agent; see :meth:`DeviceLease.gpu_env`."""
         return self.device.gpu_env()
 
     @contextmanager
@@ -1286,12 +1285,12 @@ class _RunContext:
         progress: AgentProgress | None = None,
         **extra: Any,  # noqa: ANN401  # tracked: #288
     ) -> T:
-        """Invoke an agent through ``self.agent_runner`` with workspace+env defaults.
+        """Invoke an agent through ``self.agent_client`` with workspace+env defaults.
 
-        Wraps ``self.agent_runner.invoke(...)`` so the per-call boilerplate
+        Wraps ``self.agent_client.invoke(...)`` so the per-call boilerplate
         (``workspace=self.workspace``, ``env=self.gpu_env()``) doesn't have
         to be repeated at every call site.  Extra kwargs are forwarded to
-        ``agent_runner.invoke`` unchanged so loop-specific options
+        ``agent_client.invoke`` unchanged so loop-specific options
         (e.g. ``iteration=`` for plain-loop runner extensions) still work.
         """
         supervisor = getattr(self, "supervisor", None)
@@ -1302,7 +1301,7 @@ class _RunContext:
         result: T | None = None
         error: BaseException | None = None
         try:
-            result = self.agent_runner.invoke(
+            result = self.agent_client.invoke(
                 kind=kind,
                 workspace=self.workspace,
                 system_prompt=system_prompt,
@@ -1347,7 +1346,7 @@ class _RunContext:
                 invocation_id=invocation_id,
             ):
                 try:
-                    answer = self.agent_runner.invoke_text(
+                    answer = self.agent_client.invoke_text(
                         kind="chat",
                         workspace=self.workspace,
                         system_prompt=system_prompt,
@@ -1505,16 +1504,10 @@ class _RunContext:
         """Switch to a per-phase log file — see :meth:`RunLogger.switch`."""
         self.logger.switch(label)
         self._paths = replace(self._paths, run_log_path=self.logger.path)
-        # Update the agent runner's log file handle so subsequent
+        # Update the agent client's log file handle so subsequent
         # invoke() calls write to the new step log.
-        if hasattr(self, "agent_runner"):
-            set_log_file = getattr(self.agent_runner, "set_log_file", None)
-            if callable(set_log_file):
-                set_log_file(self.logger.writer)
-            elif hasattr(self.agent_runner, "_run_log_file"):
-                # Compatibility for deepagents/stub until they adopt the
-                # application-level client lifecycle.
-                self.agent_runner._run_log_file = self.logger.writer  # pyright: ignore[reportAttributeAccessIssue]  # noqa: SLF001  # tracked: #288
+        if hasattr(self, "agent_client"):
+            self.agent_client.set_log_file(self.logger.writer)
 
     def reselect_gpu(self) -> None:
         """Delegate mid-run device rebalance — see :meth:`DeviceLease.reselect`."""

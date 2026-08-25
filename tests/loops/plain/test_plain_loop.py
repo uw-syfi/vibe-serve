@@ -1,6 +1,6 @@
 """Integration tests for the issue-loop orchestrator.
 
-These tests mock ``vibesys.context.build_agent_runner`` so the real
+These tests mock ``vibesys.context.build_agent_client`` so the real
 LangChain / CLI plumbing never executes. Each test exercises one focused
 behaviour of the drain-and-perf-eval outer loop in
 ``vibesys/plain/loop.py``.
@@ -14,7 +14,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from vibesys.agents import AgentRunner
+from vibesys.agents import AgentClient
 from vibesys.agents.contracts import AgentCapabilities
 from vibesys.domains.base import DomainName
 from vibesys.loops.plain.loop import PlainLoopState
@@ -77,16 +77,16 @@ def _make_perf_resp(new_issue_ids: list[int] | None = None) -> IssuePerfEvalResp
 
 
 def _make_issue_runner(responses: list, *, backend_name: str = "deepagents") -> MagicMock:
-    """Mock AgentRunner.invoke that yields scripted responses in order.
+    """Mock AgentClient.invoke that yields scripted responses in order.
 
     The script is consumed left-to-right regardless of ``kind``, so the test
     just lists responses in the order the loop will call invoke().
 
-    The mock is wrapped in PlainLoopAgentRunner inside ``run_plain_loop``,
+    The mock is wrapped in PlainLoopAgentClient inside ``run_plain_loop``,
     so the calls recorded on this mock reflect what the wrapper passed
     after injecting tracker tools / MCP server specs based on capabilities.
     """
-    runner = MagicMock(spec=AgentRunner)
+    runner = MagicMock(spec=AgentClient)
     runner.backend_name = backend_name
     runner.capabilities = AgentCapabilities(
         mcp_servers=backend_name == "cli",
@@ -164,7 +164,7 @@ command = ["python", "-c", "print('ok')"]
 
 @patch("vibesys.context.build_model")
 @patch("vibesys.backends.cuda.LocalShellBackend")
-@patch("vibesys.context.build_agent_runner")
+@patch("vibesys.context.build_agent_client")
 def test_bootstrap_creates_initial_feature_issue_on_first_run(  # noqa: ANN201  # tracked: #288
     mock_build_runner,  # noqa: ANN001  # tracked: #288
     mock_backend,  # noqa: ANN001, ARG001  # tracked: #288
@@ -211,7 +211,7 @@ def test_bootstrap_creates_initial_feature_issue_on_first_run(  # noqa: ANN201  
 
 @patch("vibesys.context.build_model")
 @patch("vibesys.backends.cuda.LocalShellBackend")
-@patch("vibesys.context.build_agent_runner")
+@patch("vibesys.context.build_agent_client")
 def test_bootstrap_idempotent_on_resume(  # noqa: ANN201  # tracked: #288
     mock_build_runner,  # noqa: ANN001  # tracked: #288
     mock_backend,  # noqa: ANN001, ARG001  # tracked: #288
@@ -279,7 +279,7 @@ def test_bootstrap_idempotent_on_resume(  # noqa: ANN201  # tracked: #288
 
 @patch("vibesys.context.build_model")
 @patch("vibesys.backends.cuda.LocalShellBackend")
-@patch("vibesys.context.build_agent_runner")
+@patch("vibesys.context.build_agent_client")
 def test_judge_pass_closes_issue(mock_build_runner, mock_backend, mock_build, ref_file, tmp_path):  # noqa: ANN001, ANN201, ARG001  # tracked: #288
     mock_build.return_value = "anthropic:claude-sonnet-4-6"
     mock_build_runner.return_value = _make_issue_runner(
@@ -310,7 +310,7 @@ def test_judge_pass_closes_issue(mock_build_runner, mock_backend, mock_build, re
 
 @patch("vibesys.context.build_model")
 @patch("vibesys.backends.cuda.LocalShellBackend")
-@patch("vibesys.context.build_agent_runner")
+@patch("vibesys.context.build_agent_client")
 def test_judge_fail_increments_attempts_and_keeps_open(  # noqa: ANN201  # tracked: #288
     mock_build_runner,  # noqa: ANN001  # tracked: #288
     mock_backend,  # noqa: ANN001, ARG001  # tracked: #288
@@ -354,7 +354,7 @@ def test_judge_fail_increments_attempts_and_keeps_open(  # noqa: ANN201  # track
 
 @patch("vibesys.context.build_model")
 @patch("vibesys.backends.cuda.LocalShellBackend")
-@patch("vibesys.context.build_agent_runner")
+@patch("vibesys.context.build_agent_client")
 def test_issue_blocks_after_max_attempts_exhausted(  # noqa: ANN201  # tracked: #288
     mock_build_runner,  # noqa: ANN001  # tracked: #288
     mock_backend,  # noqa: ANN001, ARG001  # tracked: #288
@@ -395,7 +395,7 @@ def test_issue_blocks_after_max_attempts_exhausted(  # noqa: ANN201  # tracked: 
 
 
 # ---------------------------------------------------------------------------
-# Per-phase MCP server spec passed to AgentRunner.invoke
+# Per-phase MCP server spec passed to AgentClient.invoke
 # ---------------------------------------------------------------------------
 
 
@@ -432,7 +432,7 @@ _EXPECTED_TRACKER_TOOL_NAMES = {
 @pytest.mark.parametrize("backend_name", ["deepagents", "cli"])
 @patch("vibesys.context.build_model")
 @patch("vibesys.backends.cuda.LocalShellBackend")
-@patch("vibesys.context.build_agent_runner")
+@patch("vibesys.context.build_agent_client")
 def test_judge_invoke_receives_tracker_kwargs(  # noqa: ANN201, PLR0913  # tracked: #288
     mock_build_runner,  # noqa: ANN001  # tracked: #288
     mock_backend,  # noqa: ANN001, ARG001  # tracked: #288
@@ -444,7 +444,7 @@ def test_judge_invoke_receives_tracker_kwargs(  # noqa: ANN201, PLR0913  # track
     """The judge phase must receive issue-tracker access scoped to
     creator='judge', cap=1, allowed_types={BUG}.
 
-    The PlainLoopAgentRunner wrapper picks the right transport based on
+    The PlainLoopAgentClient wrapper picks the right transport based on
     the inner runner's backend_name: ``tools`` (in-process @tool callables)
     for the deepagents backend, ``mcp_servers`` (an MCPServerSpec) for
     the cli backend.
@@ -498,7 +498,7 @@ def test_judge_invoke_receives_tracker_kwargs(  # noqa: ANN201, PLR0913  # track
 @pytest.mark.parametrize("backend_name", ["deepagents", "cli"])
 @patch("vibesys.context.build_model")
 @patch("vibesys.backends.cuda.LocalShellBackend")
-@patch("vibesys.context.build_agent_runner")
+@patch("vibesys.context.build_agent_client")
 def test_perf_eval_invoke_receives_tracker_kwargs(  # noqa: ANN201, PLR0913  # tracked: #288
     mock_build_runner,  # noqa: ANN001  # tracked: #288
     mock_backend,  # noqa: ANN001, ARG001  # tracked: #288
@@ -512,7 +512,7 @@ def test_perf_eval_invoke_receives_tracker_kwargs(  # noqa: ANN201, PLR0913  # t
     BUG/FEATURE/PERF allowed-types set.
 
     Picks ``tools`` vs ``mcp_servers`` based on the inner runner's
-    backend_name (see PlainLoopAgentRunner).
+    backend_name (see PlainLoopAgentClient).
     """
     mock_build.return_value = "anthropic:claude-sonnet-4-6"
     runner = _make_issue_runner(
@@ -561,7 +561,7 @@ def test_perf_eval_invoke_receives_tracker_kwargs(  # noqa: ANN201, PLR0913  # t
 
 @patch("vibesys.context.build_model")
 @patch("vibesys.backends.cuda.LocalShellBackend")
-@patch("vibesys.context.build_agent_runner")
+@patch("vibesys.context.build_agent_client")
 def test_judge_phase_calls_store_reload_after_invoke(  # noqa: ANN201  # tracked: #288
     mock_build_runner,  # noqa: ANN001  # tracked: #288
     mock_backend,  # noqa: ANN001, ARG001  # tracked: #288
@@ -599,7 +599,7 @@ def test_judge_phase_calls_store_reload_after_invoke(  # noqa: ANN201  # tracked
             return _make_perf_resp(new_issue_ids=[])
         raise AssertionError(f"unexpected kind: {kind}")  # noqa: TRY003  # tracked: #288
 
-    runner = MagicMock(spec=AgentRunner)
+    runner = MagicMock(spec=AgentClient)
     runner.backend_name = "deepagents"
     runner.invoke.side_effect = tracking_invoke
     mock_build_runner.return_value = runner
@@ -631,7 +631,7 @@ def test_judge_phase_calls_store_reload_after_invoke(  # noqa: ANN201  # tracked
 @pytest.mark.parametrize("backend_name", ["deepagents", "cli"])
 @patch("vibesys.context.build_model")
 @patch("vibesys.backends.cuda.LocalShellBackend")
-@patch("vibesys.context.build_agent_runner")
+@patch("vibesys.context.build_agent_client")
 def test_implementer_invoke_has_no_tracker_kwargs(  # noqa: ANN201, PLR0913  # tracked: #288
     mock_build_runner,  # noqa: ANN001  # tracked: #288
     mock_backend,  # noqa: ANN001, ARG001  # tracked: #288
@@ -677,7 +677,7 @@ def test_implementer_invoke_has_no_tracker_kwargs(  # noqa: ANN201, PLR0913  # t
         assert not c.kwargs.get("tools")
 
     # The judge and perf_eval invokes both DO receive a tracker kwarg.
-    # Which one depends on the backend (see PlainLoopAgentRunner).
+    # Which one depends on the backend (see PlainLoopAgentClient).
     judge_calls = [c for c in runner.invoke.call_args_list if c.kwargs.get("kind") == "judge"]
     perf_calls = [c for c in runner.invoke.call_args_list if c.kwargs.get("kind") == "perf_eval"]
     assert len(judge_calls) == 1
@@ -697,7 +697,7 @@ def test_implementer_invoke_has_no_tracker_kwargs(  # noqa: ANN201, PLR0913  # t
 
 @patch("vibesys.context.build_model")
 @patch("vibesys.backends.cuda.LocalShellBackend")
-@patch("vibesys.context.build_agent_runner")
+@patch("vibesys.context.build_agent_client")
 def test_perf_eval_runs_after_drain_complete(  # noqa: ANN201  # tracked: #288
     mock_build_runner,  # noqa: ANN001  # tracked: #288
     mock_backend,  # noqa: ANN001, ARG001  # tracked: #288
@@ -751,7 +751,7 @@ def test_perf_eval_runs_after_drain_complete(  # noqa: ANN201  # tracked: #288
 
 @patch("vibesys.context.build_model")
 @patch("vibesys.backends.cuda.LocalShellBackend")
-@patch("vibesys.context.build_agent_runner")
+@patch("vibesys.context.build_agent_client")
 def test_resume_with_bootstrap_done_skips_bootstrap_creation(  # noqa: ANN201  # tracked: #288
     mock_build_runner,  # noqa: ANN001  # tracked: #288
     mock_backend,  # noqa: ANN001, ARG001  # tracked: #288
@@ -815,7 +815,7 @@ def test_resume_with_bootstrap_done_skips_bootstrap_creation(  # noqa: ANN201  #
 
 @patch("vibesys.context.build_model")
 @patch("vibesys.backends.cuda.LocalShellBackend")
-@patch("vibesys.context.build_agent_runner")
+@patch("vibesys.context.build_agent_client")
 def test_resume_retries_previously_blocked_issue(  # noqa: ANN201  # tracked: #288
     mock_build_runner,  # noqa: ANN001  # tracked: #288
     mock_backend,  # noqa: ANN001, ARG001  # tracked: #288
@@ -897,7 +897,7 @@ def test_resume_retries_previously_blocked_issue(  # noqa: ANN201  # tracked: #2
 
 @patch("vibesys.context.build_model")
 @patch("vibesys.backends.cuda.LocalShellBackend")
-@patch("vibesys.context.build_agent_runner")
+@patch("vibesys.context.build_agent_client")
 def test_run_returns_true_when_perf_eval_files_no_issues_after_clean_drain(  # noqa: ANN201  # tracked: #288
     mock_build_runner,  # noqa: ANN001  # tracked: #288
     mock_backend,  # noqa: ANN001, ARG001  # tracked: #288
@@ -938,7 +938,7 @@ def test_run_returns_true_when_perf_eval_files_no_issues_after_clean_drain(  # n
 
 @patch("vibesys.context.build_model")
 @patch("vibesys.backends.cuda.LocalShellBackend")
-@patch("vibesys.context.build_agent_runner")
+@patch("vibesys.context.build_agent_client")
 def test_state_json_written_with_bootstrap_done_after_run(  # noqa: ANN201  # tracked: #288
     mock_build_runner,  # noqa: ANN001  # tracked: #288
     mock_backend,  # noqa: ANN001, ARG001  # tracked: #288
@@ -986,7 +986,7 @@ def test_state_json_written_with_bootstrap_done_after_run(  # noqa: ANN201  # tr
 
 @patch("vibesys.context.build_model")
 @patch("vibesys.backends.cuda.LocalShellBackend")
-@patch("vibesys.context.build_agent_runner")
+@patch("vibesys.context.build_agent_client")
 def test_issue_loop_writes_per_issue_markdown_via_callback(  # noqa: ANN201  # tracked: #288
     mock_build_runner,  # noqa: ANN001  # tracked: #288
     mock_backend,  # noqa: ANN001, ARG001  # tracked: #288
@@ -1049,7 +1049,7 @@ def test_issue_loop_writes_per_issue_markdown_via_callback(  # noqa: ANN201  # t
 
 @patch("vibesys.context.build_model")
 @patch("vibesys.backends.cuda.LocalShellBackend")
-@patch("vibesys.context.build_agent_runner")
+@patch("vibesys.context.build_agent_client")
 def test_implementer_retry_user_prompt_includes_prior_judge_feedback(  # noqa: ANN201  # tracked: #288
     mock_build_runner,  # noqa: ANN001  # tracked: #288
     mock_backend,  # noqa: ANN001, ARG001  # tracked: #288

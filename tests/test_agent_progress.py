@@ -23,8 +23,8 @@ def _make_context(tmp_path):  # noqa: ANN001, ANN202  # tracked: #288
         run_log_path=tmp_path / "run.log",
     )
     ctx.gpu_env = dict
-    ctx.agent_runner = MagicMock()
-    ctx.agent_runner.invoke.return_value = _judge_fallback()
+    ctx.agent_client = MagicMock()
+    ctx.agent_client.invoke.return_value = _judge_fallback()
     return ctx
 
 
@@ -61,7 +61,7 @@ def test_run_context_injects_current_progress(tmp_path):  # noqa: ANN001, ANN201
             round_label="judge #1",
         )
 
-    assert ctx.agent_runner.invoke.call_args.kwargs["progress"] is progress
+    assert ctx.agent_client.invoke.call_args.kwargs["progress"] is progress
 
 
 def test_run_context_explicit_progress_overrides_scope(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
@@ -80,4 +80,4 @@ def test_run_context_explicit_progress_overrides_scope(tmp_path):  # noqa: ANN00
             progress=explicit,
         )
 
-    assert ctx.agent_runner.invoke.call_args.kwargs["progress"] is explicit
+    assert ctx.agent_client.invoke.call_args.kwargs["progress"] is explicit

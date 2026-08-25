@@ -1,4 +1,4 @@
-"""CLI implementation of :class:`AgentRunner`.
+"""Pre-driver CLI client retained for compatibility tests.
 
 Wraps the local ``vibesys._agent_cli`` compatibility layer, which is backed by
 the open-source ``agentshim`` package plus a few repo-specific extensions for
@@ -138,13 +138,13 @@ def _heavy_codex_turn_reason(agent: CodingAgent) -> str | None:
 
 
 class CliAgentRunner:
-    """:class:`AgentRunner` backed by ``vibesys._agent_cli`` CLI agents."""
+    """Direct client backed by ``vibesys._agent_cli`` CLI agents."""
 
     backend_name = "cli"
 
     @property
     def capabilities(self) -> AgentCapabilities:
-        """Compatibility metadata for the superseded concrete runner."""
+        """Return the direct client's supported features."""
         return AgentCapabilities(mcp_servers=True, timeouts=True)
 
     def close(self) -> None:

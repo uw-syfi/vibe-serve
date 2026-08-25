@@ -19,7 +19,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from vibesys.agents import AgentRunner
+from vibesys.agents import AgentClient
 from vibesys.context import create_run_context
 from vibesys.domains.base import DomainName
 from vibesys.domains.llm_serving.hooks import LLMServingEnvironmentHooks
@@ -102,7 +102,7 @@ def _make_runner(  # noqa: ANN202, C901, PLR0913  # tracked: #288
     capture_profiler_prompts: list[str] | None = None,
     mutator_writes: bool = False,
 ):
-    """Build a MagicMock AgentRunner with scripted responses.
+    """Build a MagicMock AgentClient with scripted responses.
 
     The mutator (``kind="implementer"`` + ``response_cls=MutatorResponse``)
     always returns a stub MutatorResponse. Judge verdicts default to
@@ -113,7 +113,7 @@ def _make_runner(  # noqa: ANN202, C901, PLR0913  # tracked: #288
     prof_q = list(profiler_responses or [])
     counters = {"mutator": 0, "judge": 0, "profiler": 0}
 
-    runner = MagicMock(spec=AgentRunner)
+    runner = MagicMock(spec=AgentClient)
     runner.backend_name = "deepagents"
 
     def _invoke(*, kind, response_cls, fallback_factory, system_prompt="", **kwargs):  # noqa: ANN001, ANN003, ANN202, ARG001  # tracked: #288
@@ -193,7 +193,7 @@ def _invoke_loop(tmp_path, ref_file, runner, **kwargs):  # noqa: ANN001, ANN003,
     with (
         patch("vibesys.context.build_model", return_value="mock-model"),
         patch("vibesys.backends.cuda.LocalShellBackend"),
-        patch("vibesys.context.build_agent_runner", return_value=runner),
+        patch("vibesys.context.build_agent_client", return_value=runner),
         patch("vibesys.context.PROJECT_ROOT", tmp_path),
         patch(
             "vibesys.loops.evolve.loop._run_framework_accuracy_gate",
@@ -1272,7 +1272,7 @@ def test_evaluate_in_subcontext_builds_worktree_and_evaluates(tmp_path, ref_file
     with (
         patch("vibesys.context.build_model", return_value="mock-model"),
         patch("vibesys.backends.cuda.LocalShellBackend"),
-        patch("vibesys.context.build_agent_runner", return_value=runner),
+        patch("vibesys.context.build_agent_client", return_value=runner),
         patch("vibesys.context.PROJECT_ROOT", tmp_path),
         patch("vibesys.loops.evolve.loop._run_framework_accuracy_gate", return_value=None),
         create_run_context(

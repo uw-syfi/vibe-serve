@@ -14,6 +14,7 @@ from typing import Any, Protocol, TypeVar
 
 from pydantic import BaseModel
 
+from vibesys.agents.client import AgentClient
 from vibesys.agents.progress import AgentProgress
 from vibesys.constants import ComputeBackend
 from vibesys.input_manifest import WorkspaceSource
@@ -36,7 +37,7 @@ class LoopContext(Protocol):  # noqa: D101  # tracked: #288
 
     # -- collaborators --------------------------------------------------------
     supervisor: Any
-    agent_runner: Any
+    agent_client: AgentClient
     judge_backend: Any
     run_environment: Any
     run_environment_view: Any

@@ -343,7 +343,7 @@ budget = -2
 
 class TestLoadConfigAgentSection:
     def test_agent_section_preserved(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
-        # The [agent] table drives build_agent_runner (cli_timeout, backend,
+        # The [agent] table drives build_agent_client (cli_timeout, backend,
         # cli_provider). load_config must carry it through; the previous
         # allowlist loader silently dropped it.
         cfg_file = tmp_path / "agent.toml"

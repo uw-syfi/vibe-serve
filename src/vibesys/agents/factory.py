@@ -13,7 +13,6 @@ if TYPE_CHECKING:
     from pathlib import Path
     from typing import TextIO
 
-    from vibesys.agents.base import AgentRunner
     from vibesys.config import Config
     from vibesys.constants import ComputeBackend
     from vs_sandbox import HostResource, ProjectPathPolicy
@@ -35,7 +34,7 @@ def resolve_agent_driver(config: Config) -> str:
     return "omnigent" if flagged else DEFAULT_AGENT_DRIVER
 
 
-def build_agent_runner(  # noqa: C901, PLR0912, PLR0913
+def build_agent_client(  # noqa: C901, PLR0912, PLR0913
     config: Config,
     *,
     agent_backend: str | None,
@@ -52,7 +51,7 @@ def build_agent_runner(  # noqa: C901, PLR0912, PLR0913
     host_resources: Iterable[HostResource] = (),
     project_path_policy: ProjectPathPolicy | None = None,
     require_host_sandbox: bool = False,
-) -> AgentRunner:
+) -> AgentClient:
     """Build the configured application-level agent service."""
     host_resources = tuple(host_resources)
     agent_cfg = config.agent
@@ -72,12 +71,12 @@ def build_agent_runner(  # noqa: C901, PLR0912, PLR0913
     if backend == "deepagents":
         if backends is None:
             raise SystemExit(  # noqa: TRY003  # tracked: #288
-                "internal error: build_agent_runner called with backend='deepagents' "
+                "internal error: build_agent_client called with backend='deepagents' "
                 "but no backends dict was provided"
             )
-        from vibesys.agents.deepagents_runner import DeepAgentsRunner  # noqa: PLC0415
+        from vibesys.agents.deepagents_runner import DeepAgentsClient  # noqa: PLC0415
 
-        return DeepAgentsRunner(
+        return DeepAgentsClient(
             model=model,
             backends=backends,
             skills=skills,
@@ -86,9 +85,9 @@ def build_agent_runner(  # noqa: C901, PLR0912, PLR0913
         )
 
     if backend == "stub":
-        from vibesys.agents.stub_runner import StubAgentRunner  # noqa: PLC0415
+        from vibesys.agents.stub_runner import StubAgentClient  # noqa: PLC0415
 
-        return StubAgentRunner()
+        return StubAgentClient()
 
     if backend != "cli":
         raise SystemExit(f"unknown agent backend: {backend!r}")  # noqa: TRY003  # tracked: #288

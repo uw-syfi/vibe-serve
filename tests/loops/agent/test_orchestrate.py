@@ -7,7 +7,7 @@ from unittest.mock import ANY, MagicMock, patch
 
 import pytest
 
-from vibesys.agents import AgentRunner
+from vibesys.agents import AgentClient
 from vibesys.domains.base import DomainName
 from vibesys.errors import ConfigurationError
 from vibesys.loops.agent import issue_board
@@ -141,7 +141,7 @@ def _make_orchestrate_runner(  # noqa: ANN202, PLR0913  # tracked: #288
     implementer_next_steps: list[str] | None = None,
     implementer_parse_failures: list[bool] | None = None,
 ):
-    """Build a MagicMock AgentRunner whose invoke() returns scripted responses.
+    """Build a MagicMock AgentClient whose invoke() returns scripted responses.
 
     Arguments are consumed-in-order queues keyed by the agent kind / response
     class. Defaults: when the plan queue is exhausted, the harness returns a
@@ -164,7 +164,7 @@ def _make_orchestrate_runner(  # noqa: ANN202, PLR0913  # tracked: #288
     impl_parse_failure_q = list(implementer_parse_failures or [])
     counters = {"impl": 0, "judge": 0, "orch_pre": 0, "orch_plan": 0, "prof": 0}
 
-    runner = MagicMock(spec=AgentRunner)
+    runner = MagicMock(spec=AgentClient)
     runner.backend_name = "deepagents"
 
     def _invoke(*, kind, response_cls, fallback_factory, **kwargs):  # noqa: ANN001, ANN003, ANN202, ARG001, PLR0911  # tracked: #288
@@ -267,7 +267,7 @@ def _invoke_orchestrate(tmp_path, ref_file, runner, **kwargs):  # noqa: ANN001, 
     with (
         patch("vibesys.context.build_model", return_value="mock-model"),
         patch("vibesys.backends.cuda.LocalShellBackend"),
-        patch("vibesys.context.build_agent_runner", return_value=runner),
+        patch("vibesys.context.build_agent_client", return_value=runner),
         patch("vibesys.context.PROJECT_ROOT", tmp_path),
         patch(
             "vibesys.loops.agent.loop._run_framework_accuracy_gate",
@@ -1553,7 +1553,7 @@ def test_framework_gates_reuse_accuracy_pass_after_later_gate_failure(tmp_path):
     from vibesys.loops.agent.loop import _run_framework_gates  # noqa: PLC0415  # tracked: #288
 
     ctx = MagicMock()
-    ctx.agent_runner.backend_name = "deepagents"
+    ctx.agent_client.backend_name = "deepagents"
     ctx.judge_accuracy_command = "trusted-check"
     progress = tmp_path / "progress.md"
 
