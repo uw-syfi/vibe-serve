@@ -16,7 +16,6 @@ from vibesys.agent_runner import (
     log_prompt_markdown_and_print,
     parse_typed_response_text,
 )
-from vibesys.agents.callbacks import AgentLogger
 from vibesys.agents.cli_common import agent_label, materialize_skills
 from vibesys.agents.contracts import (
     AgentCapabilities,
@@ -42,6 +41,7 @@ if TYPE_CHECKING:
     from langchain_core.tools import BaseTool
 
     from vibesys._agent_cli.base import MCPServerSpec as LegacyMCPServerSpec
+    from vibesys.agents.callbacks import AgentLogger
     from vibesys.agents.progress import AgentProgress
     from vibesys.constants import ComputeBackend
     from vs_sandbox import HostResource, ProjectPathPolicy
@@ -319,6 +319,8 @@ class AgentClient:
             invocation_id=invocation_id,
             label=round_label,
         )
+        from vibesys.agents.callbacks import AgentLogger  # noqa: PLC0415
+
         logger = AgentLogger(
             log_file=self._run_log_file,
             model_name=model,

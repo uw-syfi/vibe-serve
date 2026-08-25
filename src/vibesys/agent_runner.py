@@ -14,7 +14,6 @@ if TYPE_CHECKING:
 
     from langchain_core.callbacks import BaseCallbackHandler
 
-from vibesys.agents.callbacks import AgentLogger
 from vibesys.render.sink import output_sink
 from vibesys.schemas import (
     ImplementerResponse,
@@ -278,6 +277,8 @@ def run_agent(  # noqa: PLR0913  # tracked: #288
     terminal display is handled by the subscribed renderer.
     """
     if callbacks is None:
+        from vibesys.agents.callbacks import AgentLogger  # noqa: PLC0415
+
         callbacks = [AgentLogger()]
     callbacks_label = " + ".join(type(cb).__name__ for cb in callbacks)
     if thread_id is None:
@@ -331,6 +332,8 @@ def run_typed_agent(  # noqa: PLR0913  # tracked: #288
     label, and a fallback constructor for when no structured response arrives.
     """
     if callbacks is None:
+        from vibesys.agents.callbacks import AgentLogger  # noqa: PLC0415
+
         callbacks = [AgentLogger()]
     if thread_id is None:
         thread_id = uuid.uuid4().hex
@@ -536,6 +539,8 @@ def run_profiler_agent(  # noqa: PLR0913  # tracked: #288
 ) -> ProfilerResponse:
     """Run profiler agent, return structured ProfilerResponse."""
     if callbacks is None:
+        from vibesys.agents.callbacks import AgentLogger  # noqa: PLC0415
+
         callbacks = [AgentLogger()]
     if thread_id is None:
         thread_id = uuid.uuid4().hex

@@ -130,7 +130,7 @@ class TestMain:
             assert kwargs["max_rounds"] == 7
             assert kwargs["max_attempts_per_issue"] == 4
             assert kwargs["max_issues_per_perf_eval"] == 2
-            assert kwargs["runs_dir"] == Path("/tmp/vibesys-test-runs")  # noqa: S108
+            assert kwargs["runs_dir"] == Path("/tmp/vibesys-test-runs").resolve()  # noqa: S108
 
     def test_main_forwards_agent_backend_and_cli_provider(self):  # noqa: ANN201  # tracked: #288
         with (
