@@ -126,6 +126,7 @@ def test_fresh_project_owns_repository_branch_and_local_excludes(tmp_path: Path)
         Project.open(tmp_path).state.git_integration("round-trip").local_exclude_pattern in excludes
     )
     assert "/agent.toml" in excludes
+    assert "/.codex-tmp/" in excludes
     assert "/.env.*" in excludes
     assert "attempts/" in excludes
     assert not (tmp_path / ".gitignore").exists()
