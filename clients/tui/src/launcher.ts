@@ -143,7 +143,9 @@ async function themeFromBackend(
     }
     return {theme: defaults.theme};
   } catch (error) {
-    console.error(`vs: invalid TUI defaults: ${error instanceof Error ? error.message : String(error)}`);
+    console.error(
+      `vs: invalid TUI defaults: ${error instanceof Error ? error.message : String(error)}`,
+    );
     return {exitCode: 1};
   }
 }
