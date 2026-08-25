@@ -71,6 +71,7 @@ class GitTracker:
     )
 
     _PROJECT_LOCAL_EXCLUDE_PATTERNS: tuple[str, ...] = (
+        "/.codex-tmp/",
         "/.env",
         "/.env.*",
         "/agent.toml",
