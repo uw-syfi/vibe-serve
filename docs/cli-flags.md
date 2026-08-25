@@ -413,7 +413,8 @@ run state, and it is ignored in headless mode.
 Resolution order, highest first:
 
 1. `--theme <name>` on the command line.
-2. `dark`.
+2. `[tui].theme` in `agent.toml`.
+3. `dark`.
 
 An unknown name is rejected before any process starts. Inside a running
 session, `/theme` opens the theme list as a keyboard selection (Up/Down to

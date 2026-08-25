@@ -1,5 +1,5 @@
 import {afterEach, describe, expect, it} from 'bun:test';
-import {access, chmod, mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
+import {access, chmod, mkdtemp, readFile, realpath, rm, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {dirname, join} from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -55,6 +55,10 @@ describe('launcher', () => {
 import {writeFileSync} from 'node:fs';
 import {createServer} from 'node:net';
 
+if (process.argv.includes('tui-defaults')) {
+  console.log(JSON.stringify({theme: 'dark'}));
+  process.exit(0);
+}
 const socketPath = process.argv[process.argv.indexOf('--control-socket') + 1];
 const server = createServer(socket => {
   let buffer = '';
@@ -106,6 +110,10 @@ process.exit(0);
 import {writeFileSync} from 'node:fs';
 import {createServer} from 'node:net';
 
+if (process.argv.includes('tui-defaults')) {
+  console.log(JSON.stringify({theme: 'dark'}));
+  process.exit(0);
+}
 const socketPath = process.argv[process.argv.indexOf('--control-socket') + 1];
 const server = createServer(socket => {
   socket.once('data', data => {
@@ -185,8 +193,9 @@ import {writeFileSync} from 'node:fs';
 import {createServer} from 'node:net';
 
 if (process.argv.includes('tui-defaults')) {
-  writeFileSync(${JSON.stringify(defaultsInvoked)}, 'invoked');
-  process.exit(9);
+  writeFileSync(${JSON.stringify(defaultsInvoked)}, JSON.stringify(process.argv.slice(2)));
+  console.log(JSON.stringify({theme: 'solarized-light'}));
+  process.exit(0);
 }
 writeFileSync(${JSON.stringify(backendCwd)}, process.cwd());
 writeFileSync(process.env.VIBESYS_FAKE_BACKEND_ARGS_FILE, JSON.stringify(process.argv.slice(2)));
@@ -234,10 +243,12 @@ process.exit(0);
     expect(implicitArgs).not.toContain('--input');
     expect(implicitArgs).not.toContain('--repo');
     expect(implicitArgs).not.toContain('--exp-name');
-    await expect(access(defaultsInvoked)).rejects.toThrow();
-    expect(await readFile(backendCwd, 'utf8')).toBe(tempDir);
-    expect(await readFile(frontendTheme, 'utf8')).toBe('dark');
+    const defaultsArgs = JSON.parse(await readFile(defaultsInvoked, 'utf8')) as string[];
+    expect(defaultsArgs).toContain('--directory-only');
+    expect(await realpath(await readFile(backendCwd, 'utf8'))).toBe(await realpath(tempDir));
+    expect(await readFile(frontendTheme, 'utf8')).toBe('solarized-light');
 
+    await rm(defaultsInvoked);
     await expect(
       launch([
         '--input',
@@ -251,6 +262,7 @@ process.exit(0);
     const explicitArgs = JSON.parse(await readFile(backendArgs, 'utf8')) as string[];
     expect(explicitArgs.filter(argument => argument === '--runs-dir')).toHaveLength(1);
     expect(explicitArgs[explicitArgs.indexOf('--runs-dir') + 1]).toBe('/repo/legacy-runs');
+    await expect(access(defaultsInvoked)).rejects.toThrow();
     expect(await readFile(frontendTheme, 'utf8')).toBe('solarized-dark');
     await access(backendTerminated);
   });

@@ -8,7 +8,7 @@ import {createConnection} from 'node:net';
 import {tmpdir} from 'node:os';
 import {dirname, join} from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {DEFAULT_THEME_NAME, isThemeName, THEME_NAMES, type ThemeName} from './ui/theme.js';
+import {isThemeName, THEME_NAMES, type ThemeName} from './ui/theme.js';
 
 const READY_TIMEOUT_MS = 30_000;
 const SHUTDOWN_TIMEOUT_MS = 10_000;
@@ -40,7 +40,7 @@ export async function launch(argv: string[]): Promise<number> {
     return 1;
   }
 
-  const prepared = prepareInteractiveArgs(argv);
+  const prepared = await prepareInteractiveArgs(backend, argv);
   if ('exitCode' in prepared) return prepared.exitCode;
   const runArgv = prepared.argv;
   const theme = prepared.theme;
@@ -105,13 +105,47 @@ interface BackendCommand {
 
 type PreparedArguments = {argv: string[]; theme: ThemeName} | {exitCode: number};
 
-function prepareInteractiveArgs(argv: string[]): PreparedArguments {
+async function prepareInteractiveArgs(
+  backend: BackendCommand,
+  argv: string[],
+): Promise<PreparedArguments> {
   const requestedTheme = optionValue(argv, '--theme');
   if (requestedTheme !== undefined && !isThemeName(requestedTheme)) {
     console.error(`vs: unknown --theme ${requestedTheme}. Available: ${THEME_NAMES.join(', ')}.`);
     return {exitCode: 2};
   }
-  return {argv, theme: requestedTheme ?? DEFAULT_THEME_NAME};
+  if (requestedTheme !== undefined) return {argv, theme: requestedTheme};
+
+  const configuredTheme = await themeFromBackend(backend, argv);
+  if ('exitCode' in configuredTheme) return configuredTheme;
+  return {argv, theme: configuredTheme.theme};
+}
+
+async function themeFromBackend(
+  backend: BackendCommand,
+  argv: string[],
+): Promise<{theme: ThemeName} | {exitCode: number}> {
+  const args = [...backend.args, 'tui-defaults', '--directory-only'];
+  const config = optionValue(argv, '--config');
+  if (config !== undefined) args.push('--config', config);
+  if (argv.includes('--stub-agent')) args.push('--stub-agent');
+
+  const result = await runCaptured(backend.command, args);
+  if (result.exitCode !== 0) {
+    console.error(result.stderr.trim() || 'vs: could not resolve TUI defaults');
+    return {exitCode: result.exitCode};
+  }
+
+  try {
+    const defaults = JSON.parse(result.stdout) as {theme?: unknown};
+    if (typeof defaults.theme !== 'string' || !isThemeName(defaults.theme)) {
+      throw new Error('resolved an unknown theme');
+    }
+    return {theme: defaults.theme};
+  } catch (error) {
+    console.error(`vs: invalid TUI defaults: ${error instanceof Error ? error.message : String(error)}`);
+    return {exitCode: 1};
+  }
 }
 
 function optionValue(argv: string[], option: string): string | undefined {
@@ -285,6 +319,29 @@ function runToCompletion(command: string, args: string[]): Promise<number> {
       console.error(`vs: failed to start backend: ${error.message}`);
       resolve(1);
     });
+  });
+}
+
+function runCaptured(
+  command: string,
+  args: string[],
+): Promise<{exitCode: number; stdout: string; stderr: string}> {
+  return new Promise(resolve => {
+    const child = spawn(command, args, {stdio: ['ignore', 'pipe', 'pipe']});
+    let stdout = '';
+    let stderr = '';
+    child.stdout?.setEncoding('utf8');
+    child.stderr?.setEncoding('utf8');
+    child.stdout?.on('data', chunk => {
+      stdout += String(chunk);
+    });
+    child.stderr?.on('data', chunk => {
+      stderr += String(chunk);
+    });
+    child.once('exit', (code, signal) =>
+      resolve({exitCode: code ?? signalExitCode(signal), stdout, stderr}),
+    );
+    child.once('error', error => resolve({exitCode: 1, stdout, stderr: error.message}));
   });
 }
 

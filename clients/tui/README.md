@@ -200,7 +200,8 @@ overlay, round labels use the same body-text color as card content, and the
 chat panel's inner border matches its outer one. `theme.test.ts` pins all of
 this so the baseline cannot drift.
 
-Pick one with `--theme <name>`; launches without the flag use `dark`. The
+Pick one with `--theme <name>` or set `[tui].theme` in `agent.toml`. An explicit
+flag wins over the config value, and launches with neither use `dark`. The
 launcher passes the selected name to the client through `VIBESYS_THEME`.
 Inside a session, `/theme` opens the list as a selection: it starts on the
 theme in use, Up and Down move the highlight, Enter applies it, and Escape
