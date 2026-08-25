@@ -305,6 +305,7 @@ def test_os_policy_exposes_control_dotdirs_and_keeps_hidden_dotfiles_masked(
 
     spec = driver._build_os_env(  # noqa: SLF001
         _spec(tmp_path, policy=AgentExecutionPolicy(project_paths=policy)),
+        env_passthrough=("CARGO_TARGET_DIR",),
         include_toolchain=True,
     )
 
@@ -312,6 +313,7 @@ def test_os_policy_exposes_control_dotdirs_and_keeps_hidden_dotfiles_masked(
     assert spec.sandbox.write_paths == [str(tmp_path)]
     assert spec.sandbox.write_files is None
     assert spec.sandbox.read_paths == [str(toolchain)]
+    assert spec.sandbox.env_passthrough == ["CARGO_TARGET_DIR"]
     assert set(spec.sandbox.cwd_allow_hidden or ()) == {".git", ".vibesys"}
 
 
@@ -338,7 +340,7 @@ def test_codex_executor_disables_native_tools(
     monkeypatch.setattr("vibesys.agents.drivers.omnigent.sys.platform", "linux")
     monkeypatch.setattr(
         "vibesys.agents.drivers.omnigent.shutil.which",
-        lambda _name, *, path: "/usr/bin/cc",  # noqa: ARG005
+        lambda name, *, path: "/usr/bin/gcc" if name == "gcc" else None,  # noqa: ARG005
     )
 
     def build_tools(
@@ -361,10 +363,15 @@ def test_codex_executor_disables_native_tools(
     assert str(captured["tool_environment"]["PATH"]).split(os.pathsep)[0] == str(
         rust_sysroot / "bin"
     )
-    assert captured["tool_environment"]["CARGO_HOME"] == str(
-        tmp_path / "target" / "vibesys-cargo-home"
-    )
+    cargo_home = Path(captured["tool_environment"]["CARGO_HOME"])
+    cargo_target = Path(captured["tool_environment"]["CARGO_TARGET_DIR"])
+    assert cargo_home.name == "cargo-home"
+    assert cargo_target.name == "target"
+    assert cargo_home.parent == cargo_target.parent
+    assert cargo_home.parent.is_dir()
+    assert not cargo_home.is_relative_to(tmp_path)
     assert captured["tool_environment"]["CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER"] == str(
-        Path("/usr/bin/cc").resolve()
+        Path("/usr/bin/gcc").resolve()
     )
     driver.close_executor(executor)
+    assert not cargo_home.parent.exists()
