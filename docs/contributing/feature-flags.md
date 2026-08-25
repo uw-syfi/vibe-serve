@@ -81,24 +81,30 @@ Current Omnigent constraints:
 - MCP server setup is rejected; the current Omnigent driver does not translate
   VibeSys MCP specifications.
 - Extra host resource grants are rejected. The agentshim path declares these
-  through `vs_sandbox`; this integration confines the agent to its workspace
-  and nothing else, so it cannot honour them.
-- Nested read-only and hidden project paths are rejected. Omnigent currently
-  enforces the workspace boundary but cannot express those finer-grained rules.
+  through `vs_sandbox`; the Omnigent path imports only the installed Rust
+  toolchain automatically, so it cannot honour arbitrary grants.
+- Top-level dot paths in the project policy are supported. Hidden dot paths
+  remain masked, while control directories such as `.git` and `.vibesys` are
+  exposed. Nested paths and non-dot paths are rejected.
 
 Sandboxing differs between the two backends. The agentshim path wraps the agent
 in a `vs_sandbox` host sandbox; the Omnigent path expresses the same intent in
-Omnigent's vocabulary — an `OSEnvSpec` whose sandbox grants write access to the
-workspace only, with the backend chosen per platform (bubblewrap on Linux,
-Seatbelt on macOS) and never set to `none`. The two mechanisms have **not** been
-proven equivalent, which is one more reason the flag is off by default.
+Omnigent's vocabulary: an `OSEnvSpec` whose sandbox grants write access to the
+workspace and read access to the Rust toolchain, with the backend chosen per
+platform (bubblewrap on Linux, Seatbelt on macOS) and never set to `none`.
+Omnigent 0.6.0 cannot make `.git` and `.vibesys` read-only beneath a writable
+workspace. The run contract therefore protects those control directories, and
+local operational state lives outside the repository by default. The two
+mechanisms have not been proven equivalent.
 
 Confining the agent is not the same as equipping it. Omnigent routes file and
 shell access through `sys_os_read` / `sys_os_write` / `sys_os_edit` /
 `sys_os_shell` MCP tools that the caller must build and dispatch, so the runner
 does that too — without it the agent starts sandboxed and toolless. Reaching
 that seam requires assigning Omnigent's private `_tool_executor` attribute,
-which is the most upgrade-fragile line in the integration.
+which is the most upgrade-fragile line in the integration. The Codex executor's
+native filesystem tools are disabled so all file and shell operations use this
+sandboxed path.
 
 Requires the platform sandbox backend — `bwrap` on Linux
 (`apt install bubblewrap`) or `sandbox-exec` on macOS. Omnigent resolves it when

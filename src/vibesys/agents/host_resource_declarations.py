@@ -81,7 +81,10 @@ def _path_toolchain(ctx: HostResourceContext) -> Iterable[HostResource]:
     return _resources(paths, purpose="launcher PATH toolchain")
 
 
-def _rust_toolchain(ctx: HostResourceContext) -> Iterable[HostResource]:
+def declare_rust_toolchain_resources(
+    ctx: HostResourceContext,
+) -> Iterable[HostResource]:
+    """Declare the host paths needed to run an installed Rust toolchain."""
     home = ctx.env.get("HOME")
     if not home:
         return ()
@@ -179,7 +182,7 @@ def _operator_allowlist(ctx: HostResourceContext) -> Iterable[HostResource]:
 DEFAULT_AGENT_HOST_RESOURCE_DECLARERS: tuple[HostResourceDeclarer, ...] = (
     _python_runtime,
     _path_toolchain,
-    _rust_toolchain,
+    declare_rust_toolchain_resources,
     _shell_setup,
     _agent_runtime,
     _provider_state,

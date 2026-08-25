@@ -117,14 +117,10 @@ def build_agent_client(  # noqa: C901, PLR0912, PLR0913
                 f"supported providers: {supported_providers()}. Select "
                 "agent.driver='agentshim' for other providers."
             )
-        if host_resources or (
-            project_path_policy is not None
-            and (project_path_policy.read_only_paths or project_path_policy.hidden_paths)
-        ):
+        if host_resources:
             raise OmnigentDriverError(  # noqa: TRY003
                 "Omnigent cannot enforce the requested VibeSys host-resource "
-                f"grants ({[str(resource.path) for resource in host_resources]}), "
-                "nested read-only paths, or hidden paths. Select "
+                f"grants ({[str(resource.path) for resource in host_resources]}). Select "
                 "agent.driver='agentshim' for this policy."
             )
 

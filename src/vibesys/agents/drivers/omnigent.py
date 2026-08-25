@@ -10,6 +10,7 @@ import json
 import os
 import sys
 from importlib import import_module
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from vibesys.agents.cli_common import build_schema_hint
@@ -23,15 +24,16 @@ from vibesys.agents.contracts import (
     AgentTurnResult,
     AgentUsage,
 )
+from vibesys.agents.host_resource_declarations import declare_rust_toolchain_resources
 from vibesys.agents.omnigent.providers import (
     OMNIGENT_PROVIDER_EXECUTORS,
     OmnigentExecutorSpec,
     supported_providers,
 )
+from vs_sandbox import HostResourceContext
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator
-    from pathlib import Path
 
 _TOOL_EXECUTOR_ATTR = "_tool_executor"
 """Private Omnigent 0.6.0 tool-dispatch seam, guarded before assignment."""
@@ -39,6 +41,10 @@ _TOOL_EXECUTOR_ATTR = "_tool_executor"
 
 class OmnigentDriverError(RuntimeError):
     """An Omnigent driver requirement could not be satisfied safely."""
+
+
+def _is_top_level_dot_path(path: Path) -> bool:
+    return len(path.parts) == 1 and path.name.startswith(".")
 
 
 def _resolve_executor_spec(provider: str) -> OmnigentExecutorSpec:
@@ -347,11 +353,15 @@ class OmnigentDriver:
                 "Omnigent cannot run this agent in VibeSys's container execution path"
             )
         project_paths = spec.policy.project_paths
-        if project_paths is not None and (
-            project_paths.read_only_paths or project_paths.hidden_paths
-        ):
+        read_only_paths = () if project_paths is None else project_paths.read_only_paths
+        hidden_paths = () if project_paths is None else project_paths.hidden_paths
+        unsupported_paths = [path for path in read_only_paths if not _is_top_level_dot_path(path)]
+        unsupported_paths.extend(path for path in hidden_paths if not _is_top_level_dot_path(path))
+        if unsupported_paths:
             raise OmnigentDriverError(
-                "Omnigent 0.6.0 cannot enforce VibeSys nested read-only or hidden paths"
+                "Omnigent 0.6.0 can support only top-level dot paths in the "
+                "VibeSys project policy; unsupported paths: "
+                f"{[str(path) for path in unsupported_paths]}"
             )
 
     def run_awaitable(self, awaitable: Any) -> Any:  # noqa: ANN401
@@ -375,30 +385,57 @@ class OmnigentDriver:
                 "this integration requires the Omnigent 0.6.0 executor API"
             ) from exc
 
-    def _build_os_env(self, workspace: Path) -> Any:  # noqa: ANN401
+    def _build_os_env(self, spec: AgentSessionSpec) -> Any:  # noqa: ANN401
         try:
             from omnigent.inner.datamodel import OSEnvSandboxSpec, OSEnvSpec  # noqa: PLC0415
         except ImportError as exc:
             raise _missing_omnigent("Omnigent OS-environment datamodel", exc) from exc
+        workspace = spec.workspace
+        project_paths = spec.policy.project_paths
+        hidden = set(() if project_paths is None else project_paths.hidden_paths)
+        allow_hidden = [
+            entry.name
+            for entry in sorted(workspace.iterdir(), key=lambda path: path.name)
+            if entry.name.startswith(".") and Path(entry.name) not in hidden
+        ]
+        environment = {**os.environ, **dict(spec.environment)}
+        resources = declare_rust_toolchain_resources(HostResourceContext(env=environment))
+        read_paths = sorted(
+            {str(workspace)}
+            | {
+                str(resource.path.expanduser().resolve())
+                for resource in resources
+                if resource.path.exists()
+            }
+        )
+        sandbox = OSEnvSandboxSpec(
+            type=_sandbox_backend_for_platform(),
+            read_paths=read_paths,
+            write_paths=[str(workspace)],
+            cwd_allow_hidden=allow_hidden,
+        )
         return OSEnvSpec(
             type="caller_process",
             cwd=str(workspace),
-            sandbox=OSEnvSandboxSpec(
-                type=_sandbox_backend_for_platform(),
-                write_paths=[str(workspace)],
-            ),
+            sandbox=sandbox,
         )
 
     def _build_executor(self, spec: AgentSessionSpec) -> tuple[Any, list[dict[str, Any]]]:
         executor_spec = _resolve_executor_spec(spec.provider)
         executor_cls = self._executor_class(executor_spec)
-        os_env_spec = self._build_os_env(spec.workspace)
+        os_env_spec = self._build_os_env(spec)
+        executor_kwargs: dict[str, Any] = {
+            "cwd": str(spec.workspace),
+            "model": spec.model,
+            "os_env": os_env_spec,
+        }
+        if spec.provider == "codex":
+            # Codex's native workspace sandbox cannot represent Omnigent's
+            # dot-path masks. Route all filesystem access through the
+            # sandboxed sys_os_* tools instead.
+            executor_kwargs["disable_native_tools"] = True
         try:
-            executor = executor_cls(
-                cwd=str(spec.workspace),
-                model=spec.model,
-                os_env=os_env_spec,
-            )
+            executor = executor_cls(**executor_kwargs)
         except ImportError as exc:
             raise OmnigentDriverError(
                 f"Omnigent provider {spec.provider!r} is unavailable: {exc}"
