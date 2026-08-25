@@ -41,6 +41,9 @@ if TYPE_CHECKING:
 _TOOL_EXECUTOR_ATTR = "_tool_executor"
 """Private Omnigent 0.6.0 tool-dispatch seam, guarded before assignment."""
 
+_OMNIGENT_INTERNAL_HIDDEN = frozenset({".codex-tmp"})
+"""Runtime-owned workspace paths that OS tools must not traverse."""
+
 
 class OmnigentDriverError(RuntimeError):
     """An Omnigent driver requirement could not be satisfied safely."""
@@ -405,7 +408,9 @@ class OmnigentDriver:
         allow_hidden = [
             entry.name
             for entry in sorted(workspace.iterdir(), key=lambda path: path.name)
-            if entry.name.startswith(".") and Path(entry.name) not in hidden
+            if entry.name.startswith(".")
+            and entry.name not in _OMNIGENT_INTERNAL_HIDDEN
+            and Path(entry.name) not in hidden
         ]
         environment = {**os.environ, **dict(spec.environment)}
         resources = declare_active_rust_toolchain_resources(
