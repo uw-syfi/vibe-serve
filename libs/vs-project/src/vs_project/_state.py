@@ -735,6 +735,7 @@ class _BaseRunConfiguration(BaseModel):
     run_environment: RunEnvironmentRecord
     model: PortableText | None = None
     agent_backend: PortableText
+    agent_driver: PortableText | None = None
     cli_provider: PortableText | None = None
     cli_timeout: Annotated[int, Field(gt=0)] | None = None
     compute_backend: PortableText

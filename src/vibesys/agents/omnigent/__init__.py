@@ -1,17 +1,10 @@
-"""Opt-in Omnigent agent backend.
+"""Import-safe Omnigent provider metadata.
 
-Selected only when the ``omnigent_agent_backend`` feature flag is enabled;
-see :doc:`docs/omnigent-evaluation` for why this is opt-in rather than the
-default. Nothing in this package is imported on the agentshim path.
-
-``providers`` is import-safe everywhere (it holds only data). ``runner``
-imports ``omnigent`` lazily, inside the methods that need it, so importing
-this package never requires the optional dependency.
+The implementation lives in :mod:`vibesys.agents.drivers.omnigent` and imports
+the optional dependency only while creating or running a session.
 """
 
 from __future__ import annotations
-
-from typing import TYPE_CHECKING
 
 from vibesys.agents.omnigent.providers import (
     OMNIGENT_PROVIDER_EXECUTORS,
@@ -19,28 +12,8 @@ from vibesys.agents.omnigent.providers import (
     supported_providers,
 )
 
-if TYPE_CHECKING:
-    # Statically visible without triggering the runtime import below.
-    from vibesys.agents.omnigent.runner import (
-        OmnigentAgentRunner,
-        OmnigentUnavailableError,
-    )
-
 __all__ = [
     "OMNIGENT_PROVIDER_EXECUTORS",
-    "OmnigentAgentRunner",
     "OmnigentExecutorSpec",
-    "OmnigentUnavailableError",
     "supported_providers",
 ]
-
-
-def __getattr__(name: str) -> object:
-    # Deferred so that `import vibesys.agents.omnigent` stays cheap and does
-    # not pull in langchain/pydantic wiring for callers that only need the
-    # provider table (e.g. build_agent_runner's validation path).
-    if name in {"OmnigentAgentRunner", "OmnigentUnavailableError"}:
-        from vibesys.agents.omnigent import runner  # noqa: PLC0415  # tracked: #288
-
-        return getattr(runner, name)
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")  # noqa: TRY003  # tracked: #288

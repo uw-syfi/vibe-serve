@@ -32,7 +32,9 @@ from unittest.mock import MagicMock
 import pytest
 
 from vibesys.agents import build_agent_runner
-from vibesys.agents.cli_runner import CliAgentRunner
+from vibesys.agents.client import AgentClient
+from vibesys.agents.drivers.agentshim import AgentShimDriver
+from vibesys.agents.drivers.omnigent import OmnigentDriver, OmnigentDriverError
 from vibesys.agents.omnigent import supported_providers
 from vibesys.agents.omnigent.providers import OMNIGENT_PROVIDER_EXECUTORS
 from vibesys.agents.omnigent.runner import (
@@ -84,14 +86,16 @@ class TestFlagDefaultsOff:
     def test_flag_absent_from_config_yields_cli_runner(self):  # noqa: ANN201  # tracked: #288
         runner = _build(_config(backend="cli", cli_provider="claude"))
 
-        assert isinstance(runner, CliAgentRunner)
+        assert isinstance(runner, AgentClient)
         assert runner.backend_name == "cli"
+        assert isinstance(runner._driver, AgentShimDriver)  # noqa: SLF001
         assert runner._provider == "claude"  # noqa: SLF001  # tracked: #288
 
     def test_flag_explicitly_false_yields_cli_runner(self):  # noqa: ANN201  # tracked: #288
         runner = _build(_config(omnigent=False, backend="cli", cli_provider="codex"))
 
-        assert isinstance(runner, CliAgentRunner)
+        assert isinstance(runner, AgentClient)
+        assert isinstance(runner._driver, AgentShimDriver)  # noqa: SLF001
         assert runner.backend_name == "cli"
 
     @pytest.mark.parametrize("provider", ["claude", "gemini", "codex", "opencode"])
@@ -99,7 +103,8 @@ class TestFlagDefaultsOff:
         """Providers omnigent cannot run must keep working on the default path."""
         runner = _build(_config(backend="cli", cli_provider=provider))
 
-        assert isinstance(runner, CliAgentRunner)
+        assert isinstance(runner, AgentClient)
+        assert isinstance(runner._driver, AgentShimDriver)  # noqa: SLF001
         assert runner._provider == provider  # noqa: SLF001  # tracked: #288
 
     def test_docker_path_unchanged_with_flag_off(self):  # noqa: ANN201  # tracked: #288
@@ -111,16 +116,44 @@ class TestFlagDefaultsOff:
             use_docker=True,
         )
 
-        assert isinstance(runner, CliAgentRunner)
-        assert runner._docker_sandboxes is backends  # noqa: SLF001  # tracked: #288
+        assert isinstance(runner, AgentClient)
+        assert runner._driver._docker_sandboxes is backends  # noqa: SLF001
+
+
+class TestExplicitDriverSelection:
+    def test_omnigent_driver_can_be_selected_without_feature_flag(self):  # noqa: ANN201
+        runner = _build(_config(driver="omnigent", backend="cli", cli_provider="claude"))
+
+        assert isinstance(runner, AgentClient)
+        assert isinstance(runner._driver, OmnigentDriver)  # noqa: SLF001
+
+    def test_agentshim_driver_is_the_explicit_default(self):  # noqa: ANN201
+        runner = _build(_config(driver="agentshim", backend="cli", cli_provider="codex"))
+
+        assert isinstance(runner._driver, AgentShimDriver)  # noqa: SLF001
+
+    def test_conflicting_feature_flag_is_rejected(self):  # noqa: ANN201
+        with pytest.raises(SystemExit, match="conflicts"):
+            _build(
+                _config(
+                    omnigent=True,
+                    driver="agentshim",
+                    backend="cli",
+                    cli_provider="codex",
+                )
+            )
+
+    def test_driver_is_rejected_for_non_cli_backend(self):  # noqa: ANN201
+        with pytest.raises(SystemExit, match="valid only"):
+            _build(_config(driver="omnigent", backend="deepagents"), backends={})
 
 
 class TestFlagOnSelection:
     def test_flag_on_yields_omnigent_runner(self):  # noqa: ANN201  # tracked: #288
         runner = _build(_config(omnigent=True, backend="cli", cli_provider="claude"))
 
-        assert isinstance(runner, OmnigentAgentRunner)
-        assert runner.backend_name == "omnigent"
+        assert isinstance(runner, AgentClient)
+        assert isinstance(runner._driver, OmnigentDriver)  # noqa: SLF001
         assert runner._provider == "claude"  # noqa: SLF001  # tracked: #288
 
     def test_flag_on_passes_through_model_and_log_dir(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
@@ -130,7 +163,6 @@ class TestFlagOnSelection:
             log_dir=tmp_path,
         )
 
-        assert runner._model == "gpt-5"  # noqa: SLF001  # tracked: #288
         assert runner._model_name == "gpt-5"  # noqa: SLF001  # tracked: #288
         assert runner._log_dir == tmp_path  # noqa: SLF001  # tracked: #288
 
@@ -150,19 +182,18 @@ class TestFlagOnSelection:
 
     @pytest.mark.parametrize("provider", ["gemini", "opencode"])
     def test_unsupported_provider_names_the_remedy(self, provider):  # noqa: ANN001, ANN201  # tracked: #288
-        with pytest.raises(OmnigentUnavailableError) as exc:
+        with pytest.raises(OmnigentDriverError) as exc:
             _build(_config(omnigent=True, backend="cli", cli_provider=provider))
 
         message = str(exc.value)
         assert provider in message
-        assert "omnigent_agent_backend" in message
         assert "claude" in message and "codex" in message  # noqa: PT018  # tracked: #288
         assert "agentshim" in message
 
     def test_docker_combination_is_rejected(self):  # noqa: ANN201  # tracked: #288
         backends = {"implementer": MagicMock(), "judge": MagicMock(), "perf_eval": MagicMock()}
 
-        with pytest.raises(OmnigentUnavailableError) as exc:
+        with pytest.raises(SystemExit) as exc:
             _build(
                 _config(omnigent=True, backend="cli", cli_provider="claude"),
                 backends=backends,
@@ -175,7 +206,7 @@ class TestFlagOnSelection:
         """Silently dropping an operator's grant would weaken a security boundary."""
         grant = HostResource(tmp_path / "models", HostResourceAccess.READ_ONLY, "weights")
 
-        with pytest.raises(OmnigentUnavailableError) as exc:
+        with pytest.raises(OmnigentDriverError) as exc:
             _build(
                 _config(omnigent=True, backend="cli", cli_provider="claude"),
                 host_resources=[grant],
@@ -191,7 +222,8 @@ class TestFlagOnSelection:
             host_resources=(),
         )
 
-        assert isinstance(runner, OmnigentAgentRunner)
+        assert isinstance(runner, AgentClient)
+        assert isinstance(runner._driver, OmnigentDriver)  # noqa: SLF001
 
 
 class TestProviderRegistry:
@@ -1027,13 +1059,12 @@ class TestTurnPathWithFakeExecutor:
         assert runner._loop is None  # noqa: SLF001  # tracked: #288
 
 
-@requires_omnigent
-class TestLazyPackageExports:
-    def test_runner_symbols_resolve_through_package_getattr(self):  # noqa: ANN201  # tracked: #288
+class TestProviderPackageExports:
+    def test_package_exports_provider_metadata_only(self):  # noqa: ANN201  # tracked: #288
         import vibesys.agents.omnigent as pkg  # noqa: PLC0415  # tracked: #288
 
-        assert pkg.OmnigentAgentRunner is OmnigentAgentRunner
-        assert pkg.OmnigentUnavailableError is OmnigentUnavailableError
+        assert pkg.supported_providers() == supported_providers()
+        assert "OmnigentAgentRunner" not in pkg.__all__
 
     def test_unknown_attribute_still_raises(self):  # noqa: ANN201  # tracked: #288
         import vibesys.agents.omnigent as pkg  # noqa: PLC0415  # tracked: #288

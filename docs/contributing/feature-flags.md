@@ -38,14 +38,21 @@ plumbing and tests. Remove it when the first real VibeSys feature flag exists.
 | Flag | Default | Effect |
 | --- | --- | --- |
 | `example_feature` | `false` | Sample flag; exercises the plumbing only. |
-| `omnigent_agent_backend` | `false` | Runs the `cli` agent backend through Omnigent's in-process executor instead of agentshim. |
+| `omnigent_agent_backend` | `false` | Compatibility alias for `[agent].driver = "omnigent"`. |
 
 ### `omnigent_agent_backend`
 
-Opt-in and unproven. The flag is off by default because the integration uses a
-fast-moving alpha dependency, supports only two providers, and has not proven
-equivalence with the default sandbox path. With the flag off, nothing under
-`vibesys/agents/omnigent/` is imported and the agentshim path is unchanged.
+New configuration should select the optional runtime directly:
+
+```toml
+[agent]
+backend = "cli"
+driver = "omnigent"
+```
+
+Omitting `driver` selects `agentshim`. The feature flag remains as a
+compatibility alias while existing experiments migrate. Setting the flag and
+explicitly selecting `agentshim` is rejected as conflicting configuration.
 
 Enabling it requires the optional extra. Contributors already have it —
 `uv sync --dev` pulls `vibesys[omnigent]` — but an end-user install needs:
@@ -59,19 +66,25 @@ uv sync --extra omnigent
 omnigent_agent_backend = true
 ```
 
-Constraints, each of which raises `OmnigentUnavailableError` naming the remedy
-rather than silently falling back to agentshim:
+The `AgentClient` presents one application interface over both drivers. It owns
+session reuse, skill setup, response parsing, logging, usage records, and
+lifecycle. A driver owns native executor setup, policy translation, turns,
+events, and cleanup. Unsupported requirements fail before a session starts.
+
+Current Omnigent constraints:
 
 - Only the `claude` and `codex` providers are supported. Omnigent 0.6.0 ships
   no Gemini harness, and its `opencode-native` executor is a bridge for
   Omnigent's own web UI (it takes no `cwd`/`model`), so neither can run a
   headless VibeSys turn.
 - `--docker` is rejected; this integration has no container-launcher support.
-- Per-invocation MCP server injection is rejected; Omnigent wires MCP through
-  its own agent spec, which this integration does not construct.
+- MCP server setup is rejected; the current Omnigent driver does not translate
+  VibeSys MCP specifications.
 - Extra host resource grants are rejected. The agentshim path declares these
   through `vs_sandbox`; this integration confines the agent to its workspace
   and nothing else, so it cannot honour them.
+- Nested read-only and hidden project paths are rejected. Omnigent currently
+  enforces the workspace boundary but cannot express those finer-grained rules.
 
 Sandboxing differs between the two backends. The agentshim path wraps the agent
 in a `vs_sandbox` host sandbox; the Omnigent path expresses the same intent in
@@ -89,8 +102,8 @@ which is the most upgrade-fragile line in the integration.
 
 Requires the platform sandbox backend — `bwrap` on Linux
 (`apt install bubblewrap`) or `sandbox-exec` on macOS. Omnigent resolves it when
-the agent's OS environment is created; if it is missing, the flag raises
-`OmnigentUnavailableError` naming the remedy rather than running the agent
+the agent's OS environment is created; if it is missing, the driver raises
+`OmnigentDriverError` naming the remedy rather than running the agent
 unconfined. GitHub's runners do not ship `bwrap`, so the tests that build a real
 OS environment skip there under the repo's existing
 `VIBESYS_REQUIRE_SANDBOX_TESTS` convention.

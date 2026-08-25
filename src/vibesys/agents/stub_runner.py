@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, TypeVar
 from pydantic import BaseModel
 
 from vibesys._agent_cli.base import MCPServerSpec  # noqa: TC001  # tracked: #288
+from vibesys.agents.contracts import AgentCapabilities
 from vibesys.agents.progress import AgentProgress  # noqa: TC001  # tracked: #288
 from vibesys.schemas import HypothesisOutcome
 
@@ -24,6 +25,14 @@ class StubAgentRunner:
     """Return valid canned responses without invoking an external agent."""
 
     backend_name = "stub"
+
+    @property
+    def capabilities(self) -> AgentCapabilities:
+        """The deterministic stub does not expose external tools."""
+        return AgentCapabilities(session_reuse=False)
+
+    def close(self) -> None:
+        """The deterministic stub owns no external resources."""
 
     def invoke(  # noqa: D102, PLR0913  # tracked: #288
         self,

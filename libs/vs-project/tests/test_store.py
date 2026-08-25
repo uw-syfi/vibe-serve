@@ -54,6 +54,7 @@ def _configuration() -> AgentRunConfiguration:
         inner_loop="multi-agent",
         interface="inprocess",
         agent_backend="cli",
+        agent_driver="agentshim",
         cli_provider="codex",
         cli_timeout=1800,
         compute_backend="cpu",
@@ -226,6 +227,7 @@ def test_run_configuration_allows_optional_behavior_overrides_to_be_absent() -> 
     raw = _configuration().model_dump()
     for field in (
         "model",
+        "agent_driver",
         "cli_provider",
         "cli_timeout",
         "profiler",
@@ -627,6 +629,7 @@ def test_run_manifest_persists_complete_agent_loop_behavior(tmp_path: Path) -> N
     assert raw["trusted_input_baseline"] == "a" * 40
     assert raw["configuration"] == {
         "agent_backend": "cli",
+        "agent_driver": "agentshim",
         "cli_provider": "codex",
         "cli_timeout": 1800,
         "compute_backend": "cpu",

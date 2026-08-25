@@ -352,11 +352,13 @@ class TestLoadConfigAgentSection:
 name = "claude-sonnet-4-6"
 
 [agent]
+driver = "omnigent"
 backend = "cli"
 cli_provider = "claude"
 cli_timeout = 1800
 """)
         config = load_config(cfg_file)
+        assert config.agent.driver == "omnigent"
         assert config.agent.cli_timeout == 1800
         assert config.agent.backend == "cli"
         assert config.agent.cli_provider == "claude"
@@ -365,9 +367,23 @@ cli_timeout = 1800
         cfg_file = tmp_path / "agent.toml"
         cfg_file.write_text('[model]\nname = "claude-sonnet-4-6"\n')
         config = load_config(cfg_file)
+        assert config.agent.driver is None
         assert config.agent.backend is None
         assert config.agent.cli_provider is None
         assert config.agent.cli_timeout is None
+
+    def test_unknown_agent_driver_is_rejected(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+        cfg_file = tmp_path / "agent.toml"
+        cfg_file.write_text("""\
+[model]
+name = "claude-sonnet-4-6"
+
+[agent]
+driver = "unknown"
+""")
+
+        with pytest.raises(ValueError, match="driver"):
+            load_config(cfg_file)
 
     @pytest.mark.parametrize("cli_timeout", [0, -1])
     def test_non_positive_cli_timeout_is_rejected(self, tmp_path, cli_timeout):  # noqa: ANN001, ANN201  # tracked: #288

@@ -131,6 +131,7 @@ class _CommonConfiguration(TypedDict):
     run_environment: RunEnvironmentRecord
     model: str
     agent_backend: str
+    agent_driver: str
     cli_provider: str
     cli_timeout: int
     compute_backend: str
@@ -159,6 +160,7 @@ def _common_configuration(
         "run_environment": run_environment or _LOCAL_ENVIRONMENT,
         "model": "gpt-recorded",
         "agent_backend": "cli",
+        "agent_driver": "omnigent",
         "cli_provider": "claude",
         "cli_timeout": 321,
         "compute_backend": "cpu",
@@ -1199,6 +1201,7 @@ def test_agent_resume_restores_its_configuration(
     assert backend is ComputeBackend.CPU
     assert config.model.name == "gpt-recorded"
     assert config.agent.cli_timeout == 321
+    assert config.agent.driver == "omnigent"
     assert config.agent.outer.model == "gpt-outer"
     assert config.agent.inner.model == "gpt-inner"
 

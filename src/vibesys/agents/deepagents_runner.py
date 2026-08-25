@@ -26,6 +26,7 @@ from vibesys.agent_runner import (
     run_typed_agent,
 )
 from vibesys.agents.callbacks import AgentLogger
+from vibesys.agents.contracts import AgentCapabilities
 from vibesys.agents.progress import AgentProgress  # noqa: TC001  # tracked: #288
 
 T = TypeVar("T", bound=BaseModel)
@@ -40,6 +41,18 @@ class DeepAgentsRunner:
     """:class:`AgentRunner` backed by ``deepagents.create_deep_agent``."""
 
     backend_name = "deepagents"
+
+    @property
+    def capabilities(self) -> AgentCapabilities:
+        """Deepagents exposes only its in-process LangChain tool transport."""
+        return AgentCapabilities(in_process_tools=True, session_reuse=False)
+
+    def close(self) -> None:
+        """Deepagents owns no resources beyond each invocation."""
+
+    def set_log_file(self, stream: TextIO | None) -> None:
+        """Direct subsequent logs to ``stream``."""
+        self._run_log_file = stream
 
     def __init__(  # noqa: ANN204, D107  # tracked: #288
         self,

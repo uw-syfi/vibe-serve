@@ -13,6 +13,7 @@ from pydantic import BaseModel
 
 from vibesys._agent_cli.base import MCPServerSpec
 from vibesys.agents.base import AgentRunner
+from vibesys.agents.contracts import AgentCapabilities
 from vibesys.loops.plain.runner_ext import PlainLoopAgentRunner
 from vs_issue_board import IssueBoard
 
@@ -26,6 +27,10 @@ class _Resp(BaseModel):
 def _mock_runner(backend_name: str) -> MagicMock:
     runner = MagicMock(spec=AgentRunner)
     runner.backend_name = backend_name
+    runner.capabilities = AgentCapabilities(
+        mcp_servers=backend_name == "cli",
+        in_process_tools=backend_name == "deepagents",
+    )
     runner.invoke.return_value = "ok"
     return runner
 

@@ -654,6 +654,7 @@ def _restore_project_config(
             frozenset({"agent_backend", "stub_agent"}),
             "agent_backend",
         ),
+        (("agent", "driver"), recorded.agent_driver, frozenset(), "agent_driver"),
         (
             ("agent", "cli_provider"),
             recorded.cli_provider,
@@ -705,6 +706,7 @@ def _restore_project_config(
     agent = config.agent.model_copy(
         update={
             "backend": None if recorded.agent_backend == "stub" else recorded.agent_backend,
+            "driver": recorded.agent_driver,
             "cli_provider": recorded.cli_provider,
             "cli_timeout": recorded.cli_timeout,
             "outer": outer,

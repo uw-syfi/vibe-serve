@@ -1,13 +1,11 @@
 """Backend-agnostic agent runner protocol.
 
-Two implementations live alongside this module:
+Application runners live alongside this module:
 
 - :mod:`vibesys.agents.deepagents_runner` wraps the existing
   ``deepagents`` + ``langchain`` stack used by every loop today.
-- :mod:`vibesys.agents.cli_runner` wraps an
-  ``agentshim``-backed ``vibesys._agent_cli`` compatibility layer, which drives
-  external coding-agent CLIs
-  (Claude Code, Gemini, Codex, Opencode).
+- :class:`vibesys.agents.client.AgentClient` presents this interface over a
+  stateful driver session. AgentShim and Omnigent are driver implementations.
 
 Loops call a single ``invoke()`` method per (iteration × phase). Callers can
 request a durable session by key without depending on a backend-specific
@@ -24,6 +22,7 @@ from typing import TYPE_CHECKING, Generic, Protocol, TypeVar
 from pydantic import BaseModel
 
 from vibesys._agent_cli.base import MCPServerSpec  # noqa: TC001  # tracked: #288
+from vibesys.agents.contracts import AgentCapabilities  # noqa: TC001
 from vibesys.agents.progress import AgentProgress  # noqa: TC001  # tracked: #288
 
 if TYPE_CHECKING:
@@ -68,7 +67,12 @@ class AgentRunner(Protocol):
     """Backend-agnostic agent invoker. One instance per loop run."""
 
     backend_name: str
-    """Diagnostic identifier — ``"deepagents"`` or ``"cli"``."""
+    """Diagnostic application backend identifier."""
+
+    @property
+    def capabilities(self) -> AgentCapabilities:
+        """Return factual tool and execution capabilities."""
+        ...
 
     def invoke(  # noqa: D417, PLR0913  # tracked: #288
         self,
@@ -155,4 +159,8 @@ class AgentRunner(Protocol):
         session_key: str | None = None,
     ) -> str:
         """Run an agent and return its final message without a response schema."""
+        ...
+
+    def close(self) -> None:
+        """Release runner resources. Implementations must be idempotent."""
         ...

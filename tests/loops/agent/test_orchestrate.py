@@ -361,6 +361,7 @@ def test_project_configuration_captures_effective_agent_behavior(tmp_path: Path)
         "inner_loop": "single-agent",
         "interface": "service",
         "agent_backend": "cli",
+        "agent_driver": "agentshim",
         "cli_provider": "codex",
         "cli_timeout": 900,
         "compute_backend": "cuda",

@@ -2,9 +2,8 @@
 
 Wraps any :class:`~vibesys.agents.base.AgentRunner` and injects
 tracker access for the ``judge`` and ``perf_eval`` phases. The wrapper
-picks the right transport (MCP server spec for the cli backend, in-process
-``@tool`` callables for the deepagents backend) by inspecting the inner
-runner's ``backend_name``.
+picks the right transport (MCP server spec or in-process ``@tool`` callables)
+from the inner runner's declared capabilities.
 
 This module is the only place that knows BOTH:
   - the issue-tracker policy (creator/iteration/cap/types per phase)
@@ -27,6 +26,7 @@ from pydantic import BaseModel
 
 from vibesys._agent_cli.base import MCPServerSpec  # noqa: TC001  # tracked: #288
 from vibesys.agents.base import AgentRunner  # noqa: TC001  # tracked: #288
+from vibesys.agents.contracts import AgentCapabilities  # noqa: TC001
 from vibesys.loops.plain.mcp_config import build_issue_mcp_spec
 from vibesys.loops.plain.tools import build_issue_tools
 from vs_issue_board import IssueBoard, IssueType
@@ -67,6 +67,21 @@ class PlainLoopAgentRunner:
     @property
     def backend_name(self) -> str:  # noqa: D102  # tracked: #288
         return self._inner.backend_name
+
+    @property
+    def capabilities(self) -> AgentCapabilities:
+        """Preserve the inner runner's declared capabilities."""
+        return self._inner.capabilities
+
+    def set_log_file(self, stream: Any) -> None:  # noqa: ANN401
+        """Retarget inner-runner logs when the run changes log files."""
+        setter = getattr(self._inner, "set_log_file", None)
+        if callable(setter):
+            setter(stream)
+
+    def close(self) -> None:
+        """Close the inner runner."""
+        self._inner.close()
 
     def invoke(  # noqa: D102  # tracked: #288
         self,
@@ -119,16 +134,14 @@ class PlainLoopAgentRunner:
     ) -> dict[str, Any]:
         """Build the right injection-point kwarg for the inner backend.
 
-        Returns ``{"mcp_servers": [...]}`` under the cli backend (the cli
-        runner installs them as a stdio MCP server before ``generate()``)
-        and ``{"tools": [...]}`` under deepagents (the runner forwards
-        them straight to ``create_deep_agent(tools=...)``).
+        Returns ``{"mcp_servers": [...]}`` when the runtime supports MCP and
+        ``{"tools": [...]}`` when it supports in-process tools.
 
         Both factories share the policy semantics in
         :mod:`vs_issue_board.policy`, so cap and type-allowlist
         enforcement is byte-identical between backends.
         """
-        if self._inner.backend_name == "cli":
+        if self._inner.capabilities.mcp_servers:
             spec = build_issue_mcp_spec(
                 store_relpath="issues.json",
                 creator=creator,
@@ -137,7 +150,11 @@ class PlainLoopAgentRunner:
                 allowed_types=set(allowed_types),
             )
             return {"mcp_servers": [spec]}
-        # deepagents (and any future in-process backend)
+        if not self._inner.capabilities.in_process_tools:
+            raise RuntimeError(  # noqa: TRY003
+                f"agent backend {self._inner.backend_name!r} cannot expose issue-board tools"
+            )
+        # Deepagents and other explicitly in-process implementations.
         issue_tools = build_issue_tools(
             self._store,
             iteration=iteration,

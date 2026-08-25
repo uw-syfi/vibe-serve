@@ -1,6 +1,6 @@
 """Build the :class:`~vibesys._agent_cli.MCPServerSpec` for the issue tracker.
 
-The issue-loop hands one of these to ``CliAgentRunner.invoke(mcp_servers=...)``
+The issue-loop hands one of these to ``AgentClient.invoke(mcp_servers=...)``
 each phase. The runner then forwards it to the active provider's
 ``install_mcp_servers`` hook, which serializes the spec into whatever config
 format that CLI expects (``.mcp.json`` for Claude, ``.gemini/settings.json``

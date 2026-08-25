@@ -50,6 +50,7 @@ from vibesys.agents.cli_common import (
     materialize_native_output_schema,
     materialize_skills,
 )
+from vibesys.agents.contracts import AgentCapabilities
 from vibesys.agents.host_resource_declarations import declare_agent_host_resources
 from vibesys.agents.progress import AgentProgress  # noqa: TC001  # tracked: #288
 from vibesys.constants import ComputeBackend  # noqa: TC001  # tracked: #288
@@ -140,6 +141,14 @@ class CliAgentRunner:
     """:class:`AgentRunner` backed by ``vibesys._agent_cli`` CLI agents."""
 
     backend_name = "cli"
+
+    @property
+    def capabilities(self) -> AgentCapabilities:
+        """Compatibility metadata for the superseded concrete runner."""
+        return AgentCapabilities(mcp_servers=True, timeouts=True)
+
+    def close(self) -> None:
+        """AgentShim launches one process per turn and retains no live process."""
 
     def __init__(  # noqa: ANN204, D107, PLR0913  # tracked: #288
         self,

@@ -14,7 +14,9 @@ from vibesys.agent_runner import log_json_and_print, log_prompt_markdown_and_pri
 from vibesys.agents import ResponseFallback, build_agent_runner
 from vibesys.agents.callbacks import AgentLogger
 from vibesys.agents.cli_runner import CliAgentRunner
+from vibesys.agents.client import AgentClient
 from vibesys.agents.deepagents_runner import DeepAgentsRunner
+from vibesys.agents.drivers.agentshim import AgentShimDriver
 from vibesys.agents.progress import RoundProgress
 from vibesys.config import Config
 from vibesys.constants import ComputeBackend
@@ -2134,8 +2136,9 @@ class TestBuildAgentRunner:
             run_log_file=None,
             use_docker=True,
         )
-        assert isinstance(runner, CliAgentRunner)
-        assert runner._docker_sandboxes is mock_backends  # noqa: SLF001  # tracked: #288
+        assert isinstance(runner, AgentClient)
+        assert isinstance(runner._driver, AgentShimDriver)  # noqa: SLF001
+        assert runner._driver._docker_sandboxes is mock_backends  # noqa: SLF001
 
     def test_build_agent_runner_rejects_unsupported_docker_provider(self):  # noqa: ANN201  # tracked: #288
         with pytest.raises(SystemExit, match="not yet supported with --docker"):
@@ -2183,7 +2186,7 @@ class TestBuildAgentRunner:
                 require_host_sandbox=True,
             )
 
-    def test_required_project_enforcement_rejects_omnigent(self):  # noqa: ANN201  # tracked: #288
+    def test_required_workspace_enforcement_permits_omnigent(self):  # noqa: ANN201
         config = Config.model_validate(
             {
                 "model": {"name": "m"},
@@ -2192,20 +2195,22 @@ class TestBuildAgentRunner:
             }
         )
 
-        with pytest.raises(SystemExit, match="does not yet support the Omnigent backend"):
-            build_agent_runner(
-                config,
-                agent_backend=None,
-                cli_provider=None,
-                backends=None,
-                skills=[],
-                skill_source_dirs=[],
-                model=None,
-                model_name="m",
-                run_log_file=None,
-                use_docker=False,
-                require_host_sandbox=True,
-            )
+        runner = build_agent_runner(
+            config,
+            agent_backend=None,
+            cli_provider=None,
+            backends=None,
+            skills=[],
+            skill_source_dirs=[],
+            model=None,
+            model_name="m",
+            run_log_file=None,
+            use_docker=False,
+            require_host_sandbox=True,
+        )
+
+        assert isinstance(runner, AgentClient)
+        assert type(runner._driver).__name__ == "OmnigentDriver"  # noqa: SLF001
 
     def test_required_project_enforcement_permits_stub(self):  # noqa: ANN201  # tracked: #288
         runner = build_agent_runner(
@@ -2245,9 +2250,9 @@ class TestBuildAgentRunner:
             require_host_sandbox=True,
         )
 
-        assert isinstance(runner, CliAgentRunner)
-        assert runner._project_path_policy is policy  # noqa: SLF001  # tracked: #288
-        assert runner._require_host_sandbox is True  # noqa: SLF001  # tracked: #288
+        assert isinstance(runner, AgentClient)
+        assert runner._policy.project_paths is policy  # noqa: SLF001
+        assert runner._policy.require_enforcement is True  # noqa: SLF001
 
     # --- model resolution for the cli backend ---------------------------------
     #
@@ -2277,7 +2282,7 @@ class TestBuildAgentRunner:
             _agent_config(backend="cli", cli_provider=provider),
             model_name="gpt-5.4",
         )
-        assert runner._model == "gpt-5.4"  # noqa: SLF001  # tracked: #288
+        assert runner._model_name == "gpt-5.4"  # noqa: SLF001  # tracked: #288
 
     def test_displayed_model_name_matches_model_passed(self):  # noqa: ANN201  # tracked: #288
         # The run-log header prints _model_name; it must equal the model
@@ -2287,7 +2292,7 @@ class TestBuildAgentRunner:
             _agent_config(backend="cli", cli_provider="codex"),
             model_name="gpt-5.4",
         )
-        assert runner._model_name == runner._model == "gpt-5.4"  # noqa: SLF001  # tracked: #288
+        assert runner._model_name == "gpt-5.4"  # noqa: SLF001  # tracked: #288
 
     def test_cli_backend_carries_outer_and_inner_role_configuration(self):  # noqa: ANN201  # tracked: #288
         config = _agent_config(
@@ -2387,20 +2392,20 @@ class TestBuildAgentRunnerBackendSelection:
 
     def test_default_backend_is_cli_with_empty_config(self):  # noqa: ANN201  # tracked: #288
         runner = self._build(_agent_config())
-        assert isinstance(runner, CliAgentRunner)
+        assert isinstance(runner, AgentClient)
         assert runner._provider == "codex"  # noqa: SLF001  # tracked: #288
 
     def test_empty_agent_section_defaults_to_cli(self):  # noqa: ANN201  # tracked: #288
         runner = self._build(_agent_config())
-        assert isinstance(runner, CliAgentRunner)
+        assert isinstance(runner, AgentClient)
         assert runner._provider == "codex"  # noqa: SLF001  # tracked: #288
 
     def test_agent_backend_flag_overrides_config(self):  # noqa: ANN201  # tracked: #288
         # An explicit --agent-backend flag wins over [agent].backend.
         runner = self._build(_agent_config(backend="deepagents"), agent_backend="cli")
-        assert isinstance(runner, CliAgentRunner)
+        assert isinstance(runner, AgentClient)
 
     def test_config_can_select_cli_provider(self):  # noqa: ANN201  # tracked: #288
         runner = self._build(_agent_config(backend="cli", cli_provider="claude"))
-        assert isinstance(runner, CliAgentRunner)
+        assert isinstance(runner, AgentClient)
         assert runner._provider == "claude"  # noqa: SLF001  # tracked: #288

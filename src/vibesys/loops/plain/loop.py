@@ -25,6 +25,7 @@ from datetime import UTC, datetime
 from pathlib import Path  # noqa: TC003  # tracked: #288
 from typing import Any
 
+from vibesys.agents.factory import resolve_agent_driver
 from vibesys.agents.progress import RoundProgress
 from vibesys.config import Config, as_config
 from vibesys.constants import DEFAULT_AGENT_BACKEND, DEFAULT_COMPUTE_BACKEND, ComputeBackend
@@ -300,11 +301,13 @@ def run_plain_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
     config = as_config(config)
     domain_definition = resolve_domain(domain)
     run_environment = run_environment or make_run_environment_spec()
+    resolved_agent_backend = agent_backend or config.agent.backend or DEFAULT_AGENT_BACKEND
     run_configuration = PlainRunConfiguration(
         outer_loop="plain",
         run_environment=run_environment_record(run_environment),
         model=config.model.name,
-        agent_backend=agent_backend or config.agent.backend or DEFAULT_AGENT_BACKEND,
+        agent_backend=resolved_agent_backend,
+        agent_driver=(resolve_agent_driver(config) if resolved_agent_backend == "cli" else None),
         cli_provider=cli_provider or config.agent.cli_provider or "codex",
         cli_timeout=config.agent.cli_timeout,
         compute_backend=backend.value,

@@ -179,8 +179,9 @@ def _git(project: Path, *args: str) -> str:
 def test_direct_run_uses_one_project_root_and_canonical_state(tmp_path):  # noqa: ANN001, ANN201
     project = tmp_path / "queue"
     evaluator = _write_project(project)
+    runner = MagicMock()
 
-    with patch("vibesys.context.build_agent_runner", return_value=MagicMock()) as build_runner:
+    with patch("vibesys.context.build_agent_runner", return_value=runner) as build_runner:
         with _create_context(project, evaluator=evaluator) as ctx:
             assert ctx.project_root == project
             assert ctx.workspace == project
@@ -203,6 +204,7 @@ def test_direct_run_uses_one_project_root_and_canonical_state(tmp_path):  # noqa
         state_paths = Project.open(project).state.sandbox_paths()
         assert state_paths.read_only_path in policy.read_only_paths
         assert state_paths.hidden_path in policy.hidden_paths
+        runner.close.assert_called_once_with()
 
     manifest = Project.open(project).state.load_run(ctx.run_id)
     assert manifest.branch == f"vibesys-runs/{ctx.run_id}"

@@ -390,7 +390,7 @@ class AgentLogger(BaseCallbackHandler):
     #
     # The deepagents path drives ``AgentLogger`` via the langchain
     # ``BaseCallbackHandler`` hooks (``on_llm_new_token``, ``on_tool_end``, …).
-    # The cli runner in ``vibesys.agents.cli_runner`` receives events
+    # External-agent drivers receive events
     # from ``vibesys._agent_cli.AgentEventHandler`` directly on this object. Both
     # paths converge on the same private ``_emit_*`` helpers, so emitted events
     # and log text are identical regardless of which backend is in use.

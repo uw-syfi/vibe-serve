@@ -15,6 +15,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from vibesys.agents import AgentRunner
+from vibesys.agents.contracts import AgentCapabilities
 from vibesys.domains.base import DomainName
 from vibesys.loops.plain.loop import PlainLoopState
 from vibesys.loops.plain.loop import run_plain_loop as _run_plain_loop
@@ -83,11 +84,14 @@ def _make_issue_runner(responses: list, *, backend_name: str = "deepagents") -> 
 
     The mock is wrapped in PlainLoopAgentRunner inside ``run_plain_loop``,
     so the calls recorded on this mock reflect what the wrapper passed
-    after injecting tracker tools / MCP server specs based on
-    ``backend_name``.
+    after injecting tracker tools / MCP server specs based on capabilities.
     """
     runner = MagicMock(spec=AgentRunner)
     runner.backend_name = backend_name
+    runner.capabilities = AgentCapabilities(
+        mcp_servers=backend_name == "cli",
+        in_process_tools=backend_name == "deepagents",
+    )
     it = iter(responses)
 
     def _invoke(*, kind, **kwargs):  # noqa: ANN001, ANN003, ANN202, ARG001  # tracked: #288

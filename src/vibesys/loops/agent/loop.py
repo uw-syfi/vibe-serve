@@ -17,6 +17,7 @@ from pathlib import Path  # noqa: TC003  # tracked: #288
 from typing import Any, Literal
 
 from vibesys.agents.base import ResponseFallback
+from vibesys.agents.factory import resolve_agent_driver
 from vibesys.agents.progress import RoundProgress
 from vibesys.config import Config, as_config
 from vibesys.constants import DEFAULT_AGENT_BACKEND, DEFAULT_COMPUTE_BACKEND, ComputeBackend
@@ -2248,16 +2249,20 @@ def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
         modality = "text_generation"
     run_environment = run_environment or make_run_environment_spec()
     normalized_config = as_config(config)
+    resolved_agent_backend = (
+        "stub"
+        if agent_backend == "stub"
+        else agent_backend or normalized_config.agent.backend or DEFAULT_AGENT_BACKEND
+    )
     project_configuration = AgentRunConfiguration(
         outer_loop="agent",
         run_environment=run_environment_record(run_environment),
         inner_loop=inner_loop,
         interface=interface,
         model=normalized_config.model.name,
-        agent_backend=(
-            "stub"
-            if agent_backend == "stub"
-            else agent_backend or normalized_config.agent.backend or DEFAULT_AGENT_BACKEND
+        agent_backend=resolved_agent_backend,
+        agent_driver=(
+            resolve_agent_driver(normalized_config) if resolved_agent_backend == "cli" else None
         ),
         cli_provider=(
             cli_provider or normalized_config.agent.cli_provider or "codex"

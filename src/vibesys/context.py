@@ -826,6 +826,9 @@ def _assemble_run_context(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: 
         project_path_policy=project_path_policy,
         require_host_sandbox=not session.view.cli_sandboxed,
     )
+    close_agent_runner = getattr(agent_runner, "close", None)
+    if callable(close_agent_runner):
+        teardown_stack.callback(close_agent_runner)
 
     result = _RunContext(
         backend=backend,
@@ -1030,6 +1033,9 @@ def _assemble_candidate_context(  # noqa: PLR0913  # tracked: #288
         project_path_policy=project_path_policy,
         require_host_sandbox=not session.view.cli_sandboxed,
     )
+    close_agent_runner = getattr(agent_runner, "close", None)
+    if callable(close_agent_runner):
+        teardown_stack.callback(close_agent_runner)
 
     paths = RunPaths(
         project_root=workspace,
@@ -1501,8 +1507,14 @@ class _RunContext:
         self._paths = replace(self._paths, run_log_path=self.logger.path)
         # Update the agent runner's log file handle so subsequent
         # invoke() calls write to the new step log.
-        if hasattr(self, "agent_runner") and hasattr(self.agent_runner, "_run_log_file"):
-            self.agent_runner._run_log_file = self.logger.writer  # pyright: ignore[reportAttributeAccessIssue]  # noqa: SLF001  # tracked: #288
+        if hasattr(self, "agent_runner"):
+            set_log_file = getattr(self.agent_runner, "set_log_file", None)
+            if callable(set_log_file):
+                set_log_file(self.logger.writer)
+            elif hasattr(self.agent_runner, "_run_log_file"):
+                # Compatibility for deepagents/stub until they adopt the
+                # application-level client lifecycle.
+                self.agent_runner._run_log_file = self.logger.writer  # pyright: ignore[reportAttributeAccessIssue]  # noqa: SLF001  # tracked: #288
 
     def reselect_gpu(self) -> None:
         """Delegate mid-run device rebalance — see :meth:`DeviceLease.reselect`."""

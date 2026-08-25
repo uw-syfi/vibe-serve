@@ -1,14 +1,7 @@
-"""Prompt and workspace helpers shared by the CLI-shaped agent backends.
+"""Prompt and workspace helpers shared by external-agent drivers.
 
-Both :mod:`vibesys.agents.cli_runner` (agentshim, the default) and
-:mod:`vibesys.agents.omnigent.runner` (opt-in) drive an external coding-agent
-CLI against a VibeSys workspace. The pieces that decide *what the agent sees* —
-which skill directories are materialized where, and how a structured-response
-request is phrased — belong to that shared shape rather than to either backend,
-so they live here and have exactly one definition.
-
-Backend-specific concerns (executors, sessions, event handling, Docker
-routing) stay in the individual runner modules.
+The application client owns skill materialization and response parsing. Drivers
+reuse the schema helpers when translating a turn to their native API.
 """
 
 from __future__ import annotations

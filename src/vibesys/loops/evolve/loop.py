@@ -39,6 +39,7 @@ from typing import Any, cast
 
 from jinja2 import Environment, FileSystemLoader
 
+from vibesys.agents.factory import resolve_agent_driver
 from vibesys.agents.progress import CandidateProgress
 from vibesys.config import Config, as_config
 from vibesys.constants import DEFAULT_AGENT_BACKEND, DEFAULT_COMPUTE_BACKEND, ComputeBackend
@@ -1328,11 +1329,17 @@ def run_evolve_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
     run_environment = run_environment or make_run_environment_spec()
     normalized_config = as_config(config)
     selected_policy = SearchPolicyName(search_policy).value if search_policy is not None else None
+    resolved_agent_backend = (
+        agent_backend or normalized_config.agent.backend or DEFAULT_AGENT_BACKEND
+    )
     run_configuration = EvolveRunConfiguration(
         outer_loop="evolve",
         run_environment=run_environment_record(run_environment),
         model=normalized_config.model.name,
-        agent_backend=(agent_backend or normalized_config.agent.backend or DEFAULT_AGENT_BACKEND),
+        agent_backend=resolved_agent_backend,
+        agent_driver=(
+            resolve_agent_driver(normalized_config) if resolved_agent_backend == "cli" else None
+        ),
         cli_provider=cli_provider or normalized_config.agent.cli_provider or "codex",
         cli_timeout=normalized_config.agent.cli_timeout,
         compute_backend=backend.value,

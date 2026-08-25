@@ -55,6 +55,7 @@ from vibesys.agents.cli_common import (
     build_schema_hint,
     materialize_skills,
 )
+from vibesys.agents.contracts import AgentCapabilities
 from vibesys.agents.omnigent.providers import (
     OMNIGENT_PROVIDER_EXECUTORS,
     OmnigentExecutorSpec,
@@ -341,6 +342,11 @@ class OmnigentAgentRunner:
     """
 
     backend_name = "omnigent"
+
+    @property
+    def capabilities(self) -> AgentCapabilities:
+        """Compatibility metadata for the superseded concrete runner."""
+        return AgentCapabilities(timeouts=False)
 
     def __init__(  # noqa: D107, PLR0913  # tracked: #288
         self,
