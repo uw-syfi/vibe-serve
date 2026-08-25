@@ -94,11 +94,12 @@ workspace and read access to the Rust toolchain, with the backend chosen per
 platform (bubblewrap on Linux, Seatbelt on macOS) and never set to `none`.
 VibeSys resolves the workspace's active Rust sysroot with auto-install disabled,
 exposes only its `bin`, `lib`, and optional `libexec` trees, and gives each
-executor an ephemeral writable Cargo home and target directory outside the
-workspace. The scratch directory is removed when the executor closes. This
-bypasses rustup's host metadata, avoids recursively exposing or scanning
-`~/.rustup`, and keeps Cargo's internal dotfiles out of Omnigent's workspace
-hidden-path masks.
+executor an ephemeral writable Cargo home. The scratch directory is removed
+when the executor closes. Cargo keeps its conventional workspace `target`
+directory; VibeSys permits Cargo's generated `.cargo-lock`, `.fingerprint`, and
+`.rustc_info.json` basenames through Omnigent's recursive hidden-path mask so
+later shell helpers can reuse the build. This bypasses rustup's host metadata
+and avoids recursively exposing or scanning `~/.rustup`.
 Omnigent 0.6.0 cannot make `.git` and `.vibesys` read-only beneath a writable
 workspace. The run contract therefore protects those control directories, and
 local operational state lives outside the repository by default. The two

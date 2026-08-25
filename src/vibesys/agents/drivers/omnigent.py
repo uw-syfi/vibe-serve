@@ -46,6 +46,9 @@ _TOOL_EXECUTOR_ATTR = "_tool_executor"
 _OMNIGENT_INTERNAL_HIDDEN = frozenset({".codex-tmp"})
 """Runtime-owned workspace paths that OS tools must not traverse."""
 
+_CARGO_GENERATED_HIDDEN = frozenset({".cargo-lock", ".fingerprint", ".rustc_info.json"})
+"""Cargo-generated basenames needed beneath the conventional target directory."""
+
 
 class OmnigentDriverError(RuntimeError):
     """An Omnigent driver requirement could not be satisfied safely."""
@@ -434,6 +437,7 @@ class OmnigentDriver:
             and entry.name not in _OMNIGENT_INTERNAL_HIDDEN
             and Path(entry.name) not in hidden
         ]
+        allow_hidden.extend(sorted(_CARGO_GENERATED_HIDDEN))
         environment = {**os.environ, **dict(spec.environment)}
         read_paths = None
         if include_toolchain:
@@ -478,7 +482,6 @@ class OmnigentDriver:
             tool_environment.update(
                 {
                     "CARGO_HOME": str(scratch_path / "cargo-home"),
-                    "CARGO_TARGET_DIR": str(scratch_path / "target"),
                     "PATH": os.pathsep.join((str(rust_bin), environment.get("PATH", ""))),
                     "RUSTC": str(rust_bin / "rustc"),
                     "RUSTDOC": str(rust_bin / "rustdoc"),
