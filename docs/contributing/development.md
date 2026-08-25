@@ -128,7 +128,7 @@ Use the guide that matches the surface you are adding:
 
 The experimental Omnigent adapter is a developer-facing alternative to the
 standard CLI adapter. It currently supports Claude and Codex on the host path
-only; see the feature-flag guide before enabling it.
+only; see the [agent driver guide](agent-drivers.md) before enabling it.
 
 Keep target-specific APIs, ABIs, ownership rules, and service protocols in the
 task's `CANDIDATE_CONTRACT.md` or design documentation rather than in the

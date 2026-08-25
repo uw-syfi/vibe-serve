@@ -12,13 +12,6 @@ def test_vibesys_declares_example_feature():  # noqa: ANN201  # tracked: #288
     assert FEATURES.definitions[FeatureFlag.EXAMPLE_FEATURE].default is False
 
 
-def test_vibesys_declares_omnigent_agent_backend():  # noqa: ANN201  # tracked: #288
-    assert FeatureFlag.OMNIGENT_AGENT_BACKEND.value == "omnigent_agent_backend"
-    assert FEATURES.definitions[FeatureFlag.OMNIGENT_AGENT_BACKEND].description
-    # Opt-in by design: the evaluation retained agentshim as the default.
-    assert FEATURES.definitions[FeatureFlag.OMNIGENT_AGENT_BACKEND].default is False
-
-
 def test_every_flag_has_a_definition_and_defaults_off():  # noqa: ANN201  # tracked: #288
     """New flags must ship a definition, and none may default on."""
     for flag in FeatureFlag:

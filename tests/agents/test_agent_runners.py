@@ -2190,8 +2190,11 @@ class TestBuildAgentClient:
         config = Config.model_validate(
             {
                 "model": {"name": "m"},
-                "agent": {"backend": "cli", "cli_provider": "codex"},
-                "feature_flags": {"omnigent_agent_backend": True},
+                "agent": {
+                    "backend": "cli",
+                    "cli_provider": "codex",
+                    "driver": "omnigent",
+                },
             }
         )
 

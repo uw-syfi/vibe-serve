@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import os
 import shutil
 import sys
@@ -21,11 +22,13 @@ from vibesys.agents.contracts import (
     MCPServerSpec,
 )
 from vibesys.agents.drivers.omnigent import (
+    _TOOL_EXECUTOR_ATTR,
     OmnigentDriver,
     OmnigentDriverError,
     OmnigentSession,
     _build_os_tools,
 )
+from vibesys.agents.omnigent.providers import OMNIGENT_PROVIDER_EXECUTORS
 from vibesys.schemas import JudgeResponse
 from vs_sandbox import HostResource, ProjectPathPolicy
 
@@ -50,6 +53,41 @@ requires_sandbox_backend = pytest.mark.skipif(
     not _sandbox_backend_available(),
     reason="requires the platform sandbox backend (bwrap / sandbox-exec)",
 )
+
+
+@pytest.mark.parametrize("provider", ["claude", "codex"])
+def test_registered_executor_matches_pinned_omnigent_api(provider: str) -> None:
+    driver = OmnigentDriver()
+    executor_spec = OMNIGENT_PROVIDER_EXECUTORS[provider]
+
+    executor_class = driver._executor_class(executor_spec)  # noqa: SLF001
+    parameters = inspect.signature(executor_class.__init__).parameters
+
+    assert executor_class.__name__ == executor_spec.class_name
+    assert "cwd" in parameters
+    assert "model" in parameters
+
+
+@pytest.mark.parametrize(
+    ("provider", "required_binary"),
+    [("claude", None), ("codex", "codex")],
+)
+def test_registered_executor_exposes_tool_dispatch_seam(
+    provider: str,
+    required_binary: str | None,
+) -> None:
+    if required_binary is not None and shutil.which(required_binary) is None:
+        pytest.skip(f"{provider} executor needs the {required_binary!r} CLI to construct")
+    driver = OmnigentDriver()
+    executor_class = driver._executor_class(  # noqa: SLF001
+        OMNIGENT_PROVIDER_EXECUTORS[provider]
+    )
+
+    executor = executor_class(cwd=".", model=None)
+    try:
+        assert hasattr(executor, _TOOL_EXECUTOR_ATTR)
+    finally:
+        driver.close_executor(executor)
 
 
 class _FakeExecutor:

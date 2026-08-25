@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING, Any
 
 from vibesys.agents.client import AgentClient, AgentDiagnosticLog
 from vibesys.constants import DEFAULT_AGENT_BACKEND
-from vibesys.features import FeatureFlag, is_feature_enabled
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -21,17 +20,8 @@ DEFAULT_AGENT_DRIVER = "agentshim"
 
 
 def resolve_agent_driver(config: Config) -> str:
-    """Resolve the optional driver override and its feature-flag compatibility."""
-    configured = config.agent.driver
-    flagged = is_feature_enabled(FeatureFlag.OMNIGENT_AGENT_BACKEND, config)
-    if configured is not None and flagged and configured != "omnigent":
-        raise SystemExit(  # noqa: TRY003  # tracked: #288
-            "agent.driver='agentshim' conflicts with the enabled "
-            "'omnigent_agent_backend' compatibility feature flag"
-        )
-    if configured is not None:
-        return configured
-    return "omnigent" if flagged else DEFAULT_AGENT_DRIVER
+    """Resolve the configured agent driver, defaulting to agentshim."""
+    return config.agent.driver or DEFAULT_AGENT_DRIVER
 
 
 def build_agent_client(  # noqa: C901, PLR0912, PLR0913

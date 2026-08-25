@@ -145,7 +145,7 @@ example_feature = true
 
         assert config.feature_flags == {FeatureFlag.EXAMPLE_FEATURE: True}
 
-    def test_omnigent_agent_backend_parsed_from_toml(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+    def test_removed_omnigent_agent_backend_flag_is_rejected(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
         cfg_file = tmp_path / "agent.toml"
         cfg_file.write_text("""\
 [model]
@@ -154,20 +154,7 @@ name = "claude-sonnet-4-6"
 [feature_flags]
 omnigent_agent_backend = true
 """)
-        config = load_config(cfg_file)
-
-        assert config.feature_flags == {FeatureFlag.OMNIGENT_AGENT_BACKEND: True}
-
-    def test_omnigent_agent_backend_rejects_non_boolean(self, tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
-        cfg_file = tmp_path / "agent.toml"
-        cfg_file.write_text("""\
-[model]
-name = "claude-sonnet-4-6"
-
-[feature_flags]
-omnigent_agent_backend = "yes"
-""")
-        with pytest.raises(ValueError, match="omnigent_agent_backend"):
+        with pytest.raises(ValueError, match="Unknown feature flag 'omnigent_agent_backend'"):
             load_config(cfg_file)
 
 

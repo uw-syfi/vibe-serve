@@ -14,7 +14,6 @@ from vs_feature_flags import FeatureDefinition, FeatureRegistry
 
 class FeatureFlag(StrEnum):  # noqa: D101  # tracked: #288
     EXAMPLE_FEATURE = "example_feature"
-    OMNIGENT_AGENT_BACKEND = "omnigent_agent_backend"
 
 
 FEATURES = FeatureRegistry(
@@ -22,15 +21,6 @@ FEATURES = FeatureRegistry(
     {
         FeatureFlag.EXAMPLE_FEATURE: FeatureDefinition(
             description="Exercise VibeSys feature flag plumbing.",
-            default=False,
-        ),
-        FeatureFlag.OMNIGENT_AGENT_BACKEND: FeatureDefinition(
-            description=(
-                "Drive the cli agent backend through Omnigent's in-process "
-                "Executor instead of agentshim. Opt-in and unproven: requires "
-                "the 'omnigent' extra (Python 3.12+) and supports only the "
-                "claude and codex providers on the host execution path."
-            ),
             default=False,
         ),
     },

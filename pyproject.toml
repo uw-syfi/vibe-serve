@@ -39,10 +39,10 @@ Repository = "https://github.com/uw-syfi/vibesys"
 Issues = "https://github.com/uw-syfi/vibesys/issues"
 
 [project.optional-dependencies]
-# Opt-in backend behind the `omnigent_agent_backend` feature flag. Kept out of
-# the base dependencies because it is a fast-moving alpha with no stability
-# policy, so end users who never enable the flag should not carry it. Install
-# with `uv sync --extra omnigent`.
+# Optional agent driver selected with `[agent].driver = "omnigent"`. Kept out
+# of the base dependencies because it is a fast-moving alpha with no stability
+# policy, so users of other drivers should not carry it. Install with
+# `uv sync --extra omnigent`.
 omnigent = ["omnigent==0.10.0"]
 
 [project.scripts]
