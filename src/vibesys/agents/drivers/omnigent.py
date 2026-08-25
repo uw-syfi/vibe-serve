@@ -8,6 +8,7 @@ import asyncio
 import contextlib
 import json
 import os
+import shutil
 import sys
 from importlib import import_module
 from pathlib import Path
@@ -109,6 +110,7 @@ def _build_os_tools(
     os_env_spec: Any,  # noqa: ANN401
     workspace: Path,
     environment: dict[str, str] | None = None,
+    shell_os_env_spec: Any | None = None,  # noqa: ANN401
 ) -> tuple[list[dict[str, Any]], Callable[[str, dict[str, Any]], Any]]:
     """Build Omnigent's sandboxed filesystem tools and their dispatcher."""
     try:
@@ -131,6 +133,17 @@ def _build_os_tools(
         )
 
     tools = build_os_env_tools(os_env)
+    if shell_os_env_spec is not None:
+        shell_os_env = create_os_environment(shell_os_env_spec)
+        if shell_os_env is None:
+            raise OmnigentDriverError(
+                f"Omnigent could not create a sandboxed shell environment for {workspace}"
+            )
+        shell_tools = build_os_env_tools(shell_os_env)
+        shell_tool = next((tool for tool in shell_tools if tool.name() == "sys_os_shell"), None)
+        if shell_tool is None:  # pragma: no cover - guarded against Omnigent API drift
+            raise OmnigentDriverError("Omnigent did not provide its sys_os_shell tool")
+        tools = [shell_tool if tool.name() == "sys_os_shell" else tool for tool in tools]
     by_name = {tool.name(): tool for tool in tools}
     schemas = [_flatten_tool_schema(tool) for tool in tools]
     context = ToolContext(task_id="vibesys", agent_id="vibesys", workspace=workspace)
@@ -397,7 +410,12 @@ class OmnigentDriver:
                 "this integration requires the Omnigent 0.6.0 executor API"
             ) from exc
 
-    def _build_os_env(self, spec: AgentSessionSpec) -> Any:  # noqa: ANN401
+    def _build_os_env(
+        self,
+        spec: AgentSessionSpec,
+        *,
+        include_toolchain: bool = False,
+    ) -> Any:  # noqa: ANN401
         try:
             from omnigent.inner.datamodel import OSEnvSandboxSpec, OSEnvSpec  # noqa: PLC0415
         except ImportError as exc:
@@ -413,18 +431,19 @@ class OmnigentDriver:
             and Path(entry.name) not in hidden
         ]
         environment = {**os.environ, **dict(spec.environment)}
-        resources = declare_active_rust_toolchain_resources(
-            HostResourceContext(env=environment),
-            workspace=workspace,
-        )
-        read_paths = sorted(
-            {str(workspace)}
-            | {
-                str(resource.path.expanduser().resolve())
-                for resource in resources
-                if resource.path.exists()
-            }
-        )
+        read_paths = None
+        if include_toolchain:
+            resources = declare_active_rust_toolchain_resources(
+                HostResourceContext(env=environment),
+                workspace=workspace,
+            )
+            read_paths = sorted(
+                {
+                    str(resource.path.expanduser().resolve())
+                    for resource in resources
+                    if resource.path.exists()
+                }
+            )
         sandbox = OSEnvSandboxSpec(
             type=_sandbox_backend_for_platform(),
             read_paths=read_paths,
@@ -441,6 +460,7 @@ class OmnigentDriver:
         executor_spec = _resolve_executor_spec(spec.provider)
         executor_cls = self._executor_class(executor_spec)
         os_env_spec = self._build_os_env(spec)
+        shell_os_env_spec = self._build_os_env(spec, include_toolchain=True)
         executor_kwargs: dict[str, Any] = {
             "cwd": str(spec.workspace),
             "model": spec.model,
@@ -481,11 +501,17 @@ class OmnigentDriver:
                     "RUSTUP_AUTO_INSTALL": "0",
                 }
             )
+            if sys.platform.startswith("linux"):
+                linker = shutil.which("cc", path=environment.get("PATH"))
+                if linker is not None:
+                    host = rust_toolchain[1].parent.name.upper().replace("-", "_")
+                    tool_environment[f"CARGO_TARGET_{host}_LINKER"] = str(Path(linker).resolve())
         try:
             schemas, dispatch = _build_os_tools(
                 os_env_spec,
                 spec.workspace,
                 tool_environment,
+                shell_os_env_spec,
             )
         except BaseException:
             with contextlib.suppress(Exception):

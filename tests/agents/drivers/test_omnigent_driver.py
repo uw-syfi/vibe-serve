@@ -263,7 +263,7 @@ def test_missing_private_tool_executor_seam_fails_during_setup(
 
     driver = OmnigentDriver()
     monkeypatch.setattr(driver, "_executor_class", lambda _spec: ExecutorWithoutSeam)
-    monkeypatch.setattr(driver, "_build_os_env", lambda _workspace: object())
+    monkeypatch.setattr(driver, "_build_os_env", lambda _workspace, **_kwargs: object())
 
     with pytest.raises(OmnigentDriverError, match="_tool_executor"):
         driver._build_executor(_spec(tmp_path))  # noqa: SLF001
@@ -276,6 +276,7 @@ def test_os_policy_is_always_sandboxed_and_workspace_scoped(tmp_path: Path) -> N
 
     assert spec.sandbox is not None
     assert spec.sandbox.type != "none"
+    assert spec.sandbox.read_paths is None
     assert spec.sandbox.write_paths == [str(tmp_path)]
     assert spec.cwd == str(tmp_path)
 
@@ -303,13 +304,14 @@ def test_os_policy_exposes_control_dotdirs_and_keeps_hidden_dotfiles_masked(
     )
 
     spec = driver._build_os_env(  # noqa: SLF001
-        _spec(tmp_path, policy=AgentExecutionPolicy(project_paths=policy))
+        _spec(tmp_path, policy=AgentExecutionPolicy(project_paths=policy)),
+        include_toolchain=True,
     )
 
     assert spec.sandbox is not None
     assert spec.sandbox.write_paths == [str(tmp_path)]
     assert spec.sandbox.write_files is None
-    assert spec.sandbox.read_paths == sorted((str(tmp_path), str(toolchain)))
+    assert spec.sandbox.read_paths == [str(toolchain)]
     assert set(spec.sandbox.cwd_allow_hidden or ()) == {".git", ".vibesys"}
 
 
@@ -326,15 +328,24 @@ def test_codex_executor_disables_native_tools(
 
     driver = OmnigentDriver()
     monkeypatch.setattr(driver, "_executor_class", lambda _spec: Executor)
-    monkeypatch.setattr(driver, "_build_os_env", lambda _spec: object())
+    monkeypatch.setattr(driver, "_build_os_env", lambda _spec, **_kwargs: object())
     rust_sysroot = tmp_path / "rust"
+    target_libdir = rust_sysroot / "lib" / "rustlib" / "x86_64-unknown-linux-gnu" / "lib"
     monkeypatch.setattr(
         "vibesys.agents.drivers.omnigent.resolve_active_rust_toolchain",
-        lambda _context, *, workspace: (rust_sysroot, workspace / "lib"),
+        lambda _context, *, workspace: (rust_sysroot, target_libdir),  # noqa: ARG005
+    )
+    monkeypatch.setattr("vibesys.agents.drivers.omnigent.sys.platform", "linux")
+    monkeypatch.setattr(
+        "vibesys.agents.drivers.omnigent.shutil.which",
+        lambda _name, *, path: "/usr/bin/cc",  # noqa: ARG005
     )
 
     def build_tools(
-        _os_env: object, _workspace: Path, environment: dict[str, str]
+        _os_env: object,
+        _workspace: Path,
+        environment: dict[str, str],
+        _shell_os_env: object,
     ) -> tuple[list[dict[str, Any]], object]:
         captured["tool_environment"] = environment
         return [], lambda _name, _args: None
@@ -352,5 +363,8 @@ def test_codex_executor_disables_native_tools(
     )
     assert captured["tool_environment"]["CARGO_HOME"] == str(
         tmp_path / "target" / "vibesys-cargo-home"
+    )
+    assert captured["tool_environment"]["CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER"] == str(
+        Path("/usr/bin/cc").resolve()
     )
     driver.close_executor(executor)
