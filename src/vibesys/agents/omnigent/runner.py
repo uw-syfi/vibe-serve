@@ -71,8 +71,8 @@ _TOOL_EXECUTOR_ATTR = "_tool_executor"
 Named here rather than inlined so the one place VibeSys reaches into
 Omnigent's internals is greppable, and so the guard in
 :meth:`OmnigentAgentRunner._build_executor` and its test agree by construction.
-It is a convention across all 11 of Omnigent 0.6.0's executors, but it is
-declared on none of them publicly.
+It is a convention across Omnigent 0.10.0's executors, but it is declared on
+none of them publicly.
 """
 
 
@@ -303,7 +303,7 @@ async def _drive_turn(
     response: str | None = None
     usage: dict[str, Any] = {}
 
-    # ``run_turn`` is annotated ``list[Message]``, but on 0.6.0 both the
+    # ``run_turn`` is annotated ``list[Message]``, but on 0.10.0 both the
     # Claude and Codex executors consume the list as plain dicts —
     # ``msg.get("role")`` / ``msg.get("content")`` / ``msg.get("session_id")``
     # (claude_sdk_executor.py:1831,2857; codex_executor.py:942,968). Passing
@@ -444,7 +444,7 @@ class OmnigentAgentRunner:
             raise OmnigentUnavailableError(  # noqa: TRY003  # tracked: #288
                 f"omnigent module {self._spec.module!r} has no "
                 f"{self._spec.class_name!r}; the installed omnigent version is "
-                "incompatible with this integration (expected the 0.6.0 "
+                "incompatible with this integration (expected the 0.10.0 "
                 "executor API). Disable 'omnigent_agent_backend' to use the "
                 "agentshim backend."
             ) from exc
@@ -506,7 +506,7 @@ class OmnigentAgentRunner:
         (``runtime/harnesses/_executor_adapter.py:302``). It is a private
         attribute with no public setter and no declaration on the ``Executor``
         ABC — the single most upgrade-fragile point in this integration. On
-        0.6.0 there is no alternative in-process route: the Claude executor
+        0.10.0 there is no alternative in-process route: the Claude executor
         hardcodes its base tool set to ``["Skill"]``, so ``sys_os_*`` MCP tools
         plus this dispatcher are the only way an agent reaches the filesystem.
         Omnigent's supported alternative is its server plus a per-conversation
@@ -545,7 +545,7 @@ class OmnigentAgentRunner:
                 f"{executor_cls.__name__} has no {_TOOL_EXECUTOR_ATTR!r} slot, so "
                 "VibeSys cannot give the agent its file and shell tools. The "
                 "installed omnigent has moved this seam away from what this "
-                "integration was written against (0.6.0). Disable "
+                "integration was written against (0.10.0). Disable "
                 "'omnigent_agent_backend' to use the agentshim backend."
             )
         schemas, dispatch = _build_os_tools(os_env_spec, workspace)

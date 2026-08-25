@@ -43,7 +43,7 @@ Issues = "https://github.com/uw-syfi/vibesys/issues"
 # the base dependencies because it is a fast-moving alpha with no stability
 # policy, so end users who never enable the flag should not carry it. Install
 # with `uv sync --extra omnigent`.
-omnigent = ["omnigent==0.6.0"]
+omnigent = ["omnigent==0.10.0"]
 
 [project.scripts]
 vibesys-issue-mcp = "vs_issue_board.mcp:main"

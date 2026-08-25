@@ -139,7 +139,7 @@ def declare_active_rust_toolchain_resources(
 ) -> Iterable[HostResource]:
     """Declare a narrow view of the active Rust compiler and runtime.
 
-    Omnigent recursively scans every read grant for hidden paths. Granting all
+    Omnigent may scan read grants for hidden paths. Granting all
     of ``~/.rustup`` is both expensive and likely to exceed its scan cap, so
     VibeSys bypasses the rustup proxy and exposes only the selected toolchain.
     """

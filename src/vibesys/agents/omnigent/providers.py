@@ -8,7 +8,7 @@ installed.
 
 :mod:`vibesys.agents.drivers.omnigent` resolves these entries at session setup.
 
-Coverage against ``omnigent==0.6.0``, verified by inspecting the installed
+Coverage against ``omnigent==0.10.0``, verified by inspecting the installed
 package rather than its docs:
 
 - ``claude`` -> ``ClaudeSDKExecutor`` (harness ``claude-sdk``)

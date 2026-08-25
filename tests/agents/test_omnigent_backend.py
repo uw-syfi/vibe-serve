@@ -454,7 +454,7 @@ class TestDriveTurn:
     def test_prompt_and_system_prompt_reach_run_turn(self):  # noqa: ANN201  # tracked: #288
         """Messages must be plain dicts.
 
-        ``run_turn`` is annotated ``list[Message]``, but 0.6.0's executors read
+        ``run_turn`` is annotated ``list[Message]``, but 0.10.0's executors read
         the entries with ``.get()``. Passing the advertised dataclass raises
         ``AttributeError: 'Message' object has no attribute 'get'`` on a live
         turn, which no fake-executor test would catch.
