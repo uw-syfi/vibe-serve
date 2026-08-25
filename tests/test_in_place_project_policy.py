@@ -7,7 +7,7 @@ from vibesys.run.project_policy import (
 from vs_project import Project
 
 
-def test_legacy_project_policy_protects_trusted_inputs_and_hides_local_state(
+def test_legacy_project_policy_protects_trusted_inputs_without_project_local_state(
     tmp_path: Path,
 ) -> None:
     project = tmp_path / "project"
@@ -36,11 +36,8 @@ def test_legacy_project_policy_protects_trusted_inputs_and_hides_local_state(
         state_paths.read_only_path,
         *(Path(relative) for relative in LEGACY_TRUSTED_PROJECT_INPUT_PATHS),
     }
-    assert set(policy.hidden_paths) == {
-        state_paths.hidden_path,
-        Path(".env.local"),
-        Path("agent.toml"),
-    }
+    assert state_paths.hidden_path is None
+    assert set(policy.hidden_paths) == {Path(".env.local"), Path("agent.toml")}
 
 
 def test_project_policy_ignores_external_evaluator_paths(tmp_path: Path) -> None:
