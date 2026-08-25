@@ -187,9 +187,9 @@ def test_direct_run_uses_one_project_root_and_canonical_state(tmp_path):  # noqa
             assert ctx.project.root == project
             assert ctx.log_dir == ctx.project.state.log_directory(ctx.run_id)
             assert (
-                ctx.state.local(RunStateNamespace.AGENT)
-                .agent_visible_path("active.json")
-                .endswith("agent/active.json")
+                not ctx.state.local(RunStateNamespace.AGENT)
+                .external_directory()
+                .is_relative_to(project)
             )
             objective_path = Path(ctx.objective_location)
             assert objective_path == (
@@ -202,7 +202,7 @@ def test_direct_run_uses_one_project_root_and_canonical_state(tmp_path):  # noqa
         policy = build_runner.call_args.kwargs["project_path_policy"]
         state_paths = Project.open(project).state.sandbox_paths()
         assert state_paths.read_only_path in policy.read_only_paths
-        assert state_paths.hidden_path in policy.hidden_paths
+        assert state_paths.hidden_path is None
         runner.close.assert_called_once_with()
 
     manifest = Project.open(project).state.load_run(ctx.run_id)

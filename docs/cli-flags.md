@@ -92,7 +92,8 @@ missing and reported at startup rather than failing once per round. Evaluator,
 checker, and benchmark paths are visible to agents but enforced read-only and
 protected by integrity checks. The agent also cannot write `.git`, `.vibesys`,
 legacy root-level task inputs, or `_evaluator/`, and cannot read
-`.vibesys/state/local/`, root `.env*` files, or root `agent.toml`. A run is
+root `.env*` files or root `agent.toml`. Machine-local VibeSys state is stored
+outside the project. A run is
 rejected when a root `.env*` file or `agent.toml` is recoverable from Git refs
 or reflogs.
 
@@ -113,8 +114,8 @@ Set the variable to `0`/`false`/`off`/`no` to disable confinement entirely; any
 other value is rejected.
 
 VibeSys initializes Git when needed and creates one `vibesys-runs/<run-id>` branch
-per run. Agent-authored source stays at its normal project paths. Portable and
-machine-local state are separated under `.vibesys/state/`:
+per run. Agent-authored source stays at its normal project paths. Portable state
+remains in the project, while machine-local state defaults to `~/.vibesys`:
 
 ```text
 .vibesys/
@@ -127,14 +128,19 @@ machine-local state are separated under `.vibesys/state/`:
     │   ├── plain/                          # plain-loop portable cursor
     │   ├── evolve/                         # evolve population and policy state
     │   └── runtime/effective-objective.md  # objective plus run constraints
-    └── local/                             # ignored operational state
-        ├── current-run
-        └── runs/<run-id>/
-            ├── agent/active.json
-            ├── round-transaction.json      # during round commit/recovery
-            ├── logs/
-            └── worktrees/                  # temporary evolve worktrees
+    └── local/runs/<run-id>/worktrees/     # ignored temporary evolve worktrees
+
+~/.vibesys/projects/<project-key>/
+├── current-run
+└── runs/<run-id>/
+    ├── agent/active.json
+    ├── round-transaction.json             # during round commit/recovery
+    └── logs/
 ```
+
+Set `VIBESYS_STATE_HOME` to an absolute directory to override `~/.vibesys`.
+VibeSys moves an existing `.vibesys/state/local/` tree on first open, preserving
+the existing bytes and paths; temporary worktrees remain in the project.
 
 The committed files contain portable configuration, fingerprints, metrics, and
 round outcomes. They exclude provider credentials, environment variables,
@@ -142,7 +148,7 @@ absolute source paths, sessions, and raw logs. Resume restores the saved branch
 and run configuration:
 
 ```bash
-# Resume the run named by .vibesys/state/local/current-run, or newest if unset
+# Resume the machine-local current run, or newest if unset
 vibesys --resume
 
 # Select a run explicitly
@@ -226,7 +232,7 @@ overrides it. Creation goes through the authenticated `gh` CLI.
 
 The project repository records candidate history and portable
 `.vibesys/state/runs/` state. Provider and agent logs under
-`.vibesys/state/local/` are excluded. On context shutdown, VibeSys pushes the
+the configured VibeSys state home are excluded. On context shutdown, VibeSys pushes the
 already-authored run branch and retained evolve candidate refs. Publication
 never stages files or creates a synchronization commit. A non-fast-forward or
 authentication failure is reported rather than force-pushing.

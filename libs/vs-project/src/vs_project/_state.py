@@ -19,6 +19,7 @@ import json
 import math
 import os
 import re
+import shutil
 import stat
 import tempfile
 import unicodedata
@@ -50,6 +51,8 @@ _IDENTIFIER_PATTERN = r"^[a-z0-9][a-z0-9._-]{0,127}$"
 _DIGEST_PATTERN = r"^[0-9a-f]{64}$"
 _GIT_OBJECT_ID_PATTERN = r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
 _ROUND_FILE_PATTERN = re.compile(r"^(?P<round>0*[1-9][0-9]*)\.json$")
+_STATE_HOME_ENV = "VIBESYS_STATE_HOME"
+_LEGACY_WORKTREE_MIN_PARTS = 3
 _EXCLUDED_NAMES = frozenset(
     {
         ".cache",
@@ -359,7 +362,14 @@ class StateNamespace:
     converted into portable snapshots.
     """
 
-    __slots__ = ("_kind", "_portable", "_project_root", "_root")
+    __slots__ = (
+        "_containment_root",
+        "_kind",
+        "_namespace_root",
+        "_portable",
+        "_project_root",
+        "_root",
+    )
 
     def __init__(
         self,
@@ -367,12 +377,19 @@ class StateNamespace:
         project_root: Path,
         root: Path,
         portable: bool,
+        containment_root: Path | None = None,
+        namespace_root: PurePosixPath | None = None,
     ) -> None:
         """Bind one validated project-owned namespace root."""
         self._project_root = project_root
         self._root = root
         self._portable = portable
         self._kind = "portable" if portable else "local"
+        self._containment_root = containment_root or project_root
+        self._namespace_root = namespace_root or PurePosixPath(
+            root.relative_to(project_root).as_posix()
+        )
+        _validate_project_state_path(self._namespace_root)
         self._validated_root()
 
     def load[ModelT: BaseModel](
@@ -418,8 +435,8 @@ class StateNamespace:
         model: BaseModel | None,
     ) -> StateTransition:
         """Prepare an immutable replacement or deletion without applying it."""
-        path = self._resolve_file(relative_path)
-        project_relative_path = PurePosixPath(path.relative_to(self._project_root).as_posix())
+        self._resolve_file(relative_path)
+        project_relative_path = self._project_relative_path(relative_path)
         document = (
             None
             if model is None
@@ -429,10 +446,9 @@ class StateNamespace:
 
     def apply(self, transition: StateTransition) -> None:
         """Atomically apply a transition prepared for this namespace."""
-        root = self._validated_root()
-        namespace_root = PurePosixPath(root.relative_to(self._project_root).as_posix())
+        self._validated_root()
         try:
-            relative_path = transition._project_relative_path.relative_to(namespace_root)
+            relative_path = transition._project_relative_path.relative_to(self._namespace_root)
         except ValueError as exc:
             raise ProjectStateError(
                 f"State transition target is outside this namespace: "
@@ -471,9 +487,8 @@ class StateNamespace:
         if not self._portable:
             raise ProjectStateError("Machine-local VibeSys state namespaces cannot be snapshotted")
         root = self._validated_root()
-        namespace_root = PurePosixPath(root.relative_to(self._project_root).as_posix())
         if not root.exists():
-            return StateSnapshot._create(namespace_root, ())
+            return StateSnapshot._create(self._namespace_root, ())
 
         files: list[StateFile] = []
         try:
@@ -500,13 +515,15 @@ class StateNamespace:
             raise ProjectStateError(
                 f"Could not snapshot VibeSys {self._kind} state at {root}: {exc}"
             ) from exc
-        return StateSnapshot._create(namespace_root, tuple(files))
+        return StateSnapshot._create(self._namespace_root, tuple(files))
 
     def agent_visible_path(self, relative_path: str | PurePosixPath | None = None) -> str:
         """Return a safe project-relative location for an agent-facing prompt.
 
         Filesystem reads and writes must still use this namespace's typed methods.
         """
+        if not self._portable:
+            raise ProjectStateError("Machine-local VibeSys state is not agent-visible")
         return self._project_relative_path(relative_path).as_posix()
 
     def equivalent_external_file(
@@ -515,6 +532,8 @@ class StateNamespace:
         relative_path: str | PurePosixPath,
     ) -> Path:
         """Resolve the equivalent state file inside another project worktree."""
+        if not self._portable:
+            raise ProjectStateError("Machine-local VibeSys state has no worktree equivalent")
         root = Path(project_root).resolve()
         if not root.is_dir():
             raise ProjectStateError(f"Project root is not a directory: {root}")
@@ -530,8 +549,8 @@ class StateNamespace:
         relative_path: str | PurePosixPath | None = None,
     ) -> PurePosixPath:
         """Return this namespace's validated project-relative location."""
-        root = self._validated_root()
-        result = PurePosixPath(root.relative_to(self._project_root).as_posix())
+        self._validated_root()
+        result = self._namespace_root
         if relative_path is not None:
             result /= _validate_state_relative_path(relative_path)
         return result
@@ -567,7 +586,7 @@ class StateNamespace:
 
     def _validated_root(self) -> Path:
         root = _contained_without_symlinks(
-            self._project_root,
+            self._containment_root,
             self._root,
             kind=f"{self._kind} state namespace",
         )
@@ -872,9 +891,13 @@ class ProjectState:
         self._metadata_dir = root / _STATE_DIRECTORY_PATH
         self._project_manifest_path = self._metadata_dir / "project.json"
         self._metadata_gitignore_path = self._metadata_dir / ".gitignore"
-        self._local_dir = self._metadata_dir / "local"
+        self._legacy_local_dir = self._metadata_dir / "local"
+        self._state_home = _state_home()
+        _prepare_state_home(self._state_home)
+        self._local_dir = _external_project_state_directory(self._state_home, root)
         self._current_run_path = self._local_dir / "current-run"
         self._validate_storage_roots()
+        self._migrate_legacy_local_state()
 
     @classmethod
     def is_project_root(cls, path: Path | str) -> bool:
@@ -922,9 +945,15 @@ class ProjectState:
         if root.exists() and not root.is_dir():
             raise ProjectStateError(f"Project root is not a directory: {root}")
         normalized = _validate_run_id(run_id)
+        state_home = _state_home()
+        _prepare_state_home(state_home)
+        local_dir = _external_project_state_directory(state_home, root)
+        legacy_local_dir = root / _STATE_DIRECTORY_PATH / "local"
+        _validate_storage_root(local_dir, state_home, name="local metadata")
+        _migrate_legacy_local_directory(legacy_local_dir, local_dir)
         return _contained_without_symlinks(
-            root,
-            root / _STATE_DIRECTORY_PATH / "local" / "runs" / normalized / "logs",
+            local_dir,
+            local_dir / "runs" / normalized / "logs",
             kind="run log directory",
         )
 
@@ -933,7 +962,9 @@ class ProjectState:
         self._validate_storage_roots()
         return ProjectSandboxPaths(
             read_only_path=(Path(_CONFIG_DIRECTORY_NAME) if self._config_dir.exists() else None),
-            hidden_path=(_STATE_DIRECTORY_PATH / "local" if self._local_dir.exists() else None),
+            hidden_path=(
+                _STATE_DIRECTORY_PATH / "local" if self._legacy_local_dir.exists() else None
+            ),
         )
 
     def log_directory(self, run_id: str) -> Path:
@@ -1361,6 +1392,8 @@ class ProjectState:
             project_root=self.project_root,
             root=self._local_state_dir(run_id, namespace),
             portable=False,
+            containment_root=self._local_dir,
+            namespace_root=(_STATE_DIRECTORY_POSIX / "local" / "runs" / run_id / namespace),
         )
 
     def _round_transaction_path(self, run_id: str) -> Path:
@@ -1369,8 +1402,14 @@ class ProjectState:
 
     def _worktrees_dir(self, run_id: str) -> Path:
         """Return the machine-local directory reserved for candidate worktrees."""
+        normalized = _validate_run_id(run_id)
+        legacy_run_dir = _contained_without_symlinks(
+            self._legacy_local_dir,
+            self._legacy_local_dir / "runs" / normalized,
+            kind="candidate worktree run",
+        )
         return _contained_state_dir(
-            self._contained_local_run_dir(run_id),
+            legacy_run_dir,
             "worktrees",
             kind="worktrees",
         )
@@ -1396,7 +1435,16 @@ class ProjectState:
     def _validate_storage_roots(self) -> None:
         _validate_storage_root(self._config_dir, self.project_root, name="configuration")
         _validate_storage_root(self._metadata_dir, self._config_dir, name="metadata")
-        _validate_storage_root(self._local_dir, self._metadata_dir, name="local metadata")
+        _validate_storage_root(
+            self._legacy_local_dir,
+            self._metadata_dir,
+            name="legacy local metadata",
+        )
+        _validate_storage_root(self._local_dir, self._state_home, name="local metadata")
+
+    def _migrate_legacy_local_state(self) -> None:
+        """Move legacy repository-local operational state to the user state home."""
+        _migrate_legacy_local_directory(self._legacy_local_dir, self._local_dir)
 
     def _ensure_local_gitignore(self) -> None:
         self._validate_storage_roots()
@@ -1480,6 +1528,119 @@ def _project_id(display_name: str, fingerprint: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", normalized.lower()).strip("-") or "project"
     slug = slug[:64].rstrip("-") or "project"
     return f"{slug}-{fingerprint[:12]}"
+
+
+def _state_home() -> Path:
+    """Resolve the operator-configurable root for machine-local VibeSys state."""
+    configured = os.environ.get(_STATE_HOME_ENV)
+    if configured is not None:
+        if not configured.strip():
+            raise ProjectStateError(f"{_STATE_HOME_ENV} must not be empty")
+        root = Path(configured).expanduser()
+        if not root.is_absolute():
+            raise ProjectStateError(f"{_STATE_HOME_ENV} must be an absolute path: {configured}")
+    else:
+        root = Path.home() / ".vibesys"
+    return root.resolve()
+
+
+def _external_project_state_directory(state_home: Path, project_root: Path) -> Path:
+    """Return a collision-resistant local directory for one canonical project path."""
+    normalized = unicodedata.normalize("NFKD", project_root.name).encode("ascii", "ignore").decode()
+    slug = re.sub(r"[^a-z0-9]+", "-", normalized.lower()).strip("-") or "project"
+    slug = slug[:64].rstrip("-") or "project"
+    digest = hashlib.sha256(project_root.as_posix().encode("utf-8")).hexdigest()[:12]
+    destination = state_home / "projects" / f"{slug}-{digest}"
+    if destination.resolve().is_relative_to(project_root.resolve()):
+        raise ProjectStateError(
+            f"{_STATE_HOME_ENV} must place machine-local state outside the project: {state_home}"
+        )
+    return destination
+
+
+def _prepare_state_home(state_home: Path) -> None:
+    """Create private user-state parents before any run metadata is written."""
+    try:
+        state_home.mkdir(parents=True, exist_ok=True, mode=0o700)
+        (state_home / "projects").mkdir(exist_ok=True, mode=0o700)
+    except OSError as exc:
+        raise ProjectStateError(f"Could not create VibeSys state home {state_home}: {exc}") from exc
+
+
+def _migrate_legacy_local_directory(source: Path, destination: Path) -> None:
+    """Atomically relocate legacy local metadata while leaving worktrees in place."""
+    if destination.exists() or not source.is_dir():
+        return
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary = Path(
+        tempfile.mkdtemp(prefix=f".{destination.name}.migrating-", dir=destination.parent)
+    )
+    try:
+        _validate_legacy_migration_tree(source)
+        shutil.copytree(source, temporary, dirs_exist_ok=True)
+        for run_worktrees in temporary.glob("runs/*/worktrees"):
+            shutil.rmtree(run_worktrees)
+        try:
+            temporary.replace(destination)
+        except OSError:
+            if not destination.is_dir():
+                raise
+        _remove_migrated_legacy_entries(source)
+    except OSError as exc:
+        raise ProjectStateError(
+            f"Could not migrate VibeSys local state from {source} to {destination}: {exc}"
+        ) from exc
+    finally:
+        shutil.rmtree(temporary, ignore_errors=True)
+
+
+def _remove_migrated_legacy_entries(source: Path) -> None:
+    """Remove copied metadata from the legacy tree without touching worktrees."""
+    for entry in tuple(source.iterdir()):
+        if entry.name != "runs":
+            _remove_path(entry)
+            continue
+        if entry.is_symlink() or not entry.is_dir():
+            _remove_path(entry)
+            continue
+        _remove_migrated_run_entries(entry)
+        if not any(entry.iterdir()):
+            entry.rmdir()
+    if not any(source.iterdir()):
+        source.rmdir()
+
+
+def _remove_path(path: Path) -> None:
+    if path.is_dir() and not path.is_symlink():
+        shutil.rmtree(path)
+    else:
+        path.unlink()
+
+
+def _remove_migrated_run_entries(runs_directory: Path) -> None:
+    for run_dir in tuple(runs_directory.iterdir()):
+        if not run_dir.is_dir() or run_dir.is_symlink():
+            _remove_path(run_dir)
+            continue
+        for run_entry in tuple(run_dir.iterdir()):
+            if run_entry.name != "worktrees":
+                _remove_path(run_entry)
+        if not any(run_dir.iterdir()):
+            run_dir.rmdir()
+
+
+def _validate_legacy_migration_tree(source: Path) -> None:
+    """Reject legacy metadata aliases while allowing untouched worktree contents."""
+    for path in source.rglob("*"):
+        relative = path.relative_to(source)
+        if (
+            len(relative.parts) >= _LEGACY_WORKTREE_MIN_PARTS
+            and relative.parts[0] == "runs"
+            and relative.parts[2] == "worktrees"
+        ):
+            continue
+        if path.is_symlink():
+            raise ProjectStateError(f"VibeSys local metadata path must not be a symlink: {path}")
 
 
 def _validate_run_id(run_id: str, *, source: Path | None = None) -> str:

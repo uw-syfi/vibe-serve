@@ -405,17 +405,17 @@ def test_semantic_runtime_and_sandbox_paths(tmp_path: Path) -> None:
     project.mkdir()
     run_id = "run-1"
 
-    assert Project.log_directory_for(project, run_id) == (
-        project / ".vibesys/state" / "local" / "runs" / run_id / "logs"
-    )
+    early_log_directory = Project.log_directory_for(project, run_id)
     store = _store(project)
     run = _run(store)
 
+    assert early_log_directory == store.state.log_directory(run_id)
     assert store.state.log_directory(run.run_id).is_dir()
-    assert store.state.model_cache_directory("huggingface").is_relative_to(project)
+    assert store.state.log_directory(run.run_id).is_relative_to(store.state._local_dir)
+    assert store.state.model_cache_directory("huggingface").is_relative_to(store.state._local_dir)
     assert store.state.candidate_worktree_directory(run.run_id, "g1c1").is_relative_to(project)
     assert store.state.sandbox_paths().read_only_path == Path(".vibesys")
-    assert store.state.sandbox_paths().hidden_path == Path(".vibesys/state/local")
+    assert store.state.sandbox_paths().hidden_path is None
     git = store.state.git_integration(run.run_id)
     assert git.local_exclude_pattern == "/.vibesys/state/local/"
     assert git.metadata_pathspec == ".vibesys/state"
@@ -424,6 +424,80 @@ def test_semantic_runtime_and_sandbox_paths(tmp_path: Path) -> None:
         ":(exclude).vibesys/**",
     )
     assert git.metadata_clean_exclusion == ".vibesys/"
+
+
+def test_default_state_home_uses_home_dot_vibesys(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("VIBESYS_STATE_HOME")
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    project = tmp_path / "project"
+    project.mkdir()
+
+    log_directory = Project.log_directory_for(project, "run-1")
+
+    assert log_directory.is_relative_to(tmp_path / "home" / ".vibesys" / "projects")
+
+
+@pytest.mark.parametrize("configured", ["", "relative/state"])
+def test_state_home_rejects_invalid_override(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    configured: str,
+) -> None:
+    monkeypatch.setenv("VIBESYS_STATE_HOME", configured)
+    project = tmp_path / "project"
+    project.mkdir()
+
+    with pytest.raises(ProjectStateError, match="VIBESYS_STATE_HOME"):
+        Project.log_directory_for(project, "run-1")
+
+
+def test_same_named_projects_have_distinct_external_state_directories(tmp_path: Path) -> None:
+    first = tmp_path / "first" / "project"
+    second = tmp_path / "second" / "project"
+    first.mkdir(parents=True)
+    second.mkdir(parents=True)
+
+    first_log = Project.log_directory_for(first, "run-1")
+    second_log = Project.log_directory_for(second, "run-1")
+
+    assert first_log != second_log
+    assert first_log.parent.parent.parent.name.startswith("project-")
+    assert second_log.parent.parent.parent.name.startswith("project-")
+
+
+def test_legacy_local_state_moves_without_rewriting_and_leaves_worktrees(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "project"
+    legacy = project / ".vibesys/state/local"
+    logs = legacy / "runs/run-1/logs"
+    agent = legacy / "runs/run-1/agent"
+    worktree = legacy / "runs/run-1/worktrees/g1c1/workspace"
+    logs.mkdir(parents=True)
+    agent.mkdir(parents=True)
+    worktree.mkdir(parents=True)
+    (legacy / "current-run").write_bytes(b"run-1\n")
+    (logs / "run-events.jsonl").write_bytes(b'{"type":"server_started"}\n')
+    (agent / "active.json").write_bytes(b'{"schema_version":1}\n')
+    (worktree / "candidate.py").write_bytes(b"candidate = True\n")
+
+    state = Project.open(project).state
+
+    assert (state._local_dir / "current-run").read_bytes() == b"run-1\n"
+    assert (state._local_dir / "runs/run-1/logs/run-events.jsonl").read_bytes() == (
+        b'{"type":"server_started"}\n'
+    )
+    assert (state._local_dir / "runs/run-1/agent/active.json").read_bytes() == (
+        b'{"schema_version":1}\n'
+    )
+    assert not (legacy / "current-run").exists()
+    assert not (legacy / "runs/run-1/logs").exists()
+    assert not (legacy / "runs/run-1/agent").exists()
+    assert (worktree / "candidate.py").read_bytes() == b"candidate = True\n"
+    assert state.sandbox_paths().hidden_path == Path(".vibesys/state/local")
 
 
 def test_log_directory_rejects_symlinked_parent(tmp_path: Path) -> None:
@@ -544,6 +618,7 @@ def test_create_run_rejects_symlinked_local_root_before_writing(tmp_path: Path) 
     )
     outside = tmp_path / "outside"
     outside.mkdir()
+    store.state._local_dir.parent.mkdir(parents=True, exist_ok=True)
     store.state._local_dir.symlink_to(outside, target_is_directory=True)
 
     with pytest.raises(ProjectStateError, match="local metadata root must not be a symlink"):
@@ -596,24 +671,22 @@ def test_run_manifest_and_local_state_use_separate_trees(tmp_path: Path) -> None
         tmp_path / ".vibesys/state" / "runs" / manifest.run_id / "run.json"
     )
     assert store.state.log_directory(manifest.run_id) == (
-        tmp_path / ".vibesys/state" / "local" / "runs" / manifest.run_id / "logs"
+        store.state._local_dir / "runs" / manifest.run_id / "logs"
     )
     assert store.state._rounds_dir(manifest.run_id) == (
         tmp_path / ".vibesys/state" / "runs" / manifest.run_id / "agent" / "rounds"
     )
-    assert (
+    with pytest.raises(ProjectStateError, match="not agent-visible"):
         store.state.local_namespace(manifest.run_id, "agent").agent_visible_path("active.json")
-        == f".vibesys/state/local/runs/{manifest.run_id}/agent/active.json"
-    )
     assert store.state._round_transaction_path(manifest.run_id) == (
-        tmp_path / ".vibesys/state" / "local" / "runs" / manifest.run_id / "round-transaction.json"
+        store.state._local_dir / "runs" / manifest.run_id / "round-transaction.json"
     )
     assert store.state._worktrees_dir(manifest.run_id) == (
         tmp_path / ".vibesys/state" / "local" / "runs" / manifest.run_id / "worktrees"
     )
     assert store.state.log_directory(manifest.run_id).is_dir()
     assert not (tmp_path / ".vibesys/state" / "runs" / manifest.run_id / "agent").exists()
-    assert not (tmp_path / ".vibesys/state" / "local" / "runs" / manifest.run_id / "agent").exists()
+    assert not (store.state._local_dir / "runs" / manifest.run_id / "agent").exists()
     assert not store.state._worktrees_dir(manifest.run_id).exists()
     committed = store.state._run_manifest_path(manifest.run_id).read_text(encoding="utf-8")
     assert str(tmp_path) not in committed
@@ -927,7 +1000,7 @@ def test_state_namespace_rejects_symlink_aliases(tmp_path: Path, *, local: bool)
     outside = tmp_path / "outside"
     outside.mkdir()
     parent = (
-        tmp_path / ".vibesys/state" / "local" / "runs" / run.run_id
+        store.state._local_dir / "runs" / run.run_id
         if local
         else tmp_path / ".vibesys/state" / "runs" / run.run_id
     )
@@ -965,6 +1038,7 @@ def test_worktrees_directory_rejects_symlink_alias(tmp_path: Path) -> None:
     outside = tmp_path / "outside"
     outside.mkdir()
     worktrees = tmp_path / ".vibesys/state" / "local" / "runs" / run.run_id / "worktrees"
+    worktrees.parent.mkdir(parents=True)
     worktrees.symlink_to(outside, target_is_directory=True)
 
     with pytest.raises(ProjectStateError, match=r"(?:escapes|must not be a symlink)"):

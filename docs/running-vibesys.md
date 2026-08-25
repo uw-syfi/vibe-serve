@@ -19,14 +19,20 @@ project/
 │   └── state/
 │       ├── project.json
 │       ├── runs/<run-id>/          # committed run metadata and loop state
-│       └── local/runs/<run-id>/    # logs and machine-local state
+│       └── local/runs/<run-id>/worktrees/ # temporary evolve worktrees only
 └── candidate source
+
+~/.vibesys/projects/<project-key>/
+├── current-run
+└── runs/<run-id>/                  # logs and machine-local state
 ```
 
 VibeSys commits candidate evolution and portable `.vibesys/state/runs/`
-metadata on a `vibesys-runs/<run-id>` branch. `.vibesys/state/local/`, `agent.toml`,
-and root `.env*` files stay uncommitted and are hidden from coding agents. The
-entire `.vibesys/` directory is read-only to coding agents.
+metadata on a `vibesys-runs/<run-id>` branch. Machine-local metadata defaults to
+`~/.vibesys`; set `VIBESYS_STATE_HOME` to an absolute directory to override it.
+Existing `.vibesys/state/local/` metadata moves there on first open without
+changing its file formats. Temporary evolve worktrees remain repository-local.
+The entire `.vibesys/` directory is read-only to coding agents.
 
 ## Start a Task
 
@@ -55,7 +61,7 @@ worktree. Keep `agent.toml` and root `.env*` files out of Git history.
 The `agent`, `plain`, and `evolve` outer loops all use this model. Local, Docker,
 and Modal execution change where commands run, not the task layout. Task
 commands always start in the repository root. `.vibesys` is mounted read-only
-for coding agents; `.vibesys/state/local` is also hidden from them.
+for coding agents. Machine-local state is outside their workspace.
 
 Modal tasks may set a project-relative deployment file. Omit this block to use
 the legacy `main.py` default:
@@ -114,8 +120,9 @@ for the source, evaluator, and publication contracts.
 
 ## Resume
 
-Inside a project, resume the machine-local current run, then the newest run if
-no current pointer exists. A run ID selects a specific run:
+Inside a project, resume the machine-local current run from the configured
+VibeSys state home, then the newest run if no current pointer exists. A run ID
+selects a specific run:
 
 ```bash
 cd /path/to/project
