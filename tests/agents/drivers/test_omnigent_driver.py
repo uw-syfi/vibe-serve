@@ -297,7 +297,7 @@ def test_os_policy_exposes_control_dotdirs_and_keeps_hidden_dotfiles_masked(
     )
     driver = OmnigentDriver()
     monkeypatch.setattr(
-        "vibesys.agents.drivers.omnigent.declare_rust_toolchain_resources",
+        "vibesys.agents.drivers.omnigent.declare_active_rust_toolchain_resources",
         lambda *_args, **_kwargs: (HostResource(toolchain, purpose="Rust toolchain"),),
     )
 
@@ -326,12 +326,30 @@ def test_codex_executor_disables_native_tools(
     driver = OmnigentDriver()
     monkeypatch.setattr(driver, "_executor_class", lambda _spec: Executor)
     monkeypatch.setattr(driver, "_build_os_env", lambda _spec: object())
+    rust_sysroot = tmp_path / "rust"
+    monkeypatch.setattr(
+        "vibesys.agents.drivers.omnigent.resolve_active_rust_toolchain",
+        lambda _context, *, workspace: (rust_sysroot, workspace / "lib"),
+    )
+
+    def build_tools(
+        _os_env: object, _workspace: Path, environment: dict[str, str]
+    ) -> tuple[list[dict[str, Any]], object]:
+        captured["tool_environment"] = environment
+        return [], lambda _name, _args: None
+
     monkeypatch.setattr(
         "vibesys.agents.drivers.omnigent._build_os_tools",
-        lambda _os_env, _workspace: ([], lambda _name, _args: None),
+        build_tools,
     )
 
     executor, _schemas = driver._build_executor(_spec(tmp_path))  # noqa: SLF001
 
     assert captured["disable_native_tools"] is True
+    assert str(captured["tool_environment"]["PATH"]).split(os.pathsep)[0] == str(
+        rust_sysroot / "bin"
+    )
+    assert captured["tool_environment"]["CARGO_HOME"] == str(
+        tmp_path / "target" / "vibesys-cargo-home"
+    )
     driver.close_executor(executor)

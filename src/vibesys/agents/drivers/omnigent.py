@@ -24,7 +24,10 @@ from vibesys.agents.contracts import (
     AgentTurnResult,
     AgentUsage,
 )
-from vibesys.agents.host_resource_declarations import declare_rust_toolchain_resources
+from vibesys.agents.host_resource_declarations import (
+    declare_active_rust_toolchain_resources,
+    resolve_active_rust_toolchain,
+)
 from vibesys.agents.omnigent.providers import (
     OMNIGENT_PROVIDER_EXECUTORS,
     OmnigentExecutorSpec,
@@ -102,6 +105,7 @@ def _flatten_tool_schema(tool: Any) -> dict[str, Any]:  # noqa: ANN401
 def _build_os_tools(
     os_env_spec: Any,  # noqa: ANN401
     workspace: Path,
+    environment: dict[str, str] | None = None,
 ) -> tuple[list[dict[str, Any]], Callable[[str, dict[str, Any]], Any]]:
     """Build Omnigent's sandboxed filesystem tools and their dispatcher."""
     try:
@@ -132,7 +136,12 @@ def _build_os_tools(
         tool = by_name.get(name)
         if tool is None:
             return {"error": f"unknown tool {name!r}"}
-        return await asyncio.to_thread(tool.invoke, json.dumps(args), context)
+
+        def invoke() -> Any:  # noqa: ANN401
+            with _patched_environ(environment or {}):
+                return tool.invoke(json.dumps(args), context)
+
+        return await asyncio.to_thread(invoke)
 
     return schemas, dispatch
 
@@ -399,7 +408,10 @@ class OmnigentDriver:
             if entry.name.startswith(".") and Path(entry.name) not in hidden
         ]
         environment = {**os.environ, **dict(spec.environment)}
-        resources = declare_rust_toolchain_resources(HostResourceContext(env=environment))
+        resources = declare_active_rust_toolchain_resources(
+            HostResourceContext(env=environment),
+            workspace=workspace,
+        )
         read_paths = sorted(
             {str(workspace)}
             | {
@@ -447,8 +459,29 @@ class OmnigentDriver:
                 f"{executor_cls.__name__} has no {_TOOL_EXECUTOR_ATTR!r} slot; "
                 "this integration requires the private Omnigent 0.6.0 tool-dispatch seam"
             )
+        environment = {**os.environ, **dict(spec.environment)}
+        tool_environment = dict(spec.environment)
+        rust_toolchain = resolve_active_rust_toolchain(
+            HostResourceContext(env=environment),
+            workspace=spec.workspace,
+        )
+        if rust_toolchain is not None:
+            rust_bin = rust_toolchain[0] / "bin"
+            tool_environment.update(
+                {
+                    "CARGO_HOME": str(spec.workspace / "target" / "vibesys-cargo-home"),
+                    "PATH": os.pathsep.join((str(rust_bin), environment.get("PATH", ""))),
+                    "RUSTC": str(rust_bin / "rustc"),
+                    "RUSTDOC": str(rust_bin / "rustdoc"),
+                    "RUSTUP_AUTO_INSTALL": "0",
+                }
+            )
         try:
-            schemas, dispatch = _build_os_tools(os_env_spec, spec.workspace)
+            schemas, dispatch = _build_os_tools(
+                os_env_spec,
+                spec.workspace,
+                tool_environment,
+            )
         except BaseException:
             with contextlib.suppress(Exception):
                 self.close_executor(executor)
