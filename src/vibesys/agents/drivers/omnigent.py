@@ -10,6 +10,7 @@ import json
 import os
 import shutil
 import sys
+import tempfile
 from importlib import import_module
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -317,6 +318,7 @@ class OmnigentDriver:
     def __init__(self) -> None:
         """Create a driver with no live sessions or event loop."""
         self._sessions: set[OmnigentSession] = set()
+        self._executor_scratch: dict[int, tempfile.TemporaryDirectory[str]] = {}
         self._loop: asyncio.AbstractEventLoop | None = None
         self._closed = False
 
@@ -414,6 +416,8 @@ class OmnigentDriver:
         self,
         spec: AgentSessionSpec,
         *,
+        additional_write_paths: tuple[Path, ...] = (),
+        env_passthrough: tuple[str, ...] = (),
         include_toolchain: bool = False,
     ) -> Any:  # noqa: ANN401
         try:
@@ -447,8 +451,9 @@ class OmnigentDriver:
         sandbox = OSEnvSandboxSpec(
             type=_sandbox_backend_for_platform(),
             read_paths=read_paths,
-            write_paths=[str(workspace)],
+            write_paths=[str(workspace), *(str(path) for path in additional_write_paths)],
             cwd_allow_hidden=allow_hidden,
+            env_passthrough=list(env_passthrough) or None,
         )
         return OSEnvSpec(
             type="caller_process",
@@ -460,7 +465,43 @@ class OmnigentDriver:
         executor_spec = _resolve_executor_spec(spec.provider)
         executor_cls = self._executor_class(executor_spec)
         os_env_spec = self._build_os_env(spec)
-        shell_os_env_spec = self._build_os_env(spec, include_toolchain=True)
+        scratch = tempfile.TemporaryDirectory(prefix="vibesys-omnigent-")
+        scratch_path = Path(scratch.name)
+        environment = {**os.environ, **dict(spec.environment)}
+        tool_environment = dict(spec.environment)
+        rust_toolchain = resolve_active_rust_toolchain(
+            HostResourceContext(env=environment),
+            workspace=spec.workspace,
+        )
+        if rust_toolchain is not None:
+            rust_bin = rust_toolchain[0] / "bin"
+            tool_environment.update(
+                {
+                    "CARGO_HOME": str(scratch_path / "cargo-home"),
+                    "CARGO_TARGET_DIR": str(scratch_path / "target"),
+                    "PATH": os.pathsep.join((str(rust_bin), environment.get("PATH", ""))),
+                    "RUSTC": str(rust_bin / "rustc"),
+                    "RUSTDOC": str(rust_bin / "rustdoc"),
+                    "RUSTUP_AUTO_INSTALL": "0",
+                }
+            )
+            if sys.platform.startswith("linux"):
+                linker = shutil.which("cc", path=environment.get("PATH")) or shutil.which(
+                    "gcc", path=environment.get("PATH")
+                )
+                if linker is not None:
+                    host = rust_toolchain[1].parent.name.upper().replace("-", "_")
+                    tool_environment[f"CARGO_TARGET_{host}_LINKER"] = str(Path(linker).resolve())
+        try:
+            shell_os_env_spec = self._build_os_env(
+                spec,
+                additional_write_paths=(scratch_path,),
+                env_passthrough=tuple(tool_environment),
+                include_toolchain=True,
+            )
+        except BaseException:
+            scratch.cleanup()
+            raise
         executor_kwargs: dict[str, Any] = {
             "cwd": str(spec.workspace),
             "model": spec.model,
@@ -474,38 +515,21 @@ class OmnigentDriver:
         try:
             executor = executor_cls(**executor_kwargs)
         except ImportError as exc:
+            scratch.cleanup()
             raise OmnigentDriverError(
                 f"Omnigent provider {spec.provider!r} is unavailable: {exc}"
             ) from exc
+        except BaseException:
+            scratch.cleanup()
+            raise
         if not hasattr(executor, _TOOL_EXECUTOR_ATTR):
             with contextlib.suppress(Exception):
                 self.close_executor(executor)
+            scratch.cleanup()
             raise OmnigentDriverError(
                 f"{executor_cls.__name__} has no {_TOOL_EXECUTOR_ATTR!r} slot; "
                 "this integration requires the private Omnigent 0.6.0 tool-dispatch seam"
             )
-        environment = {**os.environ, **dict(spec.environment)}
-        tool_environment = dict(spec.environment)
-        rust_toolchain = resolve_active_rust_toolchain(
-            HostResourceContext(env=environment),
-            workspace=spec.workspace,
-        )
-        if rust_toolchain is not None:
-            rust_bin = rust_toolchain[0] / "bin"
-            tool_environment.update(
-                {
-                    "CARGO_HOME": str(spec.workspace / "target" / "vibesys-cargo-home"),
-                    "PATH": os.pathsep.join((str(rust_bin), environment.get("PATH", ""))),
-                    "RUSTC": str(rust_bin / "rustc"),
-                    "RUSTDOC": str(rust_bin / "rustdoc"),
-                    "RUSTUP_AUTO_INSTALL": "0",
-                }
-            )
-            if sys.platform.startswith("linux"):
-                linker = shutil.which("cc", path=environment.get("PATH"))
-                if linker is not None:
-                    host = rust_toolchain[1].parent.name.upper().replace("-", "_")
-                    tool_environment[f"CARGO_TARGET_{host}_LINKER"] = str(Path(linker).resolve())
         try:
             schemas, dispatch = _build_os_tools(
                 os_env_spec,
@@ -516,8 +540,10 @@ class OmnigentDriver:
         except BaseException:
             with contextlib.suppress(Exception):
                 self.close_executor(executor)
+            scratch.cleanup()
             raise
         setattr(executor, _TOOL_EXECUTOR_ATTR, dispatch)
+        self._executor_scratch[id(executor)] = scratch
         return executor, schemas
 
     def release_session(self, session: OmnigentSession, executor: Any) -> None:  # noqa: ANN401
@@ -527,9 +553,14 @@ class OmnigentDriver:
 
     def close_executor(self, executor: Any) -> None:  # noqa: ANN401
         """Close a native executor, awaiting asynchronous cleanup when needed."""
-        close = getattr(executor, "close", None)
-        if close is None:
-            return
-        result = close()
-        if asyncio.iscoroutine(result):
-            self.run_awaitable(result)
+        try:
+            close = getattr(executor, "close", None)
+            if close is None:
+                return
+            result = close()
+            if asyncio.iscoroutine(result):
+                self.run_awaitable(result)
+        finally:
+            scratch = self._executor_scratch.pop(id(executor), None)
+            if scratch is not None:
+                scratch.cleanup()
