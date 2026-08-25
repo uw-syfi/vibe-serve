@@ -3,9 +3,6 @@ version = 1
 [agent]
 domain = "generic"
 
-[workspace]
-seed = "../../starters/priority-queue-rs"
-
 [evaluator]
 source = "../../evaluators/priority-queue"
 

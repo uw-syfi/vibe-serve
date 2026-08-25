@@ -56,10 +56,10 @@ def _materialize_priority_queue_input(
     from vibesys.input_manifest import load_input_bundle  # noqa: PLC0415  # tracked: #288
 
     input_dir = project_root / "examples" / "data-structures" / input_name
-    bundle = load_input_bundle(input_dir, project_root=project_root)
-    assert bundle.workspace_seed_path is not None
+    starter = project_root / "examples" / "starters" / "priority-queue-rs"
+    bundle = load_input_bundle(input_dir)
     assert bundle.evaluator_path is not None
-    _copy_input_bundle(bundle.workspace_seed_path, workspace)
+    _copy_input_bundle(starter, workspace)
     _copy_input_bundle(input_dir, workspace)
     _copy_input_bundle(
         bundle.evaluator_path,
@@ -236,8 +236,8 @@ def test_priority_queue_inputs_use_shared_editable_rust_starter():  # noqa: ANN2
 
     for input_name in PRIORITY_QUEUE_INPUTS:
         input_dir = root / input_name
-        bundle = load_input_bundle(input_dir, project_root=project_root)
-        assert bundle.workspace_seed_path == starter.resolve()
+        bundle = load_input_bundle(input_dir)
+        assert bundle.workspace_sources == ()
         assert bundle.evaluator_path == evaluator.resolve()
         assert not (input_dir / "baseline").exists()
         assert not (input_dir / "reference").exists()
