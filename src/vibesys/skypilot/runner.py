@@ -24,13 +24,24 @@ if TYPE_CHECKING:
     from vibesys.skypilot.config import ResolvedSkyPilotResources
 
 _CLUSTER_COMPONENT = re.compile(r"[^a-z0-9-]+")
+_ANSI_ESCAPE_SEQUENCE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 _MAX_CLUSTER_NAME = 28
 _JOB_DISCOVERY_TIMEOUT_SECONDS = 60.0
 _POLL_INTERVAL_SECONDS = 2.0
+# Bounded retry policy for read-only, idempotent control-plane calls (cluster
+# status, queue polling). The sky CLI's local API server cold-starts on first
+# invocation; combined with a slow site-side refresh (e.g. Slurm over an SSH
+# jump host), one attempt can exceed its timeout even though the underlying
+# query is safe to repeat. See ``SkyPilotJobRunner._control``.
+_CONTROL_RETRY_ATTEMPTS = 3
+_CONTROL_RETRY_TIMEOUT_MULTIPLIER = 1.5
 _SKY_JOB_FAILED = 100
 _SKY_JOB_NOT_FINISHED = 101
 _SKY_JOB_NOT_FOUND = 102
 _SKY_JOB_CANCELLED = 103
+# Name of the remote environment variable that carries the host shell's
+# working directory across an operator ``command_prefix`` (see `_run_script`).
+_REMOTE_WORKDIR_VARIABLE = "VIBESYS_REMOTE_WORKDIR"
 
 
 class SkyPilotCLIError(RuntimeError):
@@ -231,6 +242,42 @@ def stable_cluster_name(run_id: str, resources: ResolvedSkyPilotResources) -> st
     return f"vibesys-{component}-{suffix}"
 
 
+def _resource_document(resources: ResolvedSkyPilotResources) -> dict[str, object]:
+    """Build the ``resources:`` block of one SkyPilot task document."""
+    resource_document: dict[str, object] = {
+        "infra": resources.infra,
+        "accelerators": f"{resources.accelerator_type}:{resources.accelerators_per_node}",
+    }
+    if resources.cpus_per_node is not None:
+        resource_document["cpus"] = resources.cpus_per_node
+    if resources.memory_gb_per_node is not None:
+        resource_document["memory"] = resources.memory_gb_per_node
+    if resources.remote_runtime_image is not None:
+        resource_document["image_id"] = resources.remote_runtime_image
+    return resource_document
+
+
+def _run_script(resources: ResolvedSkyPilotResources, command: Sequence[str]) -> str:
+    """Compose the remote run script, restoring cwd across an operator command prefix.
+
+    ``resources.command_prefix`` (e.g. Slurm ``srun --environment=<EDF>``
+    invoking a pyxis/enroot container) can run the wrapped command with a
+    working directory the container image controls, independent of the host
+    shell's cwd that SkyPilot establishes from the task's ``workdir`` before
+    running this script. Capture that host cwd before the prefix and
+    re-enter it inside the prefixed shell, so ``command`` always executes
+    from the synced workspace regardless of what the operator's command
+    prefix does to cwd. This assumes the synced workspace stays reachable at
+    the same path across the prefix (e.g. via a bind mount); it restores cwd
+    only, it does not change path visibility.
+    """
+    if not resources.command_prefix:
+        return shlex.join(command)
+    inner = f'cd "${_REMOTE_WORKDIR_VARIABLE}" && exec {shlex.join(command)}'
+    prefixed = (*resources.command_prefix, "bash", "-c", inner)
+    return f'export {_REMOTE_WORKDIR_VARIABLE}="$(pwd)" && {shlex.join(prefixed)}'
+
+
 def build_task_document(
     resources: ResolvedSkyPilotResources,
     *,
@@ -242,21 +289,14 @@ def build_task_document(
     """Build the provider-neutral subset of one SkyPilot task document."""
     if not command:
         raise ValueError("SkyPilot task command must not be empty")  # noqa: TRY003
-    resource_document: dict[str, object] = {
-        "infra": resources.infra,
-        "accelerators": f"{resources.accelerator_type}:{resources.accelerators_per_node}",
-    }
-    if resources.cpus_per_node is not None:
-        resource_document["cpus"] = resources.cpus_per_node
-    if resources.remote_runtime_image is not None:
-        resource_document["image_id"] = resources.remote_runtime_image
-    effective_command = (
-        (*resources.command_prefix, *command) if use_command_prefix else tuple(command)
+    resource_document = _resource_document(resources)
+    run_script = (
+        _run_script(resources, tuple(command)) if use_command_prefix else shlex.join(command)
     )
     document: dict[str, object] = {
         "num_nodes": resources.nodes,
         "resources": resource_document,
-        "run": shlex.join(effective_command),
+        "run": run_script,
     }
     if name is not None:
         document["name"] = name
@@ -271,6 +311,36 @@ def build_task_document(
     if workdir is not None:
         document["workdir"] = str(workdir)
     return document
+
+
+def _decode_json_stdout(stdout: str, *, error_message: str) -> object:
+    """Extract and decode the trailing ``--output json`` payload from sky CLI stdout.
+
+    The sky CLI (0.13.0) logs informational lines to stdout ahead of JSON output
+    even when ``--output json`` is requested: e.g. a "Cluster(s) not found: ..."
+    notice for ``status`` on an absent cluster, or a "Fetching job queue for:
+    ..." notice for ``queue``. These lines may also carry ANSI styling. The JSON
+    payload itself is always written last, as one ``json.dumps`` block starting
+    at the first character of a line with ``[`` or ``{`` and running to the end
+    of stdout, so this locates that block and decodes it while ignoring any
+    banner lines before it.
+    """
+    lines = stdout.splitlines()
+    payload_start = next(
+        (
+            index
+            for index, line in enumerate(lines)
+            if _ANSI_ESCAPE_SEQUENCE.sub("", line).lstrip()[:1] in ("[", "{")
+        ),
+        None,
+    )
+    if payload_start is None:
+        raise SkyPilotOutputError(error_message)
+    payload_text = "\n".join(_ANSI_ESCAPE_SEQUENCE.sub("", line) for line in lines[payload_start:])
+    try:
+        return json.loads(payload_text)
+    except json.JSONDecodeError as exc:
+        raise SkyPilotOutputError(error_message) from exc
 
 
 class SkyPilotJobRunner:
@@ -296,13 +366,14 @@ class SkyPilotJobRunner:
 
     def inspect_cluster(self, name: str, *, timeout: float = 60) -> ClusterInfo | None:
         """Return the named cluster's state, or ``None`` when it is absent."""
-        result = self._control(["status", "--refresh", "--output", "json", name], timeout=timeout)
-        try:
-            payload = json.loads(result.stdout)
-        except json.JSONDecodeError as exc:
-            raise SkyPilotOutputError(  # noqa: TRY003
-                "SkyPilot status returned invalid JSON"
-            ) from exc
+        result = self._control(
+            ["status", "--refresh", "--output", "json", name],
+            timeout=timeout,
+            retry_on_timeout=True,
+        )
+        payload = _decode_json_stdout(
+            result.stdout, error_message="SkyPilot status returned invalid JSON"
+        )
         entries = (
             payload
             if isinstance(payload, list)
@@ -442,7 +513,11 @@ class SkyPilotJobRunner:
         timeout: float = 60,
     ) -> RemoteJobInfo | None:
         """Find exactly one job by caller-owned name and optional persisted ID."""
-        result = self._control(["queue", cluster_name, "--output", "json"], timeout=timeout)
+        result = self._control(
+            ["queue", cluster_name, "--output", "json"],
+            timeout=timeout,
+            retry_on_timeout=True,
+        )
         records = self._queue_records(result.stdout, cluster_name)
         matches = [record for record in records if record.get("job_name") == job_name]
         if not matches:
@@ -494,10 +569,7 @@ class SkyPilotJobRunner:
 
     @staticmethod
     def _queue_records(stdout: str, cluster_name: str) -> list[dict[str, object]]:
-        try:
-            payload = json.loads(stdout)
-        except json.JSONDecodeError as exc:
-            raise SkyPilotOutputError("SkyPilot queue returned invalid JSON") from exc  # noqa: TRY003
+        payload = _decode_json_stdout(stdout, error_message="SkyPilot queue returned invalid JSON")
         records = payload.get(cluster_name) if isinstance(payload, dict) else None
         if not isinstance(records, list) or not all(isinstance(record, dict) for record in records):
             raise SkyPilotOutputError(  # noqa: TRY003
@@ -536,7 +608,51 @@ class SkyPilotJobRunner:
         """Tear down a named cluster."""
         self._control(["down", "-y", cluster_name], timeout=timeout)
 
-    def _control(self, arguments: Sequence[str], *, timeout: float | None) -> ProcessResult:
+    def _control(
+        self,
+        arguments: Sequence[str],
+        *,
+        timeout: float | None,
+        retry_on_timeout: bool = False,
+    ) -> ProcessResult:
+        """Run one control-plane command, translating a nonzero exit to a domain error.
+
+        Set ``retry_on_timeout`` only for read-only, idempotent operations
+        (cluster status, queue polling): the sky CLI's local API server
+        cold-starts on first invocation, and combined with a slow site-side
+        refresh (e.g. Slurm over an SSH jump host) can push one attempt past
+        its timeout even though repeating the query is safe. On a timeout this
+        retries up to ``_CONTROL_RETRY_ATTEMPTS`` times with an escalating
+        per-attempt timeout, and raises :class:`SkyPilotTimeoutError` naming
+        every attempted timeout if all attempts time out.
+
+        Mutating operations (``launch``, ``exec``, ``cancel``, ``down``) must
+        leave this at its default. SkyPilot 0.13 gives no idempotency token
+        for submission, so a timed-out mutating attempt may already have taken
+        effect remotely; blindly retrying it risks a duplicate. Recovering
+        from a mutating timeout is a separate, documented reconciliation
+        concern (see docs/remote-slurm-execution.md), not an automatic retry.
+        """
+        if not retry_on_timeout or timeout is None:
+            return self._invoke_control(arguments, timeout=timeout)
+        attempted_timeouts: list[float] = []
+        last_error: SkyPilotTimeoutError | None = None
+        attempt_timeout = timeout
+        for _ in range(_CONTROL_RETRY_ATTEMPTS):
+            attempted_timeouts.append(attempt_timeout)
+            try:
+                return self._invoke_control(arguments, timeout=attempt_timeout)
+            except SkyPilotTimeoutError as exc:
+                last_error = exc
+                attempt_timeout *= _CONTROL_RETRY_TIMEOUT_MULTIPLIER
+        operation = arguments[0] if arguments else "command"
+        total = sum(attempted_timeouts)
+        raise SkyPilotTimeoutError(  # noqa: TRY003
+            f"SkyPilot {operation} timed out after {_CONTROL_RETRY_ATTEMPTS} attempts "
+            f"(per-attempt timeouts {attempted_timeouts!r} seconds, {total:.1f}s total)"
+        ) from last_error
+
+    def _invoke_control(self, arguments: Sequence[str], *, timeout: float | None) -> ProcessResult:
         result = self._invoke([self._executable, *arguments], timeout=timeout)
         if result.returncode != 0:
             operation = arguments[0] if arguments else "command"

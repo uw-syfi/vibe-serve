@@ -123,6 +123,32 @@ def test_skypilot_selection_requires_profile_and_resources() -> None:
         )
 
 
+def test_only_skypilot_declares_remote_model_weights() -> None:
+    """Only the remote environment exempts domain hooks from local weights.
+
+    ``provides_remote_model_weights`` is the declaration
+    ``LLMServingEnvironmentHooks`` consults to skip requiring host-local model
+    weights (see ``src/vibesys/domains/llm_serving/hooks.py``). Local, Docker,
+    and Modal all still expect the framework to resolve weights itself
+    (locally, or via a Modal Volume derived from a local source), so only
+    SkyPilot sets it.
+    """
+    resources = RunResourceRequest(accelerators_per_node=1, accelerator_backend="rocm")
+    local = build_run_environment(make_run_environment_spec())
+    docker = build_run_environment(make_run_environment_spec(use_docker=True))
+    modal = build_run_environment(make_run_environment_spec(use_modal=True))
+    skypilot = build_run_environment(
+        make_run_environment_spec(
+            use_skypilot=True, cluster_profile="gpu", resources=resources
+        )
+    )
+
+    assert local.provides_remote_model_weights is False
+    assert docker.provides_remote_model_weights is False
+    assert modal.provides_remote_model_weights is False
+    assert skypilot.provides_remote_model_weights is True
+
+
 def test_run_environment_record_captures_operator_selected_options():  # noqa: ANN201  # tracked: #288
     assert run_environment_record(make_run_environment_spec()) == RunEnvironmentRecord(name="local")
     assert run_environment_record(
@@ -968,7 +994,7 @@ remote_artifact_root = "/remote/vibesys"
     class FakeBridge:
         def __init__(self, **kwargs):  # noqa: ANN003, ANN204
             captures.update(kwargs)
-            self.socket_path = kwargs["socket_path"]
+            self.socket_path = tmp_path / "fake-bridge.sock"
             self.closed = 0
 
         def start(self) -> None:
@@ -1001,6 +1027,11 @@ remote_artifact_root = "/remote/vibesys"
 
     kind, kwargs = backend.calls[0]
     assert kind is SandboxKind.DOCKER
+    # Evaluation runs on the remote SkyPilot cluster; this editor container
+    # gets no local GPU devices *or* their unlock groups (e.g. rocm's
+    # video/render) — see RocmBackend.make_sandbox and
+    # test_docker_skip_accelerator_also_skips_device_groups in
+    # tests/backends/test_rocm_backend.py for the composed-args proof.
     assert kwargs["attach_accelerator"] is False
     mounts = kwargs["bind_mounts"]
     assert any(target == "/opt/vibesys-skypilot/bridge.sock" for _, target, _ in mounts)

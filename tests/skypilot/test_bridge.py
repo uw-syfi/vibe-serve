@@ -6,6 +6,7 @@ import json
 import os
 import re
 import socket
+import subprocess
 import threading
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -229,7 +230,6 @@ def test_startup_replacement_evidence_applies_only_to_preexisting_invocations(
         commands={"accuracy": ("true",)},
         benchmark_output_argument=None,
         state_namespace=namespace,  # pyright: ignore[reportArgumentType]
-        socket_path=tmp_path / "bridge.sock",
         log=lambda _: None,
     )
     journal = InvocationJournal(namespace)  # pyright: ignore[reportArgumentType]
@@ -264,7 +264,6 @@ def test_terminal_replay_tracks_persisted_cluster_for_release(tmp_path: Path) ->
         commands={"accuracy": ("true",)},
         benchmark_output_argument=None,
         state_namespace=namespace,  # pyright: ignore[reportArgumentType]
-        socket_path=tmp_path / "bridge.sock",
         log=lambda _: None,
     )
     request = EvaluationRequest(kind="accuracy", invocation_id="e" * 32)
@@ -332,7 +331,6 @@ def test_job_discovered_during_close_is_cancelled_and_released(tmp_path: Path) -
         commands={"accuracy": ("true",)},
         benchmark_output_argument=None,
         state_namespace=namespace,  # pyright: ignore[reportArgumentType]
-        socket_path=tmp_path / "bridge.sock",
         log=lambda _: None,
     )
     journal = InvocationJournal(namespace)  # pyright: ignore[reportArgumentType]
@@ -376,7 +374,6 @@ def test_bridge_stages_allowlisted_command_streams_and_cleans_up(tmp_path: Path)
         commands={"benchmark": ("python", ".vibesys-evaluator-package/checker.py")},
         benchmark_output_argument="--output-json",
         state_namespace=_Namespace(tmp_path / "state"),  # pyright: ignore[reportArgumentType]
-        socket_path=tmp_path / "bridge.sock",
         log=lambda _: None,
     )
     bridge.start()
@@ -404,6 +401,7 @@ def test_bridge_stages_allowlisted_command_streams_and_cleans_up(tmp_path: Path)
         assert runner.commands[0][2].index("rm -f --") < runner.commands[0][2].index("python")
         assert ".vibesys-evaluator-package/checker.py" in runner.commands[0][2]
         assert remote_result in runner.commands[0][2]
+        assert bridge.socket_path is not None
         assert bridge.socket_path.stat().st_mode & 0o777 == 0o600
     finally:
         bridge.close()
@@ -432,7 +430,6 @@ def test_bridge_releases_cluster_when_socket_startup_fails(
         commands={"accuracy": ("true",)},
         benchmark_output_argument=None,
         state_namespace=_Namespace(tmp_path / "state"),  # pyright: ignore[reportArgumentType]
-        socket_path=tmp_path / "bridge.sock",
         log=lambda _: None,
     )
 
@@ -441,6 +438,7 @@ def test_bridge_releases_cluster_when_socket_startup_fails(
 
     assert runner.ensure_calls == 1
     assert runner.release_calls == 1
+    assert bridge.socket_path is not None
     assert not bridge.socket_path.exists()
 
 
@@ -459,7 +457,6 @@ def test_bridge_rejects_special_workspace_file(tmp_path: Path) -> None:
         commands={"accuracy": ("true",)},
         benchmark_output_argument=None,
         state_namespace=_Namespace(tmp_path / "state"),  # pyright: ignore[reportArgumentType]
-        socket_path=tmp_path / "bridge.sock",
         log=lambda _: None,
     )
     bridge.start()
@@ -479,6 +476,7 @@ def test_bridge_rejects_special_workspace_file(tmp_path: Path) -> None:
 
     assert runner.ensure_calls == 1
     assert runner.release_calls == 1
+    assert bridge.socket_path is not None
     assert not bridge.socket_path.exists()
 
 
@@ -499,7 +497,6 @@ def test_bridge_rejects_workspace_symlink_escape(tmp_path: Path) -> None:
         commands={"accuracy": ("python", "checker.py")},
         benchmark_output_argument=None,
         state_namespace=_Namespace(tmp_path / "state"),  # pyright: ignore[reportArgumentType]
-        socket_path=tmp_path / "bridge.sock",
         log=lambda _: None,
     )
     bridge.start()
@@ -515,3 +512,239 @@ def test_bridge_rejects_workspace_symlink_escape(tmp_path: Path) -> None:
         assert runner.commands == []
     finally:
         bridge.close()
+
+
+def _bridge_for_staging(
+    tmp_path: Path, workspace: Path, *, hidden_paths: Sequence[Path] = ()
+) -> SkyPilotBridge:
+    return SkyPilotBridge(
+        runner=FakeRunner(),  # pyright: ignore[reportArgumentType]
+        cluster_name="lease",
+        resources=_resources(),
+        workspace=workspace,
+        evaluator_package_root=None,
+        hidden_paths=hidden_paths,
+        commands={"accuracy": ("true",)},
+        benchmark_output_argument=None,
+        state_namespace=_Namespace(tmp_path / "state"),  # pyright: ignore[reportArgumentType]
+        log=lambda _: None,
+    )
+
+
+def _staged_relative_paths(staging: Path) -> set[str]:
+    return {path.relative_to(staging).as_posix() for path in staging.rglob("*") if path.is_file()}
+
+
+def _init_git_repo(root: Path) -> None:
+    subprocess.run(["git", "init", "-q"], cwd=root, check=True)  # noqa: S607
+
+
+def test_stage_workspace_excludes_gitignored_directory_in_a_git_repo(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    _init_git_repo(workspace)
+    (workspace / ".gitignore").write_text("rust/target/\n")
+    (workspace / "keep.py").write_text("candidate")
+    (workspace / "rust").mkdir()
+    (workspace / "rust" / "target").mkdir()
+    (workspace / "rust" / "target" / "big.rlib").write_text("x" * 1000)
+
+    bridge = _bridge_for_staging(tmp_path, workspace)
+    staging = tmp_path / "staged"
+    bridge._stage_workspace(staging)  # noqa: SLF001
+
+    assert _staged_relative_paths(staging) == {"keep.py", ".gitignore"}
+
+
+def test_stage_workspace_keeps_force_added_tracked_files_matching_gitignore(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    _init_git_repo(workspace)
+    (workspace / ".gitignore").write_text("*.log\n")
+    (workspace / "keep.log").write_text("tracked despite matching *.log")
+    subprocess.run(["git", "add", "-f", "keep.log"], cwd=workspace, check=True)  # noqa: S607
+
+    bridge = _bridge_for_staging(tmp_path, workspace)
+    staging = tmp_path / "staged"
+    bridge._stage_workspace(staging)  # noqa: SLF001
+
+    assert "keep.log" in _staged_relative_paths(staging)
+
+
+def test_stage_workspace_excluding_gitignored_bytes_stays_under_the_size_cap(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A build cache large enough to overflow the cap on its own must not
+    # count against the cap once it is Git-ignored: this is the regression
+    # covered here (e.g. a 761 MB `rust/target/` cache that previously
+    # overflowed `_MAX_STAGED_BYTES` even though it carries no candidate
+    # signal).
+    monkeypatch.setattr(bridge_module, "_MAX_STAGED_BYTES", 10_000)
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    _init_git_repo(workspace)
+    (workspace / ".gitignore").write_text("cache/\n")
+    (workspace / "keep.py").write_text("candidate")
+    (workspace / "cache").mkdir()
+    (workspace / "cache" / "big.bin").write_bytes(b"x" * 50_000)
+
+    bridge = _bridge_for_staging(tmp_path, workspace)
+    staging = tmp_path / "staged"
+    bridge._stage_workspace(staging)  # noqa: SLF001
+
+    assert _staged_relative_paths(staging) == {"keep.py", ".gitignore"}
+
+
+def test_stage_workspace_still_enforces_cap_for_tracked_bytes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(bridge_module, "_MAX_STAGED_BYTES", 10)
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    _init_git_repo(workspace)
+    (workspace / "keep.py").write_text("this tracked file is well over the patched cap")
+
+    bridge = _bridge_for_staging(tmp_path, workspace)
+
+    with pytest.raises(ValueError, match="excluding Git-ignored paths"):
+        bridge._stage_workspace(tmp_path / "staged")  # noqa: SLF001
+
+
+def test_stage_workspace_falls_back_unchanged_for_a_non_git_workspace(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / "keep.py").write_text("candidate")
+    (workspace / "build").mkdir()  # excluded by name, not by gitignore
+    (workspace / "build" / "artifact.txt").write_text("built")
+    (workspace / "not_a_cache").mkdir()
+    (workspace / "not_a_cache" / "data.txt").write_text("kept even without git")
+
+    bridge = _bridge_for_staging(tmp_path, workspace)
+    staging = tmp_path / "staged"
+    bridge._stage_workspace(staging)  # noqa: SLF001
+
+    assert _staged_relative_paths(staging) == {"keep.py", "not_a_cache/data.txt"}
+
+
+def test_stage_workspace_queries_git_ignores_exactly_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    _init_git_repo(workspace)
+    for index in range(5):
+        (workspace / f"file{index}.py").write_text("candidate")
+
+    calls: list[Sequence[str]] = []
+    real_run = subprocess.run
+
+    def spy_run(argv: Sequence[str], **kwargs: object) -> subprocess.CompletedProcess[bytes]:
+        if argv[0] == "git":
+            calls.append(argv)
+        return real_run(argv, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(bridge_module.subprocess, "run", spy_run)
+    bridge = _bridge_for_staging(tmp_path, workspace)
+    bridge._stage_workspace(tmp_path / "staged")  # noqa: SLF001
+
+    assert len(calls) == 1
+
+
+def test_socket_binds_short_under_a_deep_state_namespace_path(tmp_path: Path) -> None:
+    """The socket must not inherit length from the durable run state tree.
+
+    Regression test for AF_UNIX "path too long": simulate the deep
+    ``~/.vibesys/projects/<project-key>/runs/<run-id>/logs`` tree a real run
+    produces and confirm the bridge still binds, with a socket path that
+    stays comfortably under the sun_path limit.
+    """
+    deep_state_root = tmp_path
+    for segment in (
+        "projects",
+        "sglang-multiturn-25b21a93e58e",
+        "runs",
+        "20260825-153042-a1b2c3d4-qwen35-mi300a-multiturn-eval",
+        "logs",
+    ):
+        deep_state_root = deep_state_root / segment
+    deep_state_root.mkdir(parents=True)
+    assert len(os.fsencode(str(deep_state_root))) > bridge_module._MAX_SOCKET_PATH_BYTES  # noqa: SLF001
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    runner = FakeRunner()
+    bridge = SkyPilotBridge(
+        runner=runner,  # pyright: ignore[reportArgumentType]
+        cluster_name="lease",
+        resources=_resources(),
+        workspace=workspace,
+        evaluator_package_root=None,
+        hidden_paths=(),
+        commands={"accuracy": ("true",)},
+        benchmark_output_argument=None,
+        state_namespace=_Namespace(deep_state_root),  # pyright: ignore[reportArgumentType]
+        log=lambda _: None,
+    )
+    bridge.start()
+    try:
+        assert len(os.fsencode(str(bridge.socket_path))) <= bridge_module._MAX_SOCKET_PATH_BYTES  # noqa: SLF001
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+            client.connect(str(bridge.socket_path))
+    finally:
+        bridge.close()
+
+
+def test_close_removes_the_socket_directory(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    runner = FakeRunner()
+    bridge = SkyPilotBridge(
+        runner=runner,  # pyright: ignore[reportArgumentType]
+        cluster_name="lease",
+        resources=_resources(),
+        workspace=workspace,
+        evaluator_package_root=None,
+        hidden_paths=(),
+        commands={"accuracy": ("true",)},
+        benchmark_output_argument=None,
+        state_namespace=_Namespace(tmp_path / "state"),  # pyright: ignore[reportArgumentType]
+        log=lambda _: None,
+    )
+    bridge.start()
+    socket_dir = bridge.socket_path.parent  # pyright: ignore[reportOptionalMemberAccess]
+    assert socket_dir.is_dir()
+
+    bridge.close()
+
+    assert not socket_dir.exists()
+
+
+def test_start_raises_a_clear_error_when_even_the_runtime_dir_is_too_long(
+    tmp_path: Path,
+) -> None:
+    """Guard against environments where even a fresh runtime dir is too deep."""
+    socket_root = tmp_path / ("x" * 150)
+    socket_root.mkdir()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    runner = FakeRunner()
+    bridge = SkyPilotBridge(
+        runner=runner,  # pyright: ignore[reportArgumentType]
+        cluster_name="lease",
+        resources=_resources(),
+        workspace=workspace,
+        evaluator_package_root=None,
+        hidden_paths=(),
+        commands={"accuracy": ("true",)},
+        benchmark_output_argument=None,
+        state_namespace=_Namespace(tmp_path / "state"),  # pyright: ignore[reportArgumentType]
+        log=lambda _: None,
+        socket_root=socket_root,
+    )
+
+    with pytest.raises(OSError, match="sun_path"):
+        bridge.start()
+
+    assert list(socket_root.iterdir()) == []

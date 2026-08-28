@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -138,15 +139,83 @@ def test_task_document_quotes_argv_once() -> None:
     }
 
 
+def test_task_document_includes_memory_when_profile_sets_it() -> None:
+    document = build_task_document(
+        _resources(memory_gb_per_node=480),
+        command=("true",),
+        use_command_prefix=False,
+    )
+
+    assert document["resources"]["memory"] == 480
+
+
+def test_task_document_omits_memory_when_profile_leaves_it_unset() -> None:
+    document = build_task_document(
+        _resources(memory_gb_per_node=None),
+        command=("true",),
+        use_command_prefix=False,
+    )
+
+    assert "memory" not in document["resources"]
+
+
 def test_task_document_prepends_operator_command_prefix_once() -> None:
     document = build_task_document(
         _resources(command_prefix=("srun", "--overlap", "--environment=/path/runtime.toml")),
         command=("python", "benchmark.py", "argument with spaces"),
     )
 
-    assert document["run"] == (
-        "srun --overlap --environment=/path/runtime.toml python benchmark.py 'argument with spaces'"
+    run = document["run"]
+    assert isinstance(run, str)
+    prefix = 'export VIBESYS_REMOTE_WORKDIR="$(pwd)" && '
+    assert run.startswith(prefix)
+    # The wrapped argv (parsed back with shlex) contains the operator prefix
+    # exactly once, followed by a `bash -c <inner script>` re-entering the
+    # captured host cwd before exec'ing the original command.
+    wrapped_argv = shlex.split(run.removeprefix(prefix))
+    assert wrapped_argv[:5] == [
+        "srun",
+        "--overlap",
+        "--environment=/path/runtime.toml",
+        "bash",
+        "-c",
+    ]
+    assert len(wrapped_argv) == len(wrapped_argv[:5]) + 1
+    inner_script = wrapped_argv[5]
+    assert inner_script == (
+        "cd \"$VIBESYS_REMOTE_WORKDIR\" && exec python benchmark.py 'argument with spaces'"
     )
+
+
+def test_task_document_reuses_plain_command_without_operator_command_prefix() -> None:
+    # No `command_prefix` configured on the profile: the run script is the
+    # plain quoted command, with no cwd-capture wrapping needed.
+    document = build_task_document(
+        _resources(command_prefix=()),
+        command=("python", "benchmark.py"),
+    )
+
+    assert document["run"] == "python benchmark.py"
+
+
+def test_task_document_command_prefix_wrapping_preserves_argv_quoting() -> None:
+    # Arguments containing shell metacharacters and embedded quotes must
+    # survive the extra `bash -c` wrapping layer intact.
+    command = ("python", "check.py", "path with spaces/and'quote", "$(not-shell)")
+    document = build_task_document(
+        _resources(command_prefix=("srun", "--environment=/path/runtime.toml")),
+        command=command,
+    )
+
+    run = document["run"]
+    assert isinstance(run, str)
+    prefix = 'export VIBESYS_REMOTE_WORKDIR="$(pwd)" && '
+    wrapped_argv = shlex.split(run.removeprefix(prefix))
+    inner_script = wrapped_argv[-1]
+    assert inner_script == ('cd "$VIBESYS_REMOTE_WORKDIR" && exec ' + shlex.join(command))
+    # The inner script, once handed to a real shell, must expand back to the
+    # exact original argv it wraps (modulo the leading `cd ... && exec`).
+    assert shlex.split(inner_script)[4:] == list(command)
 
 
 def test_inspect_cluster_parses_json_and_unknown_states() -> None:
@@ -170,6 +239,58 @@ def test_inspect_cluster_parses_json_and_unknown_states() -> None:
         "json",
         "lease",
     )
+
+
+def test_inspect_cluster_skips_cluster_not_found_banner_before_json() -> None:
+    # Observed real sky 0.13.0 behavior: `sky status --refresh --output json <name>`
+    # for an absent cluster logs an ANSI-styled "Cluster(s) not found" notice to
+    # stdout ahead of the pretty-printed JSON array, even under --output json.
+    banner = "Cluster(s) not found: \x1b[1mlease\x1b[0m."
+    fake = FakeCommandRunner([_result(stdout=f"{banner}\n[]\n")])
+
+    assert SkyPilotJobRunner(fake).inspect_cluster("lease") is None
+
+
+def test_inspect_cluster_skips_cold_start_banner_lines_before_json() -> None:
+    # Observed real sky 0.13.0 behavior on a cold API server: informational
+    # lines about starting the local server precede the JSON payload on stdout.
+    stdout = (
+        "\x1b[2mFailed to connect to SkyPilot API server at "
+        "http://127.0.0.1:46580. Starting a local server.\x1b[0m\n"
+        "\x1b[0m\x1b[32m\U0001f389 SkyPilot API server started. \x1b[0m\x1b[0m\n"
+        + json.dumps([{"name": "lease", "status": "UP"}], indent=2)
+        + "\n"
+    )
+    fake = FakeCommandRunner([_result(stdout=stdout)])
+
+    cluster = SkyPilotJobRunner(fake).inspect_cluster("lease")
+
+    assert cluster is not None
+    assert cluster.status is ClusterStatus.UP
+
+
+def test_inspect_cluster_parses_pretty_printed_json() -> None:
+    # sky's --output json uses json.dumps(..., indent=2), not compact JSON.
+    stdout = json.dumps([{"name": "lease", "status": "UP"}], indent=2) + "\n"
+    fake = FakeCommandRunner([_result(stdout=stdout)])
+
+    cluster = SkyPilotJobRunner(fake).inspect_cluster("lease")
+
+    assert cluster is not None
+    assert cluster.status is ClusterStatus.UP
+
+
+def test_query_job_skips_fetching_banner_before_json() -> None:
+    # Observed real sky 0.13.0 behavior: `sky queue --output json <cluster>`
+    # logs a "Fetching job queue for: ..." notice to stdout before the JSON.
+    banner = "Fetching job queue for: lease"
+    payload = json.dumps({"lease": [{"job_name": "job-token", "job_id": 7}]}, indent=2)
+    fake = FakeCommandRunner([_result(stdout=f"{banner}\n{payload}\n")])
+
+    job = SkyPilotJobRunner(fake).query_job("lease", job_name="job-token")
+
+    assert job is not None
+    assert job.job_id == 7
 
 
 def test_ensure_reuses_active_cluster_without_launch() -> None:
@@ -344,17 +465,88 @@ def test_control_failure_does_not_expose_process_output() -> None:
     assert "secret-value" not in str(caught.value)
 
 
+def test_missing_executable_is_typed_and_not_retried() -> None:
+    # A missing executable is not a timeout, so it must not trigger the
+    # read-only retry policy even on a retryable operation like inspect_cluster.
+    fake = FakeCommandRunner([FileNotFoundError("sky")])
+    runner = SkyPilotJobRunner(fake)
+
+    with pytest.raises(SkyPilotCLIError):
+        runner.inspect_cluster("lease", timeout=1)
+
+    assert len(fake.calls) == 1
+
+
+def test_inspect_cluster_retries_a_timed_out_status_call_and_then_succeeds() -> None:
+    # Regression test: a bridge start() with no wrapping deadline used to die
+    # outright on one 60s status timeout during a cold local API server
+    # start. inspect_cluster is read-only, so a single timeout must not be
+    # fatal as long as a later attempt succeeds within the retry budget.
+    fake = FakeCommandRunner(
+        [
+            subprocess.TimeoutExpired(("sky", "status"), 1),
+            _result(stdout=json.dumps([{"name": "lease", "status": "UP"}])),
+        ]
+    )
+    runner = SkyPilotJobRunner(fake)
+
+    cluster = runner.inspect_cluster("lease", timeout=1)
+
+    assert cluster is not None
+    assert cluster.status is ClusterStatus.UP
+    assert len(fake.calls) == 2
+
+
+def test_inspect_cluster_raises_timeout_naming_attempts_when_all_retries_time_out() -> None:
+    fake = FakeCommandRunner(
+        [
+            subprocess.TimeoutExpired(("sky", "status"), 1),
+            subprocess.TimeoutExpired(("sky", "status"), 1),
+            subprocess.TimeoutExpired(("sky", "status"), 1),
+        ]
+    )
+    runner = SkyPilotJobRunner(fake)
+
+    with pytest.raises(SkyPilotTimeoutError, match="3 attempts"):
+        runner.inspect_cluster("lease", timeout=1)
+
+    assert len(fake.calls) == 3
+
+
+def test_query_job_retries_a_timed_out_queue_call_and_then_succeeds() -> None:
+    fake = FakeCommandRunner(
+        [
+            subprocess.TimeoutExpired(("sky", "queue"), 1),
+            _result(stdout=json.dumps({"lease": [{"job_name": "job-token", "job_id": 7}]})),
+        ]
+    )
+    runner = SkyPilotJobRunner(fake)
+
+    job = runner.query_job("lease", job_name="job-token", timeout=1)
+
+    assert job is not None
+    assert job.job_id == 7
+    assert len(fake.calls) == 2
+
+
 @pytest.mark.parametrize(
-    ("failure", "error"),
+    ("mutate", "expected_call_prefix"),
     [
-        (FileNotFoundError("sky"), SkyPilotCLIError),
-        (subprocess.TimeoutExpired(("sky", "status"), 1), SkyPilotTimeoutError),
+        (lambda runner: runner.launch("lease", _resources()), ("sky", "launch")),
+        (lambda runner: runner.cancel("lease", 7), ("sky", "cancel")),
+        (lambda runner: runner.release("lease"), ("sky", "down")),
     ],
 )
-def test_process_boundary_failures_are_typed(
-    failure: BaseException, error: type[SkyPilotCLIError]
+def test_mutating_control_calls_are_not_retried_on_timeout(
+    mutate: Callable[[SkyPilotJobRunner], object], expected_call_prefix: tuple[str, ...]
 ) -> None:
-    runner = SkyPilotJobRunner(FakeCommandRunner([failure]))
+    fake = FakeCommandRunner([subprocess.TimeoutExpired(("sky",), 1)])
+    runner = SkyPilotJobRunner(fake)
 
-    with pytest.raises(error):
-        runner.inspect_cluster("lease", timeout=1)
+    with pytest.raises(SkyPilotTimeoutError):
+        mutate(runner)
+
+    # Exactly one attempt: a mutating op's timeout is ambiguous about whether
+    # the remote side already accepted it, so it must never be auto-retried.
+    assert len(fake.calls) == 1
+    assert fake.calls[0][:2] == expected_call_prefix

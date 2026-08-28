@@ -159,6 +159,7 @@ class RunEnvironmentSession(Protocol):  # noqa: D101  # tracked: #288
 class RunEnvironment(Protocol):  # noqa: D101  # tracked: #288
     isolated: bool
     materialize_local_model_weights: bool
+    provides_remote_model_weights: bool
     default_profiler_kind: ProfilerKind
     supported_profiler_kinds: frozenset[ProfilerKind] | None
     backend_image: str | None
@@ -241,6 +242,7 @@ class _DefaultRunEnvironmentSession:
 class LocalEnvironment(_NoopWorkspaceRecovery):  # noqa: D101  # tracked: #288
     isolated: bool = False
     materialize_local_model_weights: bool = True
+    provides_remote_model_weights: bool = False
     default_profiler_kind: ProfilerKind = ProfilerKind.NSYS
     supported_profiler_kinds: frozenset[ProfilerKind] | None = None
     backend_image: str | None = None
@@ -282,6 +284,7 @@ class DockerEnvironmentConfig:  # noqa: D101  # tracked: #288
 class DockerEnvironment:  # noqa: D101  # tracked: #288
     isolated = True
     materialize_local_model_weights = True
+    provides_remote_model_weights = False
     default_profiler_kind = ProfilerKind.NSYS
     supported_profiler_kinds: frozenset[ProfilerKind] | None = None
 
@@ -436,6 +439,11 @@ class SkyPilotEnvironment(DockerEnvironment):
     """CPU-only Docker editor with host-mediated SkyPilot evaluation."""
 
     materialize_local_model_weights = False
+    # Model weights live on persistent cluster storage the remote job already
+    # reaches; the candidate transfer excludes them (see
+    # docs/contributing/remote-slurm-execution.md), so the domain hook must
+    # not require a local model directory or meta.json for this environment.
+    provides_remote_model_weights = True
     default_profiler_kind = ProfilerKind.NONE
     supported_profiler_kinds: frozenset[ProfilerKind] | None = frozenset(
         {ProfilerKind.AUTO, ProfilerKind.NONE}
@@ -501,7 +509,6 @@ class SkyPilotEnvironment(DockerEnvironment):
             commands=commands,
             benchmark_output_argument=request.benchmark_output_argument,
             state_namespace=request.state_namespace,
-            socket_path=request.log_dir / "skypilot-bridge.sock",
             log=log,
         )
         try:
@@ -586,6 +593,7 @@ class SkyPilotEnvironment(DockerEnvironment):
 class ModalEnvironment(_NoopWorkspaceRecovery):  # noqa: D101  # tracked: #288
     isolated = True
     materialize_local_model_weights = False
+    provides_remote_model_weights = False
     default_profiler_kind = ProfilerKind.TORCH
     supported_profiler_kinds: frozenset[ProfilerKind] | None = frozenset(
         {ProfilerKind.AUTO, ProfilerKind.TORCH, ProfilerKind.NONE}
