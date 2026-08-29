@@ -24,6 +24,10 @@ class HypothesisResolution(StrEnum):
     IMPLEMENTATION_FAILED = "implementation_failed"
     BLOCKED = "blocked"
     REJECTED = "rejected"
+    # The review passed but no trusted framework measurement exists, so the
+    # empirical claim is neither proven nor failed. Distinct from INCONCLUSIVE,
+    # which reports a trusted measurement that could not decide the claim.
+    UNMEASURED = "unmeasured"
 
 
 class HypothesisReview(StrEnum):

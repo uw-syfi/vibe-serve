@@ -27,7 +27,11 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class ResolutionEvidence:
-    """Inputs the framework needs to finalize one hypothesis declaration."""
+    """Inputs the framework needs to finalize one hypothesis declaration.
+
+    ``official_metric`` must carry a trusted framework-owned measurement or
+    ``None``; callers never pass an agent self-reported number here.
+    """
 
     declared: HypothesisOutcome | None
     passed: bool
@@ -36,13 +40,17 @@ class ResolutionEvidence:
     baseline_metric: float | None
     direction: Literal["max", "min"] | None
     noise_fraction: float = 0.0
-    benchmark_expected: bool = False
 
 
 def resolve_hypothesis_outcome(
     evidence: ResolutionEvidence,
 ) -> HypothesisResolution | None:
-    """Resolve one declaration only after review and trusted evidence."""
+    """Resolve one declaration only after review and trusted evidence.
+
+    A supportive declaration (``SUPPORTED``/``NOMINATED``) never resolves
+    ``PROVEN`` on the agent's word alone: without a trusted measurement it
+    resolves ``UNMEASURED``, and with one the measurement decides.
+    """
     if not evidence.reviewed:
         resolution = None
     elif not evidence.passed:
@@ -59,14 +67,10 @@ def resolve_hypothesis_outcome(
         if evidence.declared is HypothesisOutcome.CONTINUE:
             resolution = None
         elif resolution is None:
-            if not evidence.benchmark_expected:
-                resolution = HypothesisResolution.PROVEN
-            elif evidence.official_metric is not None:
-                resolution = _resolve_metric_evidence(evidence)
-            elif evidence.declared is HypothesisOutcome.SUPPORTED:
-                resolution = HypothesisResolution.PROVEN
+            if evidence.official_metric is None:
+                resolution = HypothesisResolution.UNMEASURED
             else:
-                resolution = HypothesisResolution.INCONCLUSIVE
+                resolution = _resolve_metric_evidence(evidence)
     return resolution
 
 
@@ -114,23 +118,37 @@ def metric_baseline(
     metric: str | None,
     rounds: Sequence[RoundRecord],
 ) -> RoundRecord | None:
-    """Find the exact causal baseline for one metric when provenance permits."""
+    """Find the baseline for one metric, preferring the exact causal parent.
+
+    The parent of an official round is usually a provisional round whenever
+    ``official_eval_every`` exceeds 1, so an exact parent match rarely exists.
+    Fall back to the newest trusted official measurement that does not
+    postdate the parent round; comparing against a later measurement would
+    invert cause and effect.
+    """
     comparable = [
         item
         for item in rounds
-        if item.official_evaluation and item.perf_metric is not None and item.perf_unit == metric
+        if item.official_evaluation
+        and item.perf_metric is not None
+        and _trusted_measurement(item)
+        and (item.perf_unit == metric or (metric is not None and metric in item.metrics))
     ]
+    if not comparable:
+        return None
     if parent_commit is not None:
-        return next(
+        exact = next(
             (item for item in reversed(comparable) if item.commit == parent_commit),
             None,
         )
+        if exact is not None:
+            return exact
     if parent_round is not None:
         return next(
-            (item for item in reversed(comparable) if item.round_number == parent_round),
+            (item for item in reversed(comparable) if item.round_number <= parent_round),
             None,
         )
-    return comparable[-1] if comparable else None
+    return comparable[-1]
 
 
 def start_hypothesis(
@@ -289,12 +307,15 @@ def project_round_evidence(
                 passed=record.passed,
                 reviewed=updated.review
                 not in {HypothesisReview.PENDING, HypothesisReview.DEFERRED},
-                official_metric=record.perf_metric if record.official_evaluation else None,
+                official_metric=(
+                    record.perf_metric
+                    if record.official_evaluation and _trusted_measurement(record)
+                    else None
+                ),
                 baseline_metric=(measurement.baseline_value if measurement is not None else None),
                 direction=(
                     measurement.direction if measurement is not None else record.perf_direction
                 ),
-                benchmark_expected=record.official_evaluation,
             )
         )
     else:
@@ -416,18 +437,33 @@ def _resolution(value: str | None) -> HypothesisResolution | None:
         return HypothesisResolution.INCONCLUSIVE
 
 
+def _trusted_measurement(record: RoundRecord) -> bool:
+    """Whether ``record.perf_metric`` came from a framework-owned gate.
+
+    Legacy records carry no provenance and stay trusted so reprojection does
+    not rewrite their historical resolutions; only an explicit agent
+    self-report is untrusted.
+    """
+    return record.perf_provenance != "implementer"
+
+
 def _measurement(
     record: RoundRecord,
     prior_rounds: Sequence[RoundRecord],
     legacy_directions: Mapping[str, Literal["max", "min"]] | None,
 ) -> HypothesisMeasurement | None:
-    if not record.official_evaluation or record.perf_metric is None or record.perf_unit is None:
+    if (
+        not record.official_evaluation
+        or record.perf_metric is None
+        or record.perf_unit is None
+        or not _trusted_measurement(record)
+    ):
         return None
     direction = record.perf_direction or _configured_legacy_direction(record, legacy_directions)
     baseline = _baseline(record, prior_rounds)
     baseline_value = record.perf_baseline_metric
     if baseline_value is None and baseline is not None:
-        baseline_value = baseline.perf_metric
+        baseline_value = _baseline_metric_value(baseline, record.perf_unit)
     delta = record.perf_delta_pct
     if delta is None and baseline_value not in {None, 0}:
         assert baseline_value is not None  # noqa: S101  # narrowed above
@@ -460,6 +496,13 @@ def _baseline(record: RoundRecord, prior_rounds: Sequence[RoundRecord]) -> Round
     )
 
 
+def _baseline_metric_value(baseline: RoundRecord, metric: str | None) -> float | None:
+    """Read a baseline's value for *metric*, tolerating a renamed headline unit."""
+    if metric is not None and metric in baseline.metrics:
+        return baseline.metrics[metric]
+    return baseline.perf_metric
+
+
 def _retained(
     record: RoundRecord,
     prior_rounds: Sequence[RoundRecord],
@@ -486,6 +529,7 @@ def _retained(
             if prior.official_evaluation
             and prior.passed
             and prior.perf_metric is not None
+            and _trusted_measurement(prior)
             and prior.perf_unit == record.perf_unit
         ]
         retained = scalar_candidate_retained(

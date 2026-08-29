@@ -96,6 +96,13 @@ class RoundRecord:
     perf_baseline_commit: str | None = None
     perf_baseline_metric: float | None = None
     perf_delta_pct: float | None = None
+    # Who produced ``perf_metric``: a framework-owned benchmark contract
+    # ("framework") or the agent's own report ("implementer"). ``None``
+    # identifies a legacy record written before provenance was tracked;
+    # consumers treat legacy records as trusted to preserve their existing
+    # resolutions. ``official_evaluation`` only says the framework gates ran;
+    # it does not vouch for the metric's source.
+    perf_provenance: Literal["framework", "implementer"] | None = None
 
 
 _ROUND_RECORD_ADAPTER: TypeAdapter[RoundRecord] = TypeAdapter(RoundRecord)

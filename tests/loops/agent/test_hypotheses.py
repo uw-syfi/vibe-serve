@@ -1,5 +1,6 @@
 """Tests for the unified hypothesis aggregate and its pure transitions."""
 
+from dataclasses import replace
 from typing import Literal
 
 import pytest
@@ -324,7 +325,7 @@ def test_reprojection_uses_legacy_direction_for_resolution_and_retention(
     assert hypothesis.measurement.direction == direction
 
 
-def test_metric_baseline_prefers_exact_parent_commit_and_fails_closed() -> None:
+def test_metric_baseline_prefers_exact_parent_and_falls_back_to_latest_official() -> None:
     parent = _round(1, 100.0, hypothesis_id="parent")
     later = _round(2, 120.0, hypothesis_id="later")
 
@@ -337,6 +338,8 @@ def test_metric_baseline_prefers_exact_parent_commit_and_fails_closed() -> None:
         )
         is parent
     )
+    # A provisional parent has no exact official match; fall back to the
+    # newest official measurement that does not postdate the parent round.
     assert (
         metric_baseline(
             parent_round=2,
@@ -344,7 +347,56 @@ def test_metric_baseline_prefers_exact_parent_commit_and_fails_closed() -> None:
             metric="total_ops_per_sec",
             rounds=[parent, later],
         )
+        is later
+    )
+    # A fallback baseline must never postdate the parent round.
+    assert (
+        metric_baseline(
+            parent_round=0,
+            parent_commit="missing",
+            metric="total_ops_per_sec",
+            rounds=[parent, later],
+        )
         is None
+    )
+    # Without any parent linkage the newest official measurement wins.
+    assert (
+        metric_baseline(
+            parent_round=None,
+            parent_commit=None,
+            metric="total_ops_per_sec",
+            rounds=[parent, later],
+        )
+        is later
+    )
+
+
+def test_metric_baseline_skips_untrusted_and_matches_renamed_metrics() -> None:
+    trusted = _round(1, 100.0, hypothesis_id="trusted")
+    self_reported = replace(
+        _round(2, 130.0, hypothesis_id="selfrep"), perf_provenance="implementer"
+    )
+    renamed = replace(_round(3, 120.0, hypothesis_id="renamed"), perf_unit="renamed_headline_unit")
+
+    # An agent self-reported metric never serves as a baseline.
+    assert (
+        metric_baseline(
+            parent_round=2,
+            parent_commit="missing",
+            metric="total_ops_per_sec",
+            rounds=[trusted, self_reported],
+        )
+        is trusted
+    )
+    # A renamed headline unit still matches through the metrics row.
+    assert (
+        metric_baseline(
+            parent_round=3,
+            parent_commit="missing",
+            metric="total_ops_per_sec",
+            rounds=[trusted, renamed],
+        )
+        is renamed
     )
 
 
@@ -357,7 +409,6 @@ def test_resolution_and_retention_respect_objective_direction_and_noise() -> Non
             official_metric=90.0,
             baseline_metric=100.0,
             direction="max",
-            benchmark_expected=True,
         )
     )
     minimize = resolve_hypothesis_outcome(
@@ -368,7 +419,6 @@ def test_resolution_and_retention_respect_objective_direction_and_noise() -> Non
             official_metric=90.0,
             baseline_metric=100.0,
             direction="min",
-            benchmark_expected=True,
         )
     )
 
@@ -381,3 +431,83 @@ def test_resolution_and_retention_respect_objective_direction_and_noise() -> Non
         is False
     )
     assert scalar_candidate_retained(metric=90.0, direction="min", prior=[100.0]) is True
+
+
+@pytest.mark.parametrize(
+    "declared",
+    [HypothesisOutcome.SUPPORTED, HypothesisOutcome.NOMINATED],
+)
+def test_supportive_declaration_without_measurement_resolves_unmeasured(
+    declared: HypothesisOutcome,
+) -> None:
+    resolution = resolve_hypothesis_outcome(
+        ResolutionEvidence(
+            declared=declared,
+            passed=True,
+            reviewed=True,
+            official_metric=None,
+            baseline_metric=None,
+            direction=None,
+        )
+    )
+
+    assert resolution is HypothesisResolution.UNMEASURED
+
+
+def test_implementer_reported_metric_never_proves_or_measures() -> None:
+    record = replace(_round(1, 100.0, hypothesis_id="H-1"), perf_provenance="implementer")
+    projected = project_round_evidence(
+        Hypothesis(hypothesis_id="H-1", plan=_plan("H-1"), started_round=1),
+        record,
+        prior_rounds=[],
+    )
+
+    assert projected.resolution is HypothesisResolution.UNMEASURED
+    assert projected.measurement is None
+
+
+def test_framework_provenance_still_measures_and_resolves() -> None:
+    record = replace(_round(1, 100.0, hypothesis_id="H-1"), perf_provenance="framework")
+    projected = project_round_evidence(
+        Hypothesis(hypothesis_id="H-1", plan=_plan("H-1"), started_round=1),
+        record,
+        prior_rounds=[],
+    )
+
+    assert projected.measurement is not None
+    assert projected.measurement.value == 100.0
+
+
+def test_provisional_parent_baseline_now_resolves_via_fallback() -> None:
+    # official_eval_every >= 2: the causal parent is a provisional round, so
+    # an exact parent-commit match cannot exist among official records. The
+    # fallback baseline still lets the measurement and resolution land.
+    official = _round(1, 100.0, hypothesis_id="H-1")
+    provisional = _round(2, None, hypothesis_id="H-2", declared="continue", outcome="continue")
+    child = _round(
+        3,
+        120.0,
+        hypothesis_id="H-3",
+        parent_round=2,
+        parent_commit=provisional.commit,
+    )
+
+    state = start_hypothesis(AgentRunState(), _plan("H-1"), started_round=1)
+    state = append_round(state, official, keep_active=False)
+    state = start_hypothesis(state, _plan("H-2"), started_round=2)
+    state = append_round(state, provisional, keep_active=False)
+    state = start_hypothesis(
+        state,
+        _plan("H-3"),
+        started_round=3,
+        parent_round=2,
+        parent_commit=provisional.commit,
+    )
+    state = append_round(state, child, keep_active=False)
+
+    resolved = state.by_id("H-3")
+    assert resolved is not None
+    assert resolved.measurement is not None
+    assert resolved.measurement.baseline_round == 1
+    assert resolved.measurement.baseline_value == 100.0
+    assert resolved.resolution is HypothesisResolution.PROVEN

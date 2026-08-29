@@ -580,7 +580,9 @@ _NATIVE_PROMPT_BYTE_BUDGETS = {
 }
 
 _FALLBACK_PROMPT_BYTE_BUDGETS = {
-    "orchestrator": 13_200,
+    # 13_200 until the corrected hypothesis_id contract (retired ids are never
+    # reused) grew the OrchestratorPlan schema hint past it.
+    "orchestrator": 13_300,
     "implementer": 17_000,
     "implementer_continuation": 10_000,
     "judge": 11_000,
