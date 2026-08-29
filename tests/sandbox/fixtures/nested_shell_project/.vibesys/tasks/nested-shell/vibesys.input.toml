@@ -1,0 +1,30 @@
+version = 1
+
+[agent]
+domain = "microservices"
+
+[evaluator]
+name = "vibesys-evaluator-microservice"
+version = "0.1.0"
+
+[accuracy]
+entrypoint = "servicebench"
+args = [
+  "--mode", "accuracy",
+  "--candidate-dir", "${PROJECT_ROOT}/service",
+  "--run-command-json", "[\"docker\",\"compose\",\"up\",\"-d\",\"--build\"]",
+]
+timeout_seconds = 300
+
+[benchmark]
+entrypoint = "servicebench"
+args = [
+  "trace",
+  "--candidate-dir", "${PROJECT_ROOT}/service",
+  "--run-command-json", "[\"sh\",\"-c\",\"go -C \\\"$1\\\" run ./cmd/otelinject --compose \\\"$2\\\" --config \\\"$3\\\"\",\"vibesys-nested-run\",\"${PACKAGE_ROOT}\",\"${PROJECT_ROOT}/service/docker-compose.yml\",\"${PROJECT_ROOT}/.vibesys/tasks/nested-shell/telemetry.toml\"]",
+]
+timeout_seconds = 360
+
+[benchmark.result]
+json_argument = "--output-json"
+metric = "primary_value"

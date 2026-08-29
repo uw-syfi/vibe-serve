@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from packaging.requirements import Requirement
+from scripts.example_repositories import is_example_repository_path
 
 if TYPE_CHECKING:
     from types import ModuleType
@@ -79,8 +80,9 @@ def _submodule_configuration() -> tuple[configparser.ConfigParser, list[str]]:
 
 
 def _is_repository_example(config: configparser.ConfigParser, section: str) -> bool:
-    path = Path(config.get(section, "path"))
-    return len(path.parts) == 4 and path.parts[0] == "examples" and path.parts[2] == "repositories"
+    # One definition, shared with the CI fetcher that materializes these
+    # examples' task overlays.
+    return is_example_repository_path(Path(config.get(section, "path")))
 
 
 def test_vcs_installs_do_not_initialize_supporting_submodules() -> None:

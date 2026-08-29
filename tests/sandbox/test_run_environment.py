@@ -33,6 +33,12 @@ if TYPE_CHECKING:
     from vibesys.backends.base import ContentionMonitor
 
 
+# A committed two-file overlay, not a submodule: the contract under test is
+# how the run environment expands and quotes nested shell argv, not any
+# particular candidate repository.
+NESTED_SHELL_PROJECT = Path(__file__).parent / "fixtures" / "nested_shell_project"
+
+
 class FakeBackend:
     """Structural stand-in for ``ComputeBackendImpl`` that records sandbox calls."""
 
@@ -312,13 +318,12 @@ def test_environment_quotes_project_root_after_token_expansion(tmp_path: Path) -
     ]
 
 
-def test_environment_quotes_hotel_nested_shell_paths(tmp_path: Path) -> None:
+def test_environment_quotes_nested_shell_paths(tmp_path: Path) -> None:
     backend = FakeBackend()
     workspace = tmp_path / "candidate's; touch injected"
     workspace.mkdir()
-    project = Path("examples/microservices/repositories/deathstarbench").resolve()
-    vibesys_project = Project.open(project)
-    bundle = load_project_task(vibesys_project, vibesys_project.select_task("hotel-reservation"))
+    vibesys_project = Project.open(NESTED_SHELL_PROJECT)
+    bundle = load_project_task(vibesys_project, vibesys_project.select_task("nested-shell"))
     env = build_run_environment(RunEnvironmentSpec("local"))
 
     session = env.open(
@@ -336,7 +341,7 @@ def test_environment_quotes_hotel_nested_shell_paths(tmp_path: Path) -> None:
     assert command is not None
     outer = shlex.split(command)
     nested = json.loads(outer[outer.index("--run-command-json") + 1])
-    assert nested[5] == str(workspace / "hotelReservation" / "docker-compose.yml")
+    assert nested[5] == str(workspace / "service" / "docker-compose.yml")
     assert "${PROJECT_ROOT}" not in json.dumps(nested)
 
 

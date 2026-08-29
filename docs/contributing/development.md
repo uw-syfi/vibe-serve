@@ -82,6 +82,17 @@ vendored sources, using `--checkout` to override their default update policy:
 git submodule update --init --recursive --checkout
 ```
 
+`uv run pytest` does not need any of them. The tests that assert on a
+repository-native example's tasks skip when its submodule is absent, and CI's
+`validate-examples` job covers them instead. To get the same coverage locally
+without cloning the candidate repositories, fetch just their `.vibesys`
+overlays (a few MB and a few seconds, against hundreds of MB for a full
+checkout):
+
+```bash
+uv run python scripts/example_repositories.py
+```
+
 Run the Python checks from the repository root:
 
 ```bash

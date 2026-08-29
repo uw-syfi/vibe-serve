@@ -1,4 +1,5 @@
 import json
+import os
 import tomllib
 from itertools import pairwise
 from pathlib import Path
@@ -12,11 +13,22 @@ from vs_project import Project, ProjectLayoutError
 PROJECT_ROOT = Path(__file__).parents[1]
 MICROSERVICE_ROOT = PROJECT_ROOT / "examples" / "microservices"
 DEATHSTAR_ROOT = MICROSERVICE_ROOT / "repositories" / "deathstarbench"
+# The DeathStarBench tasks live in a submodule, so a plain checkout does not
+# have them and these assertions skip. CI's ``validate-examples`` job fetches
+# the ``.vibesys`` overlay and sets this, turning a missing overlay into a
+# failure rather than a silent loss of coverage.
+_REQUIRE_EXAMPLE_OVERLAYS = os.environ.get("VIBESYS_REQUIRE_EXAMPLE_OVERLAYS") == "1"
 try:
     DEATHSTAR_LAYOUT = Project.open(DEATHSTAR_ROOT)
     DEATHSTAR_LAYOUT.discover_tasks()
-except ProjectLayoutError:
-    pytest.skip("DeathStarBench repository example is not initialized", allow_module_level=True)
+except ProjectLayoutError as error:
+    if _REQUIRE_EXAMPLE_OVERLAYS:
+        raise
+    pytest.skip(
+        f"DeathStarBench repository example is not initialized: {error}"
+        " (set VIBESYS_REQUIRE_EXAMPLE_OVERLAYS=1 to force)",
+        allow_module_level=True,
+    )
 DEATHSTAR_TASKS = {task.name.value: task for task in DEATHSTAR_LAYOUT.discover_tasks()}
 LEGACY_SCENARIOS = (MICROSERVICE_ROOT / "train-ticket",)
 HOTEL_TEMP_ROOT = Path("/") / "tmp" / "vibesys-hotel-reservation" / "otel"

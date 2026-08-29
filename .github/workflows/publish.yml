@@ -3,17 +3,51 @@ name: Build and publish release wheels
 on:
   pull_request:
     branches: [main]
-    # Skip the wheel-build matrix (two paid macOS runners plus a Docker
-    # clean-room verification pass) for changes that can't affect native
-    # packaging: pure documentation and the Docusaurus site. Ignored by exact
-    # filename, not `.github/workflows/**`, so edits to this workflow still
-    # run the full matrix. `release` events don't support path filters and
-    # are unaffected.
-    paths-ignore:
-      - '*.md'
-      - 'docs/**'
-      - 'website/**'
-      - '.github/workflows/website.yml'
+    # This matrix builds and clean-room-verifies four release wheels, two of
+    # them on paid macOS runners, and `macos-x86_64` alone takes 4.5-7 minutes.
+    # That is the wall-clock long pole of a pull request (issue #474), and
+    # almost none of it is about the diff: a wheel is a copy of tracked files
+    # plus a bundled TUI payload, so only a change to the packaging machinery,
+    # its metadata, or the bundle's own inputs can change the verdict.
+    #
+    # Listed positively rather than as `paths-ignore`, because the safe default
+    # for a new path is "does not affect the wheel". A `release` event ignores
+    # path filters entirely, so the production build is untouched by this list.
+    paths:
+      # Wheel metadata and the resolved dependency set.
+      - 'pyproject.toml'
+      - 'uv.lock'
+      # The build itself: what gets staged, under which platform tag, and the
+      # contracts every built wheel is checked against.
+      - 'setup.py'
+      - 'MANIFEST.in'
+      - 'packaging_support.py'
+      - 'resources_packaging.py'
+      - 'tui_packaging.py'
+      - 'wheel_targets.py'
+      - 'release_versions.py'
+      - 'packaging/**'
+      - 'scripts/__init__.py'
+      - 'scripts/build_release_wheel.py'
+      - 'scripts/audit_release_wheel.py'
+      - 'scripts/verify_release_wheel.py'
+      - 'scripts/verify_installed_release.py'
+      - 'scripts/check_release_version.py'
+      - 'scripts/test_release_wheel.sh'
+      - 'scripts/fetch_bun.py'
+      # The bundled TUI payload: the workspace `pnpm build:clients` builds and
+      # `pnpm deploy` stages, and the launcher in cli.py that resolves it.
+      - 'clients/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - 'src/vibesys/cli.py'
+      # Licenses whose digests the wheel verifier compares.
+      - 'LICENSE'
+      - 'third_party/bun/LICENSE'
+      # By exact filename, not `.github/workflows/**`, so an edit to this
+      # workflow still runs the full matrix.
+      - '.github/workflows/publish.yml'
   release:
     types: [published]
 

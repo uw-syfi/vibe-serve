@@ -41,6 +41,7 @@ jobs:
     outputs:
       python: ${{ steps.filter.outputs.python }}
       tui: ${{ steps.filter.outputs.tui }}
+      examples: ${{ steps.filter.outputs.examples }}
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -71,6 +72,21 @@ jobs:
               - 'scripts/fetch_bun.py'
               - 'scripts/check_ts_architecture.test.mjs'
               - 'scripts/check_ts_package_manifests.mjs'
+              - '.github/workflows/test.yml'
+            # What `validate-examples` checks: the example repositories
+            # themselves (a submodule bump shows up as a change to the gitlink
+            # path under examples/), the two validators, and the fetcher that
+            # materializes the overlays.
+            examples:
+              - 'examples/**'
+              - '.gitmodules'
+              - 'src/vibesys/main.py'
+              - 'src/vibesys/input_manifest.py'
+              - 'src/vibesys/evaluators/**'
+              - 'resources/evaluators/microservice/**'
+              - 'scripts/example_repositories.py'
+              - 'tests/test_microservice_inputs.py'
+              - 'tests/test_input_sources.py'
               - '.github/workflows/test.yml'
 
   # One environment setup for every cheap Python check. Issue #89 split these
@@ -119,11 +135,10 @@ jobs:
       - name: Test repository launcher
         run: uv run vibesys --headless --help >/dev/null
 
-  # Its own job rather than a step in `python-checks`, so a type error is
-  # attributable at a glance and the two run in parallel.
+  # Fully independent: no `needs:`, so it starts with the run rather than after
+  # the filter, and nothing waits on it. Type checking is not sequenced with
+  # anything else, and at ~20s it is not worth a filter's latency.
   typecheck:
-    needs: changes
-    if: needs.changes.outputs.python == 'true'
     runs-on: ubuntu-latest
 
     steps:
@@ -346,8 +361,61 @@ jobs:
           VIBESYS_REQUIRE_MANAGED_CANDIDATE_TESTS: "1"
         run: go test -race ./...
 
-      - name: Initialize repository-native microservice examples
-        run: git submodule update --init --depth 1 examples/microservices/repositories/deathstarbench
+  # Owns everything that needs a repository-native example's `.vibesys` overlay,
+  # so no other job pays for one. It fetches the overlay alone (blob-filtered,
+  # depth-1, sparse) at the pinned gitlink rather than checking the submodule
+  # out: ~7s and ~8MB for all four examples, against ~95s for one full
+  # submodule clone.
+  #
+  # Data-driven over .gitmodules and over each overlay's own tasks, so a new
+  # example repository or a new task needs no edit here. The `servicebench`
+  # workload checks below stay explicit because their flags differ per task.
+  validate-examples:
+    needs: changes
+    if: needs.changes.outputs.examples == 'true'
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: resources/evaluators/microservice/go.mod
+          cache-dependency-path: resources/evaluators/microservice/go.sum
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        run: uv sync --dev
+
+      - name: Fetch repository-native example overlays
+        run: uv run python scripts/example_repositories.py
+
+      - name: Validate example tasks
+        run: |
+          set -euo pipefail
+          for manifest in examples/*/repositories/*/.vibesys/tasks/*/vibesys.input.toml; do
+            repository="${manifest%%/.vibesys/*}"
+            task="$(basename "$(dirname "$manifest")")"
+            echo "::group::$repository --task $task"
+            uv run python -m vibesys validate "$repository" --task "$task"
+            echo "::endgroup::"
+          done
+
+      # The overlay is present here and nowhere else, so force the module to
+      # fail rather than skip if the fetch above ever stops producing it.
+      - name: Check microservice input contracts
+        env:
+          VIBESYS_REQUIRE_EXAMPLE_OVERLAYS: "1"
+        run: uv run python -m pytest tests/test_microservice_inputs.py tests/test_input_sources.py -v --no-cov
 
       - name: Validate microservice workloads
         working-directory: resources/evaluators/microservice
@@ -373,9 +441,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Initialize repository-native microservice examples
-        run: git submodule update --init --depth 1 examples/microservices/repositories/deathstarbench
-
       - name: Install uv
         uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
@@ -393,7 +458,16 @@ jobs:
         # against the source list in `[tool.coverage.run]` (vibesys, vs_feature_flags,
         # vs_github, vs_issue_board, vs_sandbox). Add the report formats CI needs on
         # top of that instead of repeating `--cov=...` for each package.
-        run: uv run python -m pytest -v --cov-report=xml --cov-report=json --cov-fail-under=75
+        #
+        # `-n auto` fans the suite across the runner's cores; pytest-cov
+        # collects per worker and combines, so the two `--cov-fail-under`
+        # gates below still measure the whole suite. `--dist loadgroup` keeps
+        # each `xdist_group` on one worker, which is what the `serial` marker
+        # in conftest.py relies on. `--durations` keeps the slowest tests
+        # visible in every run instead of needing a local bisect.
+        run: >-
+          uv run python -m pytest -v -n auto --dist loadgroup --durations=25
+          --cov-report=xml --cov-report=json --cov-fail-under=75
 
       - name: Enforce per-module coverage floor
         # Repo-wide --cov-fail-under is an average and can't see a single
@@ -491,13 +565,18 @@ jobs:
   # be mergeable, and macOS runner queueing can push a run over the budget for
   # reasons no workflow change can fix, so the summary reports queue time
   # separately from execution time.
+  #
+  # `typecheck` is deliberately absent from `needs` so that nothing in this
+  # workflow sequences it. It still appears in the table: the step reads every
+  # job of the run from the API, not just the ones listed here, and at ~20s it
+  # has long finished by the time the jobs below have.
   ci-budget:
     needs:
       - changes
       - python-checks
-      - typecheck
       - tui
       - queue-native
+      - validate-examples
       - test
       - sandbox-linux
       - sandbox-macos

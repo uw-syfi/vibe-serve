@@ -73,6 +73,7 @@ dev = [
     "pytest",
     "pytest-asyncio",
     "pytest-cov",
+    "pytest-xdist",
     "respx",
     "vs-bench",
     # Pinned exactly (not `>=`): a routine lock refresh with a floating bound
@@ -96,6 +97,12 @@ testpaths = ["tests", "libs/vs-evaluator-protocol/tests", "libs/vs-feature-flags
 # flags.
 addopts = "-ra --cov --cov-report=term-missing"
 pythonpath = ["."]
+markers = [
+    # Applied by `pytest_collection_modifyitems` in the root conftest.py, which
+    # maps it onto an xdist scheduling group so CI's `-n auto --dist loadgroup`
+    # keeps these tests off each other's worker.
+    "serial: claims a process-wide or host-wide resource and must not run beside another such test",
+]
 
 [tool.coverage.run]
 branch = true
