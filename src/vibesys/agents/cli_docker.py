@@ -99,8 +99,8 @@ _COMMON_DOCKER_TOOLING_INSTALL = [
     _apt_install("curl ca-certificates", check_bin="curl"),
     _RUST_TOOLCHAIN_INSTALL,
     _apt_install("ripgrep", check_bin="rg"),
-    _apt_install("python3 python3-pip"),
-    "python3 -m pip install --quiet 'mcp>=1.0,<2'",
+    _apt_install("python3 python3-pip", check_bin="pip3"),
+    "PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install --quiet 'mcp>=1.0,<2'",
 ]
 
 _DOCKER_INSTALL_COMMANDS: dict[str, list[str]] = {

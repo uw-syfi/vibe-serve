@@ -147,7 +147,8 @@ def test_codex_container_installs_luna_capable_cli_version():  # noqa: ANN201  #
 def test_editor_container_installs_only_mcp_v1(provider: str) -> None:
     commands = cli_docker.docker_init_commands(provider)
 
-    assert "python3 -m pip install --quiet 'mcp>=1.0,<2'" in commands
+    assert any("command -v pip3" in command for command in commands)
+    assert "PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install --quiet 'mcp>=1.0,<2'" in commands
 
 
 @pytest.mark.parametrize("provider", ["claude", "gemini", "codex", "opencode"])
