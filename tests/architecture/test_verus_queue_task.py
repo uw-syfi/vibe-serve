@@ -1,8 +1,13 @@
 from __future__ import annotations
 
 import ast
+import shutil
+import subprocess
+import sys
 import tomllib
 from pathlib import Path
+
+import pytest
 
 
 def _task_root() -> Path:
@@ -43,6 +48,8 @@ def test_open_verus_mpmc_task_uses_pure_rust_runner() -> None:
     ast.parse(runner)
     assert '"cargo",\n            "verus",\n            "verify"' in runner
     assert "FORBIDDEN_PROOF_BYPASSES" in runner
+    assert "FIXED_CANDIDATE_FILES" in runner
+    assert "implementer modified fixed candidate file" in runner
     assert "package.metadata.verus.verify = true" in runner
     assert "queue-candidate.so" not in runner
 
@@ -74,6 +81,36 @@ def test_open_verus_mpmc_contract_is_exact_fifo() -> None:
     assert "total_ops_per_sec=" in benchmark
     assert "producer_order_contract" not in benchmark
     assert not any(path.is_file() for path in (task / "harness").rglob("*"))
+
+
+@pytest.mark.parametrize(
+    "relative_path",
+    ["Cargo.toml", "src/lib.rs", "src/contract.rs", "src/api.rs"],
+)
+def test_open_verus_mpmc_rejects_fixed_file_changes(tmp_path: Path, relative_path: str) -> None:
+    source_project = _task_root().parents[2]
+    project = tmp_path / "queue-rs"
+    task = project / ".vibesys" / "tasks" / "verus-mpmc-open"
+    candidate = project / "verus-mpmc"
+    task.mkdir(parents=True)
+    shutil.copy2(_task_root() / "runner.py", task / "runner.py")
+    shutil.copytree(
+        source_project / "verus-mpmc",
+        candidate,
+        ignore=shutil.ignore_patterns("target"),
+    )
+
+    fixed_file = candidate / relative_path
+    fixed_file.write_bytes(fixed_file.read_bytes() + b"\n")
+    completed = subprocess.run(  # noqa: S603 - executes a copied repository script
+        [sys.executable, str(task / "runner.py"), "check"],
+        capture_output=True,
+        check=False,
+        text=True,
+    )
+
+    assert completed.returncode == 1
+    assert f"implementer modified fixed candidate file: {relative_path}" in completed.stdout
 
 
 def test_open_verus_mpmc_readme_shows_vibesys_task_command() -> None:

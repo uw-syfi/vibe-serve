@@ -36,13 +36,19 @@ reservation before publication. In particular, an enqueue may not make a
 concurrent enqueue observe full while a concurrent dequeue still observes
 empty. Values are never lost, duplicated, fabricated, or reordered.
 
-Keep `[package.metadata.verus].verify = true`. The accuracy command runs both a
-real Rust compilation and `cargo verus verify`, then exercises the public Rust
-API from task-owned code. Executable representation, synchronization, ghost
-state, lemmas, and proof organization remain candidate-owned. Verification must
-finish with zero errors. Do not use an inconsistent executable path under
-ordinary Cargo and verification, or introduce unsound assumptions merely to
-make the verifier accept the candidate.
+Only files below `verus-mpmc/src/candidate/` are implementer-owned. Keep the
+fixed manifest, module wiring, contract, and public facade unchanged. The
+accuracy command checks those files, runs both a real Rust compilation and
+`cargo verus verify`, then exercises the public Rust API from task-owned code.
+The candidate owns the sequential representation and its refinement proof.
+Verification must finish with zero errors. Do not use an inconsistent
+executable path under ordinary Cargo and verification, or introduce unsound
+assumptions merely to make the verifier accept the candidate.
+
+This minimal certified scaffold fixes the public facade's reader-writer lock.
+It is intended to validate a task-owned, non-vacuous FIFO refinement boundary.
+It does not yet permit candidate-owned synchronization or alternative
+linearization points; optimize only within the editable storage boundary.
 
 This open-track task evaluates safety and functional refinement. It does not
 claim a formal proof of lock-freedom, wait-freedom, starvation freedom, allocator

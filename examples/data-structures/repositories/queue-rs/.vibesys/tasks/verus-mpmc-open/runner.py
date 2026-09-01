@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import shutil
@@ -28,6 +29,12 @@ FORBIDDEN_PROOF_BYPASSES = (
     "external_fn_specification",
     "verifier::external",
 )
+FIXED_CANDIDATE_FILES = {
+    "Cargo.toml": "7345c8a94d968fe9cdbafaa47b30f0b27b67456d3737eb7f3a1c50f16354a7fa",
+    "src/lib.rs": "3767f03e230abacddee416d06c43e52acd8ebfec9ee1604a08da2b9fc52fc3a5",
+    "src/contract.rs": "bfcaabc8b49d4b4214dd045ed27f2dd97ed49094f7356bcdecbd89d2f2db249f",
+    "src/api.rs": "2865dbe731d6c4c5ff4e525ecd3b0c6d68a5d714d918027af6eb5fc13c56f3bc",
+}
 
 
 def _run(command: list[str], *, capture_output: bool = False) -> subprocess.CompletedProcess[str]:
@@ -55,6 +62,13 @@ def _run(command: list[str], *, capture_output: bool = False) -> subprocess.Comp
 def _verify_candidate() -> None:
     if not CANDIDATE_MANIFEST.is_file():
         raise RuntimeError(f"candidate manifest not found: {CANDIDATE_MANIFEST}")
+    for relative_path, expected_digest in FIXED_CANDIDATE_FILES.items():
+        path = CANDIDATE_ROOT / relative_path
+        if not path.is_file():
+            raise RuntimeError(f"fixed candidate file is missing: {relative_path}")
+        actual_digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        if actual_digest != expected_digest:
+            raise RuntimeError(f"implementer modified fixed candidate file: {relative_path}")
     manifest = tomllib.loads(CANDIDATE_MANIFEST.read_text(encoding="utf-8"))
     if manifest.get("package", {}).get("metadata", {}).get("verus", {}).get("verify") is not True:
         raise RuntimeError("candidate must keep package.metadata.verus.verify = true")

@@ -4,13 +4,15 @@ This isolated subcrate explores a verifier-gated queue candidate without
 changing the existing C ABI queue fixture. It exposes a bounded pure-Rust
 `MpmcFifo<T>` and uses Verus's verified reader-writer lock for synchronization.
 
-The sequential core has an immutable `Seq<T>` view. Verification checks that a
-successful enqueue appends to that sequence and that a successful dequeue
-returns and removes element zero. The lock invariant keeps the sequence length
-within the construction-time capacity. This is a safety and strict-FIFO
-prototype. It does not prove lock acquisition termination, starvation freedom,
-or weak-memory properties beyond those supplied by Verus's sequentially
-consistent atomic library.
+The task owns `Cargo.toml`, `src/lib.rs`, `src/contract.rs`, and `src/api.rs`.
+Implementers may change only `src/candidate/**`. The fixed contract gives the
+candidate storage an immutable `Seq<T>` view and requires enqueue to append and
+dequeue to return and remove element zero. The fixed facade's lock invariant
+keeps the sequence length within the construction-time capacity.
+
+This is a safety and strict-FIFO prototype. It does not prove lock acquisition
+termination, starvation freedom, or weak-memory properties beyond those
+supplied by Verus's sequentially consistent atomic library.
 
 The public methods do not yet expose Verus `AtomicUpdate` or another logically
 atomic client contract. The current proof establishes sequential refinement

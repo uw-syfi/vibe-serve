@@ -16,9 +16,11 @@ The separate task-owned `benchmark/` crate contains only the native producer and
 consumer workload and reports `total_ops_per_sec`. Neither crate is part of the
 verified candidate, and neither uses the native queue task's C ABI.
 
-Before verification, the runner rejects disabled Verus metadata and common
-proof bypasses such as `assume`, `admit`, axioms, and external bodies. This is a
-fail-closed prototype policy, not a complete adversarial source validator.
+Before verification, the runner rejects changes to `Cargo.toml`, `src/lib.rs`,
+`src/contract.rs`, or `src/api.rs`, as well as common proof bypasses such as
+`assume`, `admit`, axioms, and external bodies. Implementations may change only
+files below `src/candidate/`. This is a fail-closed prototype policy, not a
+complete adversarial source validator.
 
 The task-local `Dockerfile` includes Git, build tools, Python, and the
 verification toolchain. It pins the Ubuntu base image by digest, Verus
@@ -65,15 +67,10 @@ python3 .vibesys/tasks/verus-mpmc-open/runner.py benchmark \
   --duration-seconds 1 --output-json results.json
 ```
 
-The Verus source, ghost model, invariants, and proof lemmas are intentionally
-editable. This is an open proof track, not a certified-template track. A Verus
-success proves only the properties actually stated by the candidate, subject to
-its admitted assumptions and Verus's trusted computing base. The fixed task
-contract and independent harness make spec weakening visible, but do not turn
-the candidate-owned specification into a trusted formal specification.
-
-This first draft therefore establishes the toolchain and executable proof
-shape, but is not yet the final correctness gate. The next step is a task-owned
-Verus interface that requires a compositional logically atomic contract from
-the candidate without fixing its representation, linearization points, or
-ghost-state organization.
+The fixed `FifoStorage` contract owns the abstract `Seq<T>` transitions. The
+fixed facade owns synchronization and calls the candidate implementation only
+through that contract. This makes the seed proof non-vacuous, but constrains
+every operation to linearize while holding the facade's lock. The next step for
+the open track is a compositional logically atomic interface that preserves the
+same fixed transitions while allowing candidate-owned synchronization and
+linearization points.
