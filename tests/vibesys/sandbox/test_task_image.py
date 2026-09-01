@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import subprocess
-from pathlib import Path
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 
@@ -15,6 +14,7 @@ from vibesys.sandbox.task_image import (
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
+    from pathlib import Path
 
 _IMAGE_ID = "sha256:" + "a" * 64
 
@@ -23,13 +23,15 @@ class FakeDockerBuildRunner:
     def __init__(
         self,
         *,
-        result: subprocess.CompletedProcess[str] | BaseException | None = None,
-        image_id: str | None = _IMAGE_ID,
+        build_result: subprocess.CompletedProcess[str] | BaseException | None = None,
+        inspect_result: subprocess.CompletedProcess[str] | BaseException | None = None,
+        image_id: str = _IMAGE_ID,
     ) -> None:
-        self.result = result or subprocess.CompletedProcess(("docker",), 0, "", "")
-        self.image_id = image_id
+        self.build_result = build_result or subprocess.CompletedProcess(("docker",), 0, "", "")
+        self.inspect_result = inspect_result or subprocess.CompletedProcess(
+            ("docker",), 0, image_id, ""
+        )
         self.calls: list[tuple[tuple[str, ...], Path, float]] = []
-        self.iidfile: Path | None = None
 
     def run(
         self,
@@ -40,12 +42,10 @@ class FakeDockerBuildRunner:
     ) -> subprocess.CompletedProcess[str]:
         normalized = tuple(argv)
         self.calls.append((normalized, cwd, timeout))
-        self.iidfile = Path(normalized[normalized.index("--iidfile") + 1])
-        if isinstance(self.result, BaseException):
-            raise self.result
-        if self.image_id is not None:
-            self.iidfile.write_text(self.image_id, encoding="utf-8")
-        return self.result
+        result = self.build_result if normalized[1] == "build" else self.inspect_result
+        if isinstance(result, BaseException):
+            raise result
+        return result
 
 
 def _task(tmp_path: Path) -> Path:
@@ -55,29 +55,42 @@ def _task(tmp_path: Path) -> Path:
     return root
 
 
-def test_build_uses_task_context_and_returns_immutable_image_id(tmp_path: Path) -> None:
+def test_build_uses_task_context_and_returns_runnable_image_id(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     task_root = _task(tmp_path)
     runner = FakeDockerBuildRunner()
+    monkeypatch.setattr("vibesys.sandbox.task_image.uuid.uuid4", lambda: MagicMock(hex="build-id"))
 
     assert (
         build_task_image(task_root / "Dockerfile", command_runner=runner, timeout=42) == _IMAGE_ID
     )
 
-    argv, cwd, timeout = runner.calls[0]
-    assert argv == (
+    build_argv, cwd, timeout = runner.calls[0]
+    assert build_argv == (
         "docker",
         "build",
         "--provenance=false",
-        "--iidfile",
-        str(runner.iidfile),
+        "--tag",
+        "vibesys-task-build:build-id",
         "--file",
         str(task_root / "Dockerfile"),
         str(task_root),
     )
     assert cwd == task_root
     assert timeout == 42
-    assert runner.iidfile is not None
-    assert not runner.iidfile.parent.exists()
+    assert runner.calls[1] == (
+        (
+            "docker",
+            "image",
+            "inspect",
+            "--format",
+            "{{.Id}}",
+            "vibesys-task-build:build-id",
+        ),
+        task_root,
+        42,
+    )
 
 
 def test_subprocess_runner_uses_no_shell(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -101,29 +114,27 @@ def test_subprocess_runner_uses_no_shell(tmp_path: Path, monkeypatch: pytest.Mon
 @pytest.mark.parametrize(
     ("failure", "match"),
     [
-        (FileNotFoundError(), "Docker was not found"),
+        (FileNotFoundError(), "Docker was not found while building"),
         (
             subprocess.TimeoutExpired(("docker", "build"), 7),
-            "timed out after 7 seconds",
+            "timed out after 7 seconds while building",
         ),
     ],
 )
 def test_build_translates_process_failures(
     tmp_path: Path, failure: BaseException, match: str
 ) -> None:
-    runner = FakeDockerBuildRunner(result=failure, image_id=None)
+    runner = FakeDockerBuildRunner(build_result=failure)
 
     with pytest.raises(TaskImageBuildError, match=match):
         build_task_image(_task(tmp_path) / "Dockerfile", command_runner=runner, timeout=7)
 
-    assert runner.iidfile is not None
-    assert not runner.iidfile.parent.exists()
+    assert len(runner.calls) == 1
 
 
 def test_build_reports_bounded_docker_failure(tmp_path: Path) -> None:
     runner = FakeDockerBuildRunner(
-        result=subprocess.CompletedProcess(("docker",), 17, "ignored", "specific failure"),
-        image_id=None,
+        build_result=subprocess.CompletedProcess(("docker",), 17, "ignored", "specific failure"),
     )
 
     with pytest.raises(TaskImageBuildError, match=r"exit 17.*specific failure"):
@@ -133,23 +144,48 @@ def test_build_reports_bounded_docker_failure(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     ("image_id", "match"),
     [
-        (None, "did not write its image ID"),
-        ("", "invalid task image ID.*<empty>"),
-        ("sha256:not-hex", "invalid task image ID"),
-        ("sha256:" + "a" * 63, "invalid task image ID"),
-        ("example:latest", "invalid task image ID"),
+        ("", "invalid runnable task image ID.*<empty>"),
+        ("sha256:not-hex", "invalid runnable task image ID"),
+        ("sha256:" + "a" * 63, "invalid runnable task image ID"),
+        ("example:latest", "invalid runnable task image ID"),
     ],
 )
-def test_build_rejects_missing_or_malformed_image_id(
-    tmp_path: Path, image_id: str | None, match: str
+def test_build_rejects_malformed_runnable_image_id(
+    tmp_path: Path, image_id: str, match: str
 ) -> None:
     runner = FakeDockerBuildRunner(image_id=image_id)
 
     with pytest.raises(TaskImageBuildError, match=match):
         build_task_image(_task(tmp_path) / "Dockerfile", command_runner=runner)
 
-    assert runner.iidfile is not None
-    assert not runner.iidfile.parent.exists()
+    assert len(runner.calls) == 2
+
+
+@pytest.mark.parametrize(
+    ("failure", "match"),
+    [
+        (FileNotFoundError(), "Docker was not found while inspecting"),
+        (
+            subprocess.TimeoutExpired(("docker", "image", "inspect"), 7),
+            "timed out after 7 seconds while inspecting",
+        ),
+        (
+            subprocess.CompletedProcess(("docker",), 17, "ignored", "inspect failure"),
+            r"Could not resolve runnable task image.*exit 17.*inspect failure",
+        ),
+    ],
+)
+def test_build_translates_inspect_failures(
+    tmp_path: Path,
+    failure: subprocess.CompletedProcess[str] | BaseException,
+    match: str,
+) -> None:
+    runner = FakeDockerBuildRunner(inspect_result=failure)
+
+    with pytest.raises(TaskImageBuildError, match=match):
+        build_task_image(_task(tmp_path) / "Dockerfile", command_runner=runner, timeout=7)
+
+    assert len(runner.calls) == 2
 
 
 def test_build_validates_dockerfile_before_running_docker(tmp_path: Path) -> None:
