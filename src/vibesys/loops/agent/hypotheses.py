@@ -128,26 +128,37 @@ def metric_baseline(
     metric: str | None,
     rounds: Sequence[RoundRecord],
 ) -> RoundRecord | None:
-    """Find the exact causal baseline for one metric when provenance permits."""
+    """Find the baseline for one metric, preferring the exact causal parent.
+
+    The parent of an official round is usually a provisional round whenever
+    ``official_eval_every`` exceeds 1, so an exact parent match rarely exists.
+    Fall back to the newest trusted official measurement that does not
+    postdate the parent round; comparing against a later measurement would
+    invert cause and effect.
+    """
     comparable = [
         item
         for item in rounds
         if item.official_evaluation
         and item.perf_metric is not None
         and trusted_perf_provenance(item.perf_provenance)
-        and item.perf_unit == metric
+        and (item.perf_unit == metric or (metric is not None and metric in item.metrics))
     ]
+    if not comparable:
+        return None
     if parent_commit is not None:
-        return next(
+        exact = next(
             (item for item in reversed(comparable) if item.commit == parent_commit),
             None,
         )
+        if exact is not None:
+            return exact
     if parent_round is not None:
         return next(
-            (item for item in reversed(comparable) if item.round_number == parent_round),
+            (item for item in reversed(comparable) if item.round_number <= parent_round),
             None,
         )
-    return comparable[-1] if comparable else None
+    return comparable[-1]
 
 
 def start_hypothesis(
@@ -525,7 +536,7 @@ def _measurement(
     baseline = _baseline(record, prior_rounds)
     baseline_value = record.perf_baseline_metric
     if baseline_value is None and baseline is not None:
-        baseline_value = baseline.perf_metric
+        baseline_value = _baseline_metric_value(baseline, record.perf_unit)
     delta = record.perf_delta_pct
     if delta is None and baseline_value not in {None, 0}:
         assert baseline_value is not None  # noqa: S101  # narrowed above
@@ -556,6 +567,13 @@ def _baseline(record: RoundRecord, prior_rounds: Sequence[RoundRecord]) -> Round
         metric=record.perf_unit,
         rounds=prior_rounds,
     )
+
+
+def _baseline_metric_value(baseline: RoundRecord, metric: str | None) -> float | None:
+    """Read a baseline's value for *metric*, tolerating a renamed headline unit."""
+    if metric is not None and metric in baseline.metrics:
+        return baseline.metrics[metric]
+    return baseline.perf_metric
 
 
 def _retained(
