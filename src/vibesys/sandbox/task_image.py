@@ -69,6 +69,8 @@ def build_task_image(
     Git metadata, and other project inputs therefore cannot be copied into the
     image. Docker owns layer caching; VibeSys invokes the build once per launch
     and consumes the exact image ID Docker reports through ``--iidfile``.
+    Default provenance attestations are disabled because their generated
+    metadata otherwise changes the image ID when all filesystem layers match.
     """
     # Keep the lexical parent as the build context. Resolving the Dockerfile
     # itself could silently widen the context to a symlink target elsewhere.
@@ -87,6 +89,7 @@ def build_task_image(
         argv = (
             "docker",
             "build",
+            "--provenance=false",
             "--iidfile",
             str(iidfile),
             "--file",

@@ -67,6 +67,7 @@ def test_build_uses_task_context_and_returns_immutable_image_id(tmp_path: Path) 
     assert argv == (
         "docker",
         "build",
+        "--provenance=false",
         "--iidfile",
         str(runner.iidfile),
         "--file",
