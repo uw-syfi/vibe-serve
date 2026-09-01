@@ -2434,6 +2434,60 @@ def test_unparseable_implementer_response_consumes_a_retry(tmp_path, ref_file): 
     assert rounds[0]["reviewed"] is True
 
 
+def test_timed_out_implementer_persists_fail_closed_attempt_and_retries(
+    tmp_path: Path,
+    ref_file: str,
+) -> None:
+    """A CLI timeout is durable attempt evidence, not a campaign-level failure."""
+    runner = _make_orchestrate_runner(
+        plans=[
+            OrchestratorPlan(
+                task="Build server",
+                pass_criteria="tests pass",  # noqa: S106  # tracked: #288
+                reasoning="cold start",
+            ),
+        ],
+        implementer_outcomes=[HypothesisOutcome.NOMINATED],
+    )
+    delegate = runner.invoke.side_effect
+    timed_out = False
+
+    def invoke_with_timeout(**kwargs):  # noqa: ANN003, ANN202  # tracked: #288
+        nonlocal timed_out
+        if kwargs["kind"] == "implementer" and not timed_out:
+            timed_out = True
+            runner.counters["impl"] += 1
+            raise subprocess.TimeoutExpired(cmd=["agent", "secret-argument"], timeout=3600)
+        return delegate(**kwargs)
+
+    runner.invoke.side_effect = invoke_with_timeout
+
+    result = _invoke_orchestrate(
+        tmp_path,
+        ref_file,
+        runner,
+        max_rounds=1,
+        max_retries_per_round=2,
+    )
+
+    assert result is True
+    assert runner.counters["impl"] == 2
+    assert runner.counters["judge"] == 1
+    project = _created_project(tmp_path)
+    artifact = next(project.rglob("round-0001-attempt-01-implementer.json"))
+    payload = json.loads(artifact.read_text())
+    assert payload["hypothesis_outcome"] == HypothesisOutcome.INCONCLUSIVE.value
+    assert payload["perf_metric"] is None
+    assert "3600 seconds" in payload["evidence"]
+    assert "secret-argument" not in artifact.read_text()
+    implementer_calls = [
+        call
+        for call in runner.invoke.call_args_list
+        if call.kwargs.get("response_cls") is ImplementerResponse
+    ]
+    assert "round-0001-attempt-01-implementer.json" in implementer_calls[1].kwargs["system_prompt"]
+
+
 def test_unparseable_implementer_responses_commit_fail_closed_once_exhausted(tmp_path, ref_file):  # noqa: ANN001, ANN201  # tracked: #288
     """Only genuine retry exhaustion may commit the synthesized response."""
     runner = _make_orchestrate_runner(

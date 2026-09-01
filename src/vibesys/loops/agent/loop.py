@@ -11,6 +11,7 @@ import hashlib
 import json
 import math
 import shlex
+import subprocess
 from collections.abc import Mapping, Sequence  # noqa: TC003  # tracked: #288
 from dataclasses import dataclass, replace
 from pathlib import Path  # noqa: TC003  # tracked: #288
@@ -1126,6 +1127,23 @@ def _missing_implementer_response() -> ImplementerResponse:
     )
 
 
+def _timed_out_implementer_response(timeout_seconds: float) -> ImplementerResponse:
+    """Fail closed while retaining durable evidence for a timed-out turn."""
+    return ImplementerResponse(
+        summary="Implementer invocation timed out.",
+        expected_behavior="unknown",
+        hypothesis_outcome=HypothesisOutcome.INCONCLUSIVE,
+        evidence=(
+            "The framework stopped the implementer after "
+            f"{timeout_seconds:g} seconds without a structured response."
+        ),
+        next_step=(
+            "Inspect the retained workspace and prior-attempt artifact, then return "
+            "a schema-valid ImplementerResponse on the configured retry."
+        ),
+    )
+
+
 @dataclass(frozen=True)
 class _ImplementerAttempt:
     """One implementer turn plus who authored its response.
@@ -1268,21 +1286,30 @@ def _run_implementer(  # noqa: PLR0913  # tracked: #288
         prior_attempt_artifact_locations=prior_attempt_artifact_locations,
     )
     fallback = ResponseFallback(_missing_implementer_response)
-    response = ctx.invoke(
-        kind="implementer",
-        system_prompt=system_prompt,
-        user_prompt=(
-            "Execute the required continuation step for the active hypothesis; "
-            "do not merely restate prior work. Return only the JSON object."
-            if continuation_step
-            else "Work persistently on the active hypothesis and return only the JSON object."
-        ),
-        response_cls=ImplementerResponse,
-        fallback_factory=fallback,
-        round_label=f"round-{round_number}-retry-{retry}-implementer",
-        reuse_session=True,
-        session_key=f"hypothesis:{plan.hypothesis_id}",
-    )
+    timed_out = False
+    try:
+        response = ctx.invoke(
+            kind="implementer",
+            system_prompt=system_prompt,
+            user_prompt=(
+                "Execute the required continuation step for the active hypothesis; "
+                "do not merely restate prior work. Return only the JSON object."
+                if continuation_step
+                else "Work persistently on the active hypothesis and return only the JSON object."
+            ),
+            response_cls=ImplementerResponse,
+            fallback_factory=fallback,
+            round_label=f"round-{round_number}-retry-{retry}-implementer",
+            reuse_session=True,
+            session_key=f"hypothesis:{plan.hypothesis_id}",
+        )
+    except subprocess.TimeoutExpired as exc:
+        timed_out = True
+        response = _timed_out_implementer_response(exc.timeout)
+        ctx.lprint(
+            f"[implementer] attempt {retry} timed out after {exc.timeout:g} seconds; "
+            "persisting fail-closed evidence."
+        )
     response.skill_context_updates, _ = _validate_skill_selections(
         ctx, response.skill_context_updates
     )
@@ -1294,7 +1321,10 @@ def _run_implementer(  # noqa: PLR0913  # tracked: #288
     issue_board.write_implementer_artifact(progress_path, round_number, retry, response)
     issue_board.append_implementer(progress_path, round_number, retry, response)
     ctx.snapshot_workspace(f"round-{round_number}-retry-{retry}-implementer")
-    return _ImplementerAttempt(response=response, synthesized=fallback.synthesized)
+    return _ImplementerAttempt(
+        response=response,
+        synthesized=fallback.synthesized or timed_out,
+    )
 
 
 def _run_judge(  # noqa: PLR0913  # tracked: #288
