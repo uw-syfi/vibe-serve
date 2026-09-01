@@ -330,6 +330,14 @@ starts with an actionable error.
 | `--modal` | Modal workflow. | Mutually exclusive with `--docker`. Intended for remote GPU dispatch. |
 | `--run-environment skypilot` | Local CPU editor with SkyPilot evaluators. | Requires portable task resources and an operator-owned cluster profile. See [Remote Slurm execution](remote-slurm-execution.md). |
 
+A repository-native task may provide
+`.vibesys/tasks/<task>/Dockerfile`. Its presence automatically selects the
+Docker environment, builds with the task directory as its complete context,
+and uses the resulting immutable image ID. No manifest field or pre-build step
+is required. Explicit alternative environments and `--docker-image` conflict
+with this convention; explicit `--docker` is harmless. Root Dockerfiles in
+legacy bundles remain candidate files and are not auto-detected.
+
 `--docker-image` overrides the backend's default container image when Docker or
 Modal is active, and the local CPU editor image for SkyPilot.
 

@@ -23,6 +23,7 @@ _CONFIGURATION_DIRECTORY_NAME = project_paths.CONFIGURATION_DIRECTORY_NAME
 _TASKS_DIRECTORY_NAME = project_paths.TASKS_DIRECTORY_NAME
 _OBJECTIVE_FILE_NAME = project_paths.OBJECTIVE_FILE_NAME
 _MANIFEST_FILE_NAME = project_paths.MANIFEST_FILE_NAME
+_DOCKERFILE_NAME = "Dockerfile"
 _TASK_NAME_PATTERN = re.compile(r"^[a-z0-9][a-z0-9._-]{0,127}$")
 
 
@@ -128,12 +129,13 @@ class TasksRoot:
 
 @dataclass(frozen=True)
 class TaskDirectory:
-    """Validated task directory and its required trusted inputs."""
+    """Validated task directory and its conventional trusted inputs."""
 
     name: TaskName
     path: Path
     objective_path: Path
     manifest_path: Path
+    dockerfile_path: Path | None
 
     def resolve(self, relative_path: Path | str, *, must_exist: bool = True) -> Path:
         """Resolve a safe task-relative resource without leaving this task."""
@@ -264,11 +266,13 @@ class ProjectLayout:
         )
         objective_path = _resolve_required_file(path, _OBJECTIVE_FILE_NAME, name)
         manifest_path = _resolve_required_file(path, _MANIFEST_FILE_NAME, name)
+        dockerfile_path = _resolve_optional_file(path, _DOCKERFILE_NAME, name)
         return TaskDirectory(
             name=name,
             path=path,
             objective_path=objective_path,
             manifest_path=manifest_path,
+            dockerfile_path=dockerfile_path,
         )
 
     def _configuration_path(self) -> Path:
@@ -308,6 +312,32 @@ def _resolve_required_file(task_root: Path, filename: str, task_name: TaskName) 
     if not path.is_file():
         raise InvalidTaskDefinitionError(
             f"VibeSys task {task_name.value!r} required path is not a file: {lexical_path}"
+        )
+    return path
+
+
+def _resolve_optional_file(
+    task_root: Path,
+    filename: str,
+    task_name: TaskName,
+) -> Path | None:
+    lexical_path = task_root / filename
+    if lexical_path.is_symlink():
+        raise UnsafeProjectPathError(
+            f"optional file {filename} must not be a symlink: {lexical_path}"
+        )
+    if not lexical_path.exists():
+        return None
+    try:
+        path = lexical_path.resolve(strict=True)
+    except OSError as exc:
+        raise InvalidTaskDefinitionError(
+            f"VibeSys task {task_name.value!r} could not resolve optional file {filename}"
+        ) from exc
+    _require_contained(path, task_root, f"optional file {filename}")
+    if not path.is_file():
+        raise InvalidTaskDefinitionError(
+            f"VibeSys task {task_name.value!r} optional path is not a file: {lexical_path}"
         )
     return path
 

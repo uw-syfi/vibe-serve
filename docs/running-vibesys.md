@@ -13,6 +13,7 @@ project/
 │   │   └── <task>/
 │   │       ├── OBJECTIVE.md
 │   │       ├── vibesys.input.toml
+│   │       ├── Dockerfile           # optional task execution environment
 │   │       ├── accuracy_checker/    # optional task-owned program
 │   │       ├── benchmark/           # optional task-owned program
 │   │       └── reference/           # optional held-out inputs
@@ -57,6 +58,20 @@ The task name may be omitted when `.vibesys/tasks` contains exactly one task.
 The repository must be its Git root, or outside any Git repository so VibeSys
 can initialize one. An existing repository needs a baseline commit and a clean
 worktree. Keep `agent.toml` and root `.env*` files out of Git history.
+
+When the selected repository-native task contains a conventional
+`.vibesys/tasks/<task>/Dockerfile`, VibeSys builds it with that task directory
+as the complete build context and automatically selects Docker execution. The
+resolved immutable image ID is recorded with the run. Docker's native layer
+cache makes later launches incremental. The candidate repository is mounted at
+runtime and is never part of the image build context.
+
+Task Dockerfiles are intentionally convention-based: they require no manifest
+field or image-build command. A task Dockerfile cannot be combined with another
+image source or a different run environment. `--docker` and
+`--run-environment docker` are redundant but accepted. Legacy root input
+bundles do not opt in through a root `Dockerfile`, because that file commonly
+belongs to the candidate application.
 
 The `agent`, `plain`, and `evolve` outer loops all use this model. Local, Docker,
 and Modal execution change where commands run, not the task layout. Task

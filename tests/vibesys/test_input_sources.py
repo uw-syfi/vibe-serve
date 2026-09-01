@@ -8,8 +8,14 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from vibesys.input_manifest import InputBundle, WorkspaceSource, load_input_bundle
+from vibesys.input_manifest import (
+    InputBundle,
+    WorkspaceSource,
+    load_input_bundle,
+    load_project_task,
+)
 from vibesys.run import Workspace
+from vs_project import Project
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -64,6 +70,45 @@ def test_manifest_without_external_sources_is_valid(tmp_path: Path) -> None:
 
     assert loaded.workspace_sources == ()
     assert loaded.evaluator_path is None
+    assert loaded.dockerfile_path is None
+
+
+def test_repository_task_exposes_its_optional_dockerfile(tmp_path: Path) -> None:
+    project_root = tmp_path / "project"
+    task_root = project_root / ".vibesys" / "tasks" / "queue"
+    task_root.mkdir(parents=True)
+    (task_root / "OBJECTIVE.md").write_text("Build a queue.\n", encoding="utf-8")
+    (task_root / "vibesys.input.toml").write_text(
+        """version = 1
+
+[agent]
+domain = "generic"
+
+[accuracy]
+command = ["accuracy-checker"]
+
+[benchmark]
+command = ["benchmark"]
+""",
+        encoding="utf-8",
+    )
+    dockerfile = task_root / "Dockerfile"
+    dockerfile.write_text("FROM ubuntu:24.04\n", encoding="utf-8")
+    project = Project.open(project_root)
+
+    loaded = load_project_task(project, project.select_task("queue"))
+
+    assert loaded.dockerfile_path == dockerfile.resolve()
+
+
+def test_legacy_bundle_does_not_discover_dockerfile(tmp_path: Path) -> None:
+    project_root = tmp_path / "project"
+    bundle = _write_bundle(project_root)
+    (bundle / "Dockerfile").write_text("FROM ubuntu:24.04\n", encoding="utf-8")
+
+    loaded = load_input_bundle(bundle)
+
+    assert loaded.dockerfile_path is None
 
 
 def test_manifest_resolves_modal_entrypoint_from_project_root(tmp_path: Path) -> None:

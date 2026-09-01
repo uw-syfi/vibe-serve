@@ -422,6 +422,7 @@ class InputBundle(BaseModel):
     task_name: str | None = None
     manifest_path: Path
     objective_path: Path
+    dockerfile_path: Path | None
     reference_path: Path | None
     evaluator_path: Path | None
     evaluator_package_digest: str | None = None
@@ -635,6 +636,7 @@ def _load_input_bundle(  # noqa: C901, PLR0912, PLR0915  # tracked: #288
         task_name=task_name,
         manifest_path=manifest_path,
         objective_path=objective_path,
+        dockerfile_path=(task_directory.dockerfile_path if task_directory is not None else None),
         reference_path=reference_path,
         evaluator_path=evaluator_path,
         evaluator_package_digest=(

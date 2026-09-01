@@ -369,6 +369,111 @@ def test_repository_native_project_selects_a_named_task(tmp_path: Path) -> None:
     assert invocation.args.input_bundle.task_root == selected.resolve()
 
 
+@pytest.mark.parametrize("environment_flag", [[], ["--docker"], ["--run-environment", "docker"]])
+def test_task_dockerfile_selects_docker_without_building_during_validation(
+    environment_flag: list[str],
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "repository"
+    project.mkdir()
+    task = _write_repository_task(project, "latency")
+    dockerfile = task / "Dockerfile"
+    dockerfile.write_text("FROM python:3.12-bookworm\n")
+
+    with patch("entrypoints.headless.build_task_image") as build:
+        invocation = parse_cli_invocation(
+            ["--project", str(project), "--task", "latency", *environment_flag]
+        )
+        spec = run_environment_spec_from_args(invocation.args)
+
+    assert spec.name == "docker"
+    assert spec.options["image"] is None
+    build.assert_not_called()
+
+
+def test_task_dockerfile_builds_once_for_a_launch(tmp_path: Path) -> None:
+    project = tmp_path / "repository"
+    project.mkdir()
+    task = _write_repository_task(project, "latency")
+    dockerfile = task / "Dockerfile"
+    dockerfile.write_text("FROM python:3.12-bookworm\n")
+    invocation = parse_cli_invocation(["--project", str(project), "--task", "latency"])
+    image_id = f"sha256:{'a' * 64}"
+
+    with patch("entrypoints.headless.build_task_image", return_value=image_id) as build:
+        spec = run_environment_spec_from_args(
+            invocation.args,
+            build_task_docker_image=True,
+        )
+
+    assert spec.name == "docker"
+    assert spec.options["image"] == image_id
+    build.assert_called_once_with(dockerfile.resolve())
+
+
+@pytest.mark.parametrize(
+    ("loop_name", "runner_path"),
+    [
+        ("agent", "vibesys.loops.agent.loop.run_agent_loop"),
+        ("plain", "vibesys.loops.plain.loop.run_plain_loop"),
+        ("evolve", "vibesys.loops.evolve.loop.run_evolve_loop"),
+    ],
+)
+def test_each_outer_loop_builds_the_task_image_once(
+    loop_name: str,
+    runner_path: str,
+    tmp_path: Path,
+) -> None:
+    import entrypoints.headless as cli  # noqa: PLC0415
+
+    project = tmp_path / "repository"
+    project.mkdir()
+    task = _write_repository_task(project, "latency")
+    dockerfile = task / "Dockerfile"
+    dockerfile.write_text("FROM python:3.12-bookworm\n")
+    invocation = parse_cli_invocation(
+        ["--outer-loop", loop_name, "--project", str(project), "--task", "latency"]
+    )
+    image_id = f"sha256:{'a' * 64}"
+    run = getattr(cli, f"_run_{loop_name}")
+
+    with (
+        patch("entrypoints.headless.build_task_image", return_value=image_id) as build,
+        patch(
+            "entrypoints.headless.load_config_and_skills",
+            return_value=(Mock(), (), ComputeBackend.CPU),
+        ),
+        patch("entrypoints.headless._prepare_experiment_repository"),
+        patch(runner_path, return_value=True) as loop_runner,
+    ):
+        run(invocation.args, Mock())
+
+    build.assert_called_once_with(dockerfile.resolve())
+    assert loop_runner.call_args.kwargs["run_environment"].options["image"] == image_id
+
+
+@pytest.mark.parametrize(
+    "flags",
+    [
+        ["--run-environment", "local"],
+        ["--modal"],
+        ["--skypilot"],
+        ["--docker-image", "custom:latest"],
+    ],
+)
+def test_fresh_task_dockerfile_rejects_conflicting_environment_flags(
+    flags: list[str],
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "repository"
+    project.mkdir()
+    task = _write_repository_task(project, "latency")
+    (task / "Dockerfile").write_text("FROM python:3.12-bookworm\n")
+
+    with pytest.raises(ValueError, match="task Dockerfile"):
+        parse_cli_invocation(["--project", str(project), "--task", "latency", *flags])
+
+
 def test_repository_native_project_implicitly_selects_its_only_task(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -829,6 +934,64 @@ def test_repository_resume_restores_the_recorded_task(
 
     assert invocation.args.task == "latency"
     assert invocation.args.input_bundle.task_root == selected.resolve()
+
+
+def test_repository_resume_keeps_a_recorded_local_environment_despite_task_dockerfile(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project = tmp_path / "repository"
+    project.mkdir()
+    task = _write_repository_task(project, "latency")
+    (task / "Dockerfile").write_text("FROM python:3.12-bookworm\n")
+    run_id = "20260811-120000-11111111-agent"
+    _write_project_run(
+        project,
+        run_id,
+        configuration=_agent_configuration(run_environment=_LOCAL_ENVIRONMENT),
+        created_at=datetime(2026, 8, 11, 12, tzinfo=UTC),
+        task_name="latency",
+    )
+    monkeypatch.chdir(project)
+
+    args = parse_cli_invocation(["--resume", run_id]).args
+    with patch("entrypoints.headless.build_task_image") as build:
+        spec = run_environment_spec_from_args(args, build_task_docker_image=True)
+
+    assert spec.name == "local"
+    build.assert_not_called()
+
+
+def test_repository_resume_rebuilds_a_recorded_task_docker_environment(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project = tmp_path / "repository"
+    project.mkdir()
+    task = _write_repository_task(project, "latency")
+    dockerfile = task / "Dockerfile"
+    dockerfile.write_text("FROM python:3.12-bookworm\n")
+    recorded_image = f"sha256:{'a' * 64}"
+    rebuilt_image = f"sha256:{'b' * 64}"
+    run_id = "20260811-120000-11111111-agent"
+    _write_project_run(
+        project,
+        run_id,
+        configuration=_agent_configuration(
+            run_environment=RunEnvironmentRecord(name="docker", image=recorded_image)
+        ),
+        created_at=datetime(2026, 8, 11, 12, tzinfo=UTC),
+        task_name="latency",
+    )
+    monkeypatch.chdir(project)
+
+    args = parse_cli_invocation(["--resume", run_id]).args
+    with patch("entrypoints.headless.build_task_image", return_value=rebuilt_image) as build:
+        spec = run_environment_spec_from_args(args, build_task_docker_image=True)
+
+    assert spec.name == "docker"
+    assert spec.options["image"] == rebuilt_image
+    build.assert_called_once_with(dockerfile.resolve())
 
 
 def test_repository_resume_rejects_a_different_task(tmp_path: Path) -> None:

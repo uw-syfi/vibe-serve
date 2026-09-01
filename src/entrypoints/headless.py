@@ -57,6 +57,7 @@ from vibesys.sandbox.run_environment import (
     make_run_environment_spec,
     run_environment_record,
 )
+from vibesys.sandbox.task_image import build_task_image
 from vibesys.skills import resolve_skill_source_dirs
 from vs_github import GitHubCLI, GitHubCLIError
 from vs_project import (
@@ -870,7 +871,11 @@ def _prepare_stub_agent_smoke_defaults(argv: list[str]) -> list[str]:
     return argv
 
 
-def run_environment_spec_from_args(args: argparse.Namespace) -> RunEnvironmentSpec:  # tracked: #288
+def run_environment_spec_from_args(  # tracked: #288
+    args: argparse.Namespace,
+    *,
+    build_task_docker_image: bool = False,
+) -> RunEnvironmentSpec:
     bundle = getattr(args, "input_bundle", None)
     selected = getattr(args, "run_environment", None)
     explicit = getattr(args, "explicit_cli_dests", frozenset())
@@ -878,15 +883,57 @@ def run_environment_spec_from_args(args: argparse.Namespace) -> RunEnvironmentSp
         raise ValueError(  # noqa: TRY003
             "--run-environment cannot be combined with --docker, --modal, or --skypilot"
         )
+    compatibility_selections = (
+        args.docker,
+        args.modal,
+        getattr(args, "skypilot", False),
+    )
+    if sum(compatibility_selections) > 1:
+        raise ValueError("--docker, --modal, and --skypilot are mutually exclusive")  # noqa: TRY003
+
+    dockerfile_path = bundle.dockerfile_path if bundle is not None else None
+    resuming = getattr(args, "resume", None) is not None
+    requested_environment = (
+        selected
+        or ("skypilot" if getattr(args, "skypilot", False) else None)
+        or ("modal" if args.modal else None)
+        or ("docker" if args.docker else None)
+        or "local"
+    )
+    if dockerfile_path is not None and not resuming:
+        conflicts: list[str] = []
+        if requested_environment == "local" and "run_environment" in explicit:
+            conflicts.append("--run-environment local")
+        elif requested_environment == "modal":
+            conflicts.append("--run-environment modal" if selected else "--modal")
+        elif requested_environment == "skypilot":
+            conflicts.append("--run-environment skypilot" if selected else "--skypilot")
+        if "docker_image" in explicit:
+            conflicts.append("--docker-image")
+        if conflicts:
+            joined = ", ".join(conflicts)
+            raise ValueError(  # noqa: TRY003
+                f"task Dockerfile {dockerfile_path} cannot be combined with {joined}"
+            )
+        requested_environment = "docker"
+
+    task_image = None
+    if (
+        dockerfile_path is not None
+        and requested_environment == "docker"
+        and build_task_docker_image
+    ):
+        task_image = build_task_image(dockerfile_path)
+
     return make_run_environment_spec(
-        use_docker=args.docker or selected == "docker",
-        docker_image=args.docker_image,
-        use_modal=args.modal or selected == "modal",
+        use_docker=requested_environment == "docker",
+        docker_image=task_image or args.docker_image,
+        use_modal=requested_environment == "modal",
         modal_gpu=args.modal_gpu,
         modal_model_volume=args.modal_model_volume,
         modal_app=args.modal_app,
         modal_entrypoint=bundle.modal_entrypoint if bundle is not None else None,
-        use_skypilot=getattr(args, "skypilot", False) or selected == "skypilot",
+        use_skypilot=requested_environment == "skypilot",
         cluster_profile=getattr(args, "cluster_profile", None),
         cluster_profiles_file=getattr(args, "cluster_profiles_file", None),
         skypilot_executable=getattr(args, "skypilot_executable", "sky"),
@@ -2026,7 +2073,10 @@ def _run_agent(args: argparse.Namespace, integration: RunIntegration) -> None:
             pareto_relative_noise = _load_pareto_relative_noise_toml(bundle.task_root)
 
         with boot_trace.span("run_environment_spec"):
-            run_environment = run_environment_spec_from_args(args)
+            run_environment = run_environment_spec_from_args(
+                args,
+                build_task_docker_image=True,
+            )
 
     success = run_agent_loop(
         config=config,
@@ -2361,7 +2411,7 @@ def _run_evolve(args: argparse.Namespace, integration: RunIntegration) -> None:
         debug=args.debug,
         profiler_kind=args.profiler,
         skills_dirs=skills,
-        run_environment=run_environment_spec_from_args(args),
+        run_environment=run_environment_spec_from_args(args, build_task_docker_image=True),
         agent_backend=args.agent_backend,
         cli_provider=args.cli_provider,
         backend=backend,
@@ -2445,7 +2495,7 @@ def _run_plain(args: argparse.Namespace, integration: RunIntegration) -> None:
         debug=args.debug,
         profiler_kind=args.profiler,
         skills_dirs=skills,
-        run_environment=run_environment_spec_from_args(args),
+        run_environment=run_environment_spec_from_args(args, build_task_docker_image=True),
         agent_backend=args.agent_backend,
         cli_provider=args.cli_provider,
         backend=backend,

@@ -16,8 +16,10 @@ path.
   code or prompt skeletons.
 - Keep reusable targets in their candidate repository under
   `.vibesys/tasks/<name>/`: `OBJECTIVE.md`, `vibesys.input.toml`, optional
-  `reference/`, task-owned checker/benchmark programs, and an optional
-  `README.md`.
+  `reference/`, task-owned checker/benchmark programs, an optional `Dockerfile`,
+  and an optional `README.md`. A task Dockerfile installs the execution
+  environment only. Its build context is the task directory, while VibeSys
+  mounts the current candidate repository at runtime.
   Evaluator commands run from the repository root. Reusable evaluator
   implementations belong in versioned packages, not copied task directories.
 - Access the `.vibesys` layout and generated state through `vs-project`. Open one

@@ -73,7 +73,48 @@ def test_tasks_are_typed_validated_and_sorted(tmp_path: Path) -> None:
     assert tasks[0].path == alpha.resolve()
     assert tasks[0].objective_path == (alpha / "OBJECTIVE.md").resolve()
     assert tasks[0].manifest_path == (alpha / "vibesys.input.toml").resolve()
+    assert tasks[0].dockerfile_path is None
     assert tasks[1].path == beta.resolve()
+
+
+def test_task_discovers_optional_dockerfile(tmp_path: Path) -> None:
+    task_path = _write_task(tmp_path, "latency")
+    dockerfile = task_path / "Dockerfile"
+    dockerfile.write_text("FROM ubuntu:24.04\n", encoding="utf-8")
+
+    task = Project.open(tmp_path).select_task("latency")
+
+    assert task.dockerfile_path == dockerfile.resolve()
+
+
+def test_optional_dockerfile_must_be_a_file(tmp_path: Path) -> None:
+    task_path = _write_task(tmp_path, "latency")
+    (task_path / "Dockerfile").mkdir()
+
+    with pytest.raises(InvalidTaskDefinitionError, match="optional path is not a file"):
+        Project.open(tmp_path).select_task("latency")
+
+
+def test_optional_dockerfile_symlink_cannot_escape_task_root(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    task_path = _write_task(project, "latency")
+    external_dockerfile = project / "Dockerfile"
+    external_dockerfile.write_text("FROM ubuntu:24.04\n", encoding="utf-8")
+    (task_path / "Dockerfile").symlink_to(external_dockerfile)
+
+    with pytest.raises(UnsafeProjectPathError, match=r"Dockerfile must not be a symlink"):
+        Project.open(project).select_task("latency")
+
+
+def test_optional_dockerfile_symlink_is_rejected_within_task_root(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    task_path = _write_task(project, "latency")
+    target = task_path / "container.Dockerfile"
+    target.write_text("FROM ubuntu:24.04\n", encoding="utf-8")
+    (task_path / "Dockerfile").symlink_to(target.name)
+
+    with pytest.raises(UnsafeProjectPathError, match=r"Dockerfile must not be a symlink"):
+        Project.open(project).select_task("latency")
 
 
 def test_select_task_supports_explicit_and_single_implicit_selection(tmp_path: Path) -> None:
