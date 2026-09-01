@@ -7,6 +7,7 @@ all three loops. Project layout and filesystem persistence belong to
 
 from vs_loop_state.agent import (
     JudgeVerdict,
+    PerfProvenance,
     RoundHistory,
     RoundRecord,
     parse_round_record,
@@ -33,6 +34,7 @@ __all__ = [
     "IndividualRecord",
     "JudgeVerdict",
     "MetricComparison",
+    "PerfProvenance",
     "PlainLoopCursor",
     "PlainPerformanceRecord",
     "PlainPerformanceSnapshot",
