@@ -46,7 +46,8 @@ def test_open_verus_mpmc_task_uses_pure_rust_runner() -> None:
     assert "package.metadata.verus.verify = true" in runner
     assert "queue-candidate.so" not in runner
 
-    dockerfile = (task / "container" / "Dockerfile").read_text(encoding="utf-8")
+    dockerfile = (task / "Dockerfile").read_text(encoding="utf-8")
+    assert "VERUS_PLATFORM=linux/amd64" in dockerfile
     assert "ubuntu:24.04@sha256:" in dockerfile
     assert "git python3" in dockerfile
     assert "VERUS_VERSION=0.2026.08.30.b432e82" in dockerfile
@@ -79,9 +80,9 @@ def test_open_verus_mpmc_readme_shows_vibesys_task_command() -> None:
     readme = (_task_root() / "README.md").read_text(encoding="utf-8")
 
     assert "vibesys --outer-loop agent" in readme
-    assert '--docker --docker-image "$verus_image_id"' in readme
+    assert "No separate `docker build`, `--docker`, or `--docker-image`" in readme
     assert "--project examples/data-structures/repositories/queue-rs" in readme
     assert "--runs-dir /absolute/path/to/vibesys-runs --local" in readme
     assert "--backend cpu --profiler none" in readme
-    assert "does\nnot build a task-owned Dockerfile" in readme
-    assert "works only when the matching `cargo-verus`" in readme
+    assert "detects the conventional task Dockerfile" in readme
+    assert "automatically runs both agents and gates" in readme
