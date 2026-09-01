@@ -88,34 +88,41 @@ def _verify_candidate() -> None:
     )
 
 
-def _run_harness(
-    arguments: list[str], *, capture_output: bool = False
+def _run_task_crate(
+    crate: str,
+    arguments: list[str],
+    *,
+    release: bool = False,
+    capture_output: bool = False,
 ) -> subprocess.CompletedProcess[str]:
     TARGET_ROOT.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix="harness-", dir=TARGET_ROOT) as temporary:
-        harness_root = Path(temporary)
-        (harness_root / "src").mkdir()
-        manifest_template = (TASK_ROOT / "harness" / "Cargo.toml.in").read_text(encoding="utf-8")
+    source_root = TASK_ROOT / crate
+    with tempfile.TemporaryDirectory(prefix=f"{crate}-", dir=TARGET_ROOT) as temporary:
+        staged_root = Path(temporary)
+        (staged_root / "src").mkdir()
+        manifest_template = (source_root / "Cargo.toml.in").read_text(encoding="utf-8")
         candidate_path = json.dumps(str(CANDIDATE_ROOT))
-        (harness_root / "Cargo.toml").write_text(
+        (staged_root / "Cargo.toml").write_text(
             manifest_template.replace("__CANDIDATE_PATH__", candidate_path),
             encoding="utf-8",
         )
-        shutil.copy2(TASK_ROOT / "harness" / "src" / "main.rs", harness_root / "src" / "main.rs")
+        shutil.copy2(source_root / "src" / "main.rs", staged_root / "src" / "main.rs")
         environment = os.environ.copy()
-        environment["CARGO_TARGET_DIR"] = str(TARGET_ROOT / "cargo")
+        environment["CARGO_TARGET_DIR"] = str(TARGET_ROOT / crate)
+        cargo_arguments = ["cargo", "run", "--quiet"]
+        if release:
+            cargo_arguments.append("--release")
+        cargo_arguments.extend(
+            [
+                "--manifest-path",
+                str(staged_root / "Cargo.toml"),
+                "--",
+                *arguments,
+            ]
+        )
         try:
             return subprocess.run(
-                [
-                    "cargo",
-                    "run",
-                    "--quiet",
-                    "--release",
-                    "--manifest-path",
-                    str(harness_root / "Cargo.toml"),
-                    "--",
-                    *arguments,
-                ],
+                cargo_arguments,
                 cwd=PROJECT_ROOT,
                 env=environment,
                 check=True,
@@ -133,7 +140,7 @@ def _run_harness(
 
 def _check() -> None:
     _verify_candidate()
-    _run_harness(["check"])
+    _run_task_crate("accuracy", [])
 
 
 def _benchmark(args: argparse.Namespace) -> None:
@@ -144,14 +151,15 @@ def _benchmark(args: argparse.Namespace) -> None:
             raise RuntimeError(f"--{name} must be greater than zero")
 
     duration_ms = max(1, round(args.duration_seconds * 1000))
-    completed = _run_harness(
+    completed = _run_task_crate(
+        "benchmark",
         [
-            "benchmark",
             str(duration_ms),
             str(args.capacity),
             str(args.producers),
             str(args.consumers),
         ],
+        release=True,
         capture_output=True,
     )
     metric_line = next(

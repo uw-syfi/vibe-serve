@@ -26,12 +26,12 @@ def test_open_verus_mpmc_task_uses_pure_rust_runner() -> None:
     assert manifest["agent"] == {"domain": "generic"}
     assert "evaluator" not in manifest
     assert manifest["accuracy"] == {
-        "command": ["python3", ".vibesys/tasks/verus-mpmc-open/container.py", "check"],
+        "command": ["python3", ".vibesys/tasks/verus-mpmc-open/runner.py", "check"],
         "timeout_seconds": 300,
     }
     assert manifest["benchmark"]["command"] == [
         "python3",
-        ".vibesys/tasks/verus-mpmc-open/container.py",
+        ".vibesys/tasks/verus-mpmc-open/runner.py",
         "benchmark",
     ]
     assert manifest["benchmark"]["result"] == {
@@ -40,9 +40,7 @@ def test_open_verus_mpmc_task_uses_pure_rust_runner() -> None:
     }
 
     runner = (task / "runner.py").read_text(encoding="utf-8")
-    container_runner = (task / "container.py").read_text(encoding="utf-8")
     ast.parse(runner)
-    ast.parse(container_runner)
     assert '"cargo",\n            "verus",\n            "verify"' in runner
     assert "FORBIDDEN_PROOF_BYPASSES" in runner
     assert "package.metadata.verus.verify = true" in runner
@@ -50,7 +48,7 @@ def test_open_verus_mpmc_task_uses_pure_rust_runner() -> None:
 
     dockerfile = (task / "container" / "Dockerfile").read_text(encoding="utf-8")
     assert "ubuntu:24.04@sha256:" in dockerfile
-    assert "linux/amd64" in container_runner
+    assert "git python3" in dockerfile
     assert "VERUS_VERSION=0.2026.08.30.b432e82" in dockerfile
     assert "VERUS_SHA256=067f5f72a457fe66b77c0c10b180f2a" in dockerfile
     assert "RUST_TOOLCHAIN=1.97.1-x86_64-unknown-linux-gnu" in dockerfile
@@ -59,13 +57,31 @@ def test_open_verus_mpmc_task_uses_pure_rust_runner() -> None:
 def test_open_verus_mpmc_contract_is_exact_fifo() -> None:
     task = _task_root()
     objective = (task / "OBJECTIVE.md").read_text(encoding="utf-8")
-    harness = (task / "harness" / "src" / "main.rs").read_text(encoding="utf-8")
+    accuracy = (task / "accuracy" / "src" / "main.rs").read_text(encoding="utf-8")
+    benchmark = (task / "benchmark" / "src" / "main.rs").read_text(encoding="utf-8")
 
     assert "exact linearizable bounded-FIFO semantics" in objective
     assert "does not permit capacity" in objective
     assert "reservation before publication" in objective
     assert "pub fn enqueue(&self, value: T) -> Result<(), T>" in objective
     assert "pub fn dequeue(&self) -> Option<T>" in objective
-    assert "queue_verus_mpmc::MpmcFifo" in harness
-    assert "producer_order_contract" in harness
-    assert "consumer_conservation_contract" in harness
+    assert "queue_verus_mpmc::MpmcFifo" in accuracy
+    assert "producer_order_contract" in accuracy
+    assert "consumer_conservation_contract" in accuracy
+    assert "total_ops_per_sec=" not in accuracy
+    assert "queue_verus_mpmc::MpmcFifo" in benchmark
+    assert "total_ops_per_sec=" in benchmark
+    assert "producer_order_contract" not in benchmark
+    assert not any(path.is_file() for path in (task / "harness").rglob("*"))
+
+
+def test_open_verus_mpmc_readme_shows_vibesys_task_command() -> None:
+    readme = (_task_root() / "README.md").read_text(encoding="utf-8")
+
+    assert "vibesys --outer-loop agent" in readme
+    assert '--docker --docker-image "$verus_image_id"' in readme
+    assert "--project examples/data-structures/repositories/queue-rs" in readme
+    assert "--runs-dir /absolute/path/to/vibesys-runs --local" in readme
+    assert "--backend cpu --profiler none" in readme
+    assert "does\nnot build a task-owned Dockerfile" in readme
+    assert "works only when the matching `cargo-verus`" in readme

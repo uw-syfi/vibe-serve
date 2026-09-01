@@ -11,7 +11,7 @@ ENV RUSTUP_HOME=/opt/rustup
 ENV CARGO_HOME=/opt/cargo
 RUN apt-get update \
     && apt-get install --yes --no-install-recommends \
-        build-essential ca-certificates curl python3 unzip \
+        build-essential ca-certificates curl git python3 unzip \
     && rm -rf /var/lib/apt/lists/*
 
 RUN curl --fail --location --silent --show-error \

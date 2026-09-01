@@ -1,5 +1,5 @@
 [package]
-name = "vibesys-verus-mpmc-harness"
+name = "vibesys-verus-mpmc-benchmark"
 version = "0.1.0"
 edition = "2021"
 publish = false

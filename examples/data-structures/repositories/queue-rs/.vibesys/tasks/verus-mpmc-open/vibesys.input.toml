@@ -5,13 +5,13 @@ domain = "generic"
 
 [accuracy]
 command = [
-  "python3", ".vibesys/tasks/verus-mpmc-open/container.py", "check",
+  "python3", ".vibesys/tasks/verus-mpmc-open/runner.py", "check",
 ]
 timeout_seconds = 300
 
 [benchmark]
 command = [
-  "python3", ".vibesys/tasks/verus-mpmc-open/container.py", "benchmark",
+  "python3", ".vibesys/tasks/verus-mpmc-open/runner.py", "benchmark",
 ]
 timeout_seconds = 300
 
