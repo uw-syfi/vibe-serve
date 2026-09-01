@@ -9,11 +9,10 @@ from __future__ import annotations
 
 import hashlib
 import json
-import math
 import shlex
 import subprocess
-from collections.abc import Mapping, Sequence  # noqa: TC003  # tracked: #288
-from dataclasses import dataclass, replace
+from collections.abc import Sequence  # noqa: TC003  # tracked: #288
+from dataclasses import dataclass
 from pathlib import Path  # noqa: TC003  # tracked: #288
 from typing import Any, Literal
 
@@ -57,7 +56,10 @@ from vibesys.loops.gates import (
     GATE_FEEDBACK_TAIL_CHARS,
     GATE_LOG_TAIL_CHARS,
     GATE_RECORD_TAIL_CHARS,
+    PROTOCOL_OUTPUT_FLAG,
+    FrameworkBenchmarkOutcome,
     run_accuracy_gate,
+    run_benchmark_gate,
 )
 from vibesys.loops.metrics import (
     Measurement,
@@ -79,7 +81,6 @@ from vibesys.run.events import (
     ExperimentsChangedData,
     JudgeResultData,
     RoundFinishedData,
-    SubprocessOutputData,
 )
 from vibesys.sandbox.run_environment import (
     RunEnvironmentSpec,
@@ -106,13 +107,6 @@ from vibesys.skills import (
     ResolvedSkillSelection,
     build_skill_catalog,
     resolve_skill_selections,
-)
-from vs_evaluator_protocol import (
-    Hello,
-    ProtocolError,
-    check_objectives,
-    parse_records,
-    read_measurement,
 )
 from vs_loop_state.agent import RoundHistory, RoundRecord
 from vs_project import AgentRunConfiguration
@@ -1864,115 +1858,7 @@ def _run_framework_accuracy_gate(  # noqa: PLR0913  # tracked: #288
     return result.feedback
 
 
-_FRAMEWORK_BENCHMARK_MARKER = "__VIBESYS_FRAMEWORK_BENCHMARK_JSON__"
-_FRAMEWORK_BENCHMARK_END_MARKER = "__VIBESYS_FRAMEWORK_BENCHMARK_JSON_END__"
-
-# The flag every result-protocol evaluator registers for its output file; see
-# ``OutputFlag`` in the evaluator SDK (``sdk/vs-evaluator/vseval/schema.go``).
-_PROTOCOL_OUTPUT_FLAG = "--vs-output"
-
-
-@dataclass(frozen=True, slots=True)
-class FrameworkBenchmarkOutcome:
-    """What one framework benchmark run reported.
-
-    ``feedback`` is set exactly when the run failed and the round must retry.
-    On success ``metric_name`` and ``metric_value`` carry the headline scalar
-    both result contracts produce, and ``row`` carries the complete validated
-    metric row, which only the evaluator result protocol reports.
-    """
-
-    feedback: str | None = None
-    metric_name: str | None = None
-    metric_value: float | None = None
-    metric_direction: Literal["max", "min"] | None = None
-    row: Mapping[str, float] | None = None
-
-
-def _read_protocol_benchmark(
-    text: str, *, objectives: Sequence[Objective]
-) -> FrameworkBenchmarkOutcome:
-    """Turn a recovered evaluator record stream into a benchmark outcome.
-
-    Never raises for a bad stream: an invalid stream, a structured evaluator
-    failure, and an undecidable headline metric all become round feedback.
-    Objectives belong to the task rather than to the evaluator, so the check
-    that the evaluator declares every optimized metric happens here and not in
-    the protocol reader.
-    """
-    hello: Hello | None = None
-    try:
-        records = parse_records(text)
-        hello = next((record for record in records if isinstance(record, Hello)), None)
-        measurement = read_measurement(records)
-        if objectives and hello is not None:
-            check_objectives(hello, {objective.name for objective in objectives})
-    except ProtocolError as error:
-        return FrameworkBenchmarkOutcome(feedback=_protocol_feedback(error, hello))
-    if measurement.values is None:
-        return FrameworkBenchmarkOutcome(
-            feedback=f"benchmark evaluator reported a failure: {measurement.failure}"
-        )
-    outcome = _select_headline_metric(measurement.values, objectives)
-    if outcome.metric_name is not None:
-        configured = next(
-            (item.direction for item in objectives if item.name == outcome.metric_name),
-            None,
-        )
-        declared = (
-            hello.metrics[outcome.metric_name].direction
-            if hello is not None and outcome.metric_name in hello.metrics
-            else None
-        )
-        outcome = replace(outcome, metric_direction=configured or declared)
-    return outcome
-
-
-def _protocol_feedback(error: ProtocolError, hello: Hello | None) -> str:
-    """Render a rejected record stream, naming its reason code and metrics."""
-    declared = ", ".join(sorted(hello.metrics)) if hello is not None else "(none declared)"
-    return f"invalid benchmark result [{error.code}]: {error}; evaluator declares: {declared}"
-
-
-def _select_headline_metric(
-    values: Mapping[str, float], objectives: Sequence[Objective]
-) -> FrameworkBenchmarkOutcome:
-    """Select the back-compat headline scalar out of a complete metric row.
-
-    The first configured objective names it. With no objectives configured a
-    single-metric evaluator is unambiguous; anything else is a task
-    configuration error to report rather than a row to guess through.
-    """
-    if objectives:
-        name = objectives[0].name
-        return FrameworkBenchmarkOutcome(metric_name=name, metric_value=values[name], row=values)
-    if len(values) == 1:
-        name, value = next(iter(values.items()))
-        return FrameworkBenchmarkOutcome(metric_name=name, metric_value=value, row=values)
-    return FrameworkBenchmarkOutcome(
-        feedback=(
-            f"benchmark evaluator reported metrics {', '.join(sorted(values))} but the task "
-            "configures no objectives, so no headline metric is defined; declare the optimized "
-            "metrics in objectives.toml"
-        )
-    )
-
-
-def _metric_values(value: object, metric: str) -> list[object]:
-    if isinstance(value, dict):
-        matches = [item for key, item in value.items() if key == metric]
-        for item in value.values():
-            matches.extend(_metric_values(item, metric))
-        return matches
-    if isinstance(value, list):
-        matches: list[object] = []
-        for item in value:
-            matches.extend(_metric_values(item, metric))
-        return matches
-    return []
-
-
-def _run_framework_benchmark(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
+def _run_framework_benchmark(  # noqa: PLR0913  # tracked: #288
     ctx: LoopContext,
     *,
     result_spec: BenchmarkResult | None,
@@ -1984,158 +1870,62 @@ def _run_framework_benchmark(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracke
     timeout_seconds: int | None = None,
     candidate_revision: str | None = None,
 ) -> FrameworkBenchmarkOutcome:
-    """Run and parse an opt-in trusted benchmark result contract.
+    """Run the shared benchmark gate and record its agent-loop bookkeeping.
 
-    ``result_spec`` scrapes one declared scalar out of arbitrary benchmark
-    JSON; ``result_protocol`` reads a complete validated metric row from the
-    evaluator result protocol. The manifest rejects declaring both.
+    The gate itself (result recovery, parsing, and the collision-proof result
+    path) lives in :mod:`vibesys.loops.gates`; this wrapper owns what is
+    agent-loop specific: progress notes, workspace snapshots, and the
+    supervisor's benchmark-result event.
     """
-    if result_spec is None and result_protocol is None:
-        return FrameworkBenchmarkOutcome()
-
-    base_command = ctx.judge_benchmark_command
-    if not base_command:
-        return FrameworkBenchmarkOutcome(
-            feedback="Benchmark result contract is configured without a benchmark command."
+    execution_base = None
+    if ctx.judge_benchmark_command:
+        execution_base = _with_candidate_revision(
+            ctx.judge_benchmark_command,
+            candidate_revision,
+            release_deployment_env_var=_deployment_release_env_var(ctx),
         )
-
-    output_path = f"/tmp/vibesys-framework-benchmark-{round_number}-{retry}.json"  # noqa: S108  # tracked: #288
-    output_argument = (
-        result_spec.json_argument if result_spec is not None else _PROTOCOL_OUTPUT_FLAG
+    result = run_benchmark_gate(
+        ctx,
+        result_spec=result_spec,
+        result_protocol=result_protocol,
+        objectives=objectives,
+        process_id=f"benchmark-{round_number}-{retry}",
+        output_slug=f"{round_number}-{retry}",
+        timeout_seconds=_framework_command_timeout(ctx, timeout_seconds),
+        execution_base=execution_base,
     )
-    execution_base = _with_candidate_revision(
-        base_command,
-        candidate_revision,
-        release_deployment_env_var=_deployment_release_env_var(ctx),
-    )
-    # The markers recover the result file through stdout, which is what makes
-    # the contract work for remote execution. Both contracts share that
-    # transport; only the recovered text is parsed differently.
-    command = (
-        f"{execution_base} {shlex.quote(output_argument)} {shlex.quote(output_path)}"
-        f" && printf '\\n{_FRAMEWORK_BENCHMARK_MARKER}\\n'"
-        f" && cat {shlex.quote(output_path)}"
-        f" && printf '\\n{_FRAMEWORK_BENCHMARK_END_MARKER}\\n'"
-    )
-    ctx.lprint(f"[framework-benchmark] running: {base_command}")
-    metric_name = result_spec.metric if result_spec is not None else None
-    metric_value: float | None = None
-    row: Mapping[str, float] | None = None
-    changed_before_execution = ctx.trusted_input_changes()
-    if changed_before_execution:
-        output = "Evaluator-owned files were modified: " + ", ".join(changed_before_execution)
-        passed = False
-    else:
-        try:
-            effective_timeout = _framework_command_timeout(ctx, timeout_seconds)
-            if effective_timeout is None:
-                result = ctx.judge_backend.execute(command)
-            else:
-                result = ctx.judge_backend.execute(command, timeout=effective_timeout)
-            output = result.output.strip()
-            passed = result.exit_code == 0
-            _publish_subprocess_output(
-                ctx,
-                process_id=f"benchmark-{round_number}-{retry}",
-                process_kind="benchmark",
-                content=result.output,
-            )
-        except Exception as exc:  # noqa: BLE001  # tracked: #288
-            output = f"benchmark command could not be executed: {exc}"
-            passed = False
-
-    if passed:
-        _, marker, framed = output.rpartition(_FRAMEWORK_BENCHMARK_MARKER)
-        encoded, end_marker, _ = framed.partition(_FRAMEWORK_BENCHMARK_END_MARKER)
-        if not marker or not end_marker:
-            output = f"{output}\nbenchmark output did not include its result JSON".strip()
-            passed = False
-        elif result_spec is None:
-            # No scalar spec, so the caller declared `result_protocol`: the
-            # recovered text is a record stream, not arbitrary benchmark JSON.
-            outcome = _read_protocol_benchmark(encoded, objectives=objectives)
-            if outcome.feedback is not None:
-                output = f"{output}\n{outcome.feedback}".strip()
-                passed = False
-            else:
-                metric_name = outcome.metric_name
-                metric_value = outcome.metric_value
-                row = outcome.row
-        else:
-            try:
-                payload = json.loads(encoded.strip())
-                # A result object owns its top-level metric. Rich benchmark
-                # reports may repeat that name in per-trial diagnostics, which
-                # must not make the declared aggregate ambiguous. Preserve the
-                # recursive lookup for legacy list-shaped result payloads.
-                if isinstance(payload, dict) and result_spec.metric in payload:
-                    values = [payload[result_spec.metric]]
-                else:
-                    values = _metric_values(payload, result_spec.metric)
-                if len(values) != 1:
-                    raise ValueError(  # noqa: TRY003, TRY301  # tracked: #288
-                        f"expected exactly one {result_spec.metric!r} field, found {len(values)}"
-                    )
-                value = values[0]
-                if isinstance(value, bool) or not isinstance(value, int | float):
-                    raise ValueError(f"{result_spec.metric!r} is not numeric")  # noqa: TRY003, TRY004, TRY301  # tracked: #288
-                metric_value = float(value)
-                if not math.isfinite(metric_value):
-                    raise ValueError(f"{result_spec.metric!r} is not finite")  # noqa: TRY003, TRY301  # tracked: #288
-            except (ValueError, TypeError, json.JSONDecodeError) as exc:
-                output = f"{output}\ninvalid benchmark result: {exc}".strip()
-                passed = False
-
-    changed = [] if changed_before_execution else ctx.trusted_input_changes()
-    if changed:
-        output = (
-            f"{output}\nEvaluator-owned files changed during benchmark execution: "
-            + ", ".join(changed)
-        ).strip()
-        passed = False
-        metric_value = None
-        row = None
+    if not result.executed:
+        return result.outcome
 
     issue_board.append_framework_benchmark(
         progress_path,
         round_number,
         retry,
-        command=base_command,
-        passed=passed,
-        metric_name=metric_name,
-        metric_value=metric_value,
-        output=output[-GATE_RECORD_TAIL_CHARS:],
+        command=result.command or "(not configured)",
+        passed=result.passed,
+        metric_name=(
+            result.outcome.metric_name or (result_spec.metric if result_spec is not None else None)
+        ),
+        metric_value=result.outcome.metric_value,
+        output=result.output[-GATE_RECORD_TAIL_CHARS:],
     )
     ctx.snapshot_workspace(f"round-{round_number}-retry-{retry}-framework-benchmark")
-    if passed:
-        ctx.lprint(f"[framework-benchmark] PASS: {metric_name}={metric_value}")
-        if metric_name is not None and metric_value is not None:
-            ctx.events.emit(
-                CoreEventType.BENCHMARK_RESULT,
-                status=EventStatus.COMPLETED,
-                round_label=f"round-{round_number}",
-                data=BenchmarkResultData(
-                    metric=metric_name,
-                    value=metric_value,
-                    unit=metric_name,
-                ),
-            )
-        return FrameworkBenchmarkOutcome(
-            metric_name=metric_name,
-            metric_value=metric_value,
-            metric_direction=(
-                next(
-                    (item.direction for item in objectives if item.name == metric_name),
-                    None,
-                )
-                or ("max" if result_spec is not None else None)
+    if (
+        result.passed
+        and result.outcome.metric_name is not None
+        and result.outcome.metric_value is not None
+    ):
+        ctx.events.emit(
+            CoreEventType.BENCHMARK_RESULT,
+            status=EventStatus.COMPLETED,
+            round_label=f"round-{round_number}",
+            data=BenchmarkResultData(
+                metric=result.outcome.metric_name,
+                value=result.outcome.metric_value,
+                unit=result.outcome.metric_name,
             ),
-            row=row,
         )
-
-    feedback = f"Framework benchmark failed.\n{output[-GATE_FEEDBACK_TAIL_CHARS:]}"
-    ctx.lprint(f"[framework-benchmark] FAIL: {output[-GATE_LOG_TAIL_CHARS:]}")
-    return FrameworkBenchmarkOutcome(feedback=feedback)
+    return result.outcome
 
 
 def _reconcile_model_requests(ctx: LoopContext) -> str | None:
@@ -2402,7 +2192,7 @@ def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
         benchmark_output_argument=(
             benchmark_result.json_argument
             if benchmark_result is not None
-            else _PROTOCOL_OUTPUT_FLAG
+            else PROTOCOL_OUTPUT_FLAG
             if benchmark_result_protocol is not None
             else None
         ),
@@ -3610,23 +3400,3 @@ def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
         return True
     finally:
         ctx.close()
-
-
-def _publish_subprocess_output(
-    ctx: LoopContext,
-    *,
-    process_id: str,
-    process_kind: str,
-    content: str,
-) -> None:
-    if not content:
-        return
-    ctx.events.emit(
-        CoreEventType.SUBPROCESS_OUTPUT,
-        data=SubprocessOutputData(
-            process_id=process_id,
-            process_kind=process_kind,
-            stream="stdout",
-            content=content,
-        ),
-    )

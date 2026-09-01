@@ -1,6 +1,7 @@
 """Tests for vibesys.loops.agent — orchestrator-driven build loop."""
 
 import json
+import re
 import subprocess
 from collections.abc import Sequence
 from pathlib import Path
@@ -1764,10 +1765,10 @@ def test_framework_gates_reuse_accuracy_pass_after_later_gate_failure(tmp_path):
 
 def test_framework_benchmark_extracts_declared_metric(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     from vibesys.input_manifest import BenchmarkResult  # noqa: PLC0415  # tracked: #288
-    from vibesys.loops.agent.loop import (  # noqa: PLC0415  # tracked: #288
-        _FRAMEWORK_BENCHMARK_END_MARKER,
-        _FRAMEWORK_BENCHMARK_MARKER,
-        _run_framework_benchmark,
+    from vibesys.loops.agent.loop import _run_framework_benchmark  # noqa: PLC0415  # tracked: #288
+    from vibesys.loops.gates import (  # noqa: PLC0415  # tracked: #288
+        FRAMEWORK_BENCHMARK_END_MARKER,
+        FRAMEWORK_BENCHMARK_MARKER,
     )
 
     ctx = MagicMock()
@@ -1776,8 +1777,8 @@ def test_framework_benchmark_extracts_declared_metric(tmp_path):  # noqa: ANN001
     ctx.judge_backend.execute.return_value = SimpleNamespace(
         exit_code=0,
         output=(
-            f"benchmark diagnostics\n{_FRAMEWORK_BENCHMARK_MARKER}\n"
-            f'[{{"total_ops_per_sec": 42.5}}]\n{_FRAMEWORK_BENCHMARK_END_MARKER}\n'
+            f"benchmark diagnostics\n{FRAMEWORK_BENCHMARK_MARKER}\n"
+            f'[{{"total_ops_per_sec": 42.5}}]\n{FRAMEWORK_BENCHMARK_END_MARKER}\n'
             "[stderr] benchmark diagnostics emitted after stdout"
         ),
     )
@@ -1802,17 +1803,23 @@ def test_framework_benchmark_extracts_declared_metric(tmp_path):  # noqa: ANN001
     executed = ctx.judge_backend.execute.call_args.args[0]
     assert ctx.judge_backend.execute.call_args.kwargs == {"timeout": 300}
     assert "trusted-benchmark --repetitions 3 --output-json" in executed
-    assert "cat /tmp/vibesys-framework-benchmark-3-1.json" in executed
-    assert _FRAMEWORK_BENCHMARK_END_MARKER in executed
+    # The result path carries a per-invocation nonce and is removed up front,
+    # so a stale or cross-run file can never satisfy this invocation's cat.
+    result_path = re.search(
+        r"cat (/tmp/vibesys-framework-benchmark-3-1-[0-9a-f]{12}\.json)", executed
+    )
+    assert result_path is not None
+    assert executed.startswith(f"rm -f -- {result_path.group(1)} && ")
+    assert FRAMEWORK_BENCHMARK_END_MARKER in executed
     assert "total_ops_per_sec**: 42.5" in (tmp_path / "progress.md").read_text()
 
 
 def test_framework_benchmark_prefers_top_level_metric_over_trial_diagnostics(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     from vibesys.input_manifest import BenchmarkResult  # noqa: PLC0415  # tracked: #288
-    from vibesys.loops.agent.loop import (  # noqa: PLC0415  # tracked: #288
-        _FRAMEWORK_BENCHMARK_END_MARKER,
-        _FRAMEWORK_BENCHMARK_MARKER,
-        _run_framework_benchmark,
+    from vibesys.loops.agent.loop import _run_framework_benchmark  # noqa: PLC0415  # tracked: #288
+    from vibesys.loops.gates import (  # noqa: PLC0415  # tracked: #288
+        FRAMEWORK_BENCHMARK_END_MARKER,
+        FRAMEWORK_BENCHMARK_MARKER,
     )
 
     ctx = MagicMock()
@@ -1821,10 +1828,10 @@ def test_framework_benchmark_prefers_top_level_metric_over_trial_diagnostics(tmp
     ctx.judge_backend.execute.return_value = SimpleNamespace(
         exit_code=0,
         output=(
-            f"{_FRAMEWORK_BENCHMARK_MARKER}\n"
+            f"{FRAMEWORK_BENCHMARK_MARKER}\n"
             '{"primary_value": 42.5, "trials": [{"primary_value": 41.0}, '
             '{"primary_value": 44.0}]}\n'
-            f"{_FRAMEWORK_BENCHMARK_END_MARKER}"
+            f"{FRAMEWORK_BENCHMARK_END_MARKER}"
         ),
     )
 
@@ -1842,10 +1849,10 @@ def test_framework_benchmark_prefers_top_level_metric_over_trial_diagnostics(tmp
 
 def test_framework_benchmark_rejects_ambiguous_metric(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     from vibesys.input_manifest import BenchmarkResult  # noqa: PLC0415  # tracked: #288
-    from vibesys.loops.agent.loop import (  # noqa: PLC0415  # tracked: #288
-        _FRAMEWORK_BENCHMARK_END_MARKER,
-        _FRAMEWORK_BENCHMARK_MARKER,
-        _run_framework_benchmark,
+    from vibesys.loops.agent.loop import _run_framework_benchmark  # noqa: PLC0415  # tracked: #288
+    from vibesys.loops.gates import (  # noqa: PLC0415  # tracked: #288
+        FRAMEWORK_BENCHMARK_END_MARKER,
+        FRAMEWORK_BENCHMARK_MARKER,
     )
 
     ctx = MagicMock()
@@ -1854,8 +1861,8 @@ def test_framework_benchmark_rejects_ambiguous_metric(tmp_path):  # noqa: ANN001
     ctx.judge_backend.execute.return_value = SimpleNamespace(
         exit_code=0,
         output=(
-            f'{_FRAMEWORK_BENCHMARK_MARKER}\n[{{"ops": 1}}, {{"ops": 2}}]\n'
-            f"{_FRAMEWORK_BENCHMARK_END_MARKER}"
+            f'{FRAMEWORK_BENCHMARK_MARKER}\n[{{"ops": 1}}, {{"ops": 2}}]\n'
+            f"{FRAMEWORK_BENCHMARK_END_MARKER}"
         ),
     )
 
@@ -1887,9 +1894,9 @@ _RESULT = '{"kind":"result","values":{"total_ops_per_sec":41250.3,"p99_latency_n
 
 def _protocol_benchmark_ctx(stream: str) -> MagicMock:
     """A LoopContext whose benchmark recovers *stream* through stdout."""
-    from vibesys.loops.agent.loop import (  # noqa: PLC0415  # tracked: #288
-        _FRAMEWORK_BENCHMARK_END_MARKER,
-        _FRAMEWORK_BENCHMARK_MARKER,
+    from vibesys.loops.gates import (  # noqa: PLC0415  # tracked: #288
+        FRAMEWORK_BENCHMARK_END_MARKER,
+        FRAMEWORK_BENCHMARK_MARKER,
     )
 
     ctx = MagicMock()
@@ -1898,8 +1905,8 @@ def _protocol_benchmark_ctx(stream: str) -> MagicMock:
     ctx.judge_backend.execute.return_value = SimpleNamespace(
         exit_code=0,
         output=(
-            f"benchmark diagnostics\n{_FRAMEWORK_BENCHMARK_MARKER}\n"
-            f"{stream}\n{_FRAMEWORK_BENCHMARK_END_MARKER}\n"
+            f"benchmark diagnostics\n{FRAMEWORK_BENCHMARK_MARKER}\n"
+            f"{stream}\n{FRAMEWORK_BENCHMARK_END_MARKER}\n"
         ),
     )
     return ctx
@@ -1926,8 +1933,12 @@ def test_protocol_benchmark_reads_complete_row(tmp_path):  # noqa: ANN001, ANN20
     assert outcome.metric_name == "total_ops_per_sec"
     assert outcome.metric_value == 41250.3
     executed = ctx.judge_backend.execute.call_args.args[0]
-    assert "trusted-benchmark --vs-output /tmp/vibesys-framework-benchmark-3-1.json" in executed
-    assert "cat /tmp/vibesys-framework-benchmark-3-1.json" in executed
+    result_path = re.search(
+        r"--vs-output (/tmp/vibesys-framework-benchmark-3-1-[0-9a-f]{12}\.json)", executed
+    )
+    assert result_path is not None
+    assert f"cat {result_path.group(1)}" in executed
+    assert executed.startswith(f"rm -f -- {result_path.group(1)} && ")
     assert "total_ops_per_sec**: 41250.3" in (tmp_path / "progress.md").read_text()
 
 
@@ -1994,14 +2005,14 @@ def test_protocol_benchmark_surfaces_reason_code_for_malformed_stream(tmp_path):
 
 
 def test_read_protocol_benchmark_uses_the_only_declared_metric_without_objectives():  # noqa: ANN201  # tracked: #288
-    from vibesys.loops.agent.loop import _read_protocol_benchmark  # noqa: PLC0415  # tracked: #288
+    from vibesys.loops.gates import read_protocol_benchmark  # noqa: PLC0415  # tracked: #288
 
     stream = (
         '{"kind":"hello","protocol":2,"metrics":{"total_ops_per_sec":{"unit":"ops/s"}}}\n'
         '{"kind":"result","values":{"total_ops_per_sec":7.5}}'
     )
 
-    outcome = _read_protocol_benchmark(stream, objectives=[])
+    outcome = read_protocol_benchmark(stream, objectives=[])
 
     assert outcome.feedback is None
     assert outcome.metric_name == "total_ops_per_sec"
@@ -2010,9 +2021,9 @@ def test_read_protocol_benchmark_uses_the_only_declared_metric_without_objective
 
 
 def test_read_protocol_benchmark_refuses_to_guess_a_headline_metric():  # noqa: ANN201  # tracked: #288
-    from vibesys.loops.agent.loop import _read_protocol_benchmark  # noqa: PLC0415  # tracked: #288
+    from vibesys.loops.gates import read_protocol_benchmark  # noqa: PLC0415  # tracked: #288
 
-    outcome = _read_protocol_benchmark(f"{_HELLO}\n{_RESULT}", objectives=[])
+    outcome = read_protocol_benchmark(f"{_HELLO}\n{_RESULT}", objectives=[])
 
     assert outcome.metric_value is None
     feedback = outcome.feedback or ""
