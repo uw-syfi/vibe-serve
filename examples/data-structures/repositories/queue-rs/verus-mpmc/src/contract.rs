@@ -1,37 +1,47 @@
 use vstd::prelude::*;
+use vstd::resource::ghost_var::GhostVar;
+use vstd::resource::Loc;
 
 verus! {
 
-/// Fixed refinement interface for the candidate-owned sequential storage.
+/// The client-owned half of the abstract FIFO state.
 ///
-/// The public facade serializes these operations. Therefore each successful
-/// call is also the linearization point of the corresponding concurrent call.
-pub(crate) trait FifoStorage<T>: View<V = Seq<T>> + Sized {
-    fn empty() -> (storage: Self)
-        ensures
-            storage@ == Seq::<T>::empty();
+/// A verified client keeps this token in its own invariant and supplies it at
+/// calls to the logically atomic API. The candidate keeps the authoritative
+/// half in an invariant tied to its concrete representation.
+pub tracked struct FifoToken<T> {
+    pub state: GhostVar<Seq<T>>,
+}
 
-    fn push(&mut self, value: T)
-        ensures
-            final(self)@ == old(self)@.push(value);
+impl<T> FifoToken<T> {
+    pub open spec fn id(self) -> Loc {
+        self.state.id()
+    }
 
-    fn pop(&mut self) -> (result: Option<T>)
-        ensures
-            match result {
-                Some(value) => {
-                    &&& old(self)@.len() > 0
-                    &&& value == old(self)@[0]
-                    &&& final(self)@ == old(self)@.subrange(1, old(self)@.len() as int)
-                },
-                None => {
-                    &&& old(self)@.len() == 0
-                    &&& final(self)@ == old(self)@
-                },
-            };
+    pub open spec fn contents(self) -> Seq<T> {
+        self.state@
+    }
+}
 
-    fn length(&self) -> (len: usize)
+/// Fixed construction contract for a candidate-owned concurrent queue.
+///
+/// Synchronization, representation, invariants, and operation bodies remain
+/// candidate-owned. The fixed API only relies on these abstract facts.
+pub(crate) trait QueueConstruction<T>: Sized {
+    spec fn wf(&self) -> bool;
+
+    spec fn token_id(&self) -> Loc;
+
+    spec fn capacity(&self) -> usize;
+
+    fn create(capacity: usize) -> (out: (Self, Tracked<FifoToken<T>>))
+        requires
+            capacity > 0,
         ensures
-            len == self@.len();
+            out.0.wf(),
+            out.0.capacity() == capacity,
+            out.1@.id() == out.0.token_id(),
+            out.1@.contents() == Seq::<T>::empty();
 }
 
 } // verus!

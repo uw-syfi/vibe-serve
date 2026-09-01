@@ -4,7 +4,9 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import shutil
+import stat
 import subprocess
 import tempfile
 import tomllib
@@ -13,7 +15,6 @@ from pathlib import Path
 TASK_ROOT = Path(__file__).resolve().parent
 PROJECT_ROOT = TASK_ROOT.parents[2]
 CANDIDATE_ROOT = PROJECT_ROOT / "verus-mpmc"
-CANDIDATE_MANIFEST = CANDIDATE_ROOT / "Cargo.toml"
 TARGET_ROOT = Path(
     os.environ.get(
         "VIBESYS_VERUS_TASK_TARGET",
@@ -21,19 +22,26 @@ TARGET_ROOT = Path(
     )
 )
 METRIC_PREFIX = "total_ops_per_sec="
-FORBIDDEN_PROOF_BYPASSES = (
-    "assume(",
-    "admit(",
-    "axiom",
-    "external_body",
-    "external_fn_specification",
-    "verifier::external",
+FORBIDDEN_SOURCE_PATTERNS = (
+    (re.compile(r"\bassume\s*\("), "assume"),
+    (re.compile(r"\badmit\s*\("), "admit"),
+    (re.compile(r"\baxiom\b"), "axiom"),
+    (re.compile(r"\bexternal_body\b"), "external_body"),
+    (re.compile(r"\bexternal_fn_specification\b"), "external_fn_specification"),
+    (re.compile(r"\bverifier\s*::\s*external\b"), "verifier::external"),
+    (re.compile(r"\binclude(?:_bytes|_str)?\s*!"), "include macro"),
+    (re.compile(r"#\s*\[\s*path\s*="), "path attribute"),
+    (re.compile(r"#\s*\[\s*cfg(?:_attr)?\s*\("), "cfg attribute"),
+    (re.compile(r"\bcfg\s*!\s*\("), "cfg macro"),
 )
 FIXED_CANDIDATE_FILES = {
-    "Cargo.toml": "7345c8a94d968fe9cdbafaa47b30f0b27b67456d3737eb7f3a1c50f16354a7fa",
-    "src/lib.rs": "3767f03e230abacddee416d06c43e52acd8ebfec9ee1604a08da2b9fc52fc3a5",
-    "src/contract.rs": "bfcaabc8b49d4b4214dd045ed27f2dd97ed49094f7356bcdecbd89d2f2db249f",
-    "src/api.rs": "2865dbe731d6c4c5ff4e525ecd3b0c6d68a5d714d918027af6eb5fc13c56f3bc",
+    ".gitignore": "306fd52e74fca6746e12acc750f232de15e71da917756a1270d74c91f5eb7368",
+    "Cargo.lock": "fca855a14ee43a137cc2bde3e12da81506a9f86a1e04046f5990da663ff898e8",
+    "Cargo.toml": "bea70ace5dd7f0355e0afba2cfd51bba9f6d7c48d66543e24f3a18afa3cd27d9",
+    "README.md": "98edd78a49ee20d7f4b51c73bb3b6ca17644fe508cbc82084377421b024ea7da",
+    "src/lib.rs": "44af4e456ed426067a4b0d83a4966af70e5a20a0da13c27a880f4b58972afd4a",
+    "src/contract.rs": "f7722023e6985af0f3a2ae51cd5dd6931caa4ac9536214f4e7db50a9ed3091e3",
+    "src/api.rs": "fe1b026a265764509d1a9c08cfa6cc0ffaef42c0a785cfacc4da9068b781ec98",
 }
 
 
@@ -59,30 +67,59 @@ def _run(command: list[str], *, capture_output: bool = False) -> subprocess.Comp
         raise RuntimeError(f"command failed with exit code {exc.returncode}") from exc
 
 
-def _verify_candidate() -> None:
-    if not CANDIDATE_MANIFEST.is_file():
-        raise RuntimeError(f"candidate manifest not found: {CANDIDATE_MANIFEST}")
+def _verify_candidate(candidate_root: Path = CANDIDATE_ROOT) -> None:
+    candidate_manifest = candidate_root / "Cargo.toml"
+    if not candidate_manifest.is_file():
+        raise RuntimeError(f"candidate manifest not found: {candidate_manifest}")
     for relative_path, expected_digest in FIXED_CANDIDATE_FILES.items():
-        path = CANDIDATE_ROOT / relative_path
+        path = candidate_root / relative_path
         if not path.is_file():
             raise RuntimeError(f"fixed candidate file is missing: {relative_path}")
         actual_digest = hashlib.sha256(path.read_bytes()).hexdigest()
         if actual_digest != expected_digest:
             raise RuntimeError(f"implementer modified fixed candidate file: {relative_path}")
-    manifest = tomllib.loads(CANDIDATE_MANIFEST.read_text(encoding="utf-8"))
+    for path in candidate_root.rglob("*"):
+        relative_path = path.relative_to(candidate_root)
+        if path.is_symlink():
+            raise RuntimeError(f"candidate source tree contains a symlink: {relative_path}")
+        if relative_path.parts[0] == "target":
+            continue
+        if path.is_dir():
+            if relative_path == Path("src") or Path("src/candidate") in (
+                relative_path,
+                *relative_path.parents,
+            ):
+                continue
+            raise RuntimeError(f"unexpected directory outside src/candidate: {relative_path}")
+        if not stat.S_ISREG(path.stat(follow_symlinks=False).st_mode):
+            raise RuntimeError(
+                f"candidate source tree contains a non-regular file: {relative_path}"
+            )
+        if relative_path in (Path(name) for name in FIXED_CANDIDATE_FILES):
+            continue
+        if Path("src/candidate") not in relative_path.parents or path.suffix != ".rs":
+            raise RuntimeError(f"unexpected file outside src/candidate: {relative_path}")
+    manifest = tomllib.loads(candidate_manifest.read_text(encoding="utf-8"))
     if manifest.get("package", {}).get("metadata", {}).get("verus", {}).get("verify") is not True:
         raise RuntimeError("candidate must keep package.metadata.verus.verify = true")
-    for source in CANDIDATE_ROOT.rglob("*.rs"):
+    for source in (candidate_root / "src" / "candidate").rglob("*.rs"):
         contents = source.read_text(encoding="utf-8")
-        bypass = next((token for token in FORBIDDEN_PROOF_BYPASSES if token in contents), None)
-        if bypass is not None:
-            raise RuntimeError(f"forbidden proof bypass {bypass!r} in {source}")
+        forbidden = next(
+            (
+                description
+                for pattern, description in FORBIDDEN_SOURCE_PATTERNS
+                if pattern.search(contents)
+            ),
+            None,
+        )
+        if forbidden is not None:
+            raise RuntimeError(f"forbidden source construct {forbidden!r} in {source}")
     _run(
         [
             "cargo",
             "check",
             "--manifest-path",
-            str(CANDIDATE_MANIFEST),
+            str(candidate_manifest),
             "--locked",
         ]
     )
@@ -96,8 +133,11 @@ def _verify_candidate() -> None:
             "verus",
             "verify",
             "--manifest-path",
-            str(CANDIDATE_MANIFEST),
+            str(candidate_manifest),
             "--locked",
+            "--",
+            "--num-threads",
+            "1",
         ]
     )
 
@@ -157,6 +197,20 @@ def _check() -> None:
     _run_task_crate("accuracy", [])
 
 
+def _check_fixture() -> None:
+    fixture = TASK_ROOT / "acceptance" / "alternate-lp" / "src" / "candidate"
+    if not fixture.is_dir():
+        raise RuntimeError(f"acceptance fixture not found: {fixture}")
+    TARGET_ROOT.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="alternate-lp-", dir=TARGET_ROOT) as temporary:
+        staged = Path(temporary) / "verus-mpmc"
+        shutil.copytree(CANDIDATE_ROOT, staged, ignore=shutil.ignore_patterns("target"))
+        staged_candidate = staged / "src" / "candidate"
+        shutil.rmtree(staged_candidate)
+        shutil.copytree(fixture, staged_candidate)
+        _verify_candidate(staged)
+
+
 def _benchmark(args: argparse.Namespace) -> None:
     if args.duration_seconds <= 0:
         raise RuntimeError("--duration-seconds must be greater than zero")
@@ -205,6 +259,7 @@ def _arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Pure-Rust Verus MPMC task runner")
     subparsers = parser.add_subparsers(dest="command", required=True)
     subparsers.add_parser("check")
+    subparsers.add_parser("check-fixture")
     benchmark = subparsers.add_parser("benchmark")
     benchmark.add_argument("--duration-seconds", type=float, default=1.0)
     benchmark.add_argument("--capacity", type=int, default=1024)
@@ -218,6 +273,8 @@ def main() -> None:
     args = _arguments()
     if args.command == "check":
         _check()
+    elif args.command == "check-fixture":
+        _check_fixture()
     else:
         _benchmark(args)
 

@@ -28,8 +28,6 @@ impl<T> RwLockPredicate<State<T>> for QueuePredicate {
     }
 }
 
-/// Coarse-lock seed. Candidates may replace this entire representation and all
-/// synchronization below while preserving the fixed API contracts.
 pub(crate) struct Queue<T> {
     pub(crate) capacity: usize,
     pub(crate) state: RwLock<State<T>, QueuePredicate>,
@@ -77,15 +75,16 @@ fn enqueue_op(
     } else {
         proof {
             assert(state.entries@.len() < queue.inner.capacity);
-        }
-        state.entries.push_back(value);
-        proof {
             try_open_atomic_update!(au, mut token => {
                 state.auth.borrow().agree(&token.state);
-                state.auth.borrow_mut().update(&mut token.state, state.entries@);
+                state.auth.borrow_mut().update(
+                    &mut token.state,
+                    state.entries@.push(value),
+                );
                 Tracked(Commit((token, Ghost(Ok(())))))
             });
         }
+        state.entries.push_back(value);
         proof {
             assert(state.entries@.len() <= queue.inner.capacity);
         }
@@ -99,16 +98,30 @@ fn dequeue_op(
 ) -> (result: Option<T>) {
     proof { queue.expose_model(); }
     let (mut state, handle) = queue.inner.state.acquire_write();
-    let result = state.entries.pop_front();
-    proof {
-        try_open_atomic_update!(au, mut token => {
-            state.auth.borrow().agree(&token.state);
-            state.auth.borrow_mut().update(&mut token.state, state.entries@);
-            Tracked(Commit((token, Ghost(result))))
-        });
+    if state.entries.len() == 0 {
+        proof {
+            try_open_atomic_update!(au, token => {
+                state.auth.borrow().agree(&token.state);
+                Tracked(Commit((token, Ghost(None))))
+            });
+        }
+        handle.release_write(state);
+        None
+    } else {
+        proof {
+            try_open_atomic_update!(au, mut token => {
+                state.auth.borrow().agree(&token.state);
+                state.auth.borrow_mut().update(
+                    &mut token.state,
+                    state.entries@.subrange(1, state.entries@.len() as int),
+                );
+                Tracked(Commit((token, Ghost(Some(state.entries@[0])))))
+            });
+        }
+        let result = state.entries.pop_front();
+        handle.release_write(state);
+        result
     }
-    handle.release_write(state);
-    result
 }
 
 fn len_op(

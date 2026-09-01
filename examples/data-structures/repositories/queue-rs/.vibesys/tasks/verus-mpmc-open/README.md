@@ -16,11 +16,13 @@ The separate task-owned `benchmark/` crate contains only the native producer and
 consumer workload and reports `total_ops_per_sec`. Neither crate is part of the
 verified candidate, and neither uses the native queue task's C ABI.
 
-Before verification, the runner rejects changes to `Cargo.toml`, `src/lib.rs`,
-`src/contract.rs`, or `src/api.rs`, as well as common proof bypasses such as
-`assume`, `admit`, axioms, and external bodies. Implementations may change only
-files below `src/candidate/`. This is a fail-closed prototype policy, not a
-complete adversarial source validator.
+Before verification, the runner rejects changes to every fixed file in the
+candidate crate, including the manifest and lockfile, module wiring, contract,
+facade, README, and ignore rules. Implementations may add or change only regular
+Rust source files below `src/candidate/`. The runner also rejects symlinks,
+out-of-tree source mechanisms, conditional-compilation splits, and common proof
+bypasses such as assumptions, admits, axioms, and external bodies. This is a
+fail-closed prototype policy, not a complete adversarial source validator.
 
 The task-local `Dockerfile` includes Git, build tools, Python, and the
 verification toolchain. It pins the Ubuntu base image by digest, Verus
@@ -63,14 +65,20 @@ directly. The runner stages the immutable accuracy or benchmark crate under
 
 ```bash
 python3 .vibesys/tasks/verus-mpmc-open/runner.py check
+python3 .vibesys/tasks/verus-mpmc-open/runner.py check-fixture
 python3 .vibesys/tasks/verus-mpmc-open/runner.py benchmark \
   --duration-seconds 1 --output-json results.json
 ```
 
-The fixed `FifoStorage` contract owns the abstract `Seq<T>` transitions. The
-fixed facade owns synchronization and calls the candidate implementation only
-through that contract. This makes the seed proof non-vacuous, but constrains
-every operation to linearize while holding the facade's lock. The next step for
-the open track is a compositional logically atomic interface that preserves the
-same fixed transitions while allowing candidate-owned synchronization and
-linearization points.
+The fixed `FifoToken<T>` and logically atomic operations own the abstract
+`Seq<T>` transitions. The facade passes each `AtomicUpdate` to the candidate,
+which owns synchronization, representation invariants, operation bodies, and
+the physical point that resolves the update. The facade itself contains no
+runtime synchronization policy.
+
+`check-fixture` verifies a task-owned alternate implementation with the same
+coarse lock but different physical linearization points. Its successful
+enqueue and dequeue operations resolve their atomic updates before mutating the
+concrete `VecDeque`, while still holding the candidate-owned write lock. This
+guards against accidentally fixing the seed implementation's update placement
+in the trusted interface.

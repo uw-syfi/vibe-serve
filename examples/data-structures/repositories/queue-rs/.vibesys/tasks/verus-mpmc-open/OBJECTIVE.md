@@ -4,7 +4,7 @@ FIFO queue.
 Headline metric: `total_ops_per_sec` (maximize).
 
 The candidate is the `queue-verus-mpmc` library crate at `verus-mpmc/`. Preserve
-this public interface:
+this fixed public interface:
 
 ```rust
 pub struct MpmcFifo<T>;
@@ -17,6 +17,10 @@ impl<T> MpmcFifo<T> {
     pub fn is_empty(&self) -> bool;
 }
 ```
+
+Internally, `FifoToken<T>` and each operation's `AtomicUpdate` obligation are
+proof-only. They connect the task-owned abstract FIFO history to the
+candidate's concrete state and erase from the optimized executable.
 
 The queue has exact linearizable bounded-FIFO semantics. Every completed
 operation takes effect at one point between its invocation and return:
@@ -40,15 +44,14 @@ Only files below `verus-mpmc/src/candidate/` are implementer-owned. Keep the
 fixed manifest, module wiring, contract, and public facade unchanged. The
 accuracy command checks those files, runs both a real Rust compilation and
 `cargo verus verify`, then exercises the public Rust API from task-owned code.
-The candidate owns the sequential representation and its refinement proof.
-Verification must finish with zero errors. Do not use an inconsistent
-executable path under ordinary Cargo and verification, or introduce unsound
-assumptions merely to make the verifier accept the candidate.
-
-This minimal certified scaffold fixes the public facade's reader-writer lock.
-It is intended to validate a task-owned, non-vacuous FIFO refinement boundary.
-It does not yet permit candidate-owned synchronization or alternative
-linearization points; optimize only within the editable storage boundary.
+The candidate owns the representation, synchronization primitives, invariants,
+operation bodies, and the physical points at which it resolves the fixed
+logical updates. An implementation may transfer an update through a candidate
+invariant to support helping. The fixed facade delegates to the candidate and
+does not contain a lock or select a linearization strategy. Verification must
+finish with zero errors. Do not use an inconsistent executable path under
+ordinary Cargo and verification, or introduce unsound assumptions merely to
+make the verifier accept the candidate.
 
 This open-track task evaluates safety and functional refinement. It does not
 claim a formal proof of lock-freedom, wait-freedom, starvation freedom, allocator
