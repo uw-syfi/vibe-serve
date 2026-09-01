@@ -60,6 +60,8 @@ def test_open_verus_mpmc_task_uses_pure_rust_runner() -> None:
     assert "VERUS_VERSION=0.2026.08.30.b432e82" in dockerfile
     assert "VERUS_SHA256=067f5f72a457fe66b77c0c10b180f2a" in dockerfile
     assert "RUST_TOOLCHAIN=1.97.1-x86_64-unknown-linux-gnu" in dockerfile
+    assert "ln -s /opt/cargo/bin/cargo /usr/local/bin/cargo" in dockerfile
+    assert "ln -s /opt/verus/verus /usr/local/bin/verus" in dockerfile
 
 
 def test_open_verus_mpmc_contract_is_exact_fifo() -> None:

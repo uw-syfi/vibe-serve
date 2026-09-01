@@ -32,6 +32,14 @@ RUN curl --fail --location --silent --show-error \
     && mv /opt/verus-x86-linux /opt/verus \
     && rm /tmp/verus.zip
 
+# Codex supplies its launcher PATH to agent shells. Put the task toolchain on a
+# conventional path so both agents and framework gates resolve the same tools.
+RUN ln -s /opt/cargo/bin/cargo /usr/local/bin/cargo \
+    && ln -s /opt/cargo/bin/rustc /usr/local/bin/rustc \
+    && ln -s /opt/cargo/bin/rustup /usr/local/bin/rustup \
+    && ln -s /opt/verus/cargo-verus /usr/local/bin/cargo-verus \
+    && ln -s /opt/verus/verus /usr/local/bin/verus
+
 ENV PATH=/opt/verus:/opt/cargo/bin:${PATH}
 WORKDIR /workspace
 
