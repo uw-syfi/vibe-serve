@@ -45,6 +45,7 @@ from vibesys.loops.agent.hypotheses import (
     resolve_hypothesis_outcome,
     scalar_candidate_retained,
     start_hypothesis,
+    trusted_perf_provenance,
     update_active_hypothesis,
 )
 from vibesys.loops.agent.model import (
@@ -564,7 +565,14 @@ def _provisional_candidates_since_official(records: list[RoundRecord]) -> int:
             and record.reviewed
             and (
                 _record_candidate_retained(record) is True
-                or record.hypothesis_outcome == HypothesisResolution.PROVEN.value
+                # An accepted-but-unmeasured hypothesis consumes cadence budget
+                # like a proven one: it is exactly the checkpoint the next
+                # official evaluation must measure.
+                or record.hypothesis_outcome
+                in {
+                    HypothesisResolution.PROVEN.value,
+                    HypothesisResolution.UNMEASURED.value,
+                }
             )
         ):
             count += 1
@@ -3119,10 +3127,21 @@ def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
                 baseline_metric = (
                     _metric_value(parent_record, metric_name) if parent_record is not None else None
                 )
+                # A headline metric is framework-owned unless the implementer
+                # self-reported it. This is the trust boundary the rest of the
+                # round applies: resolution, scalar and Pareto retention, the
+                # recorded delta, and trusted Pareto-parent selection all read
+                # it, so an untrusted number never drives a dominance decision.
+                framework_provenance = trusted_perf_provenance(perf_provenance)
                 # The round's headline reading is ordered against its causal
                 # baseline exactly once, here, and stored on the record. Every
                 # later reader -- resume reprojection and the server -- consumes
                 # the stored answer instead of re-deriving it.
+                #
+                # An implementer-reported number is never ordered at all: the
+                # comparison stays None, which is what makes the hypothesis
+                # resolve UNMEASURED rather than borrowing a verdict from a
+                # number the framework did not measure.
                 space = agent_run_state.metrics
                 official_reading = (
                     Measurement(
@@ -3144,7 +3163,7 @@ def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
                         if metric_name is not None and baseline_metric is not None
                         else None,
                     )
-                    if official_evaluation and official_metric is not None
+                    if official_evaluation and official_metric is not None and framework_provenance
                     else None
                 )
                 hypothesis_resolution = resolve_hypothesis_outcome(
@@ -3153,7 +3172,6 @@ def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
                         passed=passed,
                         reviewed=reviewed,
                         comparison=perf_comparison,
-                        benchmark_expected=framework_benchmark_configured,
                     )
                 )
                 disposition = CandidateDisposition(candidate_disposition)
@@ -3177,6 +3195,7 @@ def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
                         for record in records
                         if metric_name is not None
                         and record.official_evaluation
+                        and trusted_perf_provenance(record.perf_provenance)
                         and (value := _metric_value(record, metric_name)) is not None
                     ]
                     candidate_retained = scalar_candidate_retained(

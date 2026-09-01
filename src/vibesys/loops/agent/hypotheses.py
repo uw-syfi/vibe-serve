@@ -23,7 +23,19 @@ from vibesys.schemas import (
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from vs_loop_state import RoundRecord
+    from vs_loop_state import PerfProvenance, RoundRecord
+
+
+def trusted_perf_provenance(provenance: PerfProvenance | None) -> bool:
+    """Whether a round's headline metric may drive a framework decision.
+
+    The one trust rule for :data:`~vs_loop_state.PerfProvenance`, shared by
+    hypothesis resolution, scalar and Pareto retention, the recorded delta, and
+    trusted Pareto-parent selection. Legacy records carry no provenance and stay
+    trusted, so reprojecting an old run does not rewrite its historical
+    resolutions; only an explicit agent self-report is untrusted.
+    """
+    return provenance != "implementer"
 
 
 @dataclass(frozen=True)
@@ -31,23 +43,30 @@ class ResolutionEvidence:
     """Inputs the framework needs to finalize one hypothesis declaration.
 
     ``comparison`` is the round's headline reading ordered against its causal
-    baseline. ``None`` means no official metric was recorded, which is a
-    different fact from ``MetricComparison.INCOMPARABLE``: one was recorded but
-    could not be ordered. Resolution consumes the comparison and never the
-    readings, the axis direction, or the measurement tolerance behind it.
+    baseline, and it is set only for a reading the framework measured itself.
+    ``None`` therefore covers both "no official metric was recorded" and "the
+    number on the record is the implementer's own report", which is a
+    different fact from ``MetricComparison.INCOMPARABLE``: there a trusted
+    reading exists but could not be ordered. Resolution consumes the
+    comparison and never the readings, the axis direction, or the measurement
+    tolerance behind it.
     """
 
     declared: HypothesisOutcome | None
     passed: bool
     reviewed: bool
     comparison: MetricComparison | None
-    benchmark_expected: bool = False
 
 
 def resolve_hypothesis_outcome(
     evidence: ResolutionEvidence,
 ) -> HypothesisResolution | None:
-    """Resolve one declaration only after review and trusted evidence."""
+    """Resolve one declaration only after review and trusted evidence.
+
+    A supportive declaration (``SUPPORTED``/``NOMINATED``) never resolves
+    ``PROVEN`` on the agent's word alone: without a trusted measurement it
+    resolves ``UNMEASURED``, and with one the measurement decides.
+    """
     if not evidence.reviewed:
         resolution = None
     elif not evidence.passed:
@@ -64,14 +83,10 @@ def resolve_hypothesis_outcome(
         if evidence.declared is HypothesisOutcome.CONTINUE:
             resolution = None
         elif resolution is None:
-            if not evidence.benchmark_expected:
-                resolution = HypothesisResolution.PROVEN
-            elif evidence.comparison is not None:
-                resolution = _resolve_metric_evidence(evidence.comparison)
-            elif evidence.declared is HypothesisOutcome.SUPPORTED:
-                resolution = HypothesisResolution.PROVEN
+            if evidence.comparison is None:
+                resolution = HypothesisResolution.UNMEASURED
             else:
-                resolution = HypothesisResolution.INCONCLUSIVE
+                resolution = _resolve_metric_evidence(evidence.comparison)
     return resolution
 
 
@@ -117,7 +132,10 @@ def metric_baseline(
     comparable = [
         item
         for item in rounds
-        if item.official_evaluation and item.perf_metric is not None and item.perf_unit == metric
+        if item.official_evaluation
+        and item.perf_metric is not None
+        and trusted_perf_provenance(item.perf_provenance)
+        and item.perf_unit == metric
     ]
     if parent_commit is not None:
         return next(
@@ -296,7 +314,6 @@ def project_round_evidence(
                 reviewed=updated.review
                 not in {HypothesisReview.PENDING, HypothesisReview.DEFERRED},
                 comparison=comparison,
-                benchmark_expected=record.official_evaluation,
             )
         )
     else:
@@ -483,7 +500,12 @@ def _measurement(
     prior_rounds: Sequence[RoundRecord],
     space: MetricSpace,
 ) -> HypothesisMeasurement | None:
-    if not record.official_evaluation or record.perf_metric is None or record.perf_unit is None:
+    if (
+        not record.official_evaluation
+        or record.perf_metric is None
+        or record.perf_unit is None
+        or not trusted_perf_provenance(record.perf_provenance)
+    ):
         return None
     direction = space.direction(
         Measurement(
@@ -559,6 +581,7 @@ def _retained(
             if prior.official_evaluation
             and prior.passed
             and prior.perf_metric is not None
+            and trusted_perf_provenance(prior.perf_provenance)
             and prior.perf_unit == record.perf_unit
         ]
         retained = scalar_candidate_retained(space.compare_to_best(candidate, comparable))

@@ -1,5 +1,6 @@
 """Tests for the unified hypothesis aggregate and its pure transitions."""
 
+from dataclasses import replace
 from typing import Literal
 
 import pytest

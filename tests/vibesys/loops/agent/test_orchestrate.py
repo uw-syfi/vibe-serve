@@ -2744,9 +2744,11 @@ def test_supported_hypothesis_is_reviewed_without_global_gates_and_closes(tmp_pa
     assert runner.counters["impl"] == 2
     assert runner.counters["judge"] == 2
     rounds = _round_payloads(tmp_path)
+    # A supportive declaration without a trusted measurement closes the
+    # hypothesis as unmeasured, never as proven.
     assert [round_data["hypothesis_outcome"] for round_data in rounds] == [
-        "proven",
-        "proven",
+        "unmeasured",
+        "unmeasured",
     ]
     assert [round_data["official_evaluation"] for round_data in rounds] == [False, True]
     assert rounds[-1]["official_evaluation_reason"] == "final_round"
@@ -2788,7 +2790,7 @@ def test_cadence_pass_keeps_a_continuing_hypothesis_active(tmp_path, ref_file): 
     assert [round_data["hypothesis_outcome"] for round_data in rounds] == [
         "continue",
         "continue",
-        "proven",
+        "unmeasured",
     ]
 
 
@@ -2826,7 +2828,7 @@ def test_implementation_failure_with_repair_keeps_hypothesis_active(tmp_path, re
     ]
     assert [round_data["hypothesis_outcome"] for round_data in rounds] == [
         "implementation_failed",
-        "proven",
+        "unmeasured",
     ]
 
 
@@ -2993,7 +2995,7 @@ def test_resolvable_inconclusive_result_keeps_hypothesis_active(tmp_path, ref_fi
     ]
     assert [round_data["hypothesis_outcome"] for round_data in rounds] == [
         "inconclusive",
-        "proven",
+        "unmeasured",
     ]
 
 
@@ -3153,7 +3155,7 @@ def test_unreviewed_terminal_outcome_returns_control_to_designer(tmp_path, ref_f
     ]
     assert [round_data["hypothesis_outcome"] for round_data in rounds] == [
         "disproven",
-        "proven",
+        "unmeasured",
     ]
     plan_calls = [
         call
@@ -3234,7 +3236,7 @@ def test_disproven_retry_after_failed_review_returns_control_to_designer(tmp_pat
     assert [round_data["reviewed"] for round_data in rounds] == [True, True]
     assert [round_data["hypothesis_outcome"] for round_data in rounds] == [
         "disproven",
-        "proven",
+        "unmeasured",
     ]
 
 
@@ -3300,7 +3302,7 @@ def test_role_session_policy_is_explicit_and_hypothesis_scoped(tmp_path, ref_fil
     ]
     assert [round_data["hypothesis_outcome"] for round_data in rounds] == [
         "continue",
-        "proven",
+        "unmeasured",
     ]
 
 
