@@ -373,6 +373,36 @@ class GitTracker:
             return FrameworkSnapshotStatus.EXACT
         return FrameworkSnapshotStatus.DIFFERENT
 
+    @staticmethod
+    def _replace_framework_namespace_contents(plan: GitSnapshotPlan) -> None:
+        """Reconcile one namespace without replacing retained file inodes."""
+        if plan.destination_root.exists():
+            if not plan.destination_root.is_dir():
+                raise ValueError(  # noqa: TRY003  # tracked: #288
+                    f"framework state namespace is not a directory: {plan.destination_root}"
+                )
+            retained_files = {state_file.destination for state_file in plan.files}
+            retained_directories = {
+                parent
+                for destination in retained_files
+                for parent in destination.parents
+                if parent != plan.destination_root and parent.is_relative_to(plan.destination_root)
+            }
+            existing_paths = sorted(
+                plan.destination_root.rglob("*"),
+                key=lambda path: len(path.relative_to(plan.destination_root).parts),
+                reverse=True,
+            )
+            for path in existing_paths:
+                if path.is_symlink() or path.is_file():
+                    if path.is_symlink() or path not in retained_files:
+                        path.unlink()
+                elif path.is_dir() and path not in retained_directories:
+                    path.rmdir()
+        for state_file in plan.files:
+            state_file.destination.parent.mkdir(parents=True, exist_ok=True)
+            state_file.destination.write_bytes(state_file.contents)
+
     def snapshot_framework_state(
         self,
         label: str,
@@ -397,15 +427,7 @@ class GitTracker:
             )
 
         tracked = self.run(["git", "ls-files", "--", plan.scope_pathspec]).stdout.strip()
-        if plan.destination_root.exists():
-            if not plan.destination_root.is_dir():
-                raise ValueError(  # noqa: TRY003  # tracked: #288
-                    f"framework state namespace is not a directory: {plan.destination_root}"
-                )
-            shutil.rmtree(plan.destination_root)
-        for state_file in plan.files:
-            state_file.destination.parent.mkdir(parents=True, exist_ok=True)
-            state_file.destination.write_bytes(state_file.contents)
+        self._replace_framework_namespace_contents(plan)
         if plan.files or tracked:
             self.run(["git", "add", "--force", "-A", "--", plan.scope_pathspec])
         has_changes = (

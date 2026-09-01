@@ -325,6 +325,34 @@ def test_framework_state_snapshot_replaces_one_namespace_exactly(tmp_path: Path)
     }
 
 
+def test_framework_state_snapshot_preserves_retained_file_inode(tmp_path: Path) -> None:
+    tracker = _initialized_tracker(tmp_path)
+    store = _project(tmp_path, tracker)
+    initial = _namespace_snapshot(
+        store,
+        "test-run",
+        "runtime",
+        ("effective-objective.md", "old\n"),
+    )
+    tracker.snapshot_with_framework_metadata("initialize runtime", initial)
+    runtime_file = (
+        store.state.portable_namespace("test-run", "runtime").external_directory()
+        / "effective-objective.md"
+    )
+    initial_inode = runtime_file.stat().st_ino
+    replacement = _namespace_snapshot(
+        store,
+        "test-run",
+        "runtime",
+        ("effective-objective.md", "new\n"),
+    )
+
+    tracker.snapshot_framework_state("update runtime", replacement)
+
+    assert runtime_file.read_text(encoding="utf-8") == "new\n"
+    assert runtime_file.stat().st_ino == initial_inode
+
+
 def test_framework_state_snapshot_leaves_candidate_changes_pending(tmp_path: Path) -> None:
     tracker = _initialized_tracker(tmp_path)
     store = _project(tmp_path, tracker)
