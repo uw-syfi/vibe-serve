@@ -40,7 +40,7 @@ FIXED_CANDIDATE_FILES = {
     "Cargo.toml": "bea70ace5dd7f0355e0afba2cfd51bba9f6d7c48d66543e24f3a18afa3cd27d9",
     "README.md": "98edd78a49ee20d7f4b51c73bb3b6ca17644fe508cbc82084377421b024ea7da",
     "src/lib.rs": "44af4e456ed426067a4b0d83a4966af70e5a20a0da13c27a880f4b58972afd4a",
-    "src/contract.rs": "f7722023e6985af0f3a2ae51cd5dd6931caa4ac9536214f4e7db50a9ed3091e3",
+    "src/contract.rs": "1032555870b82f9e3404b3d610ce64d94ca7bd859e86b21ebd303b8a664ec0a0",
     "src/api.rs": "fe1b026a265764509d1a9c08cfa6cc0ffaef42c0a785cfacc4da9068b781ec98",
 }
 

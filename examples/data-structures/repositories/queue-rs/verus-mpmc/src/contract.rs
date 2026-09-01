@@ -6,9 +6,9 @@ verus! {
 
 /// The client-owned half of the abstract FIFO state.
 ///
-/// A verified client keeps this token in its own invariant and supplies it at
-/// calls to the logically atomic API. The candidate keeps the authoritative
-/// half in an invariant tied to its concrete representation.
+/// The fixed facade keeps this token in an erased client-side invariant and
+/// supplies it at calls to the logically atomic API. The candidate keeps the
+/// authoritative half in an invariant tied to its concrete representation.
 pub tracked struct FifoToken<T> {
     pub state: GhostVar<Seq<T>>,
 }
