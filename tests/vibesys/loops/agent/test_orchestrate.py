@@ -1923,9 +1923,11 @@ def test_protocol_benchmark_reads_complete_row(tmp_path):  # noqa: ANN001, ANN20
 
     assert outcome.feedback is None
     assert outcome.row == {"total_ops_per_sec": 41250.3, "p99_latency_ns": 812.0}
-    # The headline scalar is the first configured objective.
+    # The headline scalar is the first configured objective, and its resolved
+    # direction travels with the outcome instead of being recomputed later.
     assert outcome.metric_name == "total_ops_per_sec"
     assert outcome.metric_value == 41250.3
+    assert outcome.metric_direction == "max"
     executed = ctx.judge_backend.execute.call_args_list[0].args[0]
     assert PROTOCOL_OUTPUT_FLAG in executed
     assert "total_ops_per_sec**: 41250.3" in (tmp_path / "progress.md").read_text()
@@ -2007,6 +2009,21 @@ def test_read_protocol_benchmark_uses_the_only_declared_metric_without_objective
     assert outcome.metric_name == "total_ops_per_sec"
     assert outcome.metric_value == 7.5
     assert outcome.row == {"total_ops_per_sec": 7.5}
+
+
+def test_read_protocol_benchmark_resolves_direction_from_hello_declaration():  # noqa: ANN201  # tracked: #288
+    from vibesys.loops.gates import read_protocol_benchmark  # noqa: PLC0415  # tracked: #288
+
+    stream = (
+        '{"kind":"hello","protocol":2,"metrics":{"p99_latency_ns":{"unit":"ns","direction":"min"}}}\n'
+        '{"kind":"result","values":{"p99_latency_ns":812.0}}'
+    )
+
+    outcome = read_protocol_benchmark(stream, objectives=[])
+
+    assert outcome.feedback is None
+    assert outcome.metric_name == "p99_latency_ns"
+    assert outcome.metric_direction == "min"
 
 
 def test_read_protocol_benchmark_refuses_to_guess_a_headline_metric():  # noqa: ANN201  # tracked: #288

@@ -1505,3 +1505,103 @@ def test_loop_tears_down_candidate_on_pass_and_fail_paths(tmp_path, ref_file):  
 
     # 1 bootstrap attempt + 2 generation candidates = 3 teardown calls.
     assert teardown.call_count == 3
+
+
+# ---------------------------------------------------------------------------
+# Declared benchmark result contract (framework-owned fitness)
+# ---------------------------------------------------------------------------
+
+
+def _passing_gate_result(metric_value: float):  # noqa: ANN202
+    from vibesys.loops.gates import (  # noqa: PLC0415  # tracked: #288
+        BenchmarkGateResult,
+        FrameworkBenchmarkOutcome,
+    )
+
+    return BenchmarkGateResult(
+        command="trusted-benchmark --json /tmp/result.json",
+        passed=True,
+        output="ok",
+        executed=True,
+        outcome=FrameworkBenchmarkOutcome(
+            metric_name="total_ops_per_sec",
+            metric_value=metric_value,
+            metric_direction="max",
+        ),
+    )
+
+
+def test_benchmark_contract_owns_seed_and_child_fitness(tmp_path, ref_file):  # noqa: ANN001, ANN201  # tracked: #288
+    """A declared benchmark result contract, not the profiler agent's
+    self-report, records every candidate's fitness."""
+    from vibesys.input_manifest import BenchmarkResult  # noqa: PLC0415  # tracked: #288
+
+    runner = _make_runner()
+    gate = MagicMock(side_effect=[_passing_gate_result(42.5), _passing_gate_result(43.75)])
+    with patch("vibesys.loops.evolve.loop.run_benchmark_gate", gate):
+        result = _invoke_loop(
+            tmp_path,
+            ref_file,
+            runner,
+            max_generations=1,
+            children_per_generation=1,
+            benchmark_result=BenchmarkResult(json_argument="--json", metric="total_ops_per_sec"),
+        )
+
+    assert result is True
+    assert gate.call_count == 2
+    assert gate.call_args.kwargs["result_spec"].metric == "total_ops_per_sec"
+    pop = _load_population(tmp_path)
+    assert [item.perf_metric for item in pop.all] == [42.5, 43.75]
+    assert {item.perf_unit for item in pop.all} == {"total_ops_per_sec"}
+    assert pop.all[0].metrics == {"total_ops_per_sec": 42.5}
+    # The profiler still ran for diagnostics; its self-report was not recorded.
+    assert runner.counters["profiler"] == 2
+
+
+def test_benchmark_contract_failure_fails_the_candidate_before_profiling(tmp_path, ref_file):  # noqa: ANN001, ANN201  # tracked: #288
+    from vibesys.input_manifest import BenchmarkResult  # noqa: PLC0415  # tracked: #288
+    from vibesys.loops.gates import (  # noqa: PLC0415  # tracked: #288
+        BenchmarkGateResult,
+        FrameworkBenchmarkOutcome,
+    )
+
+    runner = _make_runner()
+    failing = BenchmarkGateResult(
+        command="trusted-benchmark --json /tmp/result.json",
+        passed=False,
+        output="benchmark exploded",
+        executed=True,
+        outcome=FrameworkBenchmarkOutcome(
+            feedback="Framework benchmark failed.\nbenchmark exploded"
+        ),
+    )
+    with patch("vibesys.loops.evolve.loop.run_benchmark_gate", MagicMock(return_value=failing)):
+        result = _invoke_bootstrap(
+            tmp_path,
+            ref_file,
+            runner,
+            benchmark_result=BenchmarkResult(json_argument="--json", metric="total_ops_per_sec"),
+            bootstrap_max_attempts=1,
+        )
+
+    assert result is False
+    assert runner.counters["profiler"] == 0
+    pop = _load_population(tmp_path)
+    assert len(pop) == 1
+    failed = pop.all[0]
+    assert failed.passed is False
+    assert "Framework benchmark failed." in (failed.feedback or "")
+
+
+def test_no_benchmark_contract_keeps_profiler_fitness(tmp_path, ref_file):  # noqa: ANN001, ANN201  # tracked: #288
+    runner = _make_runner()
+    gate = MagicMock()
+    with patch("vibesys.loops.evolve.loop.run_benchmark_gate", gate):
+        result = _invoke_bootstrap(tmp_path, ref_file, runner)
+
+    assert result is True
+    gate.assert_not_called()
+    seed = _load_population(tmp_path).all[0]
+    assert seed.perf_metric == 10.0
+    assert seed.perf_unit == "tok/s"

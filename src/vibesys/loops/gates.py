@@ -162,6 +162,25 @@ class FrameworkBenchmarkOutcome:
 
 
 @dataclass(frozen=True)
+class BenchmarkContract:
+    """The manifest-declared trusted benchmark result contract, if any.
+
+    Bundles what a loop must thread from the input bundle down to each
+    candidate evaluation: at most one of the two contract forms plus the
+    benchmark command's own time budget.
+    """
+
+    result_spec: BenchmarkResult | None = None
+    result_protocol: Literal[2] | None = None
+    timeout_seconds: int | None = None
+
+    @property
+    def declared(self) -> bool:
+        """True when either contract form is configured."""
+        return self.result_spec is not None or self.result_protocol is not None
+
+
+@dataclass(frozen=True)
 class BenchmarkGateResult:
     """Outcome of running the benchmark result contract for a candidate.
 
