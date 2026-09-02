@@ -66,8 +66,9 @@ import {TRANSCRIPT_MIN} from './agent-map.js';
 import {createOpenTuiApp, type OpenTuiApp} from './app.js';
 import type {ClipboardCopyResult, SelectionClipboard} from './clipboard.js';
 import {renderDesignSummary} from './design-log.js';
+import {paneTitle} from './focus.js';
 import {headerBackground} from './header.js';
-import {contrastRatio, listThemes, resolveTheme, type ThemeName} from './theme.js';
+import {contrastRatio, listThemes, resolveTheme, THEME_NAMES, type ThemeName} from './theme.js';
 
 const cleanup: Array<() => void> = [];
 
@@ -489,17 +490,17 @@ describe('OpenTUI presentation', () => {
     const helpLine = lines.findIndex(line => line.includes('[/]: round'));
     const viewportBottomBorder = lines.findIndex(
       (line, index) =>
-        index > activityLineIndex && index < helpLine && line.trimEnd().endsWith('╯'),
+        index > activityLineIndex && index < helpLine && FRAME_BOTTOM_RIGHT.test(line.trimEnd()),
     );
     expect(activityLineIndex).toBeGreaterThan(promptLine);
-    expect(activityLine?.trimEnd().endsWith('│')).toBe(true);
+    expect(FRAME_VERTICAL.test(activityLine?.trimEnd() ?? '')).toBe(true);
     expect(viewportBottomBorder).toBeGreaterThan(activityLineIndex);
     expect(viewportBottomBorder).toBeLessThan(helpLine);
     const transcriptColumn = Math.max(0, (activityLine?.indexOf('Implementer') ?? 2) - 2);
     expect(
       lines
         .slice(activityLineIndex + 1, viewportBottomBorder)
-        .every(line => line.slice(transcriptColumn).replaceAll('│', '').trim() === ''),
+        .every(line => line.slice(transcriptColumn).replaceAll(FRAME_VERTICALS, '').trim() === ''),
     ).toBe(true);
 
     controller.selectAgent('implementer');
@@ -1698,7 +1699,8 @@ describe('OpenTUI presentation', () => {
     expect(frame).toContain('← 2 passed');
     // Header housing, agents pane, transcript frame, and the card's call and
     // result regions: the rail is absent because this fixture has no rounds.
-    expect(frame.match(/╭/g)).toHaveLength(5);
+    // A focused pane draws a heavy corner, so the count is over both styles.
+    expect(frame.match(/[╭┏]/g)).toHaveLength(5);
   });
 
   it('renders a typed command payload with labeled stderr and exit code', async () => {
@@ -2614,6 +2616,7 @@ describe('theming', () => {
     expect(landing).not.toContain('round 41 detail');
     // The rounds strip and agent map are per-round chrome; neither is drawn.
     expect(landing).not.toContain('─ Rounds ─');
+    expect(paneFrameColumn(landing, 'Agents')).toBeNull();
     expect(landing).not.toContain('Agents');
   });
 
@@ -2973,12 +2976,9 @@ describe('theming', () => {
     // it.
     // The cursor starts in the command box, and the chat says how to reach it.
     expect(landing).toContain('Ctrl+W to type here');
-    const lines = landing.split('\n');
-    const paneTop = lines.find(line => line.includes('╭─ Experiment chat')) ?? '';
-    const messageTop = lines.find(line => line.includes('╭─ Message ')) ?? '';
-    const commandTop = lines.find(line => line.includes('╭─ Command')) ?? '';
-    expect(messageTop).not.toBe('');
-    expect(commandTop.indexOf('╭─ Command')).toBe(paneTop.indexOf('╭─ ▸ Experiments'));
+    expect(paneFrameColumn(landing, 'Experiment chat')).not.toBeNull();
+    expect(paneFrameColumn(landing, 'Message')).not.toBeNull();
+    expect(paneFrameColumn(landing, 'Command')).toBe(paneFrameColumn(landing, 'Experiments'));
   });
 
   it('routes typing to whichever input Ctrl+W points at', async () => {
@@ -3205,12 +3205,12 @@ describe('theming', () => {
     await testRenderer.mockInput.typeText('/pe');
     const frame = await testRenderer.waitForFrame(value => value.includes('[Tab]'));
 
-    const lines = frame.split('\n');
-    const suggestion = lines.find(line => line.includes('/perf')) ?? '';
-    const commandInput = lines.find(line => line.includes('╭─ Command')) ?? '';
+    const suggestion = frame.split('\n').find(line => line.includes('/perf')) ?? '';
+    const commandColumn = paneFrameColumn(frame, 'Command');
     // The list belongs to the box it completes, so it starts where that box
     // starts rather than running back across the chat column.
-    expect(suggestion.indexOf('/perf')).toBeGreaterThan(commandInput.indexOf('╭─ Command'));
+    expect(commandColumn).not.toBeNull();
+    expect(suggestion.indexOf('/perf')).toBeGreaterThan(commandColumn ?? 0);
   });
 
   it('drops /chat from the command surface while the chat is already docked', async () => {
@@ -3697,7 +3697,7 @@ describe('theming', () => {
     expect(frame).toContain('H-07');
     // The per-round chrome belongs to a hypothesis the operator never opened.
     expect(frame).not.toContain('─ Rounds ─');
-    expect(frame).not.toContain('─ Agents ─');
+    expect(paneFrameColumn(frame, 'Agents')).toBeNull();
   });
 
   it('moves the pane keys onto the docked chat and back with Ctrl+W', async () => {
@@ -3787,6 +3787,126 @@ describe('theming', () => {
     testRenderer.mockInput.pressKey('w', {ctrl: true});
     expect(await frameAfter(testRenderer)).toContain('▸ Experiments');
     expect(controller.state.layout.focus).toBe('left');
+  });
+
+  it('lights one pane and never the command box, in every built-in theme', async () => {
+    const testRenderer = await createTestRenderer({width: 140, height: 24});
+    const controller = splitController();
+    const app = createOpenTuiApp(testRenderer.renderer, controller);
+    registerCleanup(testRenderer.renderer, app);
+    await frameAfter(testRenderer);
+
+    for (const name of THEME_NAMES) {
+      controller.setTheme(name);
+      const theme = resolveTheme(name);
+      await frameAfter(testRenderer);
+
+      // The transcript holds the round view's keys by default. Every other
+      // titled surface, the shared command box included, stays neutral.
+      expect(paneBorders(testRenderer)).toEqual({
+        Rounds: theme.borderStrong,
+        Agents: theme.border,
+        '▸ Transcript': theme.borderFocus,
+        Command: theme.border,
+      });
+
+      testRenderer.mockInput.pressKey('ARROW_LEFT');
+      await frameAfter(testRenderer);
+      // The treatment moves whole: the pane that gains it and the pane that
+      // loses it are repainted in the same frame.
+      expect(paneBorders(testRenderer)).toEqual({
+        Rounds: theme.borderStrong,
+        '▸ Agents': theme.borderFocus,
+        Transcript: theme.border,
+        Command: theme.border,
+      });
+
+      testRenderer.mockInput.pressKey('ARROW_RIGHT');
+      await frameAfter(testRenderer);
+    }
+  });
+
+  it('keeps the command box neutral while a proven hypothesis is on screen', async () => {
+    // Issue #433: the command box was painted in the success colour, so it read
+    // as the focused surface while the keys were on the table beside it. A
+    // success outcome on screen must not put any focus treatment on that box.
+    const testRenderer = await createTestRenderer({width: 160, height: 22});
+    const controller = logController();
+    controller.experiments = [
+      logEntry('H-07', 41, 41, {claim: 'batch the prefill step', resolved_outcome: 'disproven'}),
+      logEntry('H-08', 42, 42, {claim: 'bigger KV cache block', resolved_outcome: 'proven'}),
+    ];
+    const app = createOpenTuiApp(testRenderer.renderer, controller);
+    registerCleanup(testRenderer.renderer, app);
+    await controller.openExperimentLog();
+
+    for (const name of THEME_NAMES) {
+      controller.setTheme(name);
+      const theme = resolveTheme(name);
+      const frame = await frameAfter(testRenderer);
+
+      // The success colour really is on screen, which is the state #433 was
+      // reported in rather than a hypothetical one.
+      expect(frame).toContain('Accepted');
+      expect(spanColors(testRenderer, 'Accepted')?.fg).toBe(theme.success);
+
+      const borders = paneBorders(testRenderer);
+      expect(borders['▸ Experiments']).toBe(theme.borderFocus);
+      expect(borders['Command']).toBe(theme.border);
+      expect(borders['Command']).not.toBe(theme.success);
+      expect(borders['Command']).not.toBe(theme.borderFocus);
+    }
+  });
+
+  it('leaves every round pane neutral when a fallback modal takes the keys', async () => {
+    // Under the split width the visualization has no pane to be focused in, so
+    // it falls back to a modal and takes the keys with it. Reading `roundFocus`
+    // instead of `focusedPane` left the Agents pane lit behind that modal. The
+    // terminal is tall enough that the modal starts below the pane headings it
+    // would otherwise cover.
+    const testRenderer = await createTestRenderer({width: 90, height: 40});
+    const controller = splitController();
+    const app = createOpenTuiApp(testRenderer.renderer, controller);
+    registerCleanup(testRenderer.renderer, app);
+    testRenderer.mockInput.pressKey('ARROW_LEFT');
+    await frameAfter(testRenderer);
+    expect(controller.state.roundFocus).toBe('agents');
+
+    await controller.openPane('perf');
+    const frame = await frameAfter(testRenderer);
+
+    expect(controller.state.layout.focus).toBe('right');
+    expect(frame).not.toContain('▸ Agents');
+    expect(frame).not.toContain('▸ Transcript');
+    const theme = resolveTheme('dark');
+    const borders = paneBorders(testRenderer);
+    expect(borders['Agents']).toBe(theme.border);
+    expect(borders['Transcript']).toBe(theme.border);
+  });
+
+  it('moves the focus treatment on a click, not only on a keystroke', async () => {
+    const testRenderer = await createTestRenderer({width: 140, height: 24});
+    const controller = splitController();
+    const app = createOpenTuiApp(testRenderer.renderer, controller);
+    registerCleanup(testRenderer.renderer, app);
+    testRenderer.mockInput.pressKey('ARROW_LEFT');
+    let frame = await frameAfter(testRenderer);
+    const theme = resolveTheme('dark');
+    expect(paneBorders(testRenderer)['▸ Agents']).toBe(theme.borderFocus);
+
+    const lines = frame.split('\n');
+    const row = lines.findIndex(line => line.includes('batched the prefill step'));
+    const column = (lines[row]?.indexOf('batched the prefill step') ?? 0) + 2;
+    await testRenderer.mockMouse.click(column, row);
+    frame = await frameAfter(testRenderer);
+
+    expect(controller.state.roundFocus).toBe('transcript');
+    expect(paneBorders(testRenderer)).toEqual({
+      Rounds: theme.borderStrong,
+      Agents: theme.border,
+      '▸ Transcript': theme.borderFocus,
+      Command: theme.border,
+    });
   });
 
   it('shows the hypothesis title as a heading in the detail view', async () => {
@@ -4098,6 +4218,40 @@ describe('theming', () => {
     // Focus moved to the transcript, so the pane border drops back to the
     // ordinary border colour and the transcript takes the focus colour.
     expect(spanColors(testRenderer, 'Performance')?.fg).toBe(theme.border);
+  });
+
+  /**
+   * Focus has to survive a palette that cannot express it. `borderFocus` and
+   * `border` are within 1.5x of each other in five of the eight themes, so the
+   * marker in the title's reserved gutter and the frame style are what actually
+   * carry the change, and neither may move the label they sit beside.
+   */
+  it.each(
+    THEME_NAMES.map(name => [name] as const),
+  )('marks focus in %s without moving the title', async (name: ThemeName) => {
+    const testRenderer = await createTestRenderer({width: 140, height: 20});
+    const controller = splitController();
+    controller.publish({...controller.state, themeName: name});
+    const app = createOpenTuiApp(testRenderer.renderer, controller);
+    registerCleanup(testRenderer.renderer, app);
+    await controller.openPane('perf');
+
+    const onRight = await frameAfter(testRenderer);
+    controller.cyclePaneFocus();
+    const onLeft = await frameAfter(testRenderer);
+
+    const focused = paneFrameCorner(onRight, 'Performance');
+    const resting = paneFrameCorner(onLeft, 'Performance');
+    expect(focused).toBeDefined();
+    expect(resting).toBeDefined();
+    // The marker is the non-colour channel, and it is independent of the theme.
+    expect(onRight).toContain(paneTitle('Performance', true));
+    expect(onLeft).toContain(paneTitle('Performance', false));
+    // The frame does not change: focus never alters a pane's shape.
+    expect(focused?.glyph).toBe(resting?.glyph);
+    // And the label itself does not move when either changes.
+    expect(focused?.column).toBe(resting?.column);
+    expect(onRight.split('\n')[0]?.length).toBe(onLeft.split('\n')[0]?.length);
   });
 
   it('keeps the pane current while the run advances', async () => {
@@ -4523,6 +4677,54 @@ function logEntry(
     active: false,
     ...overrides,
   };
+}
+
+/**
+ * Every titled box on screen, as its rendered title and border colour. The
+ * focus treatment is a frame style, a border colour, and a `▸` in the title's
+ * reserved gutter, so keying on the title as drawn asserts the marker and the
+ * colour together, and asserting the whole record catches a second surface
+ * lighting up as well as the right one going dark.
+ */
+function paneBorders(testRenderer: TestRendererSetup): Record<string, string> {
+  const borders: Record<string, string> = {};
+  for (const line of testRenderer.captureSpans().lines) {
+    for (const span of line.spans) {
+      // Either frame style, since a focused pane draws the heavy one.
+      for (const match of span.text.matchAll(/[╭┏][─━]([^─━╮┓]+)[─━]/g)) {
+        borders[(match[1] ?? '').trim()] = rgbToHex(span.fg).toLowerCase();
+      }
+    }
+  }
+  return borders;
+}
+
+/** The frame glyphs a pane draws, in either border style. */
+const FRAME_VERTICAL = /[│┃]$/;
+const FRAME_VERTICALS = /[│┃]/g;
+const FRAME_BOTTOM_RIGHT = /[╯┛]$/;
+
+/**
+ * The column a pane's frame starts at, or null when the pane is not on screen.
+ *
+ * Focus swaps the frame's glyphs and the marker in the title's reserved
+ * gutter, so a test about layout has to match on neither.
+ */
+function paneFrameColumn(frame: string, label: string): number | null {
+  return paneFrameCorner(frame, label)?.column ?? null;
+}
+
+/** The frame's top-left glyph and column, which together say how it is drawn. */
+function paneFrameCorner(
+  frame: string,
+  label: string,
+): {glyph: string; column: number} | undefined {
+  const top = new RegExp(`[╭┏][─━] [▸ ] ${label} `);
+  for (const line of frame.split('\n')) {
+    const match = top.exec(line);
+    if (match !== null) return {glyph: match[0][0] ?? '', column: match.index};
+  }
+  return undefined;
 }
 
 function spanColors(

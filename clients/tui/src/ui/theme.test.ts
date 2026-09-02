@@ -152,10 +152,35 @@ describe('semantic roles', () => {
 
   it.each(
     themes.map(theme => [theme.name, theme] as const),
+  )('%s reserves the focus border for focus alone', (_name, theme: Theme) => {
+    // The focus border names the one pane the keys are on. A status colour that
+    // equals it turns a passing check or a warning into a claim about focus,
+    // which is what made a green command box read as the focused surface.
+    expect(theme.borderFocus).not.toBe(theme.border);
+    expect(theme.borderFocus).not.toBe(theme.borderStrong);
+    for (const status of [theme.success, theme.warning, theme.error] as const) {
+      expect(theme.borderFocus).not.toBe(status);
+    }
+  });
+
+  it.each(
+    themes.map(theme => [theme.name, theme] as const),
   )('%s keeps panel borders visible against the canvas', (_name, theme: Theme) => {
     for (const border of [theme.border, theme.borderStrong, theme.borderFocus] as const) {
       expect(contrastRatio(border, theme.canvas)).toBeGreaterThanOrEqual(1.7);
     }
+  });
+
+  it.each(
+    themes.map(theme => [theme.name, theme] as const),
+  )('%s never makes a focused border quieter than a resting one', (_name, theme: Theme) => {
+    // `high-contrast-light` shipped inverted: #0000cc reached 11.22 against a
+    // white canvas where the resting #333333 reached 12.63, so focusing a pane
+    // dimmed it. Colour is the weakest of the three focus channels, but it
+    // still may not point the wrong way.
+    expect(contrastRatio(theme.borderFocus, theme.canvas)).toBeGreaterThanOrEqual(
+      contrastRatio(theme.border, theme.canvas),
+    );
   });
 
   it('orients light and dark themes in opposite luminance directions', () => {
