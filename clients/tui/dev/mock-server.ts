@@ -266,6 +266,24 @@ function activeExecutionsFrom(delivered: RunEventRecord[]): ActiveExecutionCheck
   return [...active.values()];
 }
 
+/**
+ * Hypotheses for the experiment log, from `<fixture>.experiments.json` beside
+ * the fixture when one exists.
+ *
+ * Recorded journals hold events, not the projected experiment table, and the
+ * header and log render the hypothesis title rather than anything in the event
+ * stream. A sidecar keeps that title pinnable without inventing event types the
+ * backend never emits.
+ */
+function loadExperiments(fixturePath: string): unknown[] {
+  const sidecar = `${fixturePath.replace(/\.gz$/, '').replace(/\.jsonl$/, '')}.experiments.json`;
+  try {
+    return JSON.parse(readFileSync(sidecar, 'utf8')) as unknown[];
+  } catch {
+    return [];
+  }
+}
+
 /** Milliseconds to wait before `next`, from the recorded timestamps. */
 function gapMs(previous: RunEventRecord, next: RunEventRecord, options: Options): number {
   if (options.speed === 0) return 0;
@@ -470,6 +488,7 @@ function main(): void {
   // out: every read path a client can reach translates legacy lifecycle events,
   // so the replay owes the TUI the translated stream, not the recorded one.
   const events = canonicalJournalEvents(readJournalRecords(options.fixture));
+  const experiments = loadExperiments(options.fixture);
   const replay = new Replay(events, options);
   process.stderr.write(
     `mock: ${String(events.length)} events from ${options.fixture}\n` +
@@ -541,7 +560,10 @@ function main(): void {
           return;
         }
         case 'query.experiments': {
-          writeLine(socket, ok(id, responseBody(type)));
+          writeLine(
+            socket,
+            ok(id, withValues(responseBody(type), {experiments, experiments_ready: true})),
+          );
           return;
         }
         case 'query.events': {

@@ -1,6 +1,6 @@
 import {describe, expect, it, test} from 'bun:test';
 import type {RunEvent, RunStatus} from '@vibesys/backend-client';
-import {type CoreRunStatus, hasRunEnded} from '@vibesys/core-state';
+import {hasRunEnded} from '@vibesys/core-state';
 import type {SessionState} from './session-model.js';
 import {
   applyActiveExecutionCheckpoint,
@@ -32,6 +32,7 @@ import {
   openPane,
   openThemePicker,
   reportError,
+  runStatusLabel,
   selectExperimentActivity,
   selectNextAgent,
   selectNextRound,
@@ -41,7 +42,6 @@ import {
   setPaneContent,
   setTheme,
   showDetail,
-  statusText,
   togglePaneZoom,
   toggleTodos,
   unownedExperimentRounds,
@@ -50,6 +50,7 @@ import {
   visiblePhases,
   visibleTodos,
 } from './session-model.js';
+import {runStateText, usageText} from './ui/header.js';
 
 describe('event batch projection', () => {
   it('keeps the existing banner while resumed history ends in a running session', () => {
@@ -1349,16 +1350,10 @@ describe('session event model', () => {
   // state. `/pause` is visible as `pausing…` until the backend says the pause
   // landed, and the run's ended status replaces it rather than joining it.
   it('renders one header status token per backend run status', () => {
-    const withStatus = (status: CoreRunStatus): string =>
-      statusText({
-        ...initialSessionState(),
-        core: {...initialSessionState().core, status},
-      });
-
-    expect(withStatus('running')).toBe('running · starting · no round yet');
-    expect(withStatus('pausing')).toBe('pausing… · starting · no round yet');
-    expect(withStatus('paused')).toBe('paused · starting · no round yet');
-    expect(withStatus('completed')).toBe('completed · starting · no round yet');
+    expect(runStatusLabel('running')).toBe('running');
+    expect(runStatusLabel('pausing')).toBe('pausing…');
+    expect(runStatusLabel('paused')).toBe('paused');
+    expect(runStatusLabel('completed')).toBe('completed');
   });
 
   it('reads a pause from the backend and drops it when the run ends', () => {
@@ -1370,18 +1365,17 @@ describe('session event model', () => {
       });
 
     let state = applyEvent(initialSessionState(), statusChange(1, 'pausing', 'running'));
-    expect(statusText(state)).toContain('pausing…');
+    expect(runStateText(state)).toBe('pausing…');
     state = applyEvent(state, statusChange(2, 'paused', 'pausing'));
-    expect(statusText(state)).toContain('paused');
+    expect(runStateText(state)).toBe('paused');
     state = applyEvent(state, statusChange(3, 'completed', 'paused'));
 
-    expect(statusText(state)).toContain('completed');
-    expect(statusText(state)).not.toContain('paused');
+    expect(runStateText(state)).toBe('completed');
   });
 
-  it('feeds usage updates into the status token meter', () => {
+  it('feeds usage updates into the header token meter', () => {
     let state = initialSessionState();
-    expect(statusText(state)).not.toContain('tokens');
+    expect(usageText(state)).toBeNull();
     state = applyEvent(
       state,
       event(1, 'usage_update', {
@@ -1397,7 +1391,7 @@ describe('session event model', () => {
       contextWindow: 1_000_000,
       model: 'claude-sonnet-4-6',
     });
-    expect(statusText(state)).toContain('20k/1.0M tokens');
+    expect(usageText(state)).toBe('20k/1.0M context');
     expect(state.core.transcript).toHaveLength(0);
   });
 

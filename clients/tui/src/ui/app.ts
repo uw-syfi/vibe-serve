@@ -5,7 +5,6 @@ import {
   experimentLogVisible,
   focusedPane,
   type SessionState,
-  statusText,
   stripRounds,
   visibleRoundNumber,
 } from '../session-model.js';
@@ -19,6 +18,7 @@ import {createCommandInputPanel} from './command-input.js';
 import {ConversationView} from './conversation.js';
 import {ErrorBannerView} from './error-banner.js';
 import {ExperimentLogView} from './experiment-log.js';
+import {renderHeader} from './header.js';
 import {bindKeybindings} from './keybindings.js';
 import {OverlayView} from './overlay.js';
 import {RightPaneView, rightPaneWidth, splitFits} from './right-pane.js';
@@ -309,13 +309,7 @@ export function createOpenTuiApp(
         : chatPaneWidth(renderer.terminalWidth, rightWidth)
       : 0;
     const showExperimentLog = showLog && (zoomedPane === null || zoomedPane === 'experiments');
-    const dialogOpen = state.chatOpen || state.overlay !== null || state.themePicker !== null;
-    const returnHint = dialogOpen ? ' · Esc: close dialog' : '';
-    const selection = state.selectedAgentKind ? ` · selected ${state.selectedAgentKind}` : '';
-    const scope = state.hypothesisScope === null ? '' : ` · ${state.hypothesisScope.label}`;
-    header.content = showLog
-      ? `VibeSys · ${statusText(state)} · experiments`
-      : `VibeSys · ${statusText(state)}${scope}${selection}${returnHint}`;
+    header.content = renderHeader(state, showLog, renderer.terminalWidth);
     errorBanner.render(state);
     // The log carries its own key hints in its footer, so when it shares the
     // row with a pane the global line is the place for the pane's keys.

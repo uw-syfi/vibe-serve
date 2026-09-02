@@ -106,7 +106,11 @@ describe('OpenTUI presentation', () => {
     registerCleanup(testRenderer.renderer, app);
 
     const frame = await testRenderer.waitForFrame(value => value.includes('fast_path()'));
-    expect(frame).toContain('running · optimizer · round 2');
+    // The header names the run state and the activity, never the backend's
+    // round label. `round 2` is not a label this loop emits, so the agent kind
+    // supplies the word.
+    expect(frame).toContain('VibeSys · running · optimizer');
+    expect(frame).not.toContain('running · optimizer · round 2');
     // No round is selected, so the agent strip is headed by the run. The run has
     // no rounds yet, so the rounds rail stays off and leaves the width to the
     // agents graph and transcript.
@@ -1195,7 +1199,7 @@ describe('OpenTUI presentation', () => {
     const testRenderer = await createTestRenderer({width: 130, height: 22});
     const controller = new FakeController({
       ...initialSessionState(),
-      hypothesisScope: {id: 'H-01', label: 'H-01 · r1', rounds: [1]},
+      hypothesisScope: {id: 'H-01', label: 'H-01 · r1', title: 'H-01', rounds: [1]},
       selectedRound: 1,
       core: {
         ...initialSessionState().core,
@@ -2739,7 +2743,10 @@ describe('theming', () => {
     expect(trajectory).toContain('r43');
     expect(trajectory).toContain('regression found');
     expect(trajectory).not.toContain('unrelated round 41');
-    expect(trajectory).toContain('H-08 · r42-43');
+    // The header names the hypothesis; the round range beside it duplicated
+    // the rounds strip directly below, so only the title is up there now.
+    expect(trajectory).toContain('H-08');
+    expect(trajectory).not.toContain('H-08 · r42-43');
     expect(trajectory).toContain('r42');
     expect(trajectory).toContain('r43');
     // The strip covers the whole run, so rounds outside this hypothesis are

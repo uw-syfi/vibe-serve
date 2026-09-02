@@ -166,6 +166,12 @@ export type ExperimentIndexItem =
 export interface HypothesisScope {
   id: string;
   label: string;
+  /**
+   * The claim on its own, without the `· r1-r2` range `label` carries. The
+   * header shows this: the range duplicates the rounds strip, and spending
+   * header width on it pushed the title itself off the line.
+   */
+  title: string;
   rounds: number[];
   /** A single recorded round not yet associated with a hypothesis. */
   source?: 'hypothesis' | 'round';
@@ -922,6 +928,7 @@ export function enterExperimentRound(
     hypothesisScope: {
       id: entry.hypothesis_id,
       label: hypothesisLabel(entry),
+      title: hypothesisTitle(entry),
       rounds: scopeRounds(entry),
       source: 'hypothesis',
     },
@@ -954,6 +961,7 @@ export function enterUnownedExperimentRound(
     hypothesisScope: {
       id: `round-${roundNumber}`,
       label: `Round ${roundNumber}`,
+      title: `Round ${roundNumber}`,
       rounds: [roundNumber],
       source: 'round',
     },
@@ -985,12 +993,17 @@ export function hypothesisRoundNumbers(entry: HypothesisEntry): number[] {
   return scopeRounds(entry);
 }
 
+/** The claim itself, falling back to its id when the record carries no title. */
+function hypothesisTitle(entry: HypothesisEntry): string {
+  return entry.title ?? entry.hypothesis_id;
+}
+
 function hypothesisLabel(entry: HypothesisEntry): string {
   const range =
     entry.first_round === entry.last_round
       ? `r${entry.first_round}`
       : `r${entry.first_round}-${entry.last_round}`;
-  return `${entry.title ?? entry.hypothesis_id} · ${range}`;
+  return `${hypothesisTitle(entry)} · ${range}`;
 }
 
 export function selectedExperiment(state: SessionState): HypothesisEntry | null {
@@ -1866,23 +1879,6 @@ export function runStatusLabel(status: CoreRunStatus): string {
       return unhandled;
     }
   }
-}
-
-export function statusText(state: SessionState): string {
-  const base = `${runStatusLabel(state.core.status)} · ${state.core.agentKind ?? 'starting'} · ${state.core.roundLabel ?? 'no round yet'}`;
-  if (state.core.usage === null) return base;
-  const used = formatTokenCount(state.core.usage.inputTokens);
-  const meter =
-    state.core.usage.contextWindow === null
-      ? used
-      : `${used}/${formatTokenCount(state.core.usage.contextWindow)}`;
-  return `${base} · ${meter} tokens`;
-}
-
-function formatTokenCount(count: number): string {
-  if (count < 1_000) return String(count);
-  if (count < 1_000_000) return `${Math.floor(count / 1_000)}k`;
-  return `${(count / 1_000_000).toFixed(1)}M`;
 }
 
 export function visibleConversation(state: SessionState): ConversationEntry[] {
