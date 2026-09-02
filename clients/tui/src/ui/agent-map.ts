@@ -7,7 +7,13 @@ import {
 } from '@vibesys/core-state';
 import type {SessionController} from '../session-controller.js';
 import type {SessionState} from '../session-model.js';
-import {scopedRounds, stripRounds, visiblePhases, visibleRoundNumber} from '../session-model.js';
+import {
+  focusedPane,
+  scopedRounds,
+  stripRounds,
+  visiblePhases,
+  visibleRoundNumber,
+} from '../session-model.js';
 import {
   type AgentGraph,
   type EdgeTone,
@@ -17,6 +23,7 @@ import {
   stageKinds,
 } from './agent-graph.js';
 import {agentRuntimeLabel} from './agent-runtime-label.js';
+import {applyPaneFocus, paneBorderColor, paneBorderStyle, paneTitle} from './focus.js';
 import {elapsedLabel} from './previews.js';
 import type {Theme} from './theme.js';
 
@@ -68,6 +75,8 @@ export function agentPaneWidth(terminalWidth: number, stageCount: number): numbe
   return Math.min(ceiling, room, Math.max(floor, share));
 }
 
+const AGENTS_TITLE = 'Agents';
+
 export class AgentMapView {
   readonly output: BoxRenderable;
   #theme: Theme;
@@ -91,9 +100,9 @@ export class AgentMapView {
       paddingLeft: 1,
       paddingRight: 1,
       border: true,
-      borderStyle: 'rounded',
-      borderColor: theme.border,
-      title: ' Agents ',
+      borderStyle: paneBorderStyle(false),
+      borderColor: paneBorderColor(theme, false),
+      title: paneTitle(AGENTS_TITLE, false),
       onMouseUp: () => this.controller.focusRound('agents'),
     });
   }
@@ -118,10 +127,10 @@ export class AgentMapView {
     this.#renderedWidth = paneWidth;
     this.output.width = paneWidth;
     // The pane that owns the arrow keys says so, the way every other focusable
-    // surface in the client does.
-    this.output.borderColor =
-      state.roundFocus === 'agents' ? this.#theme.borderFocus : this.#theme.border;
-    this.output.title = state.roundFocus === 'agents' ? ' ▸ Agents ' : ' Agents ';
+    // surface in the client does. `focusedPane` is that single authority:
+    // reading `roundFocus` directly lit this pane while a visualization too
+    // narrow to split held the keys.
+    applyPaneFocus(this.output, this.#theme, AGENTS_TITLE, focusedPane(state) === 'agents');
     this.#clear();
     if (phases.length === 0) {
       // A round the run has not reached has no agents, and never will until it

@@ -1223,7 +1223,12 @@ export function focusPane(state: SessionState, focus: PaneFocus): SessionState {
   return {...state, layout: {...state.layout, focus}};
 }
 
-/** The semantic pane currently receiving pane navigation keys. */
+/**
+ * The semantic pane currently receiving pane navigation keys, and the single
+ * authority for the focus treatment: every pane view compares its own `PaneId`
+ * against this, so at most one of them can be lit at a time. Surfaces that are
+ * not panes, the command box above all, never wear that treatment.
+ */
 export function focusedPane(state: SessionState): PaneId {
   if (experimentLogVisible(state)) {
     if (state.layout.focus === 'chat' && chatPaneVisible(state)) return 'chat';
