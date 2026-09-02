@@ -62,6 +62,16 @@ FIXTURES: tuple[FixtureContract, ...] = (
         ),
     ),
     FixtureContract(
+        name="markdown.jsonl",
+        age=SchemaAge.CURRENT,
+        reason=(
+            "Synthetic, written by markdown.py against the current models "
+            "because no real capture contains a table or a fenced code block. "
+            "Being generated is why it must round-trip: a drift here means the "
+            "generator, not a recording, has gone out of contract."
+        ),
+    ),
+    FixtureContract(
         name="bad-cpp-round1.jsonl",
         age=SchemaAge.LEGACY,
         reason=(
