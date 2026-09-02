@@ -45,7 +45,12 @@ from vibesys.loops.agent.model import (
 )
 from vibesys.loops.agent.state import AgentRunStateStore
 from vibesys.loops.evolve.population import Objective  # noqa: TC001  # tracked: #288
-from vibesys.loops.gates import run_accuracy_gate
+from vibesys.loops.gates import (
+    GATE_FEEDBACK_TAIL_CHARS,
+    GATE_LOG_TAIL_CHARS,
+    GATE_RECORD_TAIL_CHARS,
+    run_accuracy_gate,
+)
 from vibesys.loops.profiler import mcp_spec as profiler_mcp_spec
 from vibesys.profilers import (
     ProfilerKind,
@@ -1778,7 +1783,7 @@ def _run_framework_validation_gate(  # noqa: C901, PLR0912, PLR0915  # tracked: 
                 input_digest=input_digest,
                 passed=passed,
                 exit_code=execution.exit_code,
-                output=output[-8000:],
+                output=output[-GATE_RECORD_TAIL_CHARS:],
                 error=None if passed else "command exited nonzero",
             )
         except Exception as exc:  # noqa: BLE001  # tracked: #288
@@ -1909,7 +1914,7 @@ def _run_framework_accuracy_gate(  # noqa: PLR0913  # tracked: #288
         retry,
         command=result.command or "(not configured)",
         passed=result.passed,
-        output=result.output[-8000:],
+        output=result.output[-GATE_RECORD_TAIL_CHARS:],
     )
     ctx.snapshot_workspace(f"round-{round_number}-retry-{retry}-framework-accuracy")
     return result.feedback
@@ -2155,7 +2160,7 @@ def _run_framework_benchmark(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracke
         passed=passed,
         metric_name=metric_name,
         metric_value=metric_value,
-        output=output[-8000:],
+        output=output[-GATE_RECORD_TAIL_CHARS:],
     )
     ctx.snapshot_workspace(f"round-{round_number}-retry-{retry}-framework-benchmark")
     if passed:
@@ -2184,8 +2189,8 @@ def _run_framework_benchmark(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracke
             row=row,
         )
 
-    feedback = f"Framework benchmark failed.\n{output[-4000:]}"
-    ctx.lprint(f"[framework-benchmark] FAIL: {output[-1000:]}")
+    feedback = f"Framework benchmark failed.\n{output[-GATE_FEEDBACK_TAIL_CHARS:]}"
+    ctx.lprint(f"[framework-benchmark] FAIL: {output[-GATE_LOG_TAIL_CHARS:]}")
     return FrameworkBenchmarkOutcome(feedback=feedback)
 
 

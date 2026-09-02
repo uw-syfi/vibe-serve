@@ -5,6 +5,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from vibesys.run import LoopContext  # noqa: TC001  # tracked: #288
+
+# Truncation lengths for gate failure output. All three values are defined
+# here so that the logged window, the agent-feedback window, and the record
+# window stay consistent across every gate and loop call site.
+GATE_LOG_TAIL_CHARS = 1000
+GATE_FEEDBACK_TAIL_CHARS = 4000
+GATE_RECORD_TAIL_CHARS = 8000
 from vibesys.run.events import CoreEventType, SubprocessOutputData
 
 
@@ -74,8 +81,8 @@ def run_accuracy_gate(
         ctx.lprint("[framework-accuracy] PASS")
         feedback = None
     else:
-        ctx.lprint(f"[framework-accuracy] FAIL: {output[-1000:]}")
-        feedback = f"Framework accuracy gate failed.\n{output[-4000:]}"
+        ctx.lprint(f"[framework-accuracy] FAIL: {output[-GATE_LOG_TAIL_CHARS:]}")
+        feedback = f"Framework accuracy gate failed.\n{output[-GATE_FEEDBACK_TAIL_CHARS:]}"
 
     return AccuracyGateResult(
         command=command,
