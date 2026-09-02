@@ -1700,7 +1700,9 @@ describe('OpenTUI presentation', () => {
   });
 
   it('renders a typed command payload with labeled stderr and exit code', async () => {
-    const testRenderer = await createTestRenderer({width: 80, height: 16});
+    // 18 rows, not 16: the header is a three-row pane, so a 16-row terminal
+    // leaves the transcript too short to hold the whole payload card.
+    const testRenderer = await createTestRenderer({width: 80, height: 18});
     const controller = new FakeController({
       ...initialSessionState(),
       core: {
