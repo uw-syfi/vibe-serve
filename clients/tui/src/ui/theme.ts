@@ -554,7 +554,11 @@ const HIGH_CONTRAST_LIGHT: ThemeSpec = {
   textStrong: '#000000',
   border: '#333333',
   borderStrong: '#000000',
-  borderFocus: '#0000cc',
+  // Navy, not the brighter #0000cc this used to be. Against a white canvas
+  // that blue was *quieter* than the resting #333333 border (11.22 against
+  // 12.63), so focusing a pane made it recede. Focus must never be quieter
+  // than rest; `focus.test.ts` pins that for every theme.
+  borderFocus: '#000080',
   accent: '#006466',
   info: '#0033cc',
   success: '#006400',

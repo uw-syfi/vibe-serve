@@ -93,12 +93,15 @@ list rises out of the command input rather than across the chat.
 
 The cursor starts in the command input, and `Ctrl+W` moves both it and the pane
 keys to the chat and back; the chat's instruction line says so (`Ctrl+W to type
-here`) until it holds them, and the focused input carries the focus border, so
-where a keystroke lands is never a guess. Only the chat composer accepts
-ordinary questions; the command input accepts slash commands. Page Up and Page Down scroll the focused pane, and
-Escape hands the keys back to the table. Arrows, Enter, and the rest of the
-table's keys are unaffected by the dock. A slash command typed into the chat
-input runs through the same command path as the command box.
+here`) until it holds them, and the chat pane carries the focus border while it
+does, so where a keystroke lands is never a guess. The command box is shared by
+every pane in its column rather than being one of them, so it keeps the neutral
+border in every theme and never competes with the pane that holds the keys.
+Only the chat composer accepts ordinary questions; the command input accepts
+slash commands. Page Up and Page Down scroll the focused pane, and Escape hands
+the keys back to the table. Arrows, Enter, and the rest of the table's keys are
+unaffected by the dock. A slash command typed into the chat input runs through
+the same command path as the command box.
 
 `/chat` leaves the command surface on this view, since the chat is already
 beside the table: it is absent from `/help` and from the completions, though it

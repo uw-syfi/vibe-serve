@@ -3,6 +3,7 @@ import type {TodoItem} from '@vibesys/core-state';
 import type {SessionController} from '../session-controller.js';
 import type {SessionState} from '../session-model.js';
 import {visibleTodos} from '../session-model.js';
+import {paneBorderColor, paneBorderStyle, paneTitle} from './focus.js';
 import type {Theme} from './theme.js';
 
 const STATUS_MARKER: Record<string, string> = {
@@ -158,11 +159,12 @@ export class TodoStripView {
       paddingLeft: 1,
       paddingRight: 1,
       border: true,
-      borderStyle: 'rounded',
-      // The open list owns the arrow keys, so it carries the focus border: the
-      // operator can see where the keys are going without being told.
-      borderColor: this.#theme.borderFocus,
-      title: ` ${todoTitle(todos)} `,
+      // The open list owns the arrow keys, so it carries the focused pane's
+      // chrome: the operator can see where the keys are going without being
+      // told.
+      borderStyle: paneBorderStyle(true),
+      borderColor: paneBorderColor(this.#theme, true),
+      title: paneTitle(todoTitle(todos), true),
     });
     this.output.add(list);
     for (const [index, todo] of shown.entries()) {

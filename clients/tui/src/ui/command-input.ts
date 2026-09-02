@@ -7,6 +7,7 @@ import {
   TextRenderable,
 } from '@opentui/core';
 import {type CommandContext, slashCommandRange, suggestSlashCommands} from '../commands.js';
+import {paneBorderColor, paneBorderStyle, paneTitle} from './focus.js';
 import {SuggestionMenu} from './suggestion-menu.js';
 import type {Theme} from './theme.js';
 
@@ -20,10 +21,11 @@ export interface CommandInputPanel {
   /** True when nothing is typed, so Enter belongs to whatever pane is behind. */
   isEmpty(): boolean;
   focus(): void;
-  setFocused(focused: boolean): void;
   applyTheme(theme: Theme): void;
   destroy(): void;
 }
+
+const COMMAND_TITLE = 'Command';
 
 function commandSyntaxStyle(theme: Theme): SyntaxStyle {
   return SyntaxStyle.fromStyles({'slash-command': {fg: theme.accent, bold: true}});
@@ -41,9 +43,16 @@ export function createCommandInputPanel(
     height: 3,
     width: '100%',
     border: true,
-    borderStyle: 'rounded',
-    borderColor: theme.borderFocus,
-    title: ' Command ',
+    // The focus treatment names the one pane the navigation keys are on. The
+    // command box is shared by every pane in the column rather than being one of
+    // them, so it never wears that treatment: resting frame, resting colour, and
+    // the gutter cell where a pane would put its marker. A second lit border
+    // made the marked pane ambiguous, which is the whole complaint behind #433.
+    // It still takes the title from `focus.ts` so its label sits at the same
+    // column as the panes it shares the column with.
+    borderStyle: paneBorderStyle(false),
+    borderColor: paneBorderColor(theme, false),
+    title: paneTitle(COMMAND_TITLE, false),
     paddingLeft: 1,
     paddingRight: 1,
     onMouseUp: onFocusRequest,
@@ -108,8 +117,6 @@ export function createCommandInputPanel(
   input.on(InputRenderableEvents.INPUT, updateDecorations);
   input.on(InputRenderableEvents.ENTER, submit);
   box.add(input);
-  let focused = true;
-  let current = theme;
   return {
     box,
     suggestions,
@@ -131,13 +138,8 @@ export function createCommandInputPanel(
     },
     isEmpty: () => input.value.trim() === '',
     focus: () => input.focus(),
-    setFocused(next: boolean): void {
-      focused = next;
-      box.borderColor = next ? current.borderFocus : current.border;
-    },
     applyTheme(next: Theme): void {
-      current = next;
-      box.borderColor = focused ? next.borderFocus : next.border;
+      box.borderColor = paneBorderColor(next, false);
       input.textColor = next.textStrong;
       input.focusedTextColor = next.textStrong;
       suggestions.borderColor = next.border;

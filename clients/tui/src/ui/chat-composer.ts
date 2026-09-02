@@ -7,6 +7,7 @@ import {
 } from '@opentui/core';
 import {suggestChatSlashCommands} from '../commands.js';
 import type {ChatMenuRow, SessionState} from '../session-model.js';
+import {applyPaneFocus, paneBorderColor, paneBorderStyle, paneTitle} from './focus.js';
 import {SuggestionMenu} from './suggestion-menu.js';
 import type {Theme} from './theme.js';
 
@@ -17,6 +18,8 @@ const EDITOR_HORIZONTAL_CHROME = 4;
 /** Rows the menu shows at once before it scrolls its selection into view. */
 const MAX_MENU_ROWS = 10;
 const MENU_CHROME = 2;
+const COMPOSER_TITLE = 'Message';
+const PENDING_COMPOSER_TITLE = `${COMPOSER_TITLE} · awaiting agent`;
 
 class ChatTextareaRenderable extends TextareaRenderable {
   override handleKeyPress(key: KeyEvent): boolean {
@@ -69,6 +72,8 @@ export class ChatComposerView {
   readonly #menuList: TextRenderable;
   #availableWidth = 1;
   #focused = false;
+  /** Whether the agent still owes an answer, which the title says. */
+  #pending = false;
   #theme: Theme;
   #renderedMenu: string | null = null;
   #lastState: SessionState | null = null;
@@ -94,9 +99,9 @@ export class ChatComposerView {
       width: '100%',
       height: MIN_EDITOR_ROWS + 2,
       border: true,
-      borderStyle: 'rounded',
-      borderColor: theme.border,
-      title: ' Message ',
+      borderStyle: paneBorderStyle(false),
+      borderColor: paneBorderColor(theme, false),
+      title: paneTitle(COMPOSER_TITLE, false),
       paddingLeft: 1,
       paddingRight: 1,
       onMouseUp: this.onFocusRequest,
@@ -227,8 +232,8 @@ export class ChatComposerView {
       this.#editor.setText(this.draft.value);
       this.#syncSuggestions();
     }
+    this.#pending = pending;
     this.setFocused(focused);
-    this.#box.title = pending ? ' Message · awaiting agent ' : ' Message ';
     this.#hint.content = pending
       ? 'Awaiting the agent · Enter: queue follow-up'
       : focused
@@ -247,12 +252,17 @@ export class ChatComposerView {
 
   setFocused(focused: boolean): void {
     this.#focused = focused;
-    this.#box.borderColor = focused ? this.#theme.borderFocus : this.#theme.border;
+    this.#applyFocus();
+  }
+
+  #applyFocus(): void {
+    const label = this.#pending ? PENDING_COMPOSER_TITLE : COMPOSER_TITLE;
+    applyPaneFocus(this.#box, this.#theme, label, this.#focused);
   }
 
   applyTheme(theme: Theme): void {
     this.#theme = theme;
-    this.#box.borderColor = this.#focused ? theme.borderFocus : theme.border;
+    this.#applyFocus();
     this.#editor.textColor = theme.textStrong;
     this.#editor.focusedTextColor = theme.textStrong;
     this.#hint.fg = theme.textSubtle;

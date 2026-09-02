@@ -18,6 +18,7 @@ import {createCommandInputPanel} from './command-input.js';
 import {ConversationView} from './conversation.js';
 import {ErrorBannerView} from './error-banner.js';
 import {ExperimentLogView} from './experiment-log.js';
+import {applyPaneFocus, paneBorderColor, paneBorderStyle, paneTitle} from './focus.js';
 import {bindKeybindings} from './keybindings.js';
 import {OverlayView} from './overlay.js';
 import {RightPaneView, rightPaneWidth, splitFits} from './right-pane.js';
@@ -46,6 +47,8 @@ const HYPOTHESIS_KEY_HELP =
   '↑↓: select round · Enter/click: trajectory · PgUp/PgDn: scroll · Esc: hypotheses';
 const SPLIT_KEY_HELP =
   'Ctrl+W: switch pane · F4: zoom focused pane · PgUp/PgDn: scroll · Esc: close pane';
+
+const TRANSCRIPT_TITLE = 'Transcript';
 
 /**
  * A round the run has not reached has no turns and never will until it runs.
@@ -91,8 +94,9 @@ export function createOpenTuiApp(
     paddingLeft: 1,
     paddingRight: 1,
     border: true,
-    borderStyle: 'rounded',
-    borderColor: theme.border,
+    borderStyle: paneBorderStyle(false),
+    borderColor: paneBorderColor(theme, false),
+    title: paneTitle(TRANSCRIPT_TITLE, false),
     onMouseUp: focusTranscript,
   });
   const viewport = new ScrollBoxRenderable(renderer, {
@@ -360,8 +364,7 @@ export function createOpenTuiApp(
     // Inside a round the transcript is one of two navigable panes, so it carries
     // the focus border whenever the round view's keys are on it.
     const transcriptFocused = !showLog && paneFocus === 'transcript';
-    transcriptFrame.borderColor = transcriptFocused ? theme.borderFocus : theme.border;
-    transcriptFrame.title = transcriptFocused ? ' ▸ Transcript ' : ' Transcript ';
+    applyPaneFocus(transcriptFrame, theme, TRANSCRIPT_TITLE, transcriptFocused);
     // Match the chat to the left pane's rectangle so it sits beside the
     // visualization instead of over it. Bounds come from the siblings that
     // actually occupy those rows, so a taller todo strip still fits.
@@ -381,7 +384,6 @@ export function createOpenTuiApp(
     chatPane.render(state, showChatPane, chatWidth);
     const chatInputFocused = showChatPane && state.layout.focus === 'chat';
     commandColumn.visible = zoomedPane !== 'chat';
-    commandInput.setFocused(paneFocus === 'experiments' || paneFocus === 'transcript');
     // The command list completes the box it belongs to, and on this view that
     // box cannot open a chat that is already beside it.
     commandInput.setCommandContext({chatDocked: showChatPane});
