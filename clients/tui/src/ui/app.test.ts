@@ -2183,6 +2183,45 @@ describe('OpenTUI presentation', () => {
     expect(controller.state.chatOpen).toBe(false);
   });
 
+  it('stacks the modal chat without a seam at any terminal height', async () => {
+    // The modal takes a share of the terminal, and a share of a row is not a
+    // row: the layout rounds a child's offset from its parent separately from
+    // that child's size, so at a fractional offset the two disagree and the
+    // transcript either runs a row into the composer or leaves a row of the
+    // modal's floor blank. Which heights round badly follows from the shares
+    // rather than from any one size, so the whole range is checked.
+    const testRenderer = await createTestRenderer({width: 100, height: 24});
+    const controller = new FakeController({...initialSessionState(), chatOpen: true});
+    const app = createOpenTuiApp(testRenderer.renderer, controller);
+    registerCleanup(testRenderer.renderer, app);
+
+    for (let height = 18; height <= 48; height += 1) {
+      testRenderer.renderer.resize(100, height);
+      await frameAfter(testRenderer);
+      const modal = testRenderer.renderer.root.findDescendantById('chat-overlay');
+      const transcript = testRenderer.renderer.root.findDescendantById('chat-transcript');
+      const composer = testRenderer.renderer.root.findDescendantById('chat-modal-composer');
+      if (modal === undefined || transcript === undefined || composer === undefined)
+        throw new Error('modal chat geometry was missing');
+      // The height rides along in the comparison so a failure names the
+      // terminal it happened on, not only the rows that disagreed.
+      expect({
+        height,
+        top: transcript.y,
+        end: transcript.y + transcript.height,
+        floor: composer.y + composer.height,
+      }).toEqual({
+        height,
+        // The transcript starts under the top border and ends exactly where
+        // the composer starts, and the composer's last row is the one above
+        // the bottom border.
+        top: modal.y + 1,
+        end: composer.y,
+        floor: modal.y + modal.height - 1,
+      });
+    }
+  });
+
   it('accepts another chat message while an agent turn is pending', async () => {
     const testRenderer = await createTestRenderer({width: 100, height: 24});
     const controller = new FakeController({

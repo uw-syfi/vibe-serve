@@ -10,6 +10,15 @@ import {ChatComposerView, type ChatDraft} from './chat-composer.js';
 import {ConversationView} from './conversation.js';
 import type {Theme} from './theme.js';
 
+/**
+ * The centred modal's four edges as fractions of the terminal: 80% of the
+ * columns, centred, and 76% of the rows starting a tenth of the way down.
+ */
+const MODAL_LEFT = 0.1;
+const MODAL_RIGHT = 0.9;
+const MODAL_TOP = 0.1;
+const MODAL_BOTTOM = 0.86;
+
 /** Screen rectangle the chat occupies when it shares the row with a pane. */
 export interface PaneBounds {
   left: number;
@@ -36,7 +45,7 @@ export class ChatOverlayView {
   #bounds: PaneBounds | null = null;
 
   constructor(
-    renderer: CliRenderer,
+    private readonly renderer: CliRenderer,
     controller: SessionController,
     markdownStyle: SyntaxStyle,
     theme: Theme,
@@ -44,11 +53,7 @@ export class ChatOverlayView {
   ) {
     this.output = new BoxRenderable(renderer, {
       id: 'chat-overlay',
-      width: '80%',
-      height: '76%',
       position: 'absolute',
-      left: '10%',
-      top: '10%',
       flexDirection: 'column',
       paddingLeft: 1,
       paddingRight: 1,
@@ -86,6 +91,7 @@ export class ChatOverlayView {
       theme,
       'chat-modal',
     );
+    this.#applyModalGeometry();
     this.#transcript.add(this.#conversation.output);
     this.output.add(this.#transcript);
     // Anchored to the composer, matching the docked pane: the same commands
@@ -100,19 +106,38 @@ export class ChatOverlayView {
    * ``null`` restores the centred modal geometry.
    */
   setPaneBounds(bounds: PaneBounds | null): void {
-    if (samePaneBounds(this.#bounds, bounds)) return;
-    this.#bounds = bounds;
+    // The modal measures itself against the terminal, so it is recomputed even
+    // when the bounds did not change: a resize changes the answer.
     if (bounds === null) {
-      this.output.left = '10%';
-      this.output.width = '80%';
-      this.output.top = '10%';
-      this.output.height = '76%';
+      this.#bounds = null;
+      this.#applyModalGeometry();
       return;
     }
+    if (samePaneBounds(this.#bounds, bounds)) return;
+    this.#bounds = bounds;
     this.output.left = bounds.left;
     this.output.width = Math.max(1, bounds.width);
     this.output.top = bounds.top;
     this.output.height = Math.max(3, bounds.height);
+  }
+
+  /**
+   * Places the centred modal on whole cells. Left as percentages, its edges
+   * land mid-row at most terminal heights, and the layout rounds a child's
+   * offset from its parent separately from that child's size: at a fractional
+   * offset the two disagree and the transcript either runs a row into the
+   * composer or leaves a row of the modal's floor blank. Rounding each edge
+   * here is what the layout already did to the modal itself, so the rectangle
+   * is unchanged, but every offset inside it is now whole.
+   */
+  #applyModalGeometry(): void {
+    const {terminalWidth, terminalHeight} = this.renderer;
+    const left = Math.round(terminalWidth * MODAL_LEFT);
+    const top = Math.round(terminalHeight * MODAL_TOP);
+    this.output.left = left;
+    this.output.width = Math.max(1, Math.round(terminalWidth * MODAL_RIGHT) - left);
+    this.output.top = top;
+    this.output.height = Math.max(3, Math.round(terminalHeight * MODAL_BOTTOM) - top);
   }
 
   applyTheme(theme: Theme, markdownStyle: SyntaxStyle): void {
