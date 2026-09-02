@@ -1800,8 +1800,9 @@ def test_framework_benchmark_extracts_declared_metric(tmp_path):  # noqa: ANN001
     assert outcome.metric_name == "total_ops_per_sec"
     # The legacy contract reports one scalar, never a complete row.
     assert outcome.row is None
-    executed = ctx.judge_backend.execute.call_args.args[0]
-    assert ctx.judge_backend.execute.call_args.kwargs == {"timeout": 300}
+    benchmark_call = ctx.judge_backend.execute.call_args_list[0]
+    executed = benchmark_call.args[0]
+    assert benchmark_call.kwargs == {"timeout": 300}
     assert "trusted-benchmark --repetitions 3 --output-json" in executed
     # The result path carries a per-invocation nonce and is removed up front,
     # so a stale or cross-run file can never satisfy this invocation's cat.
@@ -1879,6 +1880,73 @@ def test_framework_benchmark_rejects_ambiguous_metric(tmp_path):  # noqa: ANN001
     assert "expected exactly one 'ops' field" in outcome.feedback
 
 
+def test_framework_benchmark_removes_transport_artifact(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+    """Regression for #532: the per-nonce result file is removed on every path.
+
+    Runs the gate against a real shell backend so the transport JSON is
+    genuinely written under ``/tmp``, then asserts it no longer exists after
+    both a successful parse and a malformed-output failure.
+    """
+    import sys  # noqa: PLC0415  # tracked: #288
+
+    from vibesys.loops.gates import (  # noqa: PLC0415  # tracked: #288
+        _BENCHMARK_OUTPUT_PREFIX,
+        run_benchmark_gate,
+    )
+
+    class _ShellJudgeBackend:
+        def __init__(self) -> None:
+            self.commands: list[str] = []
+
+        def execute(self, command, timeout=None):  # noqa: ANN001, ANN202  # tracked: #288
+            self.commands.append(command)
+            proc = subprocess.run(  # noqa: S603  # tracked: #288
+                ["bash", "-c", command],  # noqa: S607  # tracked: #288
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                check=False,
+            )
+            return SimpleNamespace(exit_code=proc.returncode, output=proc.stdout)
+
+    def run_once(payload):  # noqa: ANN001, ANN202  # tracked: #288
+        # The benchmark "command" copies a fixed source file to the result path
+        # the gate appends as its last argument, so the payload text controls
+        # whether the recovered JSON parses.
+        src = tmp_path / "payload.json"
+        src.write_text(payload)
+        writer = (
+            f"{sys.executable} -c \"import sys, shutil; shutil.copyfile('{src}', sys.argv[-1])\""
+        )
+        ctx = MagicMock()
+        ctx.judge_benchmark_command = writer
+        ctx.trusted_input_changes.return_value = []
+        backend = _ShellJudgeBackend()
+        ctx.judge_backend = backend
+        result = run_benchmark_gate(
+            ctx,
+            result_spec=BenchmarkResult(json_argument="--out", metric="tok_per_sec"),
+            process_id="benchmark",
+            output_slug="round-9-retry-2",
+        )
+        match = re.search(
+            rf"cat ({re.escape(_BENCHMARK_OUTPUT_PREFIX)}\S+\.json)", backend.commands[0]
+        )
+        assert match is not None
+        return result, Path(match.group(1))
+
+    # Success: valid JSON parses and the transport artifact is cleaned up.
+    result, artifact = run_once('{"tok_per_sec": 42.0}')
+    assert result.passed
+    assert result.outcome.metric_value == 42.0
+    assert not artifact.exists()
+
+    # Malformed output: parsing fails, but the artifact is still removed.
+    result, artifact = run_once("this is not json")
+    assert not result.passed
+    assert not artifact.exists()
+
+
 # ---------------------------------------------------------------------------
 # Evaluator result protocol benchmarks
 # ---------------------------------------------------------------------------
@@ -1932,7 +2000,7 @@ def test_protocol_benchmark_reads_complete_row(tmp_path):  # noqa: ANN001, ANN20
     # The headline scalar is the first configured objective.
     assert outcome.metric_name == "total_ops_per_sec"
     assert outcome.metric_value == 41250.3
-    executed = ctx.judge_backend.execute.call_args.args[0]
+    executed = ctx.judge_backend.execute.call_args_list[0].args[0]
     result_path = re.search(
         r"--vs-output (/tmp/vibesys-framework-benchmark-3-1-[0-9a-f]{12}\.json)", executed
     )

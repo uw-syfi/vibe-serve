@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import math
 import shlex
@@ -342,6 +343,14 @@ def run_benchmark_gate(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #28
         except Exception as exc:  # noqa: BLE001  # tracked: #288
             output = f"benchmark command could not be executed: {exc}"
             passed = False
+        finally:
+            # Remove the per-invocation transport artifact on every exit path
+            # (success, nonzero exit, timeout, malformed output). The result is
+            # already recovered from stdout, so the file is dead weight; leaving
+            # it leaks one JSON per benchmark on hosts where /tmp persists for
+            # weeks. Best-effort: a cleanup failure must not mask the result.
+            with contextlib.suppress(Exception):
+                ctx.judge_backend.execute(f"rm -f -- {shlex.quote(output_path)}")
 
     if passed:
         _, marker, framed = output.rpartition(FRAMEWORK_BENCHMARK_MARKER)
