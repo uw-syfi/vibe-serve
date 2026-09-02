@@ -15,7 +15,10 @@ import type {Theme} from './theme.js';
 
 const MIN_EDITOR_ROWS = 1;
 const MAX_EDITOR_ROWS = 6;
-const COMPOSER_CHROME = 3;
+/** Border rows the message box adds around the editor it holds. */
+const BOX_CHROME = 2;
+/** The box's own rows plus the hint row above it. */
+const COMPOSER_CHROME = BOX_CHROME + 1;
 const EDITOR_HORIZONTAL_CHROME = 4;
 /** Rows the menu shows at once before it scrolls its selection into view. */
 const MAX_MENU_ROWS = 10;
@@ -110,7 +113,7 @@ export class ChatComposerView {
     this.#box = new BoxRenderable(renderer, {
       id: `${id}-composer-box`,
       width: '100%',
-      height: MIN_EDITOR_ROWS + 2,
+      height: MIN_EDITOR_ROWS + BOX_CHROME,
       border: true,
       borderStyle: paneBorderStyle(false),
       borderColor: paneBorderColor(theme, false),
@@ -151,9 +154,11 @@ export class ChatComposerView {
     this.menu = new BoxRenderable(renderer, {
       id: `${id}-composer-menu`,
       position: 'absolute',
-      // Anchored directly above the composer, which is the bottom of whichever
-      // chat surface mounts it. Kept in step with the editor's height below.
-      bottom: COMPOSER_CHROME + MIN_EDITOR_ROWS,
+      // Anchored on the message box, not above the whole composer: the hint
+      // row sits over the box, and a menu cleared of it would float with that
+      // row showing through the gap. The command bar's list sits on its own
+      // box the same way. Kept in step with the editor's height below.
+      bottom: MIN_EDITOR_ROWS + BOX_CHROME,
       left: 0,
       width: '100%',
       height: 3,
@@ -354,10 +359,10 @@ export class ChatComposerView {
       Math.max(MIN_EDITOR_ROWS, wrappedRows(this.draft.value, contentWidth)),
     );
     this.#editor.height = rows;
-    this.#box.height = rows + 2;
+    this.#box.height = rows + BOX_CHROME;
     this.output.height = rows + COMPOSER_CHROME;
-    // The menu sits on top of the composer, so it moves with it.
-    this.menu.bottom = this.output.height;
+    // The menu sits on top of the box, so it moves with it.
+    this.menu.bottom = this.#box.height;
   }
 
   #submit(): void {

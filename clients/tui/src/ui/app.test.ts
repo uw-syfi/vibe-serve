@@ -3067,9 +3067,46 @@ describe('theming', () => {
     controller.publish({...controller.state, chatPending: false});
     testRenderer.renderer.resize(MIN_DOCK_WIDTH, 20);
     const narrow = await frameAfter(testRenderer);
-    expect(narrow).toContain('╭─ Message ');
+    // Either focus form: this test is about the rows the boxes sit on, not
+    // which of them holds focus.
+    expect(narrow).toMatch(/[╭┏][─━]\s*▸?\s*Message/);
     rows = bottomRows();
     expect(rows.message).toBe(rows.command);
+  });
+
+  it('opens both suggestion menus flush on the box they complete', async () => {
+    // A menu that is not touching its input reads as belonging to whatever it
+    // is touching instead. The composer's hint sits above its box, so a menu
+    // anchored on the composer as a whole clears the hint rather than the box.
+    // The command bar is the reference on the other side of the same view.
+    const testRenderer = await createTestRenderer({width: 140, height: 24});
+    const controller = new FakeController(initialSessionState());
+    controller.publish({...controller.state, experimentLog: emptyLog(), layout: chatFocus()});
+    const app = createOpenTuiApp(testRenderer.renderer, controller);
+    registerCleanup(testRenderer.renderer, app);
+    await frameAfter(testRenderer);
+
+    const boxTopUnder = (menuId: string, boxId: string): {menu: number; box: number} => {
+      const menu = testRenderer.renderer.root.findDescendantById(menuId);
+      const box = testRenderer.renderer.root.findDescendantById(boxId);
+      if (menu === undefined || box === undefined)
+        throw new Error(`${menuId} geometry was missing`);
+      if (!menu.visible) throw new Error(`${menuId} was not on screen`);
+      return {menu: menu.y + menu.height, box: box.y};
+    };
+
+    await testRenderer.mockInput.typeText('/');
+    await testRenderer.waitForFrame(value => value.includes('/resume'));
+    const chat = boxTopUnder('chat-dock-composer-menu', 'chat-dock-composer-box');
+    expect(chat.menu).toBe(chat.box);
+
+    // The same rule on the command bar, whose list this one is meant to match.
+    controller.focusPane('left');
+    await frameAfter(testRenderer);
+    await testRenderer.mockInput.typeText('/');
+    await testRenderer.waitForFrame(value => value.includes('/pause'));
+    const command = boxTopUnder('command-input-suggestions', 'command-input-box');
+    expect(command.menu).toBe(command.box);
   });
 
   it('routes typing to whichever input Ctrl+W points at', async () => {
@@ -4526,7 +4563,9 @@ describe('theming', () => {
   });
 
   it('uses the empty hypotheses screen as a truthful planning kickoff', async () => {
-    const testRenderer = await createTestRenderer({width: 100, height: 16});
+    // 18 rows, not 16: the header is a three-row pane, so a 16-row terminal
+    // no longer leaves room for the kickoff copy.
+    const testRenderer = await createTestRenderer({width: 100, height: 18});
     const planningStartedAt = new Date(Date.now() - 65_000).toISOString();
     const controller = new FakeController({
       ...initialSessionState(),
