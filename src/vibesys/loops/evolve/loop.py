@@ -67,6 +67,7 @@ from vibesys.loops.gates import (
     BenchmarkContract,
     BenchmarkGateResult,
     FrameworkBenchmarkOutcome,
+    framework_command_timeout,
     run_accuracy_gate,
     run_benchmark_gate,
 )
@@ -487,7 +488,7 @@ def _run_framework_benchmark_gate(
         objectives=objectives or (),
         process_id=f"evolve-benchmark-{generation}-{child_idx}",
         output_slug=f"gen{generation}-cand{child_idx}",
-        timeout_seconds=contract.timeout_seconds,
+        timeout_seconds=framework_command_timeout(ctx, contract.timeout_seconds),
     )
 
 

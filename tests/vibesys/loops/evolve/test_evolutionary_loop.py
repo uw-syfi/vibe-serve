@@ -36,6 +36,7 @@ from vibesys.loops.evolve.loop import (
     _latest_wip_seed,
     _plan_candidate,
     _recent_failure_lessons,
+    _run_framework_benchmark_gate,
     _run_generation_parallel,
     _teardown_candidate_deployment,
     run_evolve_loop,
@@ -1529,6 +1530,59 @@ def _passing_gate_result(metric_value: float):  # noqa: ANN202
             metric_direction="max",
         ),
     )
+
+
+def test_benchmark_gate_extends_timeout_by_environment_setup_allowance():  # noqa: ANN201  # tracked: #288
+    """Environment-owned deployment/readiness time must not eat the benchmark
+    command's declared budget: the evolve gate forwards setup + contract, the
+    same setup-aware policy the agent path uses."""
+    from vibesys.input_manifest import BenchmarkResult  # noqa: PLC0415  # tracked: #288
+    from vibesys.loops.gates import BenchmarkContract  # noqa: PLC0415  # tracked: #288
+
+    ctx = _FakeLoopContext(
+        run_environment_view=SimpleNamespace(framework_setup_timeout_seconds=90),
+    )
+    contract = BenchmarkContract(
+        result_spec=BenchmarkResult(json_argument="--json", metric="total_ops_per_sec"),
+        timeout_seconds=120,
+    )
+    gate = MagicMock(return_value=_passing_gate_result(1.0))
+    with patch("vibesys.loops.evolve.loop.run_benchmark_gate", gate):
+        _run_framework_benchmark_gate(
+            ctx,
+            generation=0,
+            child_idx=0,
+            contract=contract,
+            objectives=None,
+        )
+
+    # 120 (contract budget) + 90 (environment setup allowance), not the bare 120.
+    assert gate.call_args.kwargs["timeout_seconds"] == 210
+
+
+def test_benchmark_gate_timeout_unchanged_without_setup_allowance():  # noqa: ANN201  # tracked: #288
+    """With no setup allowance the forwarded budget is exactly the contract's."""
+    from vibesys.input_manifest import BenchmarkResult  # noqa: PLC0415  # tracked: #288
+    from vibesys.loops.gates import BenchmarkContract  # noqa: PLC0415  # tracked: #288
+
+    ctx = _FakeLoopContext(
+        run_environment_view=SimpleNamespace(framework_setup_timeout_seconds=0),
+    )
+    contract = BenchmarkContract(
+        result_spec=BenchmarkResult(json_argument="--json", metric="total_ops_per_sec"),
+        timeout_seconds=120,
+    )
+    gate = MagicMock(return_value=_passing_gate_result(1.0))
+    with patch("vibesys.loops.evolve.loop.run_benchmark_gate", gate):
+        _run_framework_benchmark_gate(
+            ctx,
+            generation=0,
+            child_idx=0,
+            contract=contract,
+            objectives=None,
+        )
+
+    assert gate.call_args.kwargs["timeout_seconds"] == 120
 
 
 def test_benchmark_contract_owns_seed_and_child_fitness(tmp_path, ref_file):  # noqa: ANN001, ANN201  # tracked: #288
