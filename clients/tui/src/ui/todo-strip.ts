@@ -134,7 +134,7 @@ export class TodoStripView {
     this.output.height = 1;
     this.output.add(
       new TextRenderable(this.renderer, {
-        content: todoSummaryLine(todos, this.#contentWidth()),
+        content: todoSummaryLine(todos, this.#contentWidth(false)),
         fg: this.#theme.textPrimary,
         height: 1,
         width: '100%',
@@ -169,7 +169,7 @@ export class TodoStripView {
       const isSelected = index === selected;
       list.add(
         new TextRenderable(this.renderer, {
-          content: `${isSelected ? '▸' : ' '}${todoItemLine(todo, this.#contentWidth() - 1)}`,
+          content: `${isSelected ? '▸' : ' '}${todoItemLine(todo, this.#contentWidth(true) - 1)}`,
           fg: isSelected ? this.#theme.textStrong : todoColor(todo.status, this.#theme),
           ...(isSelected ? {bg: this.#theme.selectedSurface} : {}),
           height: 1,
@@ -189,8 +189,11 @@ export class TodoStripView {
     }
   }
 
-  #contentWidth(): number {
-    return (this.#renderedWidth ?? this.renderer.terminalWidth) - 6;
+  #contentWidth(expanded: boolean): number {
+    // Expanded layout has outer padding + inner list border + inner list padding = 6 cols.
+    // Collapsed layout has only 1 col of padding each side = 2 cols.
+    const chrome = expanded ? 6 : 2;
+    return (this.#renderedWidth ?? this.renderer.terminalWidth) - chrome;
   }
 
   #clear(): void {
