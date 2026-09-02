@@ -22,17 +22,17 @@
  *
  * This is a hand port, because the harness is TypeScript and cannot import the
  * Python. `test_canonical_events_match_the_backend_read_path` in
- * `tests/server/test_tui_dev_harness.py` runs the real adapter over both
- * bundled fixtures and writes `canonical-events.golden.json`; the parity test in
+ * `tests/server/test_tui_dev_harness.py` runs the real adapter over every
+ * bundled fixture and writes `canonical-events.golden.json`; the parity test in
  * `harness.test.ts` holds this module to that same file. A change made on one
  * side and not the other fails one of the two.
  *
  * One branch of `_canonical_execution_events` is deliberately not ported: the
  * one that synthesizes a lifecycle event from `phase_started`/`phase_finished`
- * for an execution that recorded no lifecycle event of either spelling. Neither
- * bundled fixture reaches it, because every phase event in both shares its
- * execution with a lifecycle event, and it is the only branch that emits a
- * second event at an already-used sequence, which this replay's
+ * for an execution that recorded no lifecycle event of either spelling. No
+ * bundled fixture reaches it, because every phase event in every one of them
+ * shares its execution with a lifecycle event, and it is the only branch that
+ * emits a second event at an already-used sequence, which this replay's
  * one-event-per-sequence stepping does not model.
  */
 

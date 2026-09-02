@@ -623,6 +623,25 @@
     [627, "run_interrupted", null],
     [628, "run_failed", null]
   ],
+  "markdown.jsonl": [
+    [1, "server_started", null],
+    [2, "server_ready", null],
+    [3, "run_started", null],
+    [4, "agent_execution_started", "inv-1"],
+    [5, "phase_started", "inv-1"],
+    [6, "agent_output_chunk", "inv-1"],
+    [7, "agent_output_chunk", "inv-1"],
+    [8, "agent_output_chunk", "inv-1"],
+    [9, "agent_output_chunk", "inv-1"],
+    [10, "agent_output_chunk", "inv-1"],
+    [11, "agent_output_chunk", "inv-1"],
+    [12, "agent_output_chunk", "inv-1"],
+    [13, "agent_output_chunk", "inv-1"],
+    [14, "agent_execution_finished", "inv-1"],
+    [15, "phase_finished", "inv-1"],
+    [16, "round_finished", null],
+    [17, "run_finished", null]
+  ],
   "bad-cpp-round1.jsonl": [
     [1, "server_started", null],
     [2, "server_ready", null],

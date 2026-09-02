@@ -75,6 +75,16 @@ FIXTURES: tuple[FixtureContract, ...] = (
         ),
     ),
     FixtureContract(
+        name="markdown.jsonl",
+        age=SchemaAge.CURRENT,
+        reason=(
+            "Synthetic, written by markdown.py against the current models "
+            "because no real capture contains a table or a fenced code block. "
+            "Being generated is why it must round-trip: a drift here means the "
+            "generator, not a recording, has gone out of contract."
+        ),
+    ),
+    FixtureContract(
         name="bad-cpp-round1.jsonl",
         age=SchemaAge.LEGACY,
         reason=(
@@ -179,10 +189,10 @@ def _request_types() -> set[str]:
 def test_every_fixture_declares_a_schema_guarantee() -> None:
     """An undeclared fixture would be replayed by the harness and checked by nothing.
 
-    Only replayable journals live here, so every `.jsonl` in the directory has
-    to be declared. The harness's other data files, the static response bodies
-    and the canonicalization golden, sit beside it in `dev/` and carry no
-    `RunEvent`.
+    Only replayable journals are declared. `markdown.py`, the generator that
+    writes one of them, sits in the same directory, and the harness's other data
+    files, the static response bodies and the canonicalization golden, sit one
+    level up in `dev/`. None of the three carries a `RunEvent`.
     """
     present = {
         path.name
