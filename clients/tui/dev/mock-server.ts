@@ -152,6 +152,24 @@ function resolveFixture(name: string): string {
   throw new Error(`no fixture found for ${name}`);
 }
 
+/**
+ * Hypotheses for the experiment log, from `<fixture>.experiments.json` beside
+ * the fixture when one exists.
+ *
+ * Recorded journals hold events, not the projected experiment table, and the
+ * header and log render the hypothesis title rather than anything in the event
+ * stream. A sidecar keeps that title pinnable without inventing event types the
+ * backend never emits.
+ */
+function loadExperiments(fixturePath: string): unknown[] {
+  const sidecar = `${fixturePath.replace(/\.gz$/, '').replace(/\.jsonl$/, '')}.experiments.json`;
+  try {
+    return JSON.parse(readFileSync(sidecar, 'utf8')) as unknown[];
+  } catch {
+    return [];
+  }
+}
+
 function loadFixture(path: string): RunEventRecord[] {
   const raw = readFileSync(path);
   const text = path.endsWith('.gz') ? gunzipSync(raw).toString('utf8') : raw.toString('utf8');
@@ -342,6 +360,7 @@ function main(): void {
   const options = parseOptions(process.argv.slice(2));
   options.fixture = resolveFixture(options.fixture);
   const events = loadFixture(options.fixture);
+  const experiments = loadExperiments(options.fixture);
   const replay = new Replay(events, options);
   process.stderr.write(
     `mock: ${String(events.length)} events from ${options.fixture}\n` +
@@ -408,7 +427,10 @@ function main(): void {
           return;
         }
         case 'query.experiments': {
-          writeLine(socket, ok(id, responseBody(type)));
+          writeLine(
+            socket,
+            ok(id, withValues(responseBody(type), {experiments, experiments_ready: true})),
+          );
           return;
         }
         case 'query.events': {

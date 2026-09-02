@@ -30,11 +30,32 @@ import {
 import {agentRuntimeLabel} from './ui/agent-runtime-label.js';
 import {DEFAULT_THEME_NAME, THEME_NAMES, type ThemeName} from './ui/theme.js';
 
+/**
+ * A pause command the operator issued, standing against the backend status
+ * until they issue the other one. `null` is "issued neither", which is not the
+ * same as `resumed`: only `resumed` contradicts a status that reads `paused`.
+ */
+export type PauseOverride = 'paused' | 'resumed' | null;
+
 export interface SessionState {
   /** Pure projection of backend snapshots, events, and execution checkpoints. */
   readonly core: CoreState;
   /** False after the frontend loses a trustworthy backend event stream. */
   eventStreamAvailable: boolean;
+  /**
+   * The operator's last pause or resume command, from its ack, or null while
+   * they have issued neither and the backend status stands unopposed.
+   *
+   * The backend flips its own run status to `paused`, but it never pushes a
+   * status change and the client reads the snapshot only at boot, so the ack is
+   * the only signal available here. Three states rather than a boolean because
+   * `resumed` has to contradict a boot snapshot that already said `paused`,
+   * which "not paused" cannot: a `false` is indistinguishable from having
+   * issued nothing. Still optimistic: it does not survive a reconnect and does
+   * not see a pause this client did not issue. A terminal run status outranks
+   * it either way, in `runStateText`. Authoritative pause state is #515.
+   */
+  pauseOverride: PauseOverride;
   selectedRound: number | null;
   selectedAgentKind: string | null;
   /** Transcript entry the arrow keys are on, so a trace is readable without a mouse. */
@@ -155,6 +176,12 @@ export type ExperimentIndexItem =
 export interface HypothesisScope {
   id: string;
   label: string;
+  /**
+   * The claim on its own, without the `· r1-r2` range `label` carries. The
+   * header shows this: the range duplicates the rounds strip, and spending
+   * header width on it pushed the title itself off the line.
+   */
+  title: string;
   rounds: number[];
   /** A single recorded round not yet associated with a hypothesis. */
   source?: 'hypothesis' | 'round';
@@ -293,6 +320,7 @@ export function initialSessionState(themeName: ThemeName = DEFAULT_THEME_NAME): 
     experimentLog: {entries: [], selectedId: null, pending: true, error: null},
     hypothesisDetail: null,
     hypothesisScope: null,
+    pauseOverride: null,
     layout: {right: null, focus: 'left', zoomedPane: null},
     // Docked until the renderer measures otherwise, so the landing view carries
     // the chat from the first frame rather than after a resize.
@@ -844,6 +872,7 @@ export function enterExperimentRound(
     hypothesisScope: {
       id: entry.hypothesis_id,
       label: hypothesisLabel(entry),
+      title: hypothesisTitle(entry),
       rounds: scopeRounds(entry),
       source: 'hypothesis',
     },
@@ -876,6 +905,7 @@ export function enterUnownedExperimentRound(
     hypothesisScope: {
       id: `round-${roundNumber}`,
       label: `Round ${roundNumber}`,
+      title: `Round ${roundNumber}`,
       rounds: [roundNumber],
       source: 'round',
     },
@@ -907,12 +937,17 @@ export function hypothesisRoundNumbers(entry: HypothesisEntry): number[] {
   return scopeRounds(entry);
 }
 
+/** The claim itself, falling back to its id when the record carries no title. */
+function hypothesisTitle(entry: HypothesisEntry): string {
+  return entry.title ?? entry.hypothesis_id;
+}
+
 function hypothesisLabel(entry: HypothesisEntry): string {
   const range =
     entry.first_round === entry.last_round
       ? `r${entry.first_round}`
       : `r${entry.first_round}-${entry.last_round}`;
-  return `${entry.title ?? entry.hypothesis_id} · ${range}`;
+  return `${hypothesisTitle(entry)} · ${range}`;
 }
 
 export function selectedExperiment(state: SessionState): HypothesisEntry | null {
@@ -1752,21 +1787,17 @@ export function showDetail(
   return {...state, overlay: {kind, content}};
 }
 
-export function statusText(state: SessionState): string {
-  const base = `${state.core.status} · ${state.core.agentKind ?? 'starting'} · ${state.core.roundLabel ?? 'no round yet'}`;
-  if (state.core.usage === null) return base;
-  const used = formatTokenCount(state.core.usage.inputTokens);
-  const meter =
-    state.core.usage.contextWindow === null
-      ? used
-      : `${used}/${formatTokenCount(state.core.usage.contextWindow)}`;
-  return `${base} · ${meter} tokens`;
-}
-
-function formatTokenCount(count: number): string {
-  if (count < 1_000) return String(count);
-  if (count < 1_000_000) return `${Math.floor(count / 1_000)}k`;
-  return `${(count / 1_000_000).toFixed(1)}M`;
+/**
+ * Records a pause or resume command's ack, so the header can say which of the
+ * two the operator asked for.
+ *
+ * A pause is `pending` until the current agent call returns, and both that and
+ * `consumed` mean the request is in force. A resume does not clear the override
+ * back to null: null means "never asked", and only an explicit `resumed` can
+ * override a backend status that already reads `paused`.
+ */
+export function setPauseOverride(state: SessionState, override: PauseOverride): SessionState {
+  return state.pauseOverride === override ? state : {...state, pauseOverride: override};
 }
 
 export function visibleConversation(state: SessionState): ConversationEntry[] {

@@ -78,6 +78,7 @@ import {
   setChatThreadPending,
   setExperiments,
   setPaneContent,
+  setPauseOverride,
   setTheme,
   showDetail,
   showLive,
@@ -903,6 +904,17 @@ export class SocketSessionController implements SessionController {
     }
     try {
       const response = await this.client.request(parsed.request);
+      // The ack is the only pause signal the client gets: the backend tracks
+      // its own paused status but never pushes a status change, and the
+      // snapshot is read once at boot. A resume is recorded as its own state
+      // rather than as the absence of a pause, so it can also override a boot
+      // snapshot that arrived reading `paused`.
+      if (response.ack?.action === 'pause') {
+        this.#setState(setPauseOverride(this.#state, 'paused'));
+      }
+      if (response.ack?.action === 'resume') {
+        this.#setState(setPauseOverride(this.#state, 'resumed'));
+      }
       const rendered = renderResponse(parsed.request, response, parsed.responseView);
       if (rendered !== null) this.#setState(showDetail(this.#state, rendered));
     } catch (error) {

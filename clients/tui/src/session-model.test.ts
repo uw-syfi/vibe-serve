@@ -40,7 +40,6 @@ import {
   setPaneContent,
   setTheme,
   showDetail,
-  statusText,
   togglePaneZoom,
   toggleTodos,
   unownedExperimentRounds,
@@ -49,6 +48,7 @@ import {
   visiblePhases,
   visibleTodos,
 } from './session-model.js';
+import {usageText} from './ui/header.js';
 
 describe('event batch projection', () => {
   it('keeps the existing banner while resumed history ends in a running session', () => {
@@ -1327,9 +1327,9 @@ describe('session event model', () => {
     expect(toggleTodos(toggleTodos(state)).todosExpanded).toBe(false);
   });
 
-  it('feeds usage updates into the status token meter', () => {
+  it('feeds usage updates into the header token meter', () => {
     let state = initialSessionState();
-    expect(statusText(state)).not.toContain('tokens');
+    expect(usageText(state)).toBeNull();
     state = applyEvent(
       state,
       event(1, 'usage_update', {
@@ -1345,7 +1345,7 @@ describe('session event model', () => {
       contextWindow: 1_000_000,
       model: 'claude-sonnet-4-6',
     });
-    expect(statusText(state)).toContain('20k/1.0M tokens');
+    expect(usageText(state)).toBe('20k/1.0M context');
     expect(state.core.transcript).toHaveLength(0);
   });
 
