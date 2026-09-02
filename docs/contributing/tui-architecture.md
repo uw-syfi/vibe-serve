@@ -104,3 +104,7 @@ pnpm build:clients
 Each package also supports its own `check`, `test`, and `build` scripts. Package builds consume only
 public workspace exports. The release build uses the same dependency-aware build chain before pnpm
 deploys the self-contained TUI payload.
+
+To exercise rendering by hand without a backend, a provider, or tokens, replay a recorded run through
+the development harness described in
+[`clients/tui/dev/README.md`](https://github.com/uw-syfi/vibesys/blob/main/clients/tui/dev/README.md).
