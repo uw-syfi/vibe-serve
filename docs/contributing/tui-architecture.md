@@ -120,3 +120,7 @@ The test renderer runs the real renderable tree and Yoga layout, so it reproduce
 deterministically in CI. It does not run a terminal: text is measured in code units, and there is
 no PTY, input, or timing. A pure-function test that computes the expected width itself cannot
 reproduce a layout bug and is not accepted as evidence for one.
+
+To exercise rendering by hand without a backend, a provider, or tokens, replay a recorded run through
+the development harness described in
+[`clients/tui/dev/README.md`](https://github.com/uw-syfi/vibesys/blob/main/clients/tui/dev/README.md).
