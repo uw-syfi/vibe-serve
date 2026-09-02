@@ -44,6 +44,12 @@ const LOG_CHAT_KEY_HELP =
   '↑↓: select · Enter/click: hypothesis · Ctrl+W: chat · F4: zoom · /open-round --N';
 const HYPOTHESIS_KEY_HELP =
   '↑↓: select round · Enter/click: trajectory · PgUp/PgDn: scroll · Esc: hypotheses';
+/** Bezel, one content row, bezel. See the header frame below. */
+const HEADER_FRAME_HEIGHT = 3;
+
+/** Two border cells plus a cell of padding on each side. */
+const HEADER_CHROME = 4;
+
 const SPLIT_KEY_HELP =
   'Ctrl+W: switch pane · F4: zoom focused pane · PgUp/PgDn: scroll · Esc: close pane';
 
@@ -73,12 +79,33 @@ export function createOpenTuiApp(
     flexDirection: 'column',
     backgroundColor: theme.canvas,
   });
+  // The header is a pane, not a caption. Every other region on screen sits in
+  // a bordered box, so a bare line above them reads as floating rather than as
+  // part of the same housing. Three rows: bezel, one content row, bezel. The
+  // border rows are the breathing room, so there is no internal padding and no
+  // blank row beneath: the header's bottom bezel meets the next pane's top one,
+  // and two adjacent rules read as a seam between two objects.
+  //
+  // No background fill. A partial-width fill is what reads as a floating band
+  // in a terminal, and a full-width one has nothing to sit against.
+  const headerFrame = new BoxRenderable(renderer, {
+    id: 'header-frame',
+    width: '100%',
+    height: HEADER_FRAME_HEIGHT,
+    flexDirection: 'column',
+    paddingLeft: 1,
+    paddingRight: 1,
+    border: true,
+    borderStyle: 'rounded',
+    borderColor: theme.border,
+  });
   const header = new TextRenderable(renderer, {
     id: 'header',
     height: 1,
     fg: theme.accent,
     content: 'VibeSys · connecting',
   });
+  headerFrame.add(header);
   const focusTranscript = (): void => {
     controller.focusPane('left');
     controller.focusRound('transcript');
@@ -224,7 +251,7 @@ export function createOpenTuiApp(
   commandColumn.add(commandInput.suggestions);
   commandColumn.add(commandInput.box);
   bottom.add(commandColumn);
-  root.add(header);
+  root.add(headerFrame);
   root.add(errorBanner.output);
   root.add(roundStrip.output);
   body.add(chatPane.output);
@@ -246,6 +273,7 @@ export function createOpenTuiApp(
     markdownStyle = createMarkdownStyle(theme);
     root.backgroundColor = theme.canvas;
     header.fg = theme.accent;
+    headerFrame.borderColor = theme.border;
     transcriptFrame.borderColor = theme.border;
     help.fg = theme.textSubtle;
     roundStrip.applyTheme(theme);
@@ -310,7 +338,7 @@ export function createOpenTuiApp(
         : chatPaneWidth(renderer.terminalWidth, rightWidth)
       : 0;
     const showExperimentLog = showLog && (zoomedPane === null || zoomedPane === 'experiments');
-    header.content = renderHeader(state, showLog, renderer.terminalWidth);
+    header.content = renderHeader(state, showLog, renderer.terminalWidth - HEADER_CHROME);
     errorBanner.render(state);
     // The log carries its own key hints in its footer, so when it shares the
     // row with a pane the global line is the place for the pane's keys.
@@ -361,7 +389,7 @@ export function createOpenTuiApp(
     // actually occupy those rows, so a taller todo strip still fits.
     if (showSplit) {
       const errorHeight = state.errorBanner === null ? 0 : errorBanner.output.height;
-      const top = header.height + errorHeight + (showLog ? 0 : roundStrip.output.height);
+      const top = headerFrame.height + errorHeight + (showLog ? 0 : roundStrip.output.height);
       const below = todoStrip.output.height + help.height + commandInput.box.height;
       chat.setPaneBounds({
         left: 1,
