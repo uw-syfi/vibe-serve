@@ -41,7 +41,7 @@ export class OverlayView {
       borderStyle: 'rounded',
       borderColor: theme.info,
       backgroundColor: theme.elevatedSurface,
-      zIndex: 10,
+      zIndex: 25,
     });
   }
 

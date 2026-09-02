@@ -78,6 +78,8 @@ export interface SessionState {
   themePicker: ThemePicker | null;
   /** Root-level error state, independent of the active transcript or log view. */
   errorBanner: ErrorBannerState | null;
+  /** True from the moment /pause is acknowledged until /resume is acknowledged. */
+  runPaused: boolean;
 }
 
 export type ErrorSeverity = 'recoverable' | 'fatal';
@@ -299,6 +301,7 @@ export function initialSessionState(themeName: ThemeName = DEFAULT_THEME_NAME): 
     chatDockFits: true,
     themePicker: null,
     errorBanner: null,
+    runPaused: false,
   };
 }
 
@@ -1742,7 +1745,8 @@ export function showDetail(
 }
 
 export function statusText(state: SessionState): string {
-  const base = `${state.core.status} · ${state.core.agentKind ?? 'starting'} · ${state.core.roundLabel ?? 'no round yet'}`;
+  const pausePrefix = state.runPaused ? 'paused · ' : '';
+  const base = `${pausePrefix}${state.core.status} · ${state.core.agentKind ?? 'starting'} · ${state.core.roundLabel ?? 'no round yet'}`;
   if (state.core.usage === null) return base;
   const used = formatTokenCount(state.core.usage.inputTokens);
   const meter =

@@ -905,6 +905,11 @@ export class SocketSessionController implements SessionController {
     try {
       const response = await this.client.request(parsed.request);
       const rendered = renderResponse(parsed.request, response, parsed.responseView);
+      if (parsed.request.type === 'command.pause') {
+        this.#setState({...this.#state, runPaused: true});
+      } else if (parsed.request.type === 'command.resume') {
+        this.#setState({...this.#state, runPaused: false});
+      }
       if (rendered !== null) this.#setState(showDetail(this.#state, rendered));
     } catch (error) {
       this.#setState(reportCaughtError(this.#state, error, 'request'));
