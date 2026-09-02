@@ -306,6 +306,11 @@ def _trusted_candidate_records(records: list[RoundRecord], space: MetricSpace) -
             continue
         if not record.commit or not record.passed or not record.reviewed:
             continue
+        if not trusted_perf_provenance(record.perf_provenance):
+            # An implementer self-reported headline metric may keep its commit
+            # as a provisional claim, but it must never seed the archive as a
+            # trusted Pareto parent or dominate later candidates.
+            continue
         if _record_candidate_retained(record) is not True:
             continue
         trusted.append(record)
@@ -3179,13 +3184,15 @@ def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
                     candidate_retained = _provisional_candidate_retained(disposition)
                 elif not passed:
                     candidate_retained = False
-                elif official_evaluation and objectives and accepted_metrics:
+                elif (
+                    official_evaluation and framework_provenance and objectives and accepted_metrics
+                ):
                     candidate_retained = not _pareto_archive_dominators(
                         accepted_metrics,
                         records,
                         space,
                     )
-                elif official_evaluation:
+                elif official_evaluation and framework_provenance:
                     prior_readings = [
                         Measurement(
                             metric=metric_name,
@@ -3202,10 +3209,14 @@ def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
                         space.compare_to_best(official_reading, prior_readings)
                     )
                 else:
+                    # No trusted framework measurement (or an implementer
+                    # self-report): retain provisionally on the implementer's
+                    # disposition, never on the untrusted metric.
                     candidate_retained = _provisional_candidate_retained(disposition)
                 perf_delta_pct = None
                 if (
-                    official_metric is not None
+                    framework_provenance
+                    and official_metric is not None
                     and baseline_metric is not None
                     and baseline_metric != 0
                 ):
