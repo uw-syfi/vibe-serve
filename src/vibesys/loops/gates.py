@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from vibesys.run import LoopContext  # noqa: TC001  # tracked: #288
+from vibesys.run.events import CoreEventType, SubprocessOutputData
 
 # Truncation lengths for gate failure output. All three values are defined
 # here so that the logged window, the agent-feedback window, and the record
@@ -12,7 +13,6 @@ from vibesys.run import LoopContext  # noqa: TC001  # tracked: #288
 GATE_LOG_TAIL_CHARS = 1000
 GATE_FEEDBACK_TAIL_CHARS = 4000
 GATE_RECORD_TAIL_CHARS = 8000
-from vibesys.run.events import CoreEventType, SubprocessOutputData
 
 
 @dataclass(frozen=True)
