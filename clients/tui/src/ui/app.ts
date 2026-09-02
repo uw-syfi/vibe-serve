@@ -441,6 +441,7 @@ export function createOpenTuiApp(
     scrollChatPane: delta => chatPane.scrollBy(delta),
     scrollExperimentDetail: delta => experimentLog.scrollBy(delta),
     scrollErrorBanner: delta => errorBanner.scrollBy(delta),
+    scrollOverlay: delta => overlay.scrollBy(delta),
     clearTransientStatus: () => {
       if (transientStatus === null) return;
       transientStatus = null;

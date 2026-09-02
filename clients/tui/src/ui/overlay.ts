@@ -1,4 +1,4 @@
-import {BoxRenderable, type CliRenderer, TextRenderable} from '@opentui/core';
+import {BoxRenderable, type CliRenderer, ScrollBoxRenderable, TextRenderable} from '@opentui/core';
 import type {SessionState} from '../session-model.js';
 import type {Theme} from './theme.js';
 
@@ -21,6 +21,7 @@ export class OverlayView {
   #theme: Theme;
   #renderedKind: OverlayKind | null = null;
   #renderedContent = '';
+  readonly #scroll: ScrollBoxRenderable;
 
   constructor(
     private readonly renderer: CliRenderer,
@@ -45,6 +46,16 @@ export class OverlayView {
       // submitted from the modal chat has to be visible over it.
       zIndex: 25,
     });
+    this.#scroll = new ScrollBoxRenderable(renderer, {
+      id: 'overlay-scroll',
+      width: '100%',
+      flexGrow: 1,
+    });
+    this.output.add(this.#scroll);
+  }
+
+  scrollBy(delta: number): void {
+    this.#scroll.scrollBy(delta, 'viewport');
   }
 
   applyTheme(theme: Theme): void {
@@ -68,7 +79,8 @@ export class OverlayView {
     this.output.borderColor = borderFor(this.#theme, overlay.kind);
     this.output.title = ` ${TITLE[overlay.kind]} `;
     this.#clear();
-    this.output.add(
+    this.#scroll.scrollTo(0);
+    this.#scroll.add(
       new TextRenderable(this.renderer, {
         content: overlay.content,
         fg:
@@ -80,7 +92,7 @@ export class OverlayView {
     );
     this.output.add(
       new TextRenderable(this.renderer, {
-        content: 'Esc to close',
+        content: 'Esc to close · PgUp/PgDn: scroll',
         fg: this.#theme.textSubtle,
         width: '100%',
       }),
@@ -88,8 +100,8 @@ export class OverlayView {
   }
 
   #clear(): void {
-    for (const child of [...this.output.getChildren()]) {
-      this.output.remove(child);
+    for (const child of [...this.#scroll.getChildren()]) {
+      this.#scroll.remove(child);
       child.destroyRecursively();
     }
   }
