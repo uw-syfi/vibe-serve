@@ -3,18 +3,21 @@ import {
   type CliRenderer,
   ScrollBoxRenderable,
   type SyntaxStyle,
-} from '@opentui/core';
-import type {SessionController} from '../session-controller.js';
+} from "@opentui/core";
+import type { SessionController } from "../session-controller.js";
 import {
   type ConversationEntry,
   chatPaneFocused,
   chatThreadHeading,
   type SessionState,
-} from '../session-model.js';
-import {ChatComposerView, type ChatDraft} from './chat-composer.js';
-import {ConversationView} from './conversation.js';
-import {LOG_CLAIM_PANEL_WIDTH, LOG_COMPACT_PANEL_WIDTH} from './experiment-log.js';
-import type {Theme} from './theme.js';
+} from "../session-model.js";
+import { ChatComposerView, type ChatDraft } from "./chat-composer.js";
+import { ConversationView } from "./conversation.js";
+import {
+  LOG_CLAIM_PANEL_WIDTH,
+  LOG_COMPACT_PANEL_WIDTH,
+} from "./experiment-log.js";
+import type { Theme } from "./theme.js";
 
 /**
  * Columns the chat needs before a question and its answer read as prose rather
@@ -32,8 +35,13 @@ const CHAT_PANE_MAX = 52;
 export const MIN_DOCK_WIDTH = LOG_COMPACT_PANEL_WIDTH + CHAT_PANE_MIN;
 
 /** True when the terminal can carry the chat beside a usable table. */
-export function chatDockFits(terminalWidth: number, rightPaneWidth = 0): boolean {
-  return terminalWidth - rightPaneWidth - CHAT_PANE_MIN >= LOG_COMPACT_PANEL_WIDTH;
+export function chatDockFits(
+  terminalWidth: number,
+  rightPaneWidth = 0,
+): boolean {
+  return (
+    terminalWidth - rightPaneWidth - CHAT_PANE_MIN >= LOG_COMPACT_PANEL_WIDTH
+  );
 }
 
 /**
@@ -42,7 +50,10 @@ export function chatDockFits(terminalWidth: number, rightPaneWidth = 0): boolean
  * to the chat; where there is no such surplus it still takes its readable
  * minimum, and it never takes the table below its compact set.
  */
-export function chatPaneWidth(terminalWidth: number, rightPaneWidth = 0): number {
+export function chatPaneWidth(
+  terminalWidth: number,
+  rightPaneWidth = 0,
+): number {
   const available = terminalWidth - rightPaneWidth;
   const surplus = available - LOG_CLAIM_PANEL_WIDTH;
   const wanted = Math.max(CHAT_PANE_MIN, Math.min(CHAT_PANE_MAX, surplus));
@@ -71,53 +82,60 @@ export class ChatPaneView {
   ) {
     this.#theme = theme;
     this.output = new BoxRenderable(renderer, {
-      id: 'chat-pane',
-      height: '100%',
+      id: "chat-pane",
+      height: "100%",
       flexShrink: 0,
-      flexDirection: 'column',
+      flexDirection: "column",
       paddingLeft: 1,
       paddingRight: 1,
       border: true,
-      borderStyle: 'rounded',
+      borderStyle: "rounded",
       borderColor: theme.border,
-      title: ' Experiment chat ',
+      title: " Experiment chat ",
       visible: false,
-      // Clicking into the chat gives it the keys, the same thing Ctrl+W does.
+      // Clicking into the chat gives it the keys, the same thing pane navigation does.
       // Without this the pane took the click but the focus border stayed on the
       // table, so the operator could not tell where their keys were going.
-      onMouseUp: () => controller.focusPane('chat'),
+      onMouseUp: () => controller.focusPane("chat"),
     });
     this.#scroll = new ScrollBoxRenderable(renderer, {
-      id: 'chat-pane-scroll',
-      width: '100%',
+      id: "chat-pane-scroll",
+      width: "100%",
       flexGrow: 1,
       stickyScroll: true,
-      stickyStart: 'bottom',
+      stickyStart: "bottom",
       viewportCulling: true,
-      verticalScrollbarOptions: {showArrows: false},
+      verticalScrollbarOptions: { showArrows: false },
       // The pointer lands on whatever is innermost, so the outer box's handler
       // never fires for a click on the conversation itself. Both surfaces ask
       // for focus, and the border then agrees with where the keys go.
-      onMouseUp: () => controller.focusPane('chat'),
+      onMouseUp: () => controller.focusPane("chat"),
     });
-    this.#conversation = new ConversationView(renderer, controller, markdownStyle, theme, {
-      selectConversation: state => state.chatConversation,
-      emptyContent: 'Ask about this run: progress, a failure, or what a hypothesis changed.',
-      // Answers are agent-authored markdown; the operator's own messages stay
-      // verbatim so typed ** or # is never concealed as markup. The chat keeps
-      // answering after the run turns terminal, so it never switches to the
-      // finalized parse that would leave a fresh answer blank until a redraw.
-      markdownKinds: ['assistant'],
-      markdownStreaming: true,
-      onFocusRequest: () => controller.focusPane('chat'),
-    });
+    this.#conversation = new ConversationView(
+      renderer,
+      controller,
+      markdownStyle,
+      theme,
+      {
+        selectConversation: (state) => state.chatConversation,
+        emptyContent:
+          "Ask about this run: progress, a failure, or what a hypothesis changed.",
+        // Answers are agent-authored markdown; the operator's own messages stay
+        // verbatim so typed ** or # is never concealed as markup. The chat keeps
+        // answering after the run turns terminal, so it never switches to the
+        // finalized parse that would leave a fresh answer blank until a redraw.
+        markdownKinds: ["assistant"],
+        markdownStreaming: true,
+        onFocusRequest: () => controller.focusPane("chat"),
+      },
+    );
     this.#composer = new ChatComposerView(
       renderer,
       draft,
-      value => void controller.submitChat(value),
+      (value) => void controller.submitChat(value),
       theme,
-      'chat-dock',
-      () => controller.focusPane('chat'),
+      "chat-dock",
+      () => controller.focusPane("chat"),
     );
     this.#scroll.add(this.#conversation.output);
     this.output.add(this.#scroll);
@@ -137,7 +155,7 @@ export class ChatPaneView {
 
   /** Scrolled by Page Up/Page Down while this pane holds focus. */
   scrollBy(delta: number): void {
-    this.#scroll.scrollBy(delta, 'viewport');
+    this.#scroll.scrollBy(delta, "viewport");
   }
 
   isComposerEmpty(): boolean {
@@ -163,7 +181,9 @@ export class ChatPaneView {
     }
     this.output.width = width;
     const focused = chatPaneFocused(state);
-    this.output.borderColor = focused ? this.#theme.borderFocus : this.#theme.border;
+    this.output.borderColor = focused
+      ? this.#theme.borderFocus
+      : this.#theme.border;
     // The column can be as narrow as its minimum, where a spelled-out "focused"
     // costs the title itself: a box with no title reads as nothing at all. The
     // marker is the one the table already uses for the row that has the keys.

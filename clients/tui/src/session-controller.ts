@@ -6,11 +6,11 @@ import {
   ServerError,
   type ServerMessage,
   type SubscribeOptions,
-} from '@vibesys/backend-client';
-import {DEFAULT_CHAT_THREAD_ID} from '@vibesys/core-state';
-import type {StartupTrace} from './boot-trace.js';
-import {helpText, parseChatCommand, parseCommand} from './commands.js';
-import {renderPerformanceCurve} from './performance-chart.js';
+} from "@vibesys/backend-client";
+import { DEFAULT_CHAT_THREAD_ID } from "@vibesys/core-state";
+import type { StartupTrace } from "./boot-trace.js";
+import { helpText, parseChatCommand, parseCommand } from "./commands.js";
+import { renderPerformanceCurve } from "./performance-chart.js";
 import {
   activeChatThreadSettings,
   applyEvent,
@@ -82,8 +82,8 @@ import {
   togglePaneZoom,
   toggleTodos,
   updateChatConversation,
-} from './session-model.js';
-import {DEFAULT_THEME_NAME, type ThemeName} from './ui/theme.js';
+} from "./session-model.js";
+import { DEFAULT_THEME_NAME, type ThemeName } from "./ui/theme.js";
 
 export interface SessionController {
   readonly state: SessionState;
@@ -130,7 +130,7 @@ export interface SessionController {
   closePane(): void;
   closeOverlays(): void;
   dismissErrorBanner(): void;
-  cyclePaneFocus(): void;
+  cyclePaneFocus(direction?: 1 | -1): void;
   focusPane(focus: PaneFocus): void;
   togglePaneZoom(): void;
   setChatDockFits(fits: boolean): void;
@@ -176,7 +176,8 @@ export class SocketSessionController implements SessionController {
   readonly #listeners = new Set<(state: SessionState) => void>();
   #eventSubscription: EventSubscription | null = null;
   #chatMessageId = 0;
-  readonly #chatQueue: Array<{id: string; text: string; threadId: string}> = [];
+  readonly #chatQueue: Array<{ id: string; text: string; threadId: string }> =
+    [];
   #chatDrain: Promise<void> | null = null;
   /** Single-flight guard for semantic experiment-log invalidations. */
   #experimentFetch: Promise<void> | null = null;
@@ -256,10 +257,11 @@ export class SocketSessionController implements SessionController {
 
   async #loadSnapshot(): Promise<void> {
     try {
-      const response = await this.client.request({type: 'query.snapshot'});
-      if (response.snapshot) this.#setState(applySnapshot(this.#state, response.snapshot));
+      const response = await this.client.request({ type: "query.snapshot" });
+      if (response.snapshot)
+        this.#setState(applySnapshot(this.#state, response.snapshot));
     } catch (error) {
-      this.#setState(reportCaughtError(this.#state, error, 'request'));
+      this.#setState(reportCaughtError(this.#state, error, "request"));
     }
   }
 
@@ -274,31 +276,49 @@ export class SocketSessionController implements SessionController {
    * back with `history_after_sequence` 0, which is today's behavior exactly.
    */
   async #openEventStream(): Promise<void> {
-    const onMessage = (message: ServerMessage): void => this.#onMessage(message);
+    const onMessage = (message: ServerMessage): void =>
+      this.#onMessage(message);
     const onDisconnect = (error: Error): void => {
       // A terminal event already carries the actual outcome. The socket
       // closing afterward is lifecycle cleanup, not a second failure that
       // should replace the useful diagnostic in the banner.
       if (!this.#state.core.terminal && !this.#streamProtocolError) {
         this.#setState(
-          reportCaughtError(markEventStreamUnavailable(this.#state), error, 'transport'),
+          reportCaughtError(
+            markEventStreamUnavailable(this.#state),
+            error,
+            "transport",
+          ),
         );
       }
     };
     try {
-      this.#eventSubscription = await this.client.subscribe(0, onMessage, onDisconnect, {
-        tail: BOOTSTRAP_TAIL,
-      });
+      this.#eventSubscription = await this.client.subscribe(
+        0,
+        onMessage,
+        onDisconnect,
+        {
+          tail: BOOTSTRAP_TAIL,
+        },
+      );
       return;
     } catch {
       // Reported only if the full replay fails too: one boot must not put two
       // banners up, and the first failure is expected against an old server.
     }
     try {
-      this.#eventSubscription = await this.client.subscribe(0, onMessage, onDisconnect);
+      this.#eventSubscription = await this.client.subscribe(
+        0,
+        onMessage,
+        onDisconnect,
+      );
     } catch (error) {
       this.#setState(
-        reportCaughtError(markEventStreamUnavailable(this.#state), error, 'transport'),
+        reportCaughtError(
+          markEventStreamUnavailable(this.#state),
+          error,
+          "transport",
+        ),
       );
     }
   }
@@ -312,7 +332,8 @@ export class SocketSessionController implements SessionController {
    * fetch the same range twice and fold it twice.
    */
   loadOlderHistory(): Promise<boolean> {
-    if (this.#state.core.historyAfterSequence === 0) return Promise.resolve(false);
+    if (this.#state.core.historyAfterSequence === 0)
+      return Promise.resolve(false);
     if (this.#historyFetch !== null) return this.#historyFetch;
     const fetch = this.#requestOlderHistory().finally(() => {
       this.#historyFetch = null;
@@ -326,7 +347,7 @@ export class SocketSessionController implements SessionController {
     const nextFloor = Math.max(0, floor - BACKFILL_CHUNK);
     try {
       const response = await this.client.request({
-        type: 'query.events',
+        type: "query.events",
         after_sequence: nextFloor,
         // Every folded event has `sequence > floor`, so the range has to
         // include the floor itself and stops one above it.
@@ -335,14 +356,22 @@ export class SocketSessionController implements SessionController {
       // Spine events replayed with the tail fall inside this range; folding
       // them a second time would duplicate their transcript entries.
       const events = (response.events ?? []).filter(
-        event => event.sequence === undefined || !this.#foldedBelowFloor.has(event.sequence),
+        (event) =>
+          event.sequence === undefined ||
+          !this.#foldedBelowFloor.has(event.sequence),
       );
-      this.#setState(applyEventPrefix(this.#state, events, this.#lowerHistoryFloor(nextFloor)));
+      this.#setState(
+        applyEventPrefix(
+          this.#state,
+          events,
+          this.#lowerHistoryFloor(nextFloor),
+        ),
+      );
       return true;
     } catch (error) {
       // The floor stays where it was, so the same range is retried the next
       // time the reader asks for it.
-      this.#setState(reportCaughtError(this.#state, error, 'request'));
+      this.#setState(reportCaughtError(this.#state, error, "request"));
       return false;
     }
   }
@@ -450,7 +479,7 @@ export class SocketSessionController implements SessionController {
   }
 
   closeChat(): void {
-    this.#setState({...this.#state, chatOpen: false});
+    this.#setState({ ...this.#state, chatOpen: false });
   }
 
   switchChatThread(threadId: string): void {
@@ -464,16 +493,25 @@ export class SocketSessionController implements SessionController {
   async openChatModelMenu(): Promise<void> {
     this.#setState(openChatModelMenu(this.#state));
     try {
-      const response = await this.client.request({type: 'query.chat_options'});
+      const response = await this.client.request({
+        type: "query.chat_options",
+      });
       const options = response.chat_options;
       this.#setState(
         options === null || options === undefined
-          ? failChatMenu(this.#state, 'This run has not reported its chat options yet.')
+          ? failChatMenu(
+              this.#state,
+              "This run has not reported its chat options yet.",
+            )
           : setChatModelMenuOptions(this.#state, options),
       );
     } catch (error) {
       this.#setState(
-        reportCaughtError(failChatMenu(this.#state, errorMessage(error)), error, 'request'),
+        reportCaughtError(
+          failChatMenu(this.#state, errorMessage(error)),
+          error,
+          "request",
+        ),
       );
     }
   }
@@ -495,17 +533,20 @@ export class SocketSessionController implements SessionController {
   async confirmChatMenu(): Promise<void> {
     const row = selectedChatMenuRow(this.#state);
     if (row === null) return;
-    if (row.kind === 'thread') {
+    if (row.kind === "thread") {
       this.switchChatThread(row.threadId);
       return;
     }
-    if (row.kind !== 'model' && row.kind !== 'custom') return;
-    const model = row.kind === 'custom' ? chatMenuCustomModel(this.#state).trim() : row.model;
+    if (row.kind !== "model" && row.kind !== "custom") return;
+    const model =
+      row.kind === "custom"
+        ? chatMenuCustomModel(this.#state).trim()
+        : row.model;
     // A custom entry with nothing typed is not a choice yet; the menu stays
     // open rather than silently starting a thread on the run's default.
-    if (model === '') return;
+    if (model === "") return;
     this.#setState(closeChatMenu(this.#state));
-    await this.#createChatThread({provider: row.provider, model});
+    await this.#createChatThread({ provider: row.provider, model });
   }
 
   closeChatMenu(): void {
@@ -513,12 +554,20 @@ export class SocketSessionController implements SessionController {
   }
 
   typeChatMenuCustomModel(text: string): void {
-    this.#setState(setChatMenuCustomModel(this.#state, chatMenuCustomModel(this.#state) + text));
+    this.#setState(
+      setChatMenuCustomModel(
+        this.#state,
+        chatMenuCustomModel(this.#state) + text,
+      ),
+    );
   }
 
   backspaceChatMenuCustomModel(): void {
     this.#setState(
-      setChatMenuCustomModel(this.#state, chatMenuCustomModel(this.#state).slice(0, -1)),
+      setChatMenuCustomModel(
+        this.#state,
+        chatMenuCustomModel(this.#state).slice(0, -1),
+      ),
     );
   }
 
@@ -530,15 +579,20 @@ export class SocketSessionController implements SessionController {
   async #createChatThread(settings: ChatThreadSettings | null): Promise<void> {
     try {
       const response = await this.client.request({
-        type: 'query.chat_thread_create',
-        ...(settings === null ? {} : {provider: settings.provider, model: settings.model}),
+        type: "query.chat_thread_create",
+        ...(settings === null
+          ? {}
+          : { provider: settings.provider, model: settings.model }),
       });
       let state = closeChatMenu(this.#state);
-      for (const event of response.events ?? []) state = applyEvent(state, event);
+      for (const event of response.events ?? [])
+        state = applyEvent(state, event);
       const threadId = response.chat_thread?.thread_id;
-      this.#setState(threadId === undefined ? state : switchChatThread(state, threadId));
+      this.#setState(
+        threadId === undefined ? state : switchChatThread(state, threadId),
+      );
     } catch (error) {
-      this.#setState(reportCaughtError(this.#state, error, 'request'));
+      this.#setState(reportCaughtError(this.#state, error, "request"));
     }
   }
 
@@ -575,7 +629,10 @@ export class SocketSessionController implements SessionController {
         ? enterExperimentDrilldown(firstStep)
         : firstStep;
     return opened === this.#state
-      ? showDetail(this.#state, 'Select a hypothesis first, or use /open-round --N.')
+      ? showDetail(
+          this.#state,
+          "Select a hypothesis first, or use /open-round --N.",
+        )
       : opened;
   }
 
@@ -596,8 +653,8 @@ export class SocketSessionController implements SessionController {
     this.#setState(dismissErrorBanner(this.#state));
   }
 
-  cyclePaneFocus(): void {
-    this.#setState(cyclePaneFocus(this.#state));
+  cyclePaneFocus(direction: 1 | -1 = 1): void {
+    this.#setState(cyclePaneFocus(this.#state, direction));
   }
 
   focusPane(focus: PaneFocus): void {
@@ -632,7 +689,7 @@ export class SocketSessionController implements SessionController {
 
   async #requestPane(view: PaneView): Promise<void> {
     try {
-      const response = await this.client.request({type: 'query.performance'});
+      const response = await this.client.request({ type: "query.performance" });
       const content = renderPerformanceCurve(
         response.performance ?? [],
         response.events ?? [],
@@ -641,7 +698,13 @@ export class SocketSessionController implements SessionController {
       this.#setState(setPaneContent(this.#state, view, content));
     } catch (error) {
       const message = errorMessage(error);
-      this.#setState(reportCaughtError(failPane(this.#state, view, message), error, 'request'));
+      this.#setState(
+        reportCaughtError(
+          failPane(this.#state, view, message),
+          error,
+          "request",
+        ),
+      );
     }
   }
 
@@ -653,10 +716,10 @@ export class SocketSessionController implements SessionController {
     const right = this.#state.layout.right;
     if (right === null) return;
     const relevant = events.some(
-      event =>
-        event.type === 'round_finished' ||
-        event.type === 'benchmark_result' ||
-        event.data?.kind === 'benchmark_result',
+      (event) =>
+        event.type === "round_finished" ||
+        event.type === "benchmark_result" ||
+        event.data?.kind === "benchmark_result",
     );
     if (relevant) void this.#loadPane(right.view);
   }
@@ -705,22 +768,31 @@ export class SocketSessionController implements SessionController {
 
   async #requestExperiments(): Promise<void> {
     try {
-      const response = await this.client.request({type: 'query.experiments'});
+      const response = await this.client.request({ type: "query.experiments" });
       if (response.experiments_ready === false) return;
       const entries = response.experiments ?? [];
       this.#setState(setExperiments(this.#state, entries));
       this.#traceExperimentsLoaded(entries.length);
     } catch (error) {
       const message = errorMessage(error);
-      this.#setState(reportCaughtError(failExperiments(this.#state, message), error, 'request'));
+      this.#setState(
+        reportCaughtError(
+          failExperiments(this.#state, message),
+          error,
+          "request",
+        ),
+      );
     }
   }
 
   /** Reports the first delivery only: later refreshes are not a boot cost. */
   #traceExperimentsLoaded(entryCount: number): void {
-    if (this.#experimentsLoadTraced || this.#experimentsRequestedAt === null) return;
+    if (this.#experimentsLoadTraced || this.#experimentsRequestedAt === null)
+      return;
     this.#experimentsLoadTraced = true;
-    const elapsed = Math.round(performance.now() - this.#experimentsRequestedAt);
+    const elapsed = Math.round(
+      performance.now() - this.#experimentsRequestedAt,
+    );
     this.trace(`experiments loaded in ${elapsed}ms (${entryCount} entries)`);
   }
 
@@ -732,11 +804,11 @@ export class SocketSessionController implements SessionController {
    */
   submitChat(value: string): Promise<void> {
     const text = value.trim();
-    if (!text.startsWith('/')) return this.sendChat(value);
+    if (!text.startsWith("/")) return this.sendChat(value);
     const parsed = parseChatCommand(text);
-    if (parsed.command === 'clear') return this.clearChatThread();
-    if (parsed.command === 'model') return this.openChatModelMenu();
-    if (parsed.command === 'resume') {
+    if (parsed.command === "clear") return this.clearChatThread();
+    if (parsed.command === "model") return this.openChatModelMenu();
+    if (parsed.command === "resume") {
       this.openChatResumeMenu();
       return Promise.resolve();
     }
@@ -744,15 +816,19 @@ export class SocketSessionController implements SessionController {
     // Unknown slash input answers with the chat's own help rather than
     // falling through to a global "unknown command" error.
     this.#setState(
-      updateChatConversation(this.#state, this.#state.activeChatThreadId, entries => [
-        ...entries,
-        {
-          id: `chat-help-${++this.#chatMessageId}`,
-          kind: 'status',
-          label: 'Chat commands',
-          content: parsed.help ?? '',
-        },
-      ]),
+      updateChatConversation(
+        this.#state,
+        this.#state.activeChatThreadId,
+        (entries) => [
+          ...entries,
+          {
+            id: `chat-help-${++this.#chatMessageId}`,
+            kind: "status",
+            label: "Chat commands",
+            content: parsed.help ?? "",
+          },
+        ],
+      ),
     );
     return Promise.resolve();
   }
@@ -765,19 +841,24 @@ export class SocketSessionController implements SessionController {
     // the operator switches threads before the agent gets to it.
     const threadId = this.#state.activeChatThreadId;
     const queued = this.#state.chatPending || this.#chatQueue.length > 0;
-    this.#chatQueue.push({id, text, threadId});
+    this.#chatQueue.push({ id, text, threadId });
     this.#setState(
       updateChatConversation(
         {
           ...this.#state,
           // Docked, the answer lands in the pane the operator is already
           // looking at, so nothing has to open over the log to show it.
-          ...(chatDocked(this.#state) ? {} : {chatOpen: true}),
+          ...(chatDocked(this.#state) ? {} : { chatOpen: true }),
         },
         threadId,
-        entries => [
+        (entries) => [
           ...entries,
-          {id, kind: 'user', label: queued ? 'You · queued' : 'You', content: text},
+          {
+            id,
+            kind: "user",
+            label: queued ? "You · queued" : "You",
+            content: text,
+          },
         ],
       ),
     );
@@ -797,21 +878,28 @@ export class SocketSessionController implements SessionController {
         // One request per thread: batching across threads would hand one
         // agent another thread's question.
         const threadId = this.#chatQueue[0]?.threadId ?? DEFAULT_CHAT_THREAD_ID;
-        const messages = this.#chatQueue.filter(message => message.threadId === threadId);
+        const messages = this.#chatQueue.filter(
+          (message) => message.threadId === threadId,
+        );
         for (const message of messages) {
           this.#chatQueue.splice(this.#chatQueue.indexOf(message), 1);
         }
-        const messageIds = new Set(messages.map(message => message.id));
+        const messageIds = new Set(messages.map((message) => message.id));
         pendingThreads.add(threadId);
         this.#setState(
           updateChatConversation(
             setChatThreadPending(this.#state, threadId, true),
             threadId,
-            entries =>
-              entries.map(entry => (messageIds.has(entry.id) ? {...entry, label: 'You'} : entry)),
+            (entries) =>
+              entries.map((entry) =>
+                messageIds.has(entry.id) ? { ...entry, label: "You" } : entry,
+              ),
           ),
         );
-        await this.#requestChat(messages.map(message => message.text).join('\n\n'), threadId);
+        await this.#requestChat(
+          messages.map((message) => message.text).join("\n\n"),
+          threadId,
+        );
         pendingThreads.delete(threadId);
         this.#setState(setChatThreadPending(this.#state, threadId, false));
       }
@@ -827,20 +915,23 @@ export class SocketSessionController implements SessionController {
   async #requestChat(text: string, threadId: string): Promise<void> {
     try {
       const response = await this.client.request({
-        type: 'query.chat',
+        type: "query.chat",
         text,
-        ...(threadId === DEFAULT_CHAT_THREAD_ID ? {} : {thread_id: threadId}),
+        ...(threadId === DEFAULT_CHAT_THREAD_ID ? {} : { thread_id: threadId }),
       });
-      const answer = response.chat?.answer ?? 'No chat answer was returned.';
+      const answer = response.chat?.answer ?? "No chat answer was returned.";
       let state = this.#state;
-      for (const event of response.events ?? []) state = applyEvent(state, event);
-      if (!(response.events ?? []).some(event => event.data?.kind === 'chat')) {
-        state = updateChatConversation(state, threadId, entries => [
+      for (const event of response.events ?? [])
+        state = applyEvent(state, event);
+      if (
+        !(response.events ?? []).some((event) => event.data?.kind === "chat")
+      ) {
+        state = updateChatConversation(state, threadId, (entries) => [
           ...entries,
           {
             id: `chat-answer-${++this.#chatMessageId}`,
-            kind: 'assistant',
-            label: 'Answer',
+            kind: "assistant",
+            label: "Answer",
             content: answer,
           },
         ]);
@@ -850,15 +941,15 @@ export class SocketSessionController implements SessionController {
       const message = errorMessage(error);
       this.#setState(
         updateChatConversation(
-          reportCaughtError(this.#state, error, 'request'),
+          reportCaughtError(this.#state, error, "request"),
           threadId,
-          entries => [
+          (entries) => [
             ...entries,
             {
               id: `chat-error-${++this.#chatMessageId}`,
-              kind: 'result',
-              label: 'Chat failed',
-              tone: 'failure',
+              kind: "result",
+              label: "Chat failed",
+              tone: "failure",
               content: message,
             },
           ],
@@ -870,22 +961,28 @@ export class SocketSessionController implements SessionController {
   async submitCommand(value: string): Promise<void> {
     const parsed = parseCommand(value.trim());
     if (parsed.error)
-      return this.#setState(reportError(this.#state, parsed.error, {scope: 'input'}));
-    if (parsed.localView === 'help') {
       return this.#setState(
-        showDetail(this.#state, helpText({chatDocked: chatPaneVisible(this.#state)}), 'help'),
+        reportError(this.#state, parsed.error, { scope: "input" }),
+      );
+    if (parsed.localView === "help") {
+      return this.#setState(
+        showDetail(
+          this.#state,
+          helpText({ chatDocked: chatPaneVisible(this.#state) }),
+          "help",
+        ),
       );
     }
-    if (parsed.localView === 'chat') {
+    if (parsed.localView === "chat") {
       this.#setState(openChat(this.#state));
       if (parsed.chatMessage) await this.sendChat(parsed.chatMessage);
       return;
     }
-    if (parsed.toggle === 'todos') {
+    if (parsed.toggle === "todos") {
       this.toggleTodos();
       return;
     }
-    if (parsed.toggle === 'prompt') {
+    if (parsed.toggle === "prompt") {
       this.togglePrompt();
       return;
     }
@@ -893,7 +990,7 @@ export class SocketSessionController implements SessionController {
       this.openRound(parsed.openRound.round);
       return;
     }
-    if (parsed.localView === 'theme') {
+    if (parsed.localView === "theme") {
       if (parsed.themeName === undefined) return this.openThemePicker();
       return this.setTheme(parsed.themeName);
     }
@@ -904,22 +1001,27 @@ export class SocketSessionController implements SessionController {
     }
     try {
       const response = await this.client.request(parsed.request);
-      const rendered = renderResponse(parsed.request, response, parsed.responseView);
+      const rendered = renderResponse(
+        parsed.request,
+        response,
+        parsed.responseView,
+      );
       if (rendered !== null) this.#setState(showDetail(this.#state, rendered));
     } catch (error) {
-      this.#setState(reportCaughtError(this.#state, error, 'request'));
+      this.#setState(reportCaughtError(this.#state, error, "request"));
     }
   }
 
   #onMessage(message: ServerMessage): void {
-    if (message.type === 'event') {
+    if (message.type === "event") {
       this.#setState(applyEvent(this.#state, message.event));
       this.#refreshExperimentsFor([message.event]);
       this.#refreshPaneFor([message.event]);
     }
-    if (message.type === 'event_batch') {
+    if (message.type === "event_batch") {
       const declared = message.history_after_sequence ?? 0;
-      const rebootstrap = this.#declaredFloor !== null && declared > this.#declaredFloor;
+      const rebootstrap =
+        this.#declaredFloor !== null && declared > this.#declaredFloor;
       this.#declaredFloor = declared;
       const floor = rebootstrap
         ? this.#raiseHistoryFloor(declared)
@@ -938,11 +1040,11 @@ export class SocketSessionController implements SessionController {
       this.#refreshExperimentsFor(message.events);
       this.#refreshPaneFor(message.events);
     }
-    if (message.type === 'protocol_error') {
+    if (message.type === "protocol_error") {
       this.#streamProtocolError = true;
       this.#setState(
         reportError(markEventStreamUnavailable(this.#state), message.message, {
-          scope: 'protocol',
+          scope: "protocol",
           diagnostic: message.diagnostic ?? null,
         }),
       );
@@ -978,9 +1080,12 @@ export class SocketSessionController implements SessionController {
   }
 
   /** Remembers the events a batch delivered from below its own history floor. */
-  #recordSpine(events: readonly RunEvent[], historyAfterSequence: number): void {
+  #recordSpine(
+    events: readonly RunEvent[],
+    historyAfterSequence: number,
+  ): void {
     if (historyAfterSequence === 0) return;
-    for (const {sequence} of events) {
+    for (const { sequence } of events) {
       // An unsequenced event cannot be recognized in a later chunk anyway.
       if (sequence !== undefined && sequence <= historyAfterSequence) {
         this.#foldedBelowFloor.add(sequence);
@@ -995,7 +1100,9 @@ export class SocketSessionController implements SessionController {
    */
   #refreshExperimentsFor(events: readonly RunEvent[]): void {
     if (this.#state.experimentLog === null) return;
-    const relevant = events.some(event => event.type === 'experiments_changed');
+    const relevant = events.some(
+      (event) => event.type === "experiments_changed",
+    );
     if (!relevant) return;
     if (this.#experimentFetch !== null) this.#experimentRefreshPending = true;
     void this.#loadExperiments();
@@ -1013,7 +1120,7 @@ export class SocketSessionController implements SessionController {
 function reportCaughtError(
   state: SessionState,
   error: unknown,
-  scope: 'request' | 'transport',
+  scope: "request" | "transport",
 ): SessionState {
   return reportError(state, errorMessage(error), {
     scope,
@@ -1028,10 +1135,10 @@ function errorMessage(error: unknown): string {
 function renderResponse(
   request: RequestInput,
   response: ProtocolResponse,
-  responseView?: 'perf',
+  responseView?: "perf",
 ): string | null {
   if (response.ack) return `${response.ack.action}: ${response.ack.status}`;
-  if (request.type === 'query.performance' || responseView === 'perf') {
+  if (request.type === "query.performance" || responseView === "perf") {
     return renderPerformanceCurve(
       response.performance ?? [],
       response.events ?? [],

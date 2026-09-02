@@ -1,5 +1,10 @@
-import {BoxRenderable, type CliRenderer, ScrollBoxRenderable, TextRenderable} from '@opentui/core';
-import type {SessionController} from '../session-controller.js';
+import {
+  BoxRenderable,
+  type CliRenderer,
+  ScrollBoxRenderable,
+  TextRenderable,
+} from "@opentui/core";
+import type { SessionController } from "../session-controller.js";
 import {
   experimentLogVisible,
   focusedPane,
@@ -7,45 +12,46 @@ import {
   statusText,
   stripRounds,
   visibleRoundNumber,
-} from '../session-model.js';
-import {ActivityBarView} from './activity-bar.js';
-import {AgentMapView} from './agent-map.js';
-import {createChatDraft} from './chat-composer.js';
-import {ChatOverlayView} from './chat-overlay.js';
-import {ChatPaneView, chatDockFits, chatPaneWidth} from './chat-pane.js';
-import {RendererSelectionClipboard, type SelectionClipboard} from './clipboard.js';
-import {createCommandInputPanel} from './command-input.js';
-import {ConversationView} from './conversation.js';
-import {ErrorBannerView} from './error-banner.js';
-import {ExperimentLogView} from './experiment-log.js';
-import {bindKeybindings} from './keybindings.js';
-import {OverlayView} from './overlay.js';
-import {RightPaneView, rightPaneWidth, splitFits} from './right-pane.js';
-import {RoundStripView} from './round-strip.js';
-import {createMarkdownStyle} from './styles.js';
-import {resolveTheme, type ThemeName} from './theme.js';
-import {ThemePickerView} from './theme-picker.js';
-import {TodoStripView, todoStripWidth} from './todo-strip.js';
+} from "../session-model.js";
+import { ActivityBarView } from "./activity-bar.js";
+import { AgentMapView } from "./agent-map.js";
+import { createChatDraft } from "./chat-composer.js";
+import { ChatOverlayView } from "./chat-overlay.js";
+import { ChatPaneView, chatDockFits, chatPaneWidth } from "./chat-pane.js";
+import {
+  RendererSelectionClipboard,
+  type SelectionClipboard,
+} from "./clipboard.js";
+import { createCommandInputPanel } from "./command-input.js";
+import { ConversationView } from "./conversation.js";
+import { ErrorBannerView } from "./error-banner.js";
+import { ExperimentLogView } from "./experiment-log.js";
+import { bindKeybindings } from "./keybindings.js";
+import { DEFAULT_KEYMAP, keyChordLabel } from "./keymap.js";
+import { OverlayView } from "./overlay.js";
+import { RightPaneView, rightPaneWidth, splitFits } from "./right-pane.js";
+import { RoundStripView } from "./round-strip.js";
+import { createMarkdownStyle } from "./styles.js";
+import { resolveTheme, type ThemeName } from "./theme.js";
+import { ThemePickerView } from "./theme-picker.js";
+import { TodoStripView, todoStripWidth } from "./todo-strip.js";
 
 export interface OpenTuiApp {
   destroy(): void;
 }
 
 /** Which of the client's editors currently holds the cursor. */
-type FocusTarget = 'command' | 'chat' | 'modal';
+type FocusTarget = "command" | "chat" | "modal";
 
-const KEY_HELP =
-  '[/]: round · ←→: pane · ↑↓/Tab: within it · F4: zoom · /todos · /prompt · Ctrl+L: live';
-const SCOPED_KEY_HELP =
-  '[/]: round · ←→: pane · ↑↓/Tab: within it · F4: zoom · /todos · /prompt · Esc: back';
+const PANE_KEYS = `${keyChordLabel(DEFAULT_KEYMAP.paneNext[0]!)} / ${keyChordLabel(DEFAULT_KEYMAP.panePrevious[0]!)}`;
+const KEY_HELP = `[/]: round · ${PANE_KEYS}: pane · ↑↓: within it · F4: zoom · /todos · /prompt · Ctrl+L: live`;
+const SCOPED_KEY_HELP = `[/]: round · ${PANE_KEYS}: pane · ↑↓: within it · F4: zoom · /todos · /prompt · Esc: back`;
 const LOG_KEY_HELP =
-  '↑↓ or scroll: select · Enter/click: open hypothesis · F4: zoom · /open-round --N';
-const LOG_CHAT_KEY_HELP =
-  '↑↓: select · Enter/click: hypothesis · Ctrl+W: chat · F4: zoom · /open-round --N';
+  "↑↓ or scroll: select · Enter/click: open hypothesis · F4: zoom · /open-round --N";
+const LOG_CHAT_KEY_HELP = `↑↓: select · Enter/click: hypothesis · ${PANE_KEYS}: pane · F4: zoom · /open-round --N`;
 const HYPOTHESIS_KEY_HELP =
-  '↑↓: select round · Enter/click: trajectory · PgUp/PgDn: scroll · Esc: hypotheses';
-const SPLIT_KEY_HELP =
-  'Ctrl+W: switch pane · F4: zoom focused pane · PgUp/PgDn: scroll · Esc: close pane';
+  "↑↓: select round · Enter/click: trajectory · PgUp/PgDn: scroll · Esc: hypotheses";
+const SPLIT_KEY_HELP = `${PANE_KEYS}: switch pane · F4: zoom focused pane · PgUp/PgDn: scroll · Esc: close pane`;
 
 /**
  * A round the run has not reached has no turns and never will until it runs.
@@ -53,10 +59,11 @@ const SPLIT_KEY_HELP =
  */
 function emptyTranscriptMessage(state: SessionState): string {
   const roundNumber = visibleRoundNumber(state);
-  if (roundNumber === null) return 'Waiting for run events…';
-  const round = stripRounds(state).find(item => item.number === roundNumber);
-  if (round?.status === 'planned') return `Round ${roundNumber} has not run yet.`;
-  return 'Waiting for run events…';
+  if (roundNumber === null) return "Waiting for run events…";
+  const round = stripRounds(state).find((item) => item.number === roundNumber);
+  if (round?.status === "planned")
+    return `Round ${roundNumber} has not run yet.`;
+  return "Waiting for run events…";
 }
 
 export function createOpenTuiApp(
@@ -67,66 +74,66 @@ export function createOpenTuiApp(
   let themeName: ThemeName = controller.state.themeName;
   let theme = resolveTheme(themeName);
   const root = new BoxRenderable(renderer, {
-    id: 'app',
-    width: '100%',
-    height: '100%',
-    flexDirection: 'column',
+    id: "app",
+    width: "100%",
+    height: "100%",
+    flexDirection: "column",
     backgroundColor: theme.canvas,
   });
   const header = new TextRenderable(renderer, {
-    id: 'header',
+    id: "header",
     height: 1,
     fg: theme.accent,
-    content: 'VibeSys · connecting',
+    content: "VibeSys · connecting",
   });
   const focusTranscript = (): void => {
-    controller.focusPane('left');
-    controller.focusRound('transcript');
+    controller.focusPane("left");
+    controller.focusRound("transcript");
   };
   const transcriptFrame = new BoxRenderable(renderer, {
-    id: 'viewport',
-    width: 'auto',
+    id: "viewport",
+    width: "auto",
     flexGrow: 1,
-    flexDirection: 'column',
+    flexDirection: "column",
     paddingLeft: 1,
     paddingRight: 1,
     border: true,
-    borderStyle: 'rounded',
+    borderStyle: "rounded",
     borderColor: theme.border,
     onMouseUp: focusTranscript,
   });
   const viewport = new ScrollBoxRenderable(renderer, {
-    id: 'transcript-scroll',
-    width: '100%',
+    id: "transcript-scroll",
+    width: "100%",
     flexGrow: 1,
     stickyScroll: true,
-    stickyStart: 'bottom',
+    stickyStart: "bottom",
     viewportCulling: true,
-    verticalScrollbarOptions: {showArrows: true},
+    verticalScrollbarOptions: { showArrows: true },
     onMouseUp: focusTranscript,
   });
   const main = new BoxRenderable(renderer, {
-    id: 'main',
-    width: '100%',
+    id: "main",
+    width: "100%",
     flexGrow: 1,
-    flexDirection: 'row',
+    flexDirection: "row",
   });
   // The chat is a sibling of the entire workspace column, not just its
   // transcript row. Its composer therefore remains inside the chat border and
   // the pane spans the same height as the table plus command surface.
   const body = new BoxRenderable(renderer, {
-    id: 'body',
-    width: '100%',
+    id: "body",
+    width: "100%",
     flexGrow: 1,
-    flexDirection: 'row',
+    flexDirection: "row",
   });
   const workspace = new BoxRenderable(renderer, {
-    id: 'workspace',
+    id: "workspace",
     flexGrow: 1,
-    flexDirection: 'column',
+    flexDirection: "column",
   });
   const help = new TextRenderable(renderer, {
-    id: 'key-help',
+    id: "key-help",
     height: 1,
     fg: theme.textSubtle,
     content: KEY_HELP,
@@ -136,12 +143,20 @@ export function createOpenTuiApp(
   let markdownStyle = createMarkdownStyle(theme);
   const roundStrip = new RoundStripView(renderer, controller, theme);
   const todoStrip = new TodoStripView(renderer, controller, theme);
-  const errorBanner = new ErrorBannerView(renderer, theme, () => controller.dismissErrorBanner());
+  const errorBanner = new ErrorBannerView(renderer, theme, () =>
+    controller.dismissErrorBanner(),
+  );
   const agentMap = new AgentMapView(renderer, controller, theme);
-  const conversationActivityBar = new ActivityBarView(renderer, theme, 'conversation-activity-bar');
+  const conversationActivityBar = new ActivityBarView(
+    renderer,
+    theme,
+    "conversation-activity-bar",
+  );
   const overlay = new OverlayView(renderer, theme);
   const experimentLog = new ExperimentLogView(renderer, controller, theme);
-  const rightPane = new RightPaneView(renderer, theme, () => controller.focusPane('right'));
+  const rightPane = new RightPaneView(renderer, theme, () =>
+    controller.focusPane("right"),
+  );
   const themePicker = new ThemePickerView(renderer, theme);
   // Scrolling back past the rendered window materializes the next block of
   // history. The viewport owns scroll position, so it absorbs the height the
@@ -174,8 +189,20 @@ export function createOpenTuiApp(
     },
   );
   const chatDraft = createChatDraft();
-  const chat = new ChatOverlayView(renderer, controller, markdownStyle, theme, chatDraft);
-  const chatPane = new ChatPaneView(renderer, controller, markdownStyle, theme, chatDraft);
+  const chat = new ChatOverlayView(
+    renderer,
+    controller,
+    markdownStyle,
+    theme,
+    chatDraft,
+  );
+  const chatPane = new ChatPaneView(
+    renderer,
+    controller,
+    markdownStyle,
+    theme,
+    chatDraft,
+  );
   // Composer drafts are per-thread. The shared ChatDraft stays the single
   // authority both chat surfaces read; switching threads swaps its content
   // and parks the outgoing thread's half-typed question for its return.
@@ -185,22 +212,22 @@ export function createOpenTuiApp(
   // and the cursor never disagree about which surface is taking keystrokes.
   const commandInput = createCommandInputPanel(
     renderer,
-    value => void controller.submitCommand(value),
+    (value) => void controller.submitCommand(value),
     theme,
-    () => controller.focusPane('left'),
+    () => controller.focusPane("left"),
   );
   const bottom = new BoxRenderable(renderer, {
-    id: 'bottom',
-    width: '100%',
+    id: "bottom",
+    width: "100%",
     flexShrink: 0,
-    flexDirection: 'column',
-    alignItems: 'stretch',
+    flexDirection: "column",
+    alignItems: "stretch",
   });
   const commandColumn = new BoxRenderable(renderer, {
-    id: 'command-column',
+    id: "command-column",
     flexGrow: 1,
     flexShrink: 0,
-    flexDirection: 'column',
+    flexDirection: "column",
   });
 
   // A slash command and a key toggle the same prompt: the controller routes the
@@ -264,17 +291,18 @@ export function createOpenTuiApp(
     return () => previousMarkdownStyle.destroy();
   };
 
-  let focusTarget: FocusTarget = 'command';
+  let focusTarget: FocusTarget = "command";
   let lastState: SessionState = controller.state;
   const render = (state: SessionState): void => {
     lastState = state;
     const previewName = state.themePicker?.selected ?? state.themeName;
-    const releasePreviousStyle = previewName === themeName ? undefined : applyTheme(previewName);
+    const releasePreviousStyle =
+      previewName === themeName ? undefined : applyTheme(previewName);
     if (state.activeChatThreadId !== draftThreadId) {
       // Park the outgoing thread's draft and restore the incoming thread's,
       // so switching never sends one thread's question to another's agent.
       parkedDrafts.set(draftThreadId, chatDraft.value);
-      chatDraft.value = parkedDrafts.get(state.activeChatThreadId) ?? '';
+      chatDraft.value = parkedDrafts.get(state.activeChatThreadId) ?? "";
       draftThreadId = state.activeChatThreadId;
     }
     const showLog = experimentLogVisible(state);
@@ -284,13 +312,18 @@ export function createOpenTuiApp(
     // than that, a visualization keeps the modal it had before the split
     // existed rather than squeezing two unreadable columns onto the screen.
     const splitOpen = state.layout.right !== null;
-    const showSplit = zoomedPane === null && splitOpen && splitFits(renderer.terminalWidth);
-    const showRightPane = zoomedPane === 'performance' || (zoomedPane === null && showSplit);
-    const paneFallback = zoomedPane === null && splitOpen && !showSplit ? state.layout.right : null;
+    const showSplit =
+      zoomedPane === null && splitOpen && splitFits(renderer.terminalWidth);
+    const showRightPane =
+      zoomedPane === "performance" || (zoomedPane === null && showSplit);
+    const paneFallback =
+      zoomedPane === null && splitOpen && !showSplit
+        ? state.layout.right
+        : null;
     // Whatever holds the left side, log or transcript, shares the row with the
     // pane rather than being replaced by it.
     const rightWidth =
-      zoomedPane === 'performance'
+      zoomedPane === "performance"
         ? renderer.terminalWidth
         : showSplit
           ? rightPaneWidth(renderer.terminalWidth)
@@ -302,18 +335,25 @@ export function createOpenTuiApp(
     // for the state to come back, so a resize never draws a stale row.
     const dockFits = chatDockFits(renderer.terminalWidth, rightWidth);
     if (state.chatDockFits !== dockFits) controller.setChatDockFits(dockFits);
-    const chatAvailable = showLog && state.hypothesisDetail === null && dockFits && !state.chatOpen;
-    const showChatPane = chatAvailable && (zoomedPane === null || zoomedPane === 'chat');
+    const chatAvailable =
+      showLog && state.hypothesisDetail === null && dockFits && !state.chatOpen;
+    const showChatPane =
+      chatAvailable && (zoomedPane === null || zoomedPane === "chat");
     const chatWidth = showChatPane
-      ? zoomedPane === 'chat'
+      ? zoomedPane === "chat"
         ? renderer.terminalWidth
         : chatPaneWidth(renderer.terminalWidth, rightWidth)
       : 0;
-    const showExperimentLog = showLog && (zoomedPane === null || zoomedPane === 'experiments');
-    const dialogOpen = state.chatOpen || state.overlay !== null || state.themePicker !== null;
-    const returnHint = dialogOpen ? ' · Esc: close dialog' : '';
-    const selection = state.selectedAgentKind ? ` · selected ${state.selectedAgentKind}` : '';
-    const scope = state.hypothesisScope === null ? '' : ` · ${state.hypothesisScope.label}`;
+    const showExperimentLog =
+      showLog && (zoomedPane === null || zoomedPane === "experiments");
+    const dialogOpen =
+      state.chatOpen || state.overlay !== null || state.themePicker !== null;
+    const returnHint = dialogOpen ? " · Esc: close dialog" : "";
+    const selection = state.selectedAgentKind
+      ? ` · selected ${state.selectedAgentKind}`
+      : "";
+    const scope =
+      state.hypothesisScope === null ? "" : ` · ${state.hypothesisScope.label}`;
     header.content = showLog
       ? `VibeSys · ${statusText(state)} · experiments`
       : `VibeSys · ${statusText(state)}${scope}${selection}${returnHint}`;
@@ -334,15 +374,20 @@ export function createOpenTuiApp(
     help.content = transientStatus ?? renderedKeyHelp;
     // The round strip and agent map are per-round detail. They belong to a
     // hypothesis trajectory, not to the list of claims.
-    const showAgents = !showLog && (zoomedPane === null ? !showSplit : zoomedPane === 'agents');
-    const showTranscript = !showLog && (zoomedPane === null || zoomedPane === 'transcript');
+    const showAgents =
+      !showLog && (zoomedPane === null ? !showSplit : zoomedPane === "agents");
+    const showTranscript =
+      !showLog && (zoomedPane === null || zoomedPane === "transcript");
     agentMap.output.visible = showAgents;
     transcriptFrame.visible = showTranscript;
     roundStrip.output.visible = !showLog && zoomedPane === null;
     todoStrip.output.visible = !showLog && zoomedPane === null;
     if (!showLog) {
       roundStrip.render(state);
-      agentMap.render(state, zoomedPane === 'agents' ? renderer.terminalWidth : undefined);
+      agentMap.render(
+        state,
+        zoomedPane === "agents" ? renderer.terminalWidth : undefined,
+      );
       // The todo box sits under the agent pane and stops where it stops: the
       // todos belong to an agent, so running them under the transcript would
       // attach them to the wrong thing.
@@ -350,7 +395,9 @@ export function createOpenTuiApp(
       const agentWidth = agentMap.output.width;
       todoStrip.render(
         state,
-        typeof agentWidth === 'number' ? todoStripWidth(agentWidth, renderer.terminalWidth) : null,
+        typeof agentWidth === "number"
+          ? todoStripWidth(agentWidth, renderer.terminalWidth)
+          : null,
       );
       conversation.render(state);
     }
@@ -359,16 +406,23 @@ export function createOpenTuiApp(
     agentMap.output.visible = showAgents;
     // Inside a round the transcript is one of two navigable panes, so it carries
     // the focus border whenever the round view's keys are on it.
-    const transcriptFocused = !showLog && paneFocus === 'transcript';
-    transcriptFrame.borderColor = transcriptFocused ? theme.borderFocus : theme.border;
-    transcriptFrame.title = transcriptFocused ? ' ▸ Transcript ' : ' Transcript ';
+    const transcriptFocused = !showLog && paneFocus === "transcript";
+    transcriptFrame.borderColor = transcriptFocused
+      ? theme.borderFocus
+      : theme.border;
+    transcriptFrame.title = transcriptFocused
+      ? " ▸ Transcript "
+      : " Transcript ";
     // Match the chat to the left pane's rectangle so it sits beside the
     // visualization instead of over it. Bounds come from the siblings that
     // actually occupy those rows, so a taller todo strip still fits.
     if (showSplit) {
-      const errorHeight = state.errorBanner === null ? 0 : errorBanner.output.height;
-      const top = header.height + errorHeight + (showLog ? 0 : roundStrip.output.height);
-      const below = todoStrip.output.height + help.height + commandInput.box.height;
+      const errorHeight =
+        state.errorBanner === null ? 0 : errorBanner.output.height;
+      const top =
+        header.height + errorHeight + (showLog ? 0 : roundStrip.output.height);
+      const below =
+        todoStrip.output.height + help.height + commandInput.box.height;
       chat.setPaneBounds({
         left: 1,
         width: leftWidth - 2,
@@ -379,90 +433,114 @@ export function createOpenTuiApp(
       chat.setPaneBounds(null);
     }
     chatPane.render(state, showChatPane, chatWidth);
-    const chatInputFocused = showChatPane && state.layout.focus === 'chat';
-    commandColumn.visible = zoomedPane !== 'chat';
-    commandInput.setFocused(paneFocus === 'experiments' || paneFocus === 'transcript');
+    const chatInputFocused = showChatPane && state.layout.focus === "chat";
+    commandColumn.visible = zoomedPane !== "chat";
+    commandInput.setFocused(
+      paneFocus === "experiments" || paneFocus === "transcript",
+    );
     // The command list completes the box it belongs to, and on this view that
     // box cannot open a chat that is already beside it.
-    commandInput.setCommandContext({chatDocked: showChatPane});
-    experimentLog.setAvailableWidth(showSplit || showChatPane ? leftWidth - chatWidth : null);
+    commandInput.setCommandContext({ chatDocked: showChatPane });
+    experimentLog.setAvailableWidth(
+      showSplit || showChatPane ? leftWidth - chatWidth : null,
+    );
     experimentLog.render(state);
     experimentLog.output.visible = showExperimentLog;
     rightPane.render(state, showRightPane, rightWidth);
     overlay.render(
       paneFallback === null
         ? state
-        : {...state, overlay: {kind: 'detail' as const, content: paneFallback.content}},
+        : {
+            ...state,
+            overlay: { kind: "detail" as const, content: paneFallback.content },
+          },
     );
     themePicker.render(state);
     chat.render(state);
     conversationActivityBar.render(state, !showLog);
     // One cursor, three places it can be. The modal owns it while it is open;
     // otherwise it belongs to whichever input the pane focus points at.
-    const target: FocusTarget = state.chatOpen ? 'modal' : chatInputFocused ? 'chat' : 'command';
+    const target: FocusTarget = state.chatOpen
+      ? "modal"
+      : chatInputFocused
+        ? "chat"
+        : "command";
     if (target !== focusTarget) {
       focusTarget = target;
-      if (target === 'modal') chat.focus();
-      else if (target === 'chat') chatPane.focusComposer();
+      if (target === "modal") chat.focus();
+      else if (target === "chat") chatPane.focusComposer();
       else commandInput.focus();
     }
     releasePreviousStyle?.();
   };
-  const unbindKeys = bindKeybindings(renderer, controller, viewport, clipboard, {
-    completeInput: () => commandInput.completeSuggestion(),
-    navigateSuggestions: direction => commandInput.navigateSuggestions(direction),
-    // Routed to whichever chat presentation is currently on screen: the
-    // modal wins while it is open, otherwise the docked pane.
-    navigateChatSuggestions: direction =>
-      controller.state.chatOpen
-        ? chat.navigateSuggestions(direction)
-        : chatPane.navigateSuggestions(direction),
-    completeChatInput: () =>
-      controller.state.chatOpen ? chat.completeSuggestion() : chatPane.completeSuggestion(),
-    // Enter belongs to a pane only when nothing is typed anywhere. Asking which
-    // box has the cursor is not enough: a question waiting in the other box is
-    // still a question, and Enter must never discard it to open a hypothesis.
-    inputIsEmpty: () =>
-      commandInput.isEmpty() && chatPane.isComposerEmpty() && chat.isComposerEmpty(),
-    closeChat: () => controller.closeChat(),
-    toggleLatestPrompt: () => conversation.toggleLatestPrompt(),
-    toggleSelectedTool: () => conversation.toggleSelectedTool(),
-    revealOlderEntries: revealOlderEntries,
-    revealSelectedEntry: () => {
-      const card = conversation.selectedCard();
-      if (card !== null) viewport.scrollChildIntoView(card.id);
+  const unbindKeys = bindKeybindings(
+    renderer,
+    controller,
+    viewport,
+    clipboard,
+    {
+      completeInput: () => commandInput.completeSuggestion(),
+      navigateSuggestions: (direction) =>
+        commandInput.navigateSuggestions(direction),
+      // Routed to whichever chat presentation is currently on screen: the
+      // modal wins while it is open, otherwise the docked pane.
+      navigateChatSuggestions: (direction) =>
+        controller.state.chatOpen
+          ? chat.navigateSuggestions(direction)
+          : chatPane.navigateSuggestions(direction),
+      completeChatInput: () =>
+        controller.state.chatOpen
+          ? chat.completeSuggestion()
+          : chatPane.completeSuggestion(),
+      // Enter belongs to a pane only when nothing is typed anywhere. Asking which
+      // box has the cursor is not enough: a question waiting in the other box is
+      // still a question, and Enter must never discard it to open a hypothesis.
+      inputIsEmpty: () =>
+        commandInput.isEmpty() &&
+        chatPane.isComposerEmpty() &&
+        chat.isComposerEmpty(),
+      focusedInputIsEmpty: () =>
+        focusTarget === "chat"
+          ? chatPane.isComposerEmpty()
+          : commandInput.isEmpty(),
+      closeChat: () => controller.closeChat(),
+      toggleLatestPrompt: () => conversation.toggleLatestPrompt(),
+      toggleSelectedTool: () => conversation.toggleSelectedTool(),
+      revealOlderEntries: revealOlderEntries,
+      revealSelectedEntry: () => {
+        const card = conversation.selectedCard();
+        if (card !== null) viewport.scrollChildIntoView(card.id);
+      },
+      selectNextRound: () => controller.selectNextRound(),
+      selectPreviousRound: () => controller.selectPreviousRound(),
+      toggleTodos: () => controller.toggleTodos(),
+      scrollRightPane: (delta) => rightPane.scrollBy(delta),
+      scrollChatPane: (delta) => chatPane.scrollBy(delta),
+      scrollExperimentDetail: (delta) => experimentLog.scrollBy(delta),
+      scrollErrorBanner: (delta) => errorBanner.scrollBy(delta),
+      clearTransientStatus: () => {
+        if (transientStatus === null) return;
+        transientStatus = null;
+        help.content = renderedKeyHelp;
+      },
+      showClipboardStatus: (result) => {
+        transientStatus =
+          result === "copied"
+            ? "Copied selected text · Ctrl+C exits when no text is selected"
+            : "Copy unavailable (OSC52) · selection kept · use your terminal copy command";
+        help.content = transientStatus;
+      },
     },
-    selectNextAgent: () => controller.selectNextAgent(),
-    selectPreviousAgent: () => controller.selectPreviousAgent(),
-    selectNextRound: () => controller.selectNextRound(),
-    selectPreviousRound: () => controller.selectPreviousRound(),
-    toggleTodos: () => controller.toggleTodos(),
-    scrollRightPane: delta => rightPane.scrollBy(delta),
-    scrollChatPane: delta => chatPane.scrollBy(delta),
-    scrollExperimentDetail: delta => experimentLog.scrollBy(delta),
-    scrollErrorBanner: delta => errorBanner.scrollBy(delta),
-    clearTransientStatus: () => {
-      if (transientStatus === null) return;
-      transientStatus = null;
-      help.content = renderedKeyHelp;
-    },
-    showClipboardStatus: result => {
-      transientStatus =
-        result === 'copied'
-          ? 'Copied selected text · Ctrl+C exits when no text is selected'
-          : 'Copy unavailable (OSC52) · selection kept · use your terminal copy command';
-      help.content = transientStatus;
-    },
-  });
+  );
   // Pane widths come from the terminal, so a resize has to redraw even though
   // no state changed.
   const onResize = (): void => render(lastState);
-  renderer.on('resize', onResize);
+  renderer.on("resize", onResize);
   const unsubscribe = controller.subscribe(render);
 
   return {
     destroy(): void {
-      renderer.off('resize', onResize);
+      renderer.off("resize", onResize);
       unsubscribe();
       unbindKeys();
       commandInput.destroy();

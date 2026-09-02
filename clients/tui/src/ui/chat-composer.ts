@@ -4,11 +4,11 @@ import {
   type KeyEvent,
   TextareaRenderable,
   TextRenderable,
-} from '@opentui/core';
-import {suggestChatSlashCommands} from '../commands.js';
-import type {ChatMenuRow, SessionState} from '../session-model.js';
-import {SuggestionMenu} from './suggestion-menu.js';
-import type {Theme} from './theme.js';
+} from "@opentui/core";
+import { suggestChatSlashCommands } from "../commands.js";
+import type { ChatMenuRow, SessionState } from "../session-model.js";
+import { SuggestionMenu } from "./suggestion-menu.js";
+import type { Theme } from "./theme.js";
 
 const MIN_EDITOR_ROWS = 1;
 const MAX_EDITOR_ROWS = 6;
@@ -20,9 +20,14 @@ const MENU_CHROME = 2;
 
 class ChatTextareaRenderable extends TextareaRenderable {
   override handleKeyPress(key: KeyEvent): boolean {
-    if (key.name === 'return' || key.name === 'kpenter' || key.name === 'linefeed') {
+    if (
+      key.name === "return" ||
+      key.name === "kpenter" ||
+      key.name === "linefeed"
+    ) {
       if (key.shift) return this.newLine();
-      if (!key.ctrl && !key.meta && !key.super && !key.hyper) return this.submit();
+      if (!key.ctrl && !key.meta && !key.super && !key.hyper)
+        return this.submit();
     }
     return super.handleKeyPress(key);
   }
@@ -41,7 +46,7 @@ export interface ChatDraft {
 }
 
 export function createChatDraft(): ChatDraft {
-  return {value: '', suggestions: new SuggestionMenu()};
+  return { value: "", suggestions: new SuggestionMenu() };
 }
 
 /**
@@ -84,30 +89,30 @@ export class ChatComposerView {
     this.#theme = theme;
     this.output = new BoxRenderable(renderer, {
       id: `${id}-composer`,
-      width: '100%',
+      width: "100%",
       height: COMPOSER_CHROME + MIN_EDITOR_ROWS,
-      flexDirection: 'column',
+      flexDirection: "column",
       flexShrink: 0,
     });
     this.#box = new BoxRenderable(renderer, {
       id: `${id}-composer-box`,
-      width: '100%',
+      width: "100%",
       height: MIN_EDITOR_ROWS + 2,
       border: true,
-      borderStyle: 'rounded',
+      borderStyle: "rounded",
       borderColor: theme.border,
-      title: ' Message ',
+      title: " Message ",
       paddingLeft: 1,
       paddingRight: 1,
       onMouseUp: this.onFocusRequest,
     });
     this.#editor = new ChatTextareaRenderable(renderer, {
       id: `${id}-composer-editor`,
-      width: '100%',
+      width: "100%",
       height: MIN_EDITOR_ROWS,
       initialValue: draft.value,
-      placeholder: 'Ask about this experiment',
-      wrapMode: 'word',
+      placeholder: "Ask about this experiment",
+      wrapMode: "word",
       textColor: theme.textStrong,
       focusedTextColor: theme.textStrong,
       onMouseUp: this.onFocusRequest,
@@ -123,26 +128,26 @@ export class ChatComposerView {
     });
     this.#hint = new TextRenderable(renderer, {
       id: `${id}-composer-hint`,
-      width: '100%',
+      width: "100%",
       height: 1,
-      wrapMode: 'none',
+      wrapMode: "none",
       truncate: true,
       fg: theme.textSubtle,
-      content: 'Enter: send · Shift+Enter: newline',
+      content: "Enter: send · Shift+Enter: newline",
     });
     this.menu = new BoxRenderable(renderer, {
       id: `${id}-composer-menu`,
-      position: 'absolute',
+      position: "absolute",
       // Anchored directly above the composer, which is the bottom of whichever
       // chat surface mounts it. Kept in step with the editor's height below.
       bottom: COMPOSER_CHROME + MIN_EDITOR_ROWS,
       left: 0,
-      width: '100%',
+      width: "100%",
       height: 3,
       visible: false,
       zIndex: 5,
       border: true,
-      borderStyle: 'rounded',
+      borderStyle: "rounded",
       borderColor: theme.border,
       backgroundColor: theme.elevatedSurface,
       paddingLeft: 1,
@@ -150,12 +155,12 @@ export class ChatComposerView {
     });
     this.#menuList = new TextRenderable(renderer, {
       id: `${id}-composer-menu-list`,
-      width: '100%',
+      width: "100%",
       height: 1,
       fg: theme.textPrimary,
-      wrapMode: 'none',
+      wrapMode: "none",
       truncate: true,
-      content: '',
+      content: "",
     });
     this.menu.add(this.#menuList);
     this.#box.add(this.#editor);
@@ -171,12 +176,12 @@ export class ChatComposerView {
   renderMenu(state: SessionState): void {
     this.#lastState = state;
     const lines = this.#menuLines(state);
-    const fingerprint = lines === null ? null : lines.join('\n');
+    const fingerprint = lines === null ? null : lines.join("\n");
     if (this.#renderedMenu === fingerprint) return;
     this.#renderedMenu = fingerprint;
     this.menu.visible = lines !== null;
     if (lines === null) return;
-    this.#menuList.content = lines.join('\n');
+    this.#menuList.content = lines.join("\n");
     this.#menuList.height = Math.max(1, lines.length);
     this.menu.height = lines.length + MENU_CHROME;
   }
@@ -188,7 +193,9 @@ export class ChatComposerView {
       const rows = visibleRows(menu.rows, menu.selected);
       return [
         menu.title,
-        ...rows.map(({row, index}) => menuRowText(row, index === menu.selected, menu.customModels)),
+        ...rows.map(({ row, index }) =>
+          menuRowText(row, index === menu.selected, menu.customModels),
+        ),
       ];
     }
     if (!this.draft.suggestions.visible) return null;
@@ -217,7 +224,9 @@ export class ChatComposerView {
 
   /** Recomputes the typed-command matches for the draft's current text. */
   #syncSuggestions(): void {
-    this.draft.suggestions.setMatches(suggestChatSlashCommands(this.draft.value.trim()));
+    this.draft.suggestions.setMatches(
+      suggestChatSlashCommands(this.draft.value.trim()),
+    );
   }
 
   /** Makes this editor authoritative when its presentation becomes visible. */
@@ -228,17 +237,17 @@ export class ChatComposerView {
       this.#syncSuggestions();
     }
     this.setFocused(focused);
-    this.#box.title = pending ? ' Message · awaiting agent ' : ' Message ';
+    this.#box.title = pending ? " Message · awaiting agent " : " Message ";
     this.#hint.content = pending
-      ? 'Awaiting the agent · Enter: queue follow-up'
+      ? "Awaiting the agent · Enter: queue follow-up"
       : focused
-        ? 'Enter: send · Shift+Enter: newline'
-        : 'Ctrl+W to type here';
+        ? "Enter: send · Shift+Enter: newline"
+        : "Tab to type here";
     this.#resize();
   }
 
   isEmpty(): boolean {
-    return this.draft.value.trim() === '';
+    return this.draft.value.trim() === "";
   }
 
   focus(): void {
@@ -247,7 +256,9 @@ export class ChatComposerView {
 
   setFocused(focused: boolean): void {
     this.#focused = focused;
-    this.#box.borderColor = focused ? this.#theme.borderFocus : this.#theme.border;
+    this.#box.borderColor = focused
+      ? this.#theme.borderFocus
+      : this.#theme.border;
   }
 
   applyTheme(theme: Theme): void {
@@ -262,7 +273,10 @@ export class ChatComposerView {
   }
 
   #resize(): void {
-    const contentWidth = Math.max(1, this.#availableWidth - EDITOR_HORIZONTAL_CHROME);
+    const contentWidth = Math.max(
+      1,
+      this.#availableWidth - EDITOR_HORIZONTAL_CHROME,
+    );
     const rows = Math.min(
       MAX_EDITOR_ROWS,
       Math.max(MIN_EDITOR_ROWS, wrappedRows(this.draft.value, contentWidth)),
@@ -277,7 +291,7 @@ export class ChatComposerView {
   #submit(): void {
     const value = this.draft.value;
     if (!value.trim()) return;
-    this.draft.value = '';
+    this.draft.value = "";
     this.#editor.clear();
     this.#resize();
     this.#syncSuggestions();
@@ -292,8 +306,8 @@ export class ChatComposerView {
 function visibleRows(
   rows: readonly ChatMenuRow[],
   selected: number,
-): {row: ChatMenuRow; index: number}[] {
-  const indexed = rows.map((row, index) => ({row, index}));
+): { row: ChatMenuRow; index: number }[] {
+  const indexed = rows.map((row, index) => ({ row, index }));
   if (indexed.length <= MAX_MENU_ROWS) return indexed;
   const start = Math.min(
     Math.max(0, selected - Math.floor(MAX_MENU_ROWS / 2)),
@@ -307,20 +321,23 @@ function menuRowText(
   selected: boolean,
   customModels: Record<string, string>,
 ): string {
-  const marker = selected ? '›' : ' ';
-  if (row.kind === 'header') return `  ${row.label}`;
-  if (row.kind === 'note') return `  ${row.label}`;
-  if (row.kind === 'thread') return `${marker} ${row.label} · ${row.detail}`;
-  if (row.kind === 'model') return `${marker}   ${row.label}`;
-  const typed = customModels[row.provider] ?? '';
+  const marker = selected ? "›" : " ";
+  if (row.kind === "header") return `  ${row.label}`;
+  if (row.kind === "note") return `  ${row.label}`;
+  if (row.kind === "thread") return `${marker} ${row.label} · ${row.detail}`;
+  if (row.kind === "model") return `${marker}   ${row.label}`;
+  const typed = customModels[row.provider] ?? "";
   // A cursor bar marks the free-text entry as somewhere to type, the same
   // affordance the wizard's model step used.
-  return `${marker}   ${typed === '' ? row.label : typed}${selected ? '▏' : ''}`;
+  return `${marker}   ${typed === "" ? row.label : typed}${selected ? "▏" : ""}`;
 }
 
 function wrappedRows(value: string, width: number): number {
   if (value.length === 0) return 1;
   return value
-    .split('\n')
-    .reduce((rows, line) => rows + Math.max(1, Math.ceil([...line].length / width)), 0);
+    .split("\n")
+    .reduce(
+      (rows, line) => rows + Math.max(1, Math.ceil([...line].length / width)),
+      0,
+    );
 }

@@ -21,18 +21,18 @@ the Python `vibesys` package in the Python environment you want to use, or set
 Use Experiment chat for ordinary questions about the current run. The command
 input accepts these slash commands:
 
-| Command | Behavior |
-| --- | --- |
-| `/help` | Show commands and planned controls. |
-| `/chat` | Put the pane keys on the docked chat, or open it as a modal where it cannot dock; `/chat <question>` asks immediately. |
-| | Slash commands work inside the chat too, and do the same thing as in the main input. |
-| `/pause` | Pause after the current agent call finishes. |
-| `/resume` | Resume a paused run. |
-| `/steer <message>` | Queue an instruction that is appended to the next agent invocation's prompt. |
-| `/open-round` | Open the rounds behind the selected hypothesis. |
-| `/open-round --N` | Open round N, inside whichever hypothesis owns it. |
-| `/perf` | Plot the recorded performance metric by round, in the right pane. |
-| `/theme` | Pick a theme from a keyboard-navigable list; `/theme <name>` switches immediately. |
+| Command            | Behavior                                                                                                               |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------- |
+| `/help`            | Show commands and planned controls.                                                                                    |
+| `/chat`            | Put the pane keys on the docked chat, or open it as a modal where it cannot dock; `/chat <question>` asks immediately. |
+|                    | Slash commands work inside the chat too, and do the same thing as in the main input.                                   |
+| `/pause`           | Pause after the current agent call finishes.                                                                           |
+| `/resume`          | Resume a paused run.                                                                                                   |
+| `/steer <message>` | Queue an instruction that is appended to the next agent invocation's prompt.                                           |
+| `/open-round`      | Open the rounds behind the selected hypothesis.                                                                        |
+| `/open-round --N`  | Open round N, inside whichever hypothesis owns it.                                                                     |
+| `/perf`            | Plot the recorded performance metric by round, in the right pane.                                                      |
+| `/theme`           | Pick a theme from a keyboard-navigable list; `/theme <name>` switches immediately.                                     |
 
 ### Experiment log
 
@@ -91,9 +91,9 @@ and the client's command input sits beside it, starting at the boundary between
 the two columns so each box is under the surface it writes to. The command
 list rises out of the command input rather than across the chat.
 
-The cursor starts in the command input, and `Ctrl+W` moves both it and the pane
-keys to the chat and back; the chat's instruction line says so (`Ctrl+W to type
-here`) until it holds them, and the focused input carries the focus border, so
+The cursor starts in the command input. `Tab` and `Shift+Tab` move both it and
+the pane keys between visible columns; the chat's instruction line says so
+(`Tab to type here`) until it holds them, and the focused input carries the focus border, so
 where a keystroke lands is never a guess. Only the chat composer accepts
 ordinary questions; the command input accepts slash commands. Page Up and Page Down scroll the focused pane, and
 Escape hands the keys back to the table. Arrows, Enter, and the rest of the
@@ -128,8 +128,10 @@ experiment log that makes three columns, chat, table, and visualization, each
 live. A second visualization command replaces the pane's contents rather than
 stacking another surface on top.
 
-`Ctrl+W` moves focus one column to the right and wraps, through whichever
-columns are actually on screen. Every pane reads the same authoritative focus
+`Tab` moves focus one column forward and wraps, while `Shift+Tab` moves backward,
+through whichever columns are actually on screen. `Ctrl+Right` and `Ctrl+Left`
+provide spatial aliases where the terminal and operating system deliver them.
+Every pane reads the same authoritative focus
 state: the focused pane carries the theme's focus border and a `▸` in its title,
 while every other pane uses the neutral border. Page Up and Page Down scroll
 whichever pane has focus, and Escape on the right pane closes it and restores
@@ -149,6 +151,22 @@ modal they used before panes existed. The layout re-flows on resize in either
 direction.
 
 `/help`, `/theme`, and errors stay modal.
+
+### Keymap defaults
+
+The checked-in defaults live in [`src/ui/keymap.ts`](src/ui/keymap.ts), separate
+from the dispatcher that applies them. `Tab` and `Shift+Tab` provide sequential
+pane focus; `Ctrl+Right` and `Ctrl+Left` are spatial aliases. Suggestion
+completion takes priority over pane movement, and a non-empty composer retains
+its modified-arrow and Readline editing keys.
+
+The defaults follow the requirements that keyboard focus remain logical and
+escapable in [WCAG 2.2](https://www.w3.org/TR/WCAG22/) and preserve the line-editing
+behavior documented by [GNU Readline](https://www.gnu.org/software/bash/manual/html_node/Command-Line-Editing.html).
+[Claude Code's interactive controls](https://code.claude.com/docs/en/interactive-mode)
+provide the closest agent-CLI precedent: ordinary terminal editing remains
+available, while modes and views add contextual bindings. `Ctrl+F` is reserved
+for pane search but is not bound until that search surface exists.
 
 ### Experiment chat
 
@@ -172,8 +190,8 @@ is one conversation either way: the transcript survives docking, undocking, and
 the pane closing.
 
 Inside a hypothesis the footer shows keyboard navigation. `[` and `]` select
-rounds, Tab and Shift+Tab select agents, the arrow keys move a cursor through
-the transcript's entries, Page Up/Page Down scroll it, and F2 (or Ctrl+T)
+rounds, Tab and Shift+Tab move between panes, and Up/Down move within the focused
+pane. Page Up/Page Down scroll it, and F2 (or Ctrl+T)
 expands the todo box, which then takes the arrow keys until Escape closes it.
 F3 (or Ctrl+P) expands the latest prompt in the current selection. Function keys
 are offered alongside the Control chords because a terminal is free to keep a
