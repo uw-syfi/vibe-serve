@@ -64,6 +64,7 @@ import {
 } from '../session-model.js';
 import {TRANSCRIPT_MIN} from './agent-map.js';
 import {createOpenTuiApp, type OpenTuiApp} from './app.js';
+import {MIN_DOCK_WIDTH} from './chat-pane.js';
 import type {ClipboardCopyResult, SelectionClipboard} from './clipboard.js';
 import {renderDesignSummary} from './design-log.js';
 import {paneTitle} from './focus.js';
@@ -2984,6 +2985,52 @@ describe('theming', () => {
     expect(paneFrameColumn(landing, 'Experiment chat')).not.toBeNull();
     expect(paneFrameColumn(landing, 'Message')).not.toBeNull();
     expect(paneFrameColumn(landing, 'Command')).toBe(paneFrameColumn(landing, 'Experiments'));
+  });
+
+  it('keeps the message and command boxes on the same rows while the chat is docked', async () => {
+    // Both bottom inputs are one row of the same landing view, so a reader
+    // scanning across the screen finds one input line, not two at different
+    // heights. Each state is checked because the hint above the message box
+    // changes wording, and a taller hint would push the box off the row.
+    const testRenderer = await createTestRenderer({width: 140, height: 20});
+    const controller = logController();
+    const app = createOpenTuiApp(testRenderer.renderer, controller);
+    registerCleanup(testRenderer.renderer, app);
+    await controller.openExperimentLog();
+    await frameAfter(testRenderer);
+
+    const bottomRows = (): {message: number; command: number} => {
+      const message = testRenderer.renderer.root.findDescendantById('chat-dock-composer-box');
+      const command = testRenderer.renderer.root.findDescendantById('command-input-box');
+      if (message === undefined || command === undefined)
+        throw new Error('landing composer geometry was missing');
+      return {message: message.y + message.height, command: command.y + command.height};
+    };
+
+    // Unfocused: the chat says how to reach it.
+    let rows = bottomRows();
+    expect(rows.message).toBe(rows.command);
+
+    // Focused: the hint becomes the send keys.
+    controller.focusPane('chat');
+    await frameAfter(testRenderer);
+    rows = bottomRows();
+    expect(rows.message).toBe(rows.command);
+
+    // Pending: the hint says a follow-up is queued, and the title grows too.
+    controller.publish({...controller.state, chatPending: true});
+    expect(await frameAfter(testRenderer)).toContain('Awaiting the agent');
+    rows = bottomRows();
+    expect(rows.message).toBe(rows.command);
+
+    // Narrow enough that the hint no longer fits: it truncates on its one row
+    // rather than wrapping onto a second, so the boxes stay on their row.
+    controller.publish({...controller.state, chatPending: false});
+    testRenderer.renderer.resize(MIN_DOCK_WIDTH, 20);
+    const narrow = await frameAfter(testRenderer);
+    expect(narrow).toContain('╭─ Message ');
+    rows = bottomRows();
+    expect(rows.message).toBe(rows.command);
   });
 
   it('routes typing to whichever input Ctrl+W points at', async () => {

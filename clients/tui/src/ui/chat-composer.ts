@@ -177,8 +177,11 @@ export class ChatComposerView {
     });
     this.menu.add(this.#menuList);
     this.#box.add(this.#editor);
-    this.output.add(this.#box);
+    // Hint first, then the box. The command column on the other side of the
+    // landing view is ordered the same way, so both columns end on a bordered
+    // input and the two boxes share a row.
     this.output.add(this.#hint);
+    this.output.add(this.#box);
   }
 
   /**
