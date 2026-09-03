@@ -104,6 +104,11 @@ export function createOpenTuiApp(
     border: true,
     borderStyle: 'rounded',
     borderColor: theme.border,
+    // The same surface every other pane sits on. Without this the frame falls
+    // through to the root's `canvas`, which is a lighter shade, so the header
+    // read as a band laid over the UI rather than a pane within it. That is
+    // the exact quality the housing exists to remove.
+    backgroundColor: theme.elevatedSurface,
   });
   // One renderable per span, because a terminal cell carries one foreground
   // colour and the header's roles do not share one. The row is allocated once
@@ -321,6 +326,7 @@ export function createOpenTuiApp(
     markdownStyle = createMarkdownStyle(theme);
     root.backgroundColor = theme.canvas;
     headerFrame.borderColor = theme.border;
+    headerFrame.backgroundColor = theme.elevatedSurface;
     transcriptFrame.borderColor = theme.border;
     help.fg = theme.textSubtle;
     roundStrip.applyTheme(theme);
