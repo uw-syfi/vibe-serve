@@ -5,8 +5,9 @@ import {visibleActiveExecutions} from '../session-model.js';
 import {agentRuntimeLabel} from './agent-runtime-label.js';
 import type {Theme} from './theme.js';
 
-const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
-const SPINNER_INTERVAL_MS = 120;
+/** The one braille spinner every in-flight indicator animates. */
+export const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+export const SPINNER_INTERVAL_MS = 120;
 /** Status for executions visible in the selected agent conversation. */
 export class ActivityBarView {
   readonly output: TextRenderable;

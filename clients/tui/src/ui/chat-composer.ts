@@ -7,6 +7,8 @@ import {
 } from '@opentui/core';
 import {suggestChatSlashCommands} from '../commands.js';
 import type {ChatMenuRow, SessionState} from '../session-model.js';
+import {SPINNER_FRAMES, SPINNER_INTERVAL_MS} from './activity-bar.js';
+import {elapsedLabel} from './previews.js';
 import {SuggestionMenu} from './suggestion-menu.js';
 import type {Theme} from './theme.js';
 
@@ -17,6 +19,14 @@ const EDITOR_HORIZONTAL_CHROME = 4;
 /** Rows the menu shows at once before it scrolls its selection into view. */
 const MAX_MENU_ROWS = 10;
 const MENU_CHROME = 2;
+
+const IDLE_TITLE = ' Message ';
+
+/** Composer title while a question is in flight: spinner plus wait time. */
+export function pendingComposerTitle(frame: number, elapsedMs: number): string {
+  const spinner = SPINNER_FRAMES[frame % SPINNER_FRAMES.length] ?? SPINNER_FRAMES[0];
+  return ` Message · ${spinner} ${elapsedLabel(elapsedMs)} `;
+}
 
 class ChatTextareaRenderable extends TextareaRenderable {
   override handleKeyPress(key: KeyEvent): boolean {
@@ -72,6 +82,11 @@ export class ChatComposerView {
   #theme: Theme;
   #renderedMenu: string | null = null;
   #lastState: SessionState | null = null;
+  #pending = false;
+  #onScreen = false;
+  #pendingSince = 0;
+  #frame = 0;
+  #timer: ReturnType<typeof setInterval> | null = null;
 
   constructor(
     renderer: CliRenderer,
@@ -96,7 +111,7 @@ export class ChatComposerView {
       border: true,
       borderStyle: 'rounded',
       borderColor: theme.border,
-      title: ' Message ',
+      title: IDLE_TITLE,
       paddingLeft: 1,
       paddingRight: 1,
       onMouseUp: this.onFocusRequest,
@@ -228,13 +243,66 @@ export class ChatComposerView {
       this.#syncSuggestions();
     }
     this.setFocused(focused);
-    this.#box.title = pending ? ' Message · awaiting agent ' : ' Message ';
     this.#hint.content = pending
       ? 'Awaiting the agent · Enter: queue follow-up'
       : focused
         ? 'Enter: send · Shift+Enter: newline'
         : 'Ctrl+W to type here';
     this.#resize();
+  }
+
+  /**
+   * Tracks the question in flight and whether this composer is on screen.
+   *
+   * Callers drive this on every render, before their own visibility gate, the
+   * way `ActivityBarView.render` syncs its timer whether or not the bar is
+   * shown: `activate` runs only while visible, so a question that lands while
+   * this surface is hidden would otherwise leave the interval running forever
+   * and the elapsed epoch stuck at the wait it started.
+   *
+   * The epoch moves only when a question starts, not when the surface returns,
+   * so hiding and reshowing mid-question keeps the wait the operator has
+   * actually been watching.
+   */
+  syncPending(pending: boolean, onScreen: boolean): void {
+    if (pending && !this.#pending) {
+      this.#pendingSince = Date.now();
+      this.#frame = 0;
+    }
+    this.#pending = pending;
+    this.#onScreen = onScreen;
+    this.#refreshTitle();
+    this.#syncTimer();
+  }
+
+  /**
+   * Releases the animation timer. Pending state is cleared with it, so a
+   * composer that is activated again after a destroyed render tree starts its
+   * next question from a fresh epoch rather than a dead one.
+   */
+  destroy(): void {
+    this.#pending = false;
+    this.#onScreen = false;
+    this.#syncTimer();
+  }
+
+  #syncTimer(): void {
+    if (!this.#pending || !this.#onScreen) {
+      if (this.#timer !== null) clearInterval(this.#timer);
+      this.#timer = null;
+      return;
+    }
+    if (this.#timer !== null) return;
+    this.#timer = setInterval(() => {
+      this.#frame = (this.#frame + 1) % SPINNER_FRAMES.length;
+      this.#refreshTitle();
+    }, SPINNER_INTERVAL_MS);
+  }
+
+  #refreshTitle(): void {
+    this.#box.title = this.#pending
+      ? pendingComposerTitle(this.#frame, Date.now() - this.#pendingSince)
+      : IDLE_TITLE;
   }
 
   isEmpty(): boolean {

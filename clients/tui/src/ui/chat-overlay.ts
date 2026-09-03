@@ -124,6 +124,9 @@ export class ChatOverlayView {
 
   render(state: SessionState): void {
     this.output.visible = state.chatOpen;
+    // Ahead of the visibility gate: an answer that lands while the modal is
+    // closed still has to stop the composer's spinner.
+    this.#composer.syncPending(state.chatPending, state.chatOpen);
     if (!state.chatOpen) return;
     this.output.title = ` ${chatThreadHeading(state)} `;
     this.#composer.activate(Math.max(1, this.output.width - 4), true, state.chatPending);
@@ -146,5 +149,10 @@ export class ChatOverlayView {
 
   completeSuggestion(): boolean {
     return this.#composer.completeSuggestion();
+  }
+
+  /** Releases the composer's spinner timer when the app tears down. */
+  destroy(): void {
+    this.#composer.destroy();
   }
 }

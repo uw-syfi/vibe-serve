@@ -471,6 +471,8 @@ export function createOpenTuiApp(
       roundStrip.destroy();
       agentMap.destroy();
       experimentLog.destroy();
+      chat.destroy();
+      chatPane.destroy();
       root.destroyRecursively();
       markdownStyle.destroy();
     },

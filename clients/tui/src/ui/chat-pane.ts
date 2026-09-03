@@ -140,6 +140,11 @@ export class ChatPaneView {
     this.#scroll.scrollBy(delta, 'viewport');
   }
 
+  /** Releases the composer's spinner timer when the app tears down. */
+  destroy(): void {
+    this.#composer.destroy();
+  }
+
   isComposerEmpty(): boolean {
     return this.#composer.isEmpty();
   }
@@ -158,6 +163,9 @@ export class ChatPaneView {
 
   render(state: SessionState, visible: boolean, width: number): void {
     this.output.visible = visible;
+    // Ahead of the visibility gate: an answer that lands while the dock is
+    // hidden still has to stop the composer's spinner.
+    this.#composer.syncPending(state.chatPending, visible);
     if (!visible) {
       return;
     }
