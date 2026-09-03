@@ -68,6 +68,10 @@ Ask of new abstractions:
 - Verify security boundaries: path traversal, command injection, unsafe
   deserialization, secret exposure, untrusted prompt or template interpolation,
   over-broad filesystem/network access, and trust decisions based on user input.
+- Flag any new state field whose value is determined by other fields in the
+  same model, and ask for a selector or predicate instead. Duplicate state
+  needs every writer to stay in sync, and the reviewed diff usually updates
+  only the writer it touched.
 
 ## Contracts And Compatibility
 
@@ -109,6 +113,9 @@ Ask of new abstractions:
 - Keep protocol data semantic and rendering/UI state in `clients/tui/`.
   Validate missing, duplicate, out-of-order, reconnect, and terminal events in
   session state transitions.
+- Protocol-defined closed sets (run status, event kinds, verdicts) must reach
+  the client as generated literal unions, not `string`, and client predicates
+  over them must branch exhaustively.
 - Respect strict TypeScript settings, including exact optional properties,
   unchecked indexed access, exhaustive control flow, and unused checks. Do not
   use assertions or `any` to bypass uncertain protocol states.
@@ -208,6 +215,13 @@ take the wrong action. Do not require prose churn for a purely internal change.
 - Map each stated correctness property to a test, type/schema check, or focused
   manual reproduction. A regression test should fail for the old behavior for
   the reason claimed.
+- For a bug fix, require a regression test that fails at the merge base at
+  the lowest layer that reproduces the reported symptom. Reject a test that
+  passes unchanged on the pre-fix code or that restates the fix's constants
+  in the test body. For TUI symptoms stated in terminal geometry, the layer
+  is the OpenTUI test renderer (`createTestRenderer`); a pure-function test
+  over a formatter is not evidence. See the regression-test table in
+  `docs/contributing/tui-architecture.md`.
 - Test application configuration and implementation separately, then add a
   focused wiring test when their connection changes.
 - Use shared contract tests for interchangeable sandboxes, compute backends,

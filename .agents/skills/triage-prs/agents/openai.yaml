@@ -1,0 +1,4 @@
+interface:
+  display_name: "Triage PRs"
+  short_description: "Triage open VibeSys pull requests"
+  default_prompt: "Use $triage-prs to triage the open pull requests in this repository and report the maintainer action queue."

@@ -62,8 +62,29 @@ uv run pytest
    - Default to a draft PR unless the user explicitly asks for a ready PR.
    - Target the repository's default base branch unless the user specifies another base.
    - Use `.github/pull_request_template.md` and fill every section.
+   - Apply labels at creation (`gh pr create --label ...` or `gh pr edit
+     --add-label` right after). Pick from the repository's existing labels
+     (`gh label list`); do not create new ones. Every PR gets exactly one
+     kind label:
+     - `bug` when the `Problem` section describes existing incorrect
+       behavior, or the closing issue is labeled `bug`.
+     - `enhancement` for new capability, a new surface, new tooling, or a
+       redesign.
+     - `refactor` for a structural change with no intended behavior change.
+     - `documentation` for docs-only diffs.
+     Mirror the closing issue's area labels (`area/*`, `workload/*`,
+     `app/*`, and similar) when the PR closes an issue that carries them.
    - When opening a dependent series, create every PR with its complete body,
      then register the series as a native GitHub stack as described below.
+   - When the PR is a follow-up to someone else's merged or open PR (a more
+     robust fix for the same bug, a refactor that makes that bug
+     unrepresentable, or a hardening of its tests), notify the original
+     author. Link the original PR in the `Problem` section and @-mention its
+     author there, then post a short FYI comment on the original PR with
+     `gh pr comment <original> --body ...` that mentions the author, links
+     the follow-up, and says in one or two sentences why it is the more
+     robust fix. Keep the tone informational; it is a courtesy, not a
+     request for changes.
 
 ## Native GitHub Stacks
 
@@ -115,6 +136,6 @@ Keep the title concrete and behavior-oriented. Avoid generic titles such as "Upd
 
 ## Handoff
 
-End with the PR URL, draft/ready status, branch name, commit hash, and verification run. If any check was skipped or failed, state that plainly with the reason.
+End with the PR URL, draft/ready status, labels applied, branch name, commit hash, and verification run. If any check was skipped or failed, state that plainly with the reason.
 For stacked work, also report the stack number and PR order. For independent
 work created alongside a stack, state that remote stack membership is absent.

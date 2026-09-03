@@ -104,3 +104,19 @@ pnpm build:clients
 Each package also supports its own `check`, `test`, and `build` scripts. Package builds consume only
 public workspace exports. The release build uses the same dependency-aware build chain before pnpm
 deploys the self-contained TUI payload.
+
+### Regression tests for rendering bugs
+
+Pick the test layer by where the symptom lives, and require that the test fails at the merge base:
+
+| Symptom | Layer |
+| --- | --- |
+| String formatting or truncation arithmetic | Pure function test on the formatter |
+| Width, alignment, clipping, padding, or overlap (anything stated in columns or rows) | `createTestRenderer` from `@opentui/core/testing`: build the real view, render at a fixed size, and measure the emitted renderables (see `clients/tui/src/ui/app.test.ts` and `todo-strip.test.ts`) |
+| Theme contrast and legibility | Pure computation over theme tokens |
+| Wide characters, resize, streaming timing, keybindings through a PTY | The tmux harness in the `tui-bug-hunt` skill; not a CI regression test |
+
+The test renderer runs the real renderable tree and Yoga layout, so it reproduces layout-class bugs
+deterministically in CI. It does not run a terminal: text is measured in code units, and there is
+no PTY, input, or timing. A pure-function test that computes the expected width itself cannot
+reproduce a layout bug and is not accepted as evidence for one.
