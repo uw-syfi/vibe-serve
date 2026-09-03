@@ -121,6 +121,23 @@ def scalar_candidate_retained(comparison: MetricComparison) -> bool | None:
             return None
 
 
+def record_metric_value(record: RoundRecord, metric: str | None) -> float | None:
+    """Read one official metric off *record* without guessing across axes.
+
+    The objective row wins when it names *metric*, which is what lets a record
+    whose headline unit was later renamed still answer for the axis it
+    measured. The headline scalar answers only when it is the axis asked for,
+    or when the record carries no row to disagree with.
+    """
+    if metric is not None and metric in record.metrics:
+        return record.metrics[metric]
+    if record.perf_metric is not None and (
+        metric is None or record.perf_unit == metric or not record.metrics
+    ):
+        return record.perf_metric
+    return None
+
+
 def metric_baseline(
     *,
     parent_round: int | None,
@@ -158,6 +175,13 @@ def metric_baseline(
             (item for item in reversed(comparable) if item.round_number <= parent_round),
             None,
         )
+    if parent_commit is not None:
+        # The caller named a causal parent, no trusted official round carries
+        # that commit, and there is no round number to bound the fallback by.
+        # Falling through to the newest measurement here would let a round that
+        # came *after* the parent serve as its baseline, inverting cause and
+        # effect. Fail closed instead.
+        return None
     return comparable[-1]
 
 
@@ -536,7 +560,7 @@ def _measurement(
     baseline = _baseline(record, prior_rounds)
     baseline_value = record.perf_baseline_metric
     if baseline_value is None and baseline is not None:
-        baseline_value = _baseline_metric_value(baseline, record.perf_unit)
+        baseline_value = record_metric_value(baseline, record.perf_unit)
     delta = record.perf_delta_pct
     if delta is None and baseline_value not in {None, 0}:
         assert baseline_value is not None  # noqa: S101  # narrowed above
@@ -554,7 +578,13 @@ def _measurement(
             if baseline is not None
             else None
         ),
-        baseline_commit=record.perf_baseline_commit or record.hypothesis_parent_commit,
+        # The commit of the record actually used as the baseline, which the
+        # fallback makes distinct from the hypothesis's parent commit: with
+        # `official_eval_every > 1` the causal parent is usually a provisional
+        # round, and the baseline is an earlier official one.
+        baseline_commit=(
+            record.perf_baseline_commit or (baseline.commit if baseline is not None else None)
+        ),
         baseline_value=baseline_value,
         delta_pct=delta,
     )
@@ -567,13 +597,6 @@ def _baseline(record: RoundRecord, prior_rounds: Sequence[RoundRecord]) -> Round
         metric=record.perf_unit,
         rounds=prior_rounds,
     )
-
-
-def _baseline_metric_value(baseline: RoundRecord, metric: str | None) -> float | None:
-    """Read a baseline's value for *metric*, tolerating a renamed headline unit."""
-    if metric is not None and metric in baseline.metrics:
-        return baseline.metrics[metric]
-    return baseline.perf_metric
 
 
 def _retained(
@@ -601,14 +624,18 @@ def _retained(
             direction=record.perf_direction,
         )
         axis = space.direction(candidate)
+        # Same admissibility rule as `metric_baseline`: a prior round counts
+        # when it carries this axis, whether as its headline unit or in its
+        # objective row. Matching on the headline unit alone would silently
+        # drop a round whose unit was later renamed, and retention would then
+        # compare against a shorter history than resolution did.
         comparable = [
-            Measurement(metric=record.perf_unit, value=prior.perf_metric, direction=axis)
+            Measurement(metric=record.perf_unit, value=value, direction=axis)
             for prior in prior_rounds
             if prior.official_evaluation
             and prior.passed
-            and prior.perf_metric is not None
             and trusted_perf_provenance(prior.perf_provenance)
-            and prior.perf_unit == record.perf_unit
+            and (value := record_metric_value(prior, record.perf_unit)) is not None
         ]
         retained = scalar_candidate_retained(space.compare_to_best(candidate, comparable))
     return retained

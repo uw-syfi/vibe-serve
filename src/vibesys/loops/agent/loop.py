@@ -42,6 +42,7 @@ from vibesys.loops.agent.hypotheses import (
     append_round,
     apply_strategy_updates,
     metric_baseline,
+    record_metric_value,
     resolve_hypothesis_outcome,
     scalar_candidate_retained,
     start_hypothesis,
@@ -231,17 +232,6 @@ def _implementation_keeps_hypothesis_active(
         _implementation_requests_continuation(implementation)
         and continuation_rounds < _MAX_CONTINUATION_ROUNDS_WITHOUT_DESIGN_REVIEW
     )
-
-
-def _metric_value(record: RoundRecord, metric_name: str | None) -> float | None:
-    """Read one official metric without guessing across objective names."""
-    if metric_name is not None and metric_name in record.metrics:
-        return record.metrics[metric_name]
-    if record.perf_metric is not None and (
-        metric_name is None or record.perf_unit == metric_name or not record.metrics
-    ):
-        return record.perf_metric
-    return None
 
 
 # ---------------------------------------------------------------------------
@@ -3137,7 +3127,9 @@ def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
                     rounds=records,
                 )
                 baseline_metric = (
-                    _metric_value(parent_record, metric_name) if parent_record is not None else None
+                    record_metric_value(parent_record, metric_name)
+                    if parent_record is not None
+                    else None
                 )
                 # A headline metric is framework-owned unless the implementer
                 # self-reported it. This is the trust boundary the rest of the
@@ -3210,7 +3202,7 @@ def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
                         if metric_name is not None
                         and record.official_evaluation
                         and trusted_perf_provenance(record.perf_provenance)
-                        and (value := _metric_value(record, metric_name)) is not None
+                        and (value := record_metric_value(record, metric_name)) is not None
                     ]
                     candidate_retained = scalar_candidate_retained(
                         space.compare_to_best(official_reading, prior_readings)
