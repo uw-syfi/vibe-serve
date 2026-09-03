@@ -2222,6 +2222,79 @@ describe('OpenTUI presentation', () => {
     }
   });
 
+  it('pins the modal rectangle across a width sweep', async () => {
+    // Whole-cell edges replaced percentage ones, and the two agree only
+    // because the layout rounds per edge rather than per size: it rounds the
+    // absolute left and the absolute right and subtracts. Rounding the width
+    // itself instead, `round(0.8W)`, looks equivalent and is not, so the
+    // rectangle is pinned column by column rather than at one width.
+    const testRenderer = await createTestRenderer({width: 100, height: 32});
+    const controller = new FakeController({...initialSessionState(), chatOpen: true});
+    const app = createOpenTuiApp(testRenderer.renderer, controller);
+    registerCleanup(testRenderer.renderer, app);
+
+    for (let width = 60; width <= 160; width += 1) {
+      testRenderer.renderer.resize(width, 32);
+      await frameAfter(testRenderer);
+      const modal = testRenderer.renderer.root.findDescendantById('chat-overlay');
+      if (modal === undefined) throw new Error('modal chat geometry was missing');
+      // The width rides along so a failure names the terminal it happened on.
+      expect({width, left: modal.x, right: modal.x + modal.width}).toEqual({
+        width,
+        left: Math.round(width * 0.1),
+        right: Math.round(width * 0.9),
+      });
+    }
+  });
+
+  it('rewraps the modal composer against the width the resize just gave it', async () => {
+    // A renderable answers `width` with the last width the layout computed,
+    // not the one just assigned, so reading the modal back after resizing it
+    // describes the previous rectangle. The composer sizes its editor from
+    // that number, and nothing else asks again: a resize is not a state
+    // change, so a draft would stay wrapped for the old width until the
+    // operator happened to type.
+    const testRenderer = await createTestRenderer({width: 140, height: 30});
+    const controller = new FakeController({...initialSessionState(), chatOpen: true});
+    const app = createOpenTuiApp(testRenderer.renderer, controller);
+    registerCleanup(testRenderer.renderer, app);
+    await frameAfter(testRenderer);
+
+    const composerBox = (): {y: number; height: number} => {
+      const box = testRenderer.renderer.root.findDescendantById('chat-modal-composer-box');
+      if (box === undefined) throw new Error('modal composer geometry was missing');
+      return {y: box.y, height: box.height};
+    };
+
+    // A state update after the first layout, so the composer starts out sized
+    // against the modal as drawn rather than against the width it reported
+    // before ever being laid out. The resize below is then the only thing that
+    // can put the two out of step.
+    controller.publish({...controller.state});
+    await frameAfter(testRenderer);
+
+    // Sixty characters: one editor row inside the 140-column modal, whose
+    // editor is 104 columns wide, and two inside the 60-column modal's 40.
+    await testRenderer.mockInput.typeText('x'.repeat(60));
+    await frameAfter(testRenderer);
+    expect(composerBox().height).toBe(3);
+
+    testRenderer.renderer.resize(60, 30);
+    await frameAfter(testRenderer);
+    expect(composerBox().height).toBe(4);
+
+    // And the modal still stacks: the transcript ends where the composer
+    // starts, so the taller box came out of the transcript rather than
+    // overrunning the floor.
+    const modal = testRenderer.renderer.root.findDescendantById('chat-overlay');
+    const transcript = testRenderer.renderer.root.findDescendantById('chat-transcript');
+    const composer = testRenderer.renderer.root.findDescendantById('chat-modal-composer');
+    if (modal === undefined || transcript === undefined || composer === undefined)
+      throw new Error('modal chat geometry was missing');
+    expect(transcript.y + transcript.height).toBe(composer.y);
+    expect(composer.y + composer.height).toBe(modal.y + modal.height - 1);
+  });
+
   it('accepts another chat message while an agent turn is pending', async () => {
     const testRenderer = await createTestRenderer({width: 100, height: 24});
     const controller = new FakeController({
@@ -3072,6 +3145,44 @@ describe('theming', () => {
     expect(narrow).toMatch(/[╭┏][─━]\s*▸?\s*Message/);
     rows = bottomRows();
     expect(rows.message).toBe(rows.command);
+  });
+
+  it('gives the short terminal its landing rows back instead of the box alignment', async () => {
+    // The row that puts the Command box on the Message box's row comes out of
+    // the table above it. On a terminal with no row to spare the table keeps
+    // it and the two boxes sit one row apart: the operator can see that and
+    // undo it by resizing, whereas a clipped last line of the kickoff copy
+    // just looks like the copy ends there.
+    const testRenderer = await createTestRenderer({width: 100, height: 16});
+    const controller = kickoffController();
+    const app = createOpenTuiApp(testRenderer.renderer, controller);
+    registerCleanup(testRenderer.renderer, app);
+    await controller.openExperimentLog();
+
+    const bottomRows = (): {message: number; command: number} => {
+      const message = testRenderer.renderer.root.findDescendantById('chat-dock-composer-box');
+      const command = testRenderer.renderer.root.findDescendantById('command-input-box');
+      if (message === undefined || command === undefined)
+        throw new Error('landing composer geometry was missing');
+      return {message: message.y + message.height, command: command.y + command.height};
+    };
+
+    // The kickoff copy is whole, down to its last line, and the command
+    // surface is on screen with it.
+    const short = await frameAfter(testRenderer);
+    expect(short).toContain('Run kickoff');
+    expect(short).toContain('Form Hypothesis 1');
+    expect(short).toContain('This activity becomes');
+    expect(short).toMatch(/[╭┏][─━]\s*▸?\s*Command/);
+    expect(short).toContain('Type /help for commands');
+    // The cost, stated: the boxes are one row apart rather than level.
+    expect(bottomRows().command).toBe(bottomRows().message + 1);
+
+    // One more row and the alignment is affordable again, copy still whole.
+    testRenderer.renderer.resize(100, 17);
+    const taller = await frameAfter(testRenderer);
+    expect(taller).toContain('This activity becomes');
+    expect(bottomRows().command).toBe(bottomRows().message);
   });
 
   it('opens both suggestion menus flush on the box they complete', async () => {
@@ -4563,26 +4674,8 @@ describe('theming', () => {
   });
 
   it('uses the empty hypotheses screen as a truthful planning kickoff', async () => {
-    // 18 rows, not 16: the header is a three-row pane, so a 16-row terminal
-    // no longer leaves room for the kickoff copy.
-    const testRenderer = await createTestRenderer({width: 100, height: 18});
-    const planningStartedAt = new Date(Date.now() - 65_000).toISOString();
-    const controller = new FakeController({
-      ...initialSessionState(),
-      core: {
-        ...initialSessionState().core,
-        status: 'running',
-        phases: [
-          {
-            kind: 'orchestrator',
-            status: 'active',
-            roundNumber: 1,
-            roundLabel: 'round-1-pre',
-            startedAt: planningStartedAt,
-          },
-        ],
-      },
-    });
+    const testRenderer = await createTestRenderer({width: 100, height: 16});
+    const controller = kickoffController();
     const app = createOpenTuiApp(testRenderer.renderer, controller);
     registerCleanup(testRenderer.renderer, app);
     await controller.openExperimentLog();
@@ -4901,6 +4994,31 @@ function logController(): FakeController {
     }),
   ];
   return controller;
+}
+
+/**
+ * A run that has started planning but has no hypotheses yet, which is the
+ * landing view at its tallest: the kickoff panel is the widest and longest
+ * thing the table ever shows.
+ */
+function kickoffController(): FakeController {
+  const planningStartedAt = new Date(Date.now() - 65_000).toISOString();
+  return new FakeController({
+    ...initialSessionState(),
+    core: {
+      ...initialSessionState().core,
+      status: 'running',
+      phases: [
+        {
+          kind: 'orchestrator',
+          status: 'active',
+          roundNumber: 1,
+          roundLabel: 'round-1-pre',
+          startedAt: planningStartedAt,
+        },
+      ],
+    },
+  });
 }
 
 function splitController(): FakeController {

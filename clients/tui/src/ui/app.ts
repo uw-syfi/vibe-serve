@@ -18,7 +18,7 @@ import {ActivityBarView} from './activity-bar.js';
 import {AgentMapView} from './agent-map.js';
 import {createChatDraft} from './chat-composer.js';
 import {ChatOverlayView} from './chat-overlay.js';
-import {ChatPaneView, chatDockFits, chatPaneWidth} from './chat-pane.js';
+import {ChatPaneView, chatDockFits, chatPaneWidth, commandColumnInset} from './chat-pane.js';
 import {RendererSelectionClipboard, type SelectionClipboard} from './clipboard.js';
 import {createCommandInputPanel} from './command-input.js';
 import {ConversationView} from './conversation.js';
@@ -401,10 +401,6 @@ export function createOpenTuiApp(
         ? renderer.terminalWidth
         : chatPaneWidth(renderer.terminalWidth, rightWidth)
       : 0;
-    // The docked chat spends its last row on the pane's bottom border, so the
-    // command column beside it gives up the same row. Without that the Command
-    // box would sit one row below the Message box it lines up with.
-    const commandInset = showChatPane ? 1 : 0;
     const showExperimentLog = showLog && (zoomedPane === null || zoomedPane === 'experiments');
     paintHeader(renderHeader(state, showLog, renderer.terminalWidth - HEADER_CHROME));
     errorBanner.render(state);
@@ -475,20 +471,29 @@ export function createOpenTuiApp(
     // the focus border whenever the round view's keys are on it.
     const transcriptFocused = !showLog && paneFocus === 'transcript';
     applyPaneFocus(transcriptFrame, theme, TRANSCRIPT_TITLE, transcriptFocused);
+    // Rows the siblings above and below the main area occupy, measured rather
+    // than assumed so a taller todo strip or a wrapped banner still fits. A
+    // hidden renderable still reports a row of its own, so each is asked
+    // whether it is on screen before its rows are counted.
+    const rowsOn = (pane: BoxRenderable): number => (pane.visible ? pane.height : 0);
+    // The rounds rail is a column inside the main row, not a strip above it, so
+    // only the header and the banner take rows off the top.
+    const above = headerFrame.height + rowsOn(errorBanner.output);
+    const belowRows = rowsOn(todoStrip.output) + help.height + commandInput.box.height;
+    // Taken from the same budget the main area draws from, so the decision and
+    // the consequence cannot disagree.
+    const commandInset = commandColumnInset(
+      showChatPane,
+      renderer.terminalHeight - above - belowRows,
+    );
     // Match the chat to the left pane's rectangle so it sits beside the
-    // visualization instead of over it. Bounds come from the siblings that
-    // actually occupy those rows, so a taller todo strip still fits.
+    // visualization instead of over it.
     if (showSplit) {
-      // The rounds rail lives inside the row, not above it, so the chat pane
-      // starts just below the header and error banner.
-      const top = headerFrame.height + errorHeight;
-      const below =
-        todoStrip.output.height + help.height + commandInput.box.height + commandInset;
       chat.setPaneBounds({
         left: 1,
         width: leftWidth - 2,
-        top,
-        height: renderer.terminalHeight - top - below,
+        top: above,
+        height: renderer.terminalHeight - above - belowRows - commandInset,
       });
     } else {
       chat.setPaneBounds(null);
