@@ -36,6 +36,11 @@ def _make_context(
     monkeypatch.setattr(ctx, "gpu_env", dict)
     client = MagicMock()
     client.invoke.return_value = _judge_fallback()
+    # Every invocation event carries the client's attribution, so the mock
+    # supplies real strings the event payload can validate.
+    client.driver_name = "mock"
+    client.provider = "mock"
+    client.model_for_kind.return_value = "mock-model"
     ctx.agent_client = client
     return ctx, client
 

@@ -17,11 +17,13 @@ if TYPE_CHECKING:
     from vs_sandbox import HostResource, ProjectPathPolicy
 
     from .client import AgentClient
+    from .contracts import AgentClientProtocol
     from .deepagents_runner import DeepAgentsClient
     from .session_store import SessionStore
 
 __all__ = [
     "AgentClient",
+    "AgentClientProtocol",
     "AgentProgress",
     "CandidateProgress",
     "DeepAgentsClient",
@@ -37,6 +39,10 @@ def __getattr__(name: str) -> Any:  # noqa: ANN401
         from .client import AgentClient  # noqa: PLC0415
 
         return AgentClient
+    if name == "AgentClientProtocol":
+        from .contracts import AgentClientProtocol  # noqa: PLC0415
+
+        return AgentClientProtocol
     if name == "DeepAgentsClient":
         from .deepagents_runner import DeepAgentsClient  # noqa: PLC0415
 
@@ -62,7 +68,7 @@ def build_agent_client(  # noqa: PLR0913
     project_path_policy: ProjectPathPolicy | None = None,
     require_host_sandbox: bool = False,
     session_store: SessionStore | None = None,
-) -> AgentClient:
+) -> AgentClientProtocol:
     """Build an agent service through the application composition module."""
     from .factory import build_agent_client as build  # noqa: PLC0415
 

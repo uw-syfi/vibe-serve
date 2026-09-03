@@ -10,8 +10,9 @@ from unittest.mock import ANY, MagicMock, patch
 
 import pytest
 
-from vibesys.agents import AgentClient
+from vibesys.agents import AgentClient, AgentClientProtocol
 from vibesys.agents.session_key import AgentSessionKey, SessionScope
+from vibesys.agents.stub_runner import StubAgentClient
 from vibesys.config import Config, as_config
 from vibesys.constants import ComputeBackend
 from vibesys.domains.base import DomainName
@@ -351,7 +352,7 @@ _THROUGHPUT_LATENCY = MetricSpace(
 def _invoke_orchestrate(
     tmp_path: Path,
     ref_file: str,
-    runner: MagicMock,
+    runner: AgentClientProtocol,
     *,
     _accuracy_gate_results: Sequence[str | None] | None = None,
     **kwargs: Unpack[_AgentLoopArguments],
@@ -4621,6 +4622,23 @@ def test_completed_round_records_which_implementer_produced_it(tmp_path, ref_fil
     assert round_one["implementer_model"] == "gpt-5.6-sol"
     # The record is portable state; a host-local session ID must never reach it.
     assert not [key for key in round_one if "session" in key]
+
+
+def test_stub_agent_round_records_its_own_attribution(tmp_path, ref_file):  # noqa: ANN001, ANN201  # tracked: #288
+    """The real stub client, not a mock, carries the attribution a round stores.
+
+    The `--stub-agent` smoke run in the release-wheel job exercises this path
+    with no mock in front of it, so the attribution the loop reads has to be
+    part of every client's contract rather than of one implementation.
+    """
+    runner = StubAgentClient()
+
+    _invoke_orchestrate(tmp_path, ref_file, runner, max_rounds=1)
+
+    round_one = _round_payloads(tmp_path)[0]
+    assert round_one["implementer_driver"] == "stub"
+    assert round_one["implementer_provider"] == "stub"
+    assert round_one["implementer_model"] is None
 
 
 def test_round_records_stamp_who_produced_the_headline_metric(tmp_path, ref_file):  # noqa: ANN001, ANN201  # tracked: #288

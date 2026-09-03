@@ -49,6 +49,21 @@ class DeepAgentsClient(AgentClient):
         """Deepagents exposes only its in-process LangChain tool transport."""
         return AgentCapabilities(in_process_tools=True, session_reuse=False)
 
+    @property
+    def driver_name(self) -> str | None:
+        """Deepagents runs its graph in process, so no CLI driver runs turns."""
+        return "deepagents"
+
+    @property
+    def provider(self) -> str | None:
+        """The configured LangChain model object is the provider."""
+        return "deepagents"
+
+    def model_for_kind(self, kind: str) -> str | None:
+        """Every role's graph is built from the one configured model."""
+        del kind
+        return self._model_name
+
     def close(self) -> None:
         """Deepagents owns no resources beyond each invocation."""
 

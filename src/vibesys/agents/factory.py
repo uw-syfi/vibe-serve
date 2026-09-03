@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 from vibesys.agents.client import AgentClient, AgentDiagnosticLog
 from vibesys.constants import DEFAULT_AGENT_BACKEND
@@ -12,6 +12,7 @@ if TYPE_CHECKING:
     from pathlib import Path
     from typing import TextIO
 
+    from vibesys.agents.contracts import AgentClientProtocol
     from vibesys.agents.session_store import SessionStore
     from vibesys.config import Config
     from vibesys.constants import ComputeBackend
@@ -105,7 +106,7 @@ def build_agent_client(  # noqa: C901, PLR0912, PLR0913
     project_path_policy: ProjectPathPolicy | None = None,
     require_host_sandbox: bool = False,
     session_store: SessionStore | None = None,
-) -> AgentClient:
+) -> AgentClientProtocol:
     """Build the configured application-level agent service."""
     host_resources = tuple(host_resources)
     agent_cfg = config.agent
@@ -141,7 +142,7 @@ def build_agent_client(  # noqa: C901, PLR0912, PLR0913
     if backend == "stub":
         from vibesys.agents.stub_runner import StubAgentClient  # noqa: PLC0415
 
-        return cast("AgentClient", StubAgentClient())
+        return StubAgentClient()
 
     if backend != "cli":
         raise SystemExit(f"unknown agent backend: {backend!r}")  # noqa: TRY003  # tracked: #288

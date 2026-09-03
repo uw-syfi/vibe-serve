@@ -15,7 +15,7 @@ from typing import Any, TextIO, TypeVar, overload
 from pydantic import BaseModel
 
 from vibesys import backends, boot_trace
-from vibesys.agents import AgentClient, build_agent_client
+from vibesys.agents import AgentClientProtocol, build_agent_client
 from vibesys.agents.factory import (
     agent_driver_supports_mcp_servers,
     resolve_agent_driver,
@@ -122,10 +122,6 @@ def _execution_status(error: BaseException | None) -> EventStatus:
     if isinstance(error, (KeyboardInterrupt, SystemExit)):
         return EventStatus.INTERRUPTED
     return EventStatus.FAILED
-
-
-def _optional_string(value: object) -> str | None:
-    return value if isinstance(value, str) else None
 
 
 def _coerce_dir(raw: str | Path | None, label: str) -> Path | None:
@@ -947,9 +943,7 @@ def _assemble_run_context(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: 
                 require_host_sandbox=not session.view.cli_sandboxed,
                 host_resources=agent_host_resources,
             )
-        close_agent_client = getattr(agent_client, "close", None)
-        if callable(close_agent_client):
-            teardown_stack.callback(close_agent_client)
+        teardown_stack.callback(agent_client.close)
 
         result = _RunContext(
             backend=backend,
@@ -1204,9 +1198,7 @@ def _assemble_candidate_context(  # noqa: PLR0913  # tracked: #288
         # context carries neither the profiler domain nor the task name.
         host_resources=parent.agent_host_resources,
     )
-    close_agent_client = getattr(agent_client, "close", None)
-    if callable(close_agent_client):
-        teardown_stack.callback(close_agent_client)
+    teardown_stack.callback(agent_client.close)
 
     paths = RunPaths(
         project_root=workspace,
@@ -1310,7 +1302,7 @@ class _RunContext:
         run_environment_session: RunEnvironmentSession,
         commands: RunCommands,
         device: DeviceLease,
-        agent_client: AgentClient,
+        agent_client: AgentClientProtocol,
         project: Project,
         state: RunState,
         run_id: str,
@@ -1475,10 +1467,9 @@ class _RunContext:
         (e.g. ``iteration=`` for plain-loop runner extensions) still work.
         """
         client = self.agent_client
-        model_for_kind = getattr(client, "model_for_kind", None)
-        driver = _optional_string(getattr(client, "driver_name", None))
-        provider = _optional_string(getattr(client, "provider", None))
-        model = _optional_string(model_for_kind(kind)) if callable(model_for_kind) else None
+        driver = client.driver_name
+        provider = client.provider
+        model = client.model_for_kind(kind)
         execution = self.integration.invocations.start(
             kind,
             round_label,

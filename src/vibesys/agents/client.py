@@ -216,17 +216,16 @@ class AgentClient:
         This is the application-configuration string, not the driver's Python
         class name, so it stays stable across implementation refactors.
         """
-        return getattr(self, "_driver_name", None)
+        return self._driver_name
 
     @property
     def provider(self) -> str | None:
         """Return the configured CLI provider (``"codex"``, ``"claude"``, ...)."""
-        return getattr(self, "_provider", None) or "codex"
+        return self._provider or "codex"
 
     def model_for_kind(self, kind: str) -> str | None:
         """Return the effective model for ``kind``, honoring role overrides."""
-        role_models: Mapping[str, str] = getattr(self, "_role_models", {})
-        return role_models.get(kind, getattr(self, "_model_name", None))
+        return self._role_models.get(kind, self._model_name)
 
     def set_log_file(self, stream: TextIO | None) -> None:
         """Direct subsequent application logs to ``stream``."""

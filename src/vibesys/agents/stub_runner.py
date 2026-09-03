@@ -34,6 +34,21 @@ class StubAgentClient:
         """The deterministic stub does not expose external tools."""
         return AgentCapabilities(session_reuse=False)
 
+    @property
+    def driver_name(self) -> str | None:
+        """No driver runs a stub turn; the stub itself is the attribution."""
+        return "stub"
+
+    @property
+    def provider(self) -> str | None:
+        """No external provider runs a stub turn."""
+        return "stub"
+
+    def model_for_kind(self, kind: str) -> str | None:
+        """A stub turn runs no model, for any role."""
+        del kind
+        return None
+
     def close(self) -> None:
         """The deterministic stub owns no external resources."""
 

@@ -88,6 +88,11 @@ def _make_issue_runner(responses: list, *, backend_name: str = "deepagents") -> 
     """
     runner = MagicMock(spec=AgentClient)
     runner.backend_name = backend_name
+    # Every invocation event carries the client's attribution, so the mock
+    # supplies real strings the event payload can validate.
+    runner.driver_name = "mock"
+    runner.provider = "mock"
+    runner.model_for_kind.return_value = "mock-model"
     runner.capabilities = AgentCapabilities(
         mcp_servers=backend_name == "cli",
         in_process_tools=backend_name == "deepagents",
@@ -601,6 +606,9 @@ def test_judge_phase_calls_store_reload_after_invoke(  # noqa: ANN201  # tracked
 
     runner = MagicMock(spec=AgentClient)
     runner.backend_name = "deepagents"
+    runner.driver_name = "mock"
+    runner.provider = "mock"
+    runner.model_for_kind.return_value = "mock-model"
     runner.invoke.side_effect = tracking_invoke
     mock_build_runner.return_value = runner
 

@@ -18,7 +18,7 @@ if TYPE_CHECKING:
     from contextlib import AbstractContextManager
     from pathlib import Path
 
-    from vibesys.agents.client import AgentClient
+    from vibesys.agents.contracts import AgentClientProtocol
     from vibesys.agents.progress import AgentProgress
     from vibesys.constants import ComputeBackend
     from vibesys.input_manifest import WorkspaceSource
@@ -41,7 +41,7 @@ class LoopContext(Protocol):  # noqa: D101  # tracked: #288
 
     # -- collaborators --------------------------------------------------------
     events: EventJournal
-    agent_client: AgentClient
+    agent_client: AgentClientProtocol
     judge_backend: Any
     run_environment: Any
     run_environment_view: Any

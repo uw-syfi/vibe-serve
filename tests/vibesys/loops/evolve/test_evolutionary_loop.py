@@ -218,6 +218,11 @@ def _make_runner(  # noqa: ANN202, C901, PLR0913  # tracked: #288
 
     runner = MagicMock(spec=AgentClient)
     runner.backend_name = "deepagents"
+    # Every invocation event carries the client's attribution, so the mock
+    # supplies real strings the event payload can validate.
+    runner.driver_name = "mock"
+    runner.provider = "mock"
+    runner.model_for_kind.return_value = "mock-model"
 
     def _invoke(*, kind, response_cls, fallback_factory, system_prompt="", **kwargs):  # noqa: ANN001, ANN003, ANN202, ARG001  # tracked: #288
         if response_cls is MutatorResponse:

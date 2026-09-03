@@ -2112,7 +2112,7 @@ class TestBuildAgentClient:
             use_docker=False,
         )
         assert runner.backend_name == "cli"
-        assert runner._provider == "codex"  # noqa: SLF001  # tracked: #288
+        assert runner.provider == "codex"
 
     def test_build_agent_client_cli_provider_from_config(self):  # noqa: ANN201  # tracked: #288
         runner = build_agent_client(
@@ -2128,7 +2128,7 @@ class TestBuildAgentClient:
             use_docker=False,
         )
         assert runner.backend_name == "cli"
-        assert runner._provider == "claude"  # noqa: SLF001  # tracked: #288
+        assert runner.provider == "claude"
 
     def test_build_agent_client_cli_defaults_to_codex(self):  # noqa: ANN201  # tracked: #288
         """When backend=cli and no provider specified, defaults to codex."""
@@ -2145,7 +2145,7 @@ class TestBuildAgentClient:
             use_docker=False,
         )
         assert runner.backend_name == "cli"
-        assert runner._provider == "codex"  # noqa: SLF001  # tracked: #288
+        assert runner.provider == "codex"
 
     def test_build_agent_client_cli_docker_returns_cli_runner(self):  # noqa: ANN201  # tracked: #288
         """cli backend + docker now returns a CliAgentRunner with docker_sandboxes."""
@@ -2428,12 +2428,12 @@ class TestBuildAgentClientBackendSelection:
     def test_default_backend_is_cli_with_empty_config(self):  # noqa: ANN201  # tracked: #288
         runner = self._build(_agent_config())
         assert isinstance(runner, AgentClient)
-        assert runner._provider == "codex"  # noqa: SLF001  # tracked: #288
+        assert runner.provider == "codex"
 
     def test_empty_agent_section_defaults_to_cli(self):  # noqa: ANN201  # tracked: #288
         runner = self._build(_agent_config())
         assert isinstance(runner, AgentClient)
-        assert runner._provider == "codex"  # noqa: SLF001  # tracked: #288
+        assert runner.provider == "codex"
 
     def test_agent_backend_flag_overrides_config(self):  # noqa: ANN201  # tracked: #288
         # An explicit --agent-backend flag wins over [agent].backend.
@@ -2443,4 +2443,4 @@ class TestBuildAgentClientBackendSelection:
     def test_config_can_select_cli_provider(self):  # noqa: ANN201  # tracked: #288
         runner = self._build(_agent_config(backend="cli", cli_provider="claude"))
         assert isinstance(runner, AgentClient)
-        assert runner._provider == "claude"  # noqa: SLF001  # tracked: #288
+        assert runner.provider == "claude"

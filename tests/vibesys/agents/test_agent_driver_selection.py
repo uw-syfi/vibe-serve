@@ -8,6 +8,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from vibesys.agents import build_agent_client
+from vibesys.agents.client import AgentClient
 from vibesys.agents.drivers.agentshim import AgentShimDriver
 from vibesys.agents.drivers.mock import MockDriver
 from vibesys.agents.drivers.omnigent import OmnigentDriver, OmnigentDriverError
@@ -20,8 +21,6 @@ from vs_sandbox import HostResource, HostResourceAccess
 if TYPE_CHECKING:
     from collections.abc import Iterable
     from pathlib import Path
-
-    from vibesys.agents.client import AgentClient
 
 
 def _config(**agent: object) -> Config:
@@ -37,7 +36,7 @@ def _build(  # noqa: PLR0913
     log_dir: Path | None = None,
     host_resources: Iterable[HostResource] = (),
 ) -> AgentClient:
-    return build_agent_client(
+    client = build_agent_client(
         config,
         agent_backend=None,
         cli_provider=None,
@@ -51,6 +50,10 @@ def _build(  # noqa: PLR0913
         log_dir=log_dir,
         host_resources=host_resources,
     )
+    # Every case here selects the cli backend, whose concrete client is what
+    # these tests inspect.
+    assert isinstance(client, AgentClient)
+    return client
 
 
 def test_agentshim_is_the_default_driver() -> None:

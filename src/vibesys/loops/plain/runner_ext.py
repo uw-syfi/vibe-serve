@@ -1,6 +1,6 @@
 """Issue-tracker runner customization.
 
-Wraps any :class:`~vibesys.agents.client.AgentClient` and injects
+Wraps any :class:`~vibesys.agents.contracts.AgentClientProtocol` and injects
 tracker access for the ``judge`` and ``perf_eval`` phases. The wrapper
 picks the right transport (MCP server spec or in-process ``@tool`` callables)
 from the inner client's declared capabilities.
@@ -20,14 +20,14 @@ tools are needed there.
 from __future__ import annotations
 
 from pathlib import Path  # noqa: TC003
-from typing import Any, TypeVar
+from typing import Any, TextIO, TypeVar
 
 from langchain_core.tools import BaseTool  # noqa: TC002  # tracked: #288
 from pydantic import BaseModel
 
 from vibesys._agent_cli.base import MCPServerSpec  # noqa: TC001  # tracked: #288
 from vibesys.agents.client import AgentClient
-from vibesys.agents.contracts import AgentCapabilities  # noqa: TC001
+from vibesys.agents.contracts import AgentCapabilities, AgentClientProtocol  # noqa: TC001
 from vibesys.agents.progress import AgentProgress  # noqa: TC001
 from vibesys.agents.session_key import AgentSessionKey  # noqa: TC001
 from vibesys.loops.plain.mcp_config import build_issue_mcp_spec
@@ -58,7 +58,7 @@ class PlainLoopAgentClient(AgentClient):
 
     def __init__(  # noqa: ANN204, D107  # tracked: #288
         self,
-        inner: AgentClient,
+        inner: AgentClientProtocol,
         *,
         store: IssueBoard,
         max_issues_per_perf_eval: int,
@@ -76,11 +76,23 @@ class PlainLoopAgentClient(AgentClient):
         """Preserve the inner client's declared capabilities."""
         return self._inner.capabilities
 
-    def set_log_file(self, stream: Any) -> None:  # noqa: ANN401
+    @property
+    def driver_name(self) -> str | None:
+        """Attribute turns to the wrapped client, not to the wrapper."""
+        return self._inner.driver_name
+
+    @property
+    def provider(self) -> str | None:
+        """Attribute turns to the wrapped client, not to the wrapper."""
+        return self._inner.provider
+
+    def model_for_kind(self, kind: str) -> str | None:
+        """Report the wrapped client's model; the wrapper selects none."""
+        return self._inner.model_for_kind(kind)
+
+    def set_log_file(self, stream: TextIO | None) -> None:
         """Retarget inner-client logs when the run changes log files."""
-        setter = getattr(self._inner, "set_log_file", None)
-        if callable(setter):
-            setter(stream)
+        self._inner.set_log_file(stream)
 
     def close(self) -> None:
         """Close the inner client."""
