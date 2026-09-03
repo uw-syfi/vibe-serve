@@ -29,6 +29,15 @@ import {createServer, type Socket} from 'node:net';
 import {dirname, join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {gunzipSync} from 'node:zlib';
+import type {ActiveExecutionCheckpoint} from '@vibesys/core-state';
+
+/**
+ * One entry of the liveness checkpoint the real server puts on a snapshot and
+ * on every event batch. Taken from the generated protocol types, so a field
+ * added to `ActiveAgentExecution` is a typecheck error here rather than a
+ * silently thinner checkpoint on the wire.
+ */
+type ExecutionCheckpoint = ActiveExecutionCheckpoint[number];
 
 interface RunEventRecord {
   sequence?: number;
@@ -38,6 +47,7 @@ interface RunEventRecord {
   status?: string | null;
   round_label?: string | null;
   agent_kind?: string | null;
+  execution_id?: string | null;
   data?: Record<string, unknown> | null;
   [key: string]: unknown;
 }
@@ -53,6 +63,8 @@ interface Options {
   startPaused: boolean;
   /** Events delivered instantly at boot, as the recorded history. */
   bootstrap: number;
+  /** Process this server exists to feed. `null` when it was started on its own. */
+  ownerPid: number | null;
   verbose: boolean;
 }
 
@@ -61,6 +73,9 @@ interface Options {
  * to survive a reconnect, short enough that a killed session leaves nothing.
  */
 const DISCONNECT_GRACE_MS = 1_500;
+
+/** How often the owner watchdog checks that the client process is still there. */
+const OWNER_POLL_MS = 250;
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FIXTURE_DIR = join(HERE, 'fixtures');
@@ -121,6 +136,7 @@ function parseOptions(argv: string[]): Options {
     maxGapMs: number('--max-gap', 400),
     startPaused: argv.includes('--paused'),
     bootstrap: number('--bootstrap', 0),
+    ownerPid: value('--owner-pid') === undefined ? null : number('--owner-pid', 0),
     verbose: argv.includes('--verbose'),
   };
 }
@@ -182,6 +198,81 @@ function replayRunStatus(delivered: RunEventRecord[]): string {
   }
   // Nothing delivered yet, so the run has started but reported nothing.
   return 'starting';
+}
+
+function stringOr(value: unknown, fallback: string): string {
+  return typeof value === 'string' ? value : fallback;
+}
+
+function optionalString(value: unknown): string | null {
+  return typeof value === 'string' ? value : null;
+}
+
+/** Run-ending event types, the same set the client's `foldEvent` terminates on. */
+function isRunTerminal(type: string | undefined): boolean {
+  return (
+    type === 'run_finished' ||
+    type === 'run_failed' ||
+    type === 'run_interrupted' ||
+    type === 'configuration_failed'
+  );
+}
+
+/**
+ * The agent executions still running after the delivered prefix.
+ *
+ * Derived rather than stored: the events are the only description of the run
+ * the harness has, so a second hand-maintained checkpoint could only drift from
+ * them. `mock-responses.json` therefore keeps `active_executions` empty and
+ * every answer that carries one, the snapshot and each event batch, takes it
+ * from here.
+ *
+ * The lifecycle rules are the client's own, in `applyAgentExecutionEvent`: a
+ * start opens an execution, an activity change updates it, a finish closes it,
+ * and a terminal run event closes all of them the way the real server's
+ * tracker interrupts what is still running.
+ */
+function activeExecutionsFrom(delivered: RunEventRecord[]): ActiveExecutionCheckpoint {
+  const active = new Map<string, ExecutionCheckpoint>();
+  for (const event of delivered) {
+    if (isRunTerminal(event.type)) active.clear();
+    // `execution_id` only, never the legacy `invocation_id`: the checkpoint has
+    // to describe the state the client folded, and the client keys executions
+    // by `execution_id` alone. A fixture predating that field carries no
+    // executions here, which is exactly what the client makes of it.
+    const executionId = event.execution_id;
+    const data = event.data;
+    if (typeof executionId !== 'string' || !data) continue;
+    if (data['kind'] === 'agent_execution_started') {
+      const agentKind = stringOr(event.agent_kind, 'agent');
+      active.set(executionId, {
+        execution_id: executionId,
+        agent_kind: agentKind,
+        round_label: stringOr(event.round_label, ''),
+        stage: stringOr(data['stage'], agentKind),
+        attempt: typeof data['attempt'] === 'number' ? data['attempt'] : null,
+        assignment: stringOr(data['user_prompt'], ''),
+        started_at: stringOr(event.timestamp, ''),
+        // Carried through, not rebuilt: `test_tui_dev_harness.py` validates
+        // every fixture line as a `RunEvent`, so this payload is already an
+        // `AgentExecutionActivityData`, closed `mode` set included.
+        activity: data['activity'] as ExecutionCheckpoint['activity'],
+        driver: optionalString(data['driver']),
+        provider: optionalString(data['provider']),
+        model: optionalString(data['model']),
+      });
+    }
+    if (data['kind'] === 'agent_execution_activity_changed') {
+      const current = active.get(executionId);
+      // The activity event's own payload is the activity, so it replaces the
+      // stored one whole rather than being copied field by field.
+      if (current !== undefined) {
+        active.set(executionId, {...current, activity: data as ExecutionCheckpoint['activity']});
+      }
+    }
+    if (data['kind'] === 'agent_execution_finished') active.delete(executionId);
+  }
+  return [...active.values()];
 }
 
 function loadFixture(path: string): RunEventRecord[] {
@@ -269,6 +360,11 @@ class Replay {
     return this.events.slice(0, this.#cursor);
   }
 
+  /** Liveness checkpoint for everything delivered so far. */
+  get activeExecutions(): ActiveExecutionCheckpoint {
+    return activeExecutionsFrom(this.delivered);
+  }
+
   /**
    * Backfill range, in current-pass numbering. The stream advertises
    * `history_after_sequence: 0`, so the client should never need this; it is
@@ -349,7 +445,12 @@ class Replay {
     const event = this.events[this.#cursor];
     if (event === undefined) return;
     this.#cursor += 1;
-    this.broadcast({type: 'event_batch', events: [event], through_sequence: event.sequence});
+    this.broadcast({
+      type: 'event_batch',
+      events: [event],
+      through_sequence: event.sequence,
+      active_executions: this.activeExecutions,
+    });
     if (this.#options.verbose) {
       process.stderr.write(`mock: seq ${String(event.sequence)} ${String(event.type)}\n`);
     }
@@ -357,6 +458,21 @@ class Replay {
     const delay = next === undefined ? 0 : gapMs(event, next, this.#options);
     this.#timer = setTimeout(() => this.#step(), delay);
     this.#timer.unref?.();
+  }
+}
+
+/**
+ * Whether `pid` still names a live process.
+ *
+ * `EPERM` means it exists and this process may not signal it, which is still
+ * alive; only `ESRCH` means gone.
+ */
+function processExists(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'EPERM';
   }
 }
 
@@ -399,11 +515,11 @@ function main(): void {
             run_id: replay.runId,
             latest_sequence: replay.latestSequence,
           });
-          const delivered = replay.delivered;
           writeLine(socket, {
             type: 'event_batch',
-            events: delivered,
+            events: replay.delivered,
             through_sequence: replay.latestSequence,
+            active_executions: replay.activeExecutions,
             // 0 means the stream carries its whole history, so the TUI never
             // asks for a backfill it cannot get.
             history_after_sequence: 0,
@@ -423,6 +539,11 @@ function main(): void {
                 status: replayRunStatus(replay.delivered),
                 agent_kind: last?.agent_kind ?? null,
                 round_label: last?.round_label ?? null,
+                // Boot queries the snapshot and subscribes concurrently, so
+                // this answer can land after the bootstrap batch at the same
+                // sequence, where the client accepts it. Left static and empty
+                // it then erased an execution the batch had just opened.
+                active_executions: replay.activeExecutions,
               }),
             }),
           );
@@ -560,6 +681,29 @@ function main(): void {
     }
     process.exit(0);
   };
+
+  /**
+   * The subscription is not enough on its own: `onLastSubscriberGone` only ever
+   * fires for a client that subscribed at least once. A client that dies
+   * between the bind and its first `subscribe`, on a missing runtime or an
+   * exception during TUI initialisation, left this process adopted by PID 1
+   * with its socket and log still on disk, and nothing upstream could reach it
+   * because `mock-ui.sh` has already `exec`ed the client over its own shell.
+   *
+   * Watching the owner covers that window and every later one, whatever killed
+   * the client. `mock-ui.sh` passes the pid the client will run under, which is
+   * the launching shell's own pid because it `exec`s.
+   */
+  if (options.ownerPid !== null) {
+    const ownerPid = options.ownerPid;
+    const watchdog = setInterval(() => {
+      if (processExists(ownerPid)) return;
+      process.stderr.write(`mock: client process ${String(ownerPid)} is gone, exiting\n`);
+      shutdown();
+    }, OWNER_POLL_MS);
+    watchdog.unref?.();
+  }
+
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
   // SIGHUP is what arrives first when the terminal or tmux session the client

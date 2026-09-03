@@ -19,6 +19,10 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TUI="$(dirname "$HERE")"
 SOCKET="${VS_MOCK_SOCKET:-/tmp/vs-mock-$$.sock}"
 SESSION="${VS_MOCK_SESSION:-vsmock}"
+# The client the harness launches. Overridable so the process-level test can put
+# a client that exits before it subscribes where the TUI would be, which is the
+# case the server's owner watchdog exists for.
+CLIENT="${VS_MOCK_CLIENT:-}"
 
 fixture=""
 theme=""
@@ -39,7 +43,7 @@ while [ $# -gt 0 ]; do
 done
 [ -n "$fixture" ] && mock_args+=(--fixture "$fixture")
 
-if [ ! -f "$TUI/dist/index.js" ]; then
+if [ -z "$CLIENT" ] && [ ! -f "$TUI/dist/index.js" ]; then
   echo "mock-ui: TUI build missing. Run: pnpm --dir $TUI build" >&2
   exit 1
 fi
@@ -76,7 +80,13 @@ RUNNER="${TMPDIR:-/tmp}/vs-mock-run-$$.sh"
   printf 'SELF=%q\n' "$RUNNER"
   printf 'MOCK_LOG=%q\n' "$MOCK_LOG"
   printf 'export VS_MOCK_OWNED_LOG=%q\n' "$OWNED_LOG"
-  printf 'bun %q --socket "$SOCKET"%s >"$MOCK_LOG" 2>&1 &\n' "$HERE/mock-server.ts" "$quoted_args"
+  # `--owner-pid $$` is this shell, which `exec` below turns into the client
+  # itself, so the server's lifetime is bounded by the client process rather
+  # than by a subscription the client may never open. Without it a client that
+  # died between the bind and its first `subscribe` left the server adopted by
+  # PID 1: nothing is left out here to kill it, since `exec` discards this shell.
+  printf 'bun %q --socket "$SOCKET" --owner-pid "$$"%s >"$MOCK_LOG" 2>&1 &\n' \
+    "$HERE/mock-server.ts" "$quoted_args"
   echo 'SERVER_PID=$!'
   echo 'for _ in $(seq 1 100); do [ -S "$SOCKET" ] && break; sleep 0.05; done'
   echo 'if [ ! -S "$SOCKET" ]; then'
@@ -97,8 +107,12 @@ RUNNER="${TMPDIR:-/tmp}/vs-mock-run-$$.sh"
   # act on SIGHUP until that child returns, and the client does not return, so
   # `tmux kill-session` orphaned the whole tree. Replacing the shell makes the
   # client the session's own process, and the server exits on its own once the
-  # subscription closes.
-  printf 'exec bun %q\n' "$TUI/dist/index.js"
+  # subscription closes or the pid it was given stops existing.
+  if [ -n "$CLIENT" ]; then
+    printf 'exec %q\n' "$CLIENT"
+  else
+    printf 'exec bun %q\n' "$TUI/dist/index.js"
+  fi
 } >"$RUNNER"
 chmod +x "$RUNNER"
 

@@ -42,6 +42,18 @@ clients/tui/dev/mock-ui.sh            # replay the bundled fixture
 `/pause` and `/resume` inside the TUI control the replay itself, so you can stop
 on a frame and inspect it.
 
+### Process lifetime
+
+`mock-ui.sh` runs both halves under one process: it starts the server, waits for
+the bind, then `exec`s the client over its own shell. Nothing is left outside to
+clean up afterwards, so the server ends itself. It exits when its last
+subscriber disconnects, on `SIGHUP`, `SIGINT`, or `SIGTERM`, and when the
+`--owner-pid` it was given stops existing. That last one covers the window the
+subscription watch cannot see: a client that dies between the bind and its
+first `subscribe`, on a missing runtime or an exception during initialisation,
+never reaches `onLastSubscriberGone` and used to leave the server adopted by
+PID 1 with its socket and log still on disk.
+
 There is deliberately no loop flag. Restarting the fixture would replay
 `run_started` into a client that already folded the run to terminal, leaving it
 with a running status, a terminal flag still set, and a second transcript
@@ -109,8 +121,23 @@ Relevant if you extend `mock-server.ts`:
   history and suppresses backfill requests.
 - The recorded `run-events.jsonl` line format is exactly the `RunEvent` that
   goes on the wire, so replay is just re-enveloping lines into `event_batch`.
+- A snapshot and every `event_batch` carry `active_executions`, the server's
+  liveness checkpoint. The mock derives it from the events it has delivered
+  rather than keeping a second description of the same fact. Answered from the
+  static body instead, it was an empty checkpoint at the sequence the bootstrap
+  had just reached, and `reduceSnapshot` accepts one at an equal sequence, so a
+  snapshot landing after the batch erased the execution the batch had opened.
 - Response bodies are literals in `mock-responses.json`, keyed by request type,
   rather than inline in `mock-server.ts`. That is what lets
   `tests/server/test_tui_dev_harness.py` validate the exact bytes sent against
   the `Response` model. Runtime values go in through `withValues`, which
   refuses any key the file does not already carry.
+
+## Tests
+
+`harness.test.ts` covers the parts that only exist at runtime: process
+lifetime, by driving `mock-ui.sh` with a client that exits before it
+subscribes, and the liveness checkpoint, by folding a real bootstrap batch plus
+the snapshot query that follows it through `@vibesys/core-state`. It runs with
+the TUI's own suite (`pnpm --dir clients/tui test`). The fixtures and the static
+response bodies are checked separately, in `tests/server/test_tui_dev_harness.py`.
