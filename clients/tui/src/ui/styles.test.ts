@@ -1,5 +1,7 @@
 import {afterEach, describe, expect, it} from 'bun:test';
 import {
+  type CapturedFrame,
+  type CapturedSpan,
   CodeRenderable,
   type MarkdownOptions,
   MarkdownRenderable,
@@ -30,6 +32,7 @@ interface MarkdownFixture {
   markdown: MarkdownRenderable;
   treeSitterClient: MockTreeSitterClient;
   layout: () => Promise<void>;
+  capture: () => CapturedFrame;
 }
 
 /**
@@ -45,7 +48,7 @@ async function renderMarkdown(
   theme: Theme,
   codeRenderer: CodeRenderer = 'transcript',
 ): Promise<MarkdownFixture> {
-  const {renderer, renderOnce} = await createTestRenderer({width: 60, height: 20});
+  const {renderer, renderOnce, captureSpans} = await createTestRenderer({width: 60, height: 20});
   cleanup.push(() => renderer.destroy());
   const treeSitterClient = new MockTreeSitterClient();
   cleanup.push(() => void treeSitterClient.destroy());
@@ -67,7 +70,24 @@ async function renderMarkdown(
   });
   renderer.root.add(markdown);
   cleanup.push(() => markdown.destroyRecursively());
-  return {markdown, treeSitterClient, layout: renderOnce};
+  return {markdown, treeSitterClient, layout: renderOnce, capture: captureSpans};
+}
+
+/**
+ * The colors the drawn cells carrying `text` ended up with.
+ *
+ * Read off the frame rather than off a renderable because a fence nested in a
+ * list is not a renderable of its own: it is a run of cells inside the block
+ * its list was coalesced into.
+ */
+function drawnSurface(fixture: MarkdownFixture, text: string): {fg: string; bg: string} {
+  const spans = fixture
+    .capture()
+    .lines.flatMap(line => line.spans)
+    .filter(span => span.text.includes(text));
+  expect(spans).toHaveLength(1);
+  const span = spans[0] as CapturedSpan;
+  return {fg: rgbToHex(span.fg), bg: rgbToHex(span.bg)};
 }
 
 /**
@@ -189,6 +209,47 @@ describe('markdown code blocks', () => {
     expect(plain.getChildren()).toHaveLength(1);
     expect(markdown.getChildren()).toHaveLength(plain.getChildren().length);
     expect(unscoped.getChildren()).toHaveLength(100);
+  });
+
+  it('draws fences nested in a list on the same surface as a top-level one', async () => {
+    const theme = resolveTheme('dark');
+    // A list item followed by an indented fence naming a grammar that does not
+    // exist, an unlabelled one, and a top-level fence to compare them against.
+    const content = [
+      '- A list item.',
+      '',
+      '  ```mystery',
+      '  nested body',
+      '  ```',
+      '',
+      '- An unlabelled item.',
+      '',
+      '  ```',
+      '  unlabelled body',
+      '  ```',
+      '',
+      '```mystery',
+      'top level body',
+      '```',
+      '',
+    ].join('\n');
+    const fixture = await renderMarkdown(content, theme);
+    await fixture.layout();
+
+    // The renderer coalesces a list into the surrounding markdown block, so a
+    // nested fence never becomes a block of its own and the node override is
+    // never consulted for it. Only the top-level fence is a second block.
+    expect(fixture.markdown.getChildren()).toHaveLength(2);
+    // Nothing resolves a grammar here, which is the case the override exists
+    // for. Both nested fences still have to draw, and on the same surface the
+    // top-level fence gets.
+    const surface = {fg: theme.markdown.code, bg: theme.markdown.codeBackground};
+    expect(drawnSurface(fixture, 'nested body')).toEqual(surface);
+    expect(drawnSurface(fixture, 'unlabelled body')).toEqual(surface);
+    expect(drawnSurface(fixture, 'top level body')).toEqual(surface);
+    const prose = drawnSurface(fixture, 'A list item.');
+    expect(prose.fg).toBe(theme.markdown.default);
+    expect(prose.bg).not.toBe(theme.markdown.codeBackground);
   });
 
   it('leaves every other block to the default renderer', async () => {

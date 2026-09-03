@@ -12,6 +12,19 @@ export type EntryPalette = ConversationRoleColors;
 
 type MarkdownRenderNode = NonNullable<MarkdownOptions['renderNode']>;
 
+/**
+ * The surface any code draws on, whatever produced it.
+ *
+ * Two consumers decide it, so it has to be one decision. A top-level fence is
+ * a `CodeRenderable` the node override restyles. An inline span, and a fence
+ * nested in a list, arrive instead as `markup.raw*` captures inside a
+ * coalesced markdown block and take their colors from the syntax style. Naming
+ * the pair twice lets a fence change color depending on where it sits.
+ */
+function codeSurface({markdown}: Theme): {fg: string; bg: string} {
+  return {fg: markdown.code, bg: markdown.codeBackground};
+}
+
 export function createMarkdownStyle(theme: Theme): SyntaxStyle {
   const {markdown} = theme;
   // Style names are the markup.* capture groups the markdown renderer emits.
@@ -20,7 +33,7 @@ export function createMarkdownStyle(theme: Theme): SyntaxStyle {
   // "heading" entry is never consulted, which left every markdown color
   // except default unused.
   const heading = {fg: markdown.heading, bold: true};
-  const code = {fg: markdown.code, bg: markdown.codeBackground};
+  const code = codeSurface(theme);
   return SyntaxStyle.fromStyles({
     default: {fg: markdown.default},
     'markup.heading': heading,
@@ -92,27 +105,35 @@ function asCodeBlockOnly(renderNode: MarkdownRenderNode): MarkdownRenderNode {
  *
  * Inline code picks up `markup.raw` from the syntax style, but a fenced block
  * is rendered by `CodeRenderable`, which colors text from tree-sitter captures
- * for the block's language. No grammars ship with the package and none are
- * cached locally, so highlighting falls back to plain text and the block
- * arrives with no foreground and no background: visually identical to the
- * prose around it. Restyling the default block gives it a code surface whether
- * or not a grammar is ever available, and highlighting still applies on top
- * when one is.
+ * for the block's own language. The package ships grammars for markdown,
+ * JavaScript, TypeScript and Zig, so the info string of a transcript fence
+ * usually names one it has no grammar for and none is cached locally.
+ * Highlighting then falls back to plain text and the block arrives with no
+ * foreground and no background: visually identical to the prose around it.
+ * Restyling the default block gives it a code surface whether or not a grammar
+ * is ever available, and highlighting still applies on top when one is.
  *
  * The default block is restyled rather than replaced. A replacement would
  * discard the margins, streaming mode, concealment, tree-sitter client, and
  * info-string normalization the renderer put on it, and the renderer would
  * stop tracking it: the visible symptom is a fenced block sitting flush
  * against the paragraph after it.
+ *
+ * Only top-level fences reach this. A fence nested in a list is part of the
+ * block the renderer coalesces its list into, so it is markdown source inside
+ * a markdown block, and `codeSurface` reaches it through `markup.raw.block`
+ * instead. `createListChildRenderable`, which would build a `CodeRenderable`
+ * for it without consulting any override, is only reachable in
+ * `internalBlockMode: 'top-level'`, which the transcript does not use.
  */
 export function createMarkdownCodeRenderer(theme: Theme): MarkdownRenderNode {
-  const {markdown} = theme;
+  const {fg, bg} = codeSurface(theme);
   return asCodeBlockOnly((token, context) => {
     if (token.type !== 'code') return undefined;
     const block = context.defaultRender();
     if (!(block instanceof CodeRenderable)) return block;
-    block.fg = markdown.code;
-    block.bg = markdown.codeBackground;
+    block.fg = fg;
+    block.bg = bg;
     // The default suppresses the plain-text draw while streaming and waits for
     // highlighting to supply styled chunks instead. With no grammar available
     // that wait resolves to plain text anyway, so the block would just be blank
