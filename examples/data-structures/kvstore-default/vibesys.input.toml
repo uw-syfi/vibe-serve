@@ -10,3 +10,7 @@ timeout_seconds = 120
 [benchmark]
 command = ["uv", "run", "python", "benchmark/benchmark.py"]
 timeout_seconds = 300
+
+[benchmark.result]
+json_argument = "--output-json"
+metric = "total_ops_per_sec"
