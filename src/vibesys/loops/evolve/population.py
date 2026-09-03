@@ -30,37 +30,24 @@ from __future__ import annotations
 import math
 import random  # noqa: TC003  # tracked: #288
 from dataclasses import dataclass, field
-from typing import Literal
+
+from vibesys.loops.metrics import Objective
+
+__all__ = [
+    "Individual",
+    "Objective",
+    "Population",
+]
 
 # ---------------------------------------------------------------------------
-# Objective spec + dominance
+# Dominance
+#
+# ``Objective`` now lives in ``vibesys.loops.metrics`` alongside the shared
+# metric space. It is re-exported here so this module and its importers keep
+# their existing surface. The selection logic below still compares exactly,
+# without a measurement tolerance; delegating it to ``MetricSpace`` is a
+# deliberate behavior change for the evolve loop and belongs in its own change.
 # ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class Objective:
-    """One axis of the fitness frontier.
-
-    ``name`` is the key in ``Individual.metrics`` the profiler must
-    report. ``direction`` is ``"max"`` or ``"min"``; the framework
-    flips the sign when comparing min-objectives so dominance logic can
-    treat every axis as "higher is better" internally.
-    """
-
-    name: str
-    direction: Literal["max", "min"]
-
-    def __post_init__(self) -> None:  # noqa: D105  # tracked: #288
-        if self.direction not in ("max", "min"):
-            raise ValueError(f"Objective.direction must be 'max' or 'min', got {self.direction!r}")  # noqa: TRY003  # tracked: #288
-
-    def signed(self, value: float) -> float:
-        """Return *value* flipped to "higher is better" semantics.
-
-        Used by the dominance helper so callers don't have to branch on
-        direction. Min objectives are negated; max objectives pass through.
-        """
-        return value if self.direction == "max" else -value
 
 
 def _dominates(a: Individual, b: Individual, objectives: list[Objective]) -> bool:

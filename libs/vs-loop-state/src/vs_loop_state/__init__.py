@@ -18,6 +18,7 @@ from vs_loop_state.evolve import (
     parse_population_snapshot,
     serialize_population_snapshot,
 )
+from vs_loop_state.metrics import MetricComparison
 from vs_loop_state.plain import (
     PlainLoopCursor,
     PlainPerformanceRecord,
@@ -31,6 +32,7 @@ from vs_loop_state.plain import (
 __all__ = [
     "IndividualRecord",
     "JudgeVerdict",
+    "MetricComparison",
     "PlainLoopCursor",
     "PlainPerformanceRecord",
     "PlainPerformanceSnapshot",
