@@ -1,9 +1,7 @@
 import {
   BoxRenderable,
   type CliRenderer,
-  type MarkdownOptions,
   MarkdownRenderable,
-  type MarkdownTableOptions,
   type SyntaxStyle,
   // The terminal mouse event, not the DOM global of the same name.
   type MouseEvent as TerminalMouseEvent,
@@ -14,7 +12,7 @@ import type {SessionController} from '../session-controller.js';
 import type {ConversationEntry, SessionState} from '../session-model.js';
 import {visibleConversation} from '../session-model.js';
 import {promptPreview, toolCallPreview, toolResultPreview} from './previews.js';
-import {createMarkdownCodeRenderer, createMarkdownTableOptions, entryPalette} from './styles.js';
+import {createMarkdownBlockOptions, entryPalette, type MarkdownBlockOptions} from './styles.js';
 import type {Theme} from './theme.js';
 
 export interface ConversationViewOptions {
@@ -60,9 +58,7 @@ const CONVERSATION_WINDOW = 200;
 export class ConversationView {
   readonly output: BoxRenderable;
   #theme: Theme;
-  #markdownStyle: SyntaxStyle;
-  #markdownTableOptions: MarkdownTableOptions;
-  #markdownCodeRenderer: NonNullable<MarkdownOptions['renderNode']>;
+  #markdownBlockOptions: MarkdownBlockOptions;
   readonly #expandedPrompts = new Set<string>();
   readonly #expandedTools = new Set<string>();
   readonly #selectConversation: (state: SessionState) => ConversationEntry[];
@@ -91,9 +87,7 @@ export class ConversationView {
     theme: Theme,
     options: ConversationViewOptions = {},
   ) {
-    this.#markdownStyle = markdownStyle;
-    this.#markdownTableOptions = createMarkdownTableOptions(theme);
-    this.#markdownCodeRenderer = createMarkdownCodeRenderer(theme);
+    this.#markdownBlockOptions = createMarkdownBlockOptions(theme, markdownStyle);
     this.#theme = theme;
     this.#selectConversation = options.selectConversation ?? visibleConversation;
     this.#emptyContent = options.emptyContent ?? 'Waiting for run events…';
@@ -176,9 +170,7 @@ export class ConversationView {
 
   applyTheme(theme: Theme, markdownStyle: SyntaxStyle): void {
     this.#theme = theme;
-    this.#markdownStyle = markdownStyle;
-    this.#markdownTableOptions = createMarkdownTableOptions(theme);
-    this.#markdownCodeRenderer = createMarkdownCodeRenderer(theme);
+    this.#markdownBlockOptions = createMarkdownBlockOptions(theme, markdownStyle);
     this.#clear();
     this.#renderedConversation = [];
   }
@@ -439,13 +431,9 @@ export class ConversationView {
         : {content: entry.content, hiddenLines: 0};
     card.add(
       new MarkdownRenderable(this.renderer, {
+        ...this.#markdownBlockOptions,
         content: preview.content,
-        syntaxStyle: this.#markdownStyle,
-        conceal: true,
         streaming: this.#markdownStreaming ?? !hasRunEnded(this.controller.state.core),
-        tableOptions: this.#markdownTableOptions,
-        renderNode: this.#markdownCodeRenderer,
-        width: '100%',
       }),
     );
     if (entry.kind === 'prompt' && (preview.hiddenLines > 0 || expanded)) {
