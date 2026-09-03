@@ -63,7 +63,6 @@ from vibesys.loops.evolve.search_policy import (
 )
 from vibesys.loops.evolve.state import EvolutionStateStore
 from vibesys.loops.gates import (
-    PROTOCOL_OUTPUT_FLAG,
     BenchmarkContract,
     BenchmarkGateResult,
     FrameworkBenchmarkOutcome,
@@ -76,6 +75,11 @@ from vibesys.loops.profiler import invoke_profiler
 from vibesys.profilers import ProfilerKind, profiler_definition
 from vibesys.prompts import PROMPTS_DIR
 from vibesys.run import LoopContext, RepositoryVisibility, RunIntegration, RunStateNamespace
+from vibesys.run.events import (
+    BenchmarkResultData,
+    CoreEventType,
+    EventStatus,
+)
 from vibesys.sandbox.run_environment import (
     RunEnvironmentSpec,
     make_run_environment_spec,
@@ -467,7 +471,7 @@ def _run_framework_accuracy_gate(
     result = run_accuracy_gate(
         ctx,
         process_id=f"evolve-accuracy-{generation}-{child_idx}",
-        timeout_seconds=timeout_seconds,
+        timeout_seconds=framework_command_timeout(ctx, timeout_seconds),
     )
     return result.feedback
 
@@ -478,18 +482,36 @@ def _run_framework_benchmark_gate(
     generation: int,
     child_idx: int,
     contract: BenchmarkContract,
-    objectives: list[Objective] | None,
+    space: MetricSpace,
 ) -> BenchmarkGateResult:
-    """Run the declared trusted benchmark result contract for one candidate."""
-    return run_benchmark_gate(
+    """Run the declared trusted benchmark result contract for one candidate.
+
+    Publishes the same ``BENCHMARK_RESULT`` event the agent loop publishes, so
+    a client watching an evolve run sees the framework's measurement of a
+    candidate rather than only the agent transcripts around it.
+    """
+    result = run_benchmark_gate(
         ctx,
         result_spec=contract.result_spec,
         result_protocol=contract.result_protocol,
-        objectives=objectives or (),
+        objectives=space.objectives,
         process_id=f"evolve-benchmark-{generation}-{child_idx}",
         output_slug=f"gen{generation}-cand{child_idx}",
         timeout_seconds=framework_command_timeout(ctx, contract.timeout_seconds),
     )
+    outcome = result.outcome
+    if result.passed and outcome.metric_name is not None and outcome.metric_value is not None:
+        ctx.events.emit(
+            CoreEventType.BENCHMARK_RESULT,
+            status=EventStatus.COMPLETED,
+            round_label=f"gen-{generation}-cand-{child_idx}",
+            data=BenchmarkResultData(
+                metric=outcome.metric_name,
+                value=outcome.metric_value,
+                unit=outcome.metric_unit or outcome.metric_name,
+            ),
+        )
+    return result
 
 
 def _run_candidate_gates(  # noqa: PLR0913  # tracked: #288
@@ -498,7 +520,7 @@ def _run_candidate_gates(  # noqa: PLR0913  # tracked: #288
     generation: int,
     child_idx: int,
     contract: BenchmarkContract,
-    objectives: list[Objective] | None,
+    space: MetricSpace,
     accuracy_timeout_seconds: int | None,
 ) -> tuple[str | None, FrameworkBenchmarkOutcome | None]:
     """Run the accuracy gate, then the benchmark contract when one is declared.
@@ -520,7 +542,7 @@ def _run_candidate_gates(  # noqa: PLR0913  # tracked: #288
         generation=generation,
         child_idx=child_idx,
         contract=contract,
-        objectives=objectives,
+        space=space,
     )
     if not gate.passed:
         return gate.outcome.feedback, None
@@ -533,25 +555,38 @@ def _candidate_fitness(
 ) -> tuple[float | None, str | None, dict[str, float]]:
     """Resolve a candidate's recorded fitness: trusted benchmark over profiler.
 
-    A declared benchmark result contract owns the headline number and the
-    objective row; the profiler's self-reported measurement is the fallback
-    when no contract is declared (or diagnostics-only when one is).
+    A declared benchmark result contract owns the axes it measures; the
+    profiler's self-report owns the rest. The trusted row is therefore merged
+    *over* the profiler's row rather than replacing it: the scalar contract
+    reports one number, so on a two-axis task replacing the row would leave
+    every individual incomplete on the second axis and
+    :meth:`Population.frontier` -- which keeps only individuals carrying a
+    value for every configured axis -- would return nothing.
+
+    The unit comes from the evaluator's own declaration when the result
+    protocol supplies one; ``objectives.toml`` names axes but does not say
+    what they are measured in, so the profiler's unit is the fallback.
     """
+    metrics = dict(summary.metrics) if summary and summary.metrics else {}
     if (
         benchmark is not None
         and benchmark.metric_name is not None
         and benchmark.metric_value is not None
     ):
-        row = (
+        trusted = (
             dict(benchmark.row)
             if benchmark.row
             else {benchmark.metric_name: benchmark.metric_value}
         )
-        return benchmark.metric_value, benchmark.metric_name, row
+        return (
+            benchmark.metric_value,
+            benchmark.metric_unit or (summary.perf_unit if summary else None),
+            metrics | trusted,
+        )
     return (
         summary.perf_metric if summary else None,
         summary.perf_unit if summary else None,
-        dict(summary.metrics) if summary and summary.metrics else {},
+        metrics,
     )
 
 
@@ -652,7 +687,7 @@ def _evaluate_candidate(  # noqa: PLR0913  # tracked: #288
             generation=generation,
             child_idx=child_idx,
             contract=benchmark_contract,
-            objectives=objectives,
+            space=space,
             accuracy_timeout_seconds=accuracy_timeout_seconds,
         )
         if gate_feedback is not None:
@@ -1227,7 +1262,7 @@ def _bootstrap_seed(  # noqa: PLR0913, PLR0915  # tracked: #288
                     generation=0,
                     child_idx=attempt,
                     contract=benchmark_contract,
-                    objectives=objectives,
+                    space=space,
                     accuracy_timeout_seconds=accuracy_timeout_seconds,
                 )
             else:
@@ -1503,6 +1538,11 @@ def run_evolve_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
         max_parallelism=max_parallelism,
         objectives=tuple(f"{item.name}:{item.direction}" for item in space.objectives),
     )
+    benchmark_contract = BenchmarkContract(
+        result_spec=benchmark_result,
+        result_protocol=benchmark_result_protocol,
+        timeout_seconds=benchmark_timeout_seconds,
+    )
     ctx = create_run_context(
         config=normalized_config,
         exp_name=exp_name,
@@ -1515,13 +1555,7 @@ def run_evolve_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
         workspace_sources=workspace_sources,
         evaluator_path=evaluator_path,
         evaluator_package_root=evaluator_package_root,
-        benchmark_output_argument=(
-            benchmark_result.json_argument
-            if benchmark_result is not None
-            else PROTOCOL_OUTPUT_FLAG
-            if benchmark_result_protocol is not None
-            else None
-        ),
+        benchmark_output_argument=benchmark_contract.output_argument,
         existing=existing,
         debug=debug,
         profiler_kind=profiler_kind,
@@ -1591,11 +1625,6 @@ def run_evolve_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
     ctx.lprint(f"[log] search policy: {policy_name.value}")
 
     rng = random.Random(seed)  # noqa: S311  # tracked: #288
-    benchmark_contract = BenchmarkContract(
-        result_spec=benchmark_result,
-        result_protocol=benchmark_result_protocol,
-        timeout_seconds=benchmark_timeout_seconds,
-    )
     if benchmark_contract.declared:
         ctx.lprint("[log] benchmark result contract declared; it owns candidate fitness")
 

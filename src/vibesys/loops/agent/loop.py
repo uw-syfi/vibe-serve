@@ -54,7 +54,7 @@ from vibesys.loops.agent.model import (
 from vibesys.loops.agent.state import AgentRunStateStore
 from vibesys.loops.gates import (
     GATE_RECORD_TAIL_CHARS,
-    PROTOCOL_OUTPUT_FLAG,
+    BenchmarkContract,
     FrameworkBenchmarkOutcome,
     framework_command_timeout,
     run_accuracy_gate,
@@ -1910,7 +1910,7 @@ def _run_framework_benchmark(  # noqa: PLR0913  # tracked: #288
             data=BenchmarkResultData(
                 metric=result.outcome.metric_name,
                 value=result.outcome.metric_value,
-                unit=result.outcome.metric_name,
+                unit=result.outcome.metric_unit or result.outcome.metric_name,
             ),
         )
     return result.outcome
@@ -2177,13 +2177,10 @@ def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
         workspace_sources=workspace_sources,
         evaluator_path=evaluator_path,
         evaluator_package_root=evaluator_package_root,
-        benchmark_output_argument=(
-            benchmark_result.json_argument
-            if benchmark_result is not None
-            else PROTOCOL_OUTPUT_FLAG
-            if benchmark_result_protocol is not None
-            else None
-        ),
+        benchmark_output_argument=BenchmarkContract(
+            result_spec=benchmark_result,
+            result_protocol=benchmark_result_protocol,
+        ).output_argument,
         objective=objective,
         existing=existing,
         project_configuration=project_configuration,

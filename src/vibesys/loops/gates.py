@@ -175,6 +175,7 @@ class FrameworkBenchmarkOutcome:
     metric_name: str | None = None
     metric_value: float | None = None
     metric_direction: Literal["max", "min"] | None = None
+    metric_unit: str | None = None
     row: Mapping[str, float] | None = None
 
 
@@ -195,6 +196,21 @@ class BenchmarkContract:
     def declared(self) -> bool:
         """True when either contract form is configured."""
         return self.result_spec is not None or self.result_protocol is not None
+
+    @property
+    def output_argument(self) -> str | None:
+        """The flag the benchmark takes its result path under, if any.
+
+        The scalar contract declares its own flag; the result protocol fixes
+        one for every evaluator. The gate appends it to the benchmark command,
+        and the sandbox is told the same value so it can allowlist the result
+        artifact, so both must read it from here rather than restating it.
+        """
+        if self.result_spec is not None:
+            return self.result_spec.json_argument
+        if self.result_protocol is not None:
+            return PROTOCOL_OUTPUT_FLAG
+        return None
 
 
 @dataclass(frozen=True)
@@ -253,12 +269,18 @@ def read_protocol_benchmark(
             (item.direction for item in objectives if item.name == outcome.metric_name),
             None,
         )
-        declared = (
-            hello.metrics[outcome.metric_name].direction
+        spec = (
+            hello.metrics[outcome.metric_name]
             if hello is not None and outcome.metric_name in hello.metrics
             else None
         )
-        outcome = replace(outcome, metric_direction=configured or declared)
+        # The unit is the evaluator's alone: ``objectives.toml`` names axes,
+        # it does not say what they are measured in.
+        outcome = replace(
+            outcome,
+            metric_direction=configured or (spec.direction if spec is not None else None),
+            metric_unit=spec.unit if spec is not None else None,
+        )
     return outcome
 
 
@@ -354,7 +376,8 @@ def run_benchmark_gate(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #28
             directory.
     """
     _check_output_slug(output_slug)
-    if result_spec is None and result_protocol is None:
+    contract = BenchmarkContract(result_spec=result_spec, result_protocol=result_protocol)
+    if not contract.declared:
         return BenchmarkGateResult(
             command=None,
             output="",
@@ -373,7 +396,9 @@ def run_benchmark_gate(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #28
         )
 
     output_path = f"{_BENCHMARK_OUTPUT_PREFIX}{output_slug}-{uuid.uuid4().hex[:12]}.json"
-    output_argument = result_spec.json_argument if result_spec is not None else PROTOCOL_OUTPUT_FLAG
+    # Not None: `contract.declared` is true, so one of the two forms set it.
+    output_argument = contract.output_argument
+    assert output_argument is not None  # noqa: S101
     # The markers recover the result file through stdout, which is what makes
     # the contract work for remote execution. Both contracts share that
     # transport; only the recovered text is parsed differently.
@@ -389,6 +414,7 @@ def run_benchmark_gate(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #28
     metric_name = result_spec.metric if result_spec is not None else None
     metric_value: float | None = None
     metric_direction: Literal["max", "min"] | None = None
+    metric_unit: str | None = None
     row: Mapping[str, float] | None = None
     changed_before_execution = ctx.trusted_input_changes()
     if changed_before_execution:
@@ -445,6 +471,7 @@ def run_benchmark_gate(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #28
                 metric_name = protocol_outcome.metric_name
                 metric_value = protocol_outcome.metric_value
                 metric_direction = protocol_outcome.metric_direction
+                metric_unit = protocol_outcome.metric_unit
                 row = protocol_outcome.row
         else:
             try:
@@ -497,6 +524,9 @@ def run_benchmark_gate(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #28
                 )
                 or ("max" if result_spec is not None else None)
             ),
+            # Only the result protocol declares a unit; the scalar contract
+            # names a metric and nothing else, so its unit stays unknown.
+            metric_unit=metric_unit,
             row=row,
         )
     else:
