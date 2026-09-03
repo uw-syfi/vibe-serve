@@ -1,6 +1,6 @@
 import {describe, expect, it, test} from 'bun:test';
 import type {RunEvent} from '@vibesys/backend-client';
-import {isTerminalRunStatus} from '@vibesys/core-state';
+import {hasRunEnded} from '@vibesys/core-state';
 import type {SessionState} from './session-model.js';
 import {
   applyActiveExecutionCheckpoint,
@@ -75,7 +75,7 @@ describe('event batch projection', () => {
     ]);
 
     expect(state.core.status).toBe('running');
-    expect(isTerminalRunStatus(state.core.status)).toBe(false);
+    expect(hasRunEnded(state.core)).toBe(false);
     expect(state.core.diagnostics).toHaveLength(1);
     expect(state.errorBanner).toEqual(before.errorBanner);
   });
@@ -714,13 +714,13 @@ describe('session event model', () => {
     });
   });
 
-  it('ignores replayed events and recognizes terminal state', () => {
+  it('ignores replayed events and recognizes an ended run', () => {
     let state = applyEvent(initialSessionState(), event(4, 'run_finished'));
     state = applyEvent(state, event(3, 'run_failed'));
 
     expect(state.core.status).toBe('completed');
     expect(state.core.sequence).toBe(4);
-    expect(isTerminalRunStatus(state.core.status)).toBe(true);
+    expect(hasRunEnded(state.core)).toBe(true);
   });
 
   it('shows structured configuration failures as terminal conversation entries', () => {
@@ -737,7 +737,7 @@ describe('session event model', () => {
     );
 
     expect(state.core.status).toBe('failed');
-    expect(isTerminalRunStatus(state.core.status)).toBe(true);
+    expect(hasRunEnded(state.core)).toBe(true);
     expect(state.overlay).toBeNull();
     expect(state.errorBanner).toMatchObject({
       title: 'Configuration failed',

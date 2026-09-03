@@ -7,7 +7,7 @@ import {
   type MouseEvent as TerminalMouseEvent,
   TextRenderable,
 } from '@opentui/core';
-import {isTerminalRunStatus} from '@vibesys/core-state';
+import {hasRunEnded} from '@vibesys/core-state';
 import type {SessionController} from '../session-controller.js';
 import type {ConversationEntry, SessionState} from '../session-model.js';
 import {visibleConversation} from '../session-model.js';
@@ -434,8 +434,7 @@ export class ConversationView {
         content: preview.content,
         syntaxStyle: this.#markdownStyle,
         conceal: true,
-        streaming:
-          this.#markdownStreaming ?? !isTerminalRunStatus(this.controller.state.core.status),
+        streaming: this.#markdownStreaming ?? !hasRunEnded(this.controller.state.core),
         width: '100%',
       }),
     );

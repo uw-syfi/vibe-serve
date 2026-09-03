@@ -344,7 +344,7 @@ class ChatManager:
     def _unavailable_reason(self) -> str:
         return (
             "the run has finished"
-            if self._run_status().is_terminal
+            if self._run_status().has_ended
             else "the run has not finished starting up"
         )
 

@@ -14,8 +14,8 @@ import {
   type CoreState,
   DEFAULT_CHAT_THREAD_ID,
   type ExecutionTodos,
+  hasRunEnded,
   initialCoreState,
-  isTerminalRunStatus,
   latestDiagnosticChange,
   phasesForRound,
   type RoundSummary,
@@ -1039,7 +1039,7 @@ function selectExperimentIndexItem(
  * as hypothesis planning.
  */
 export function hypothesisPlanningActivity(state: SessionState): HypothesisPlanningActivity | null {
-  if (isTerminalRunStatus(state.core.status) || state.experimentLog === null) return null;
+  if (hasRunEnded(state.core) || state.experimentLog === null) return null;
   const phase = [...state.core.phases]
     .reverse()
     .find(

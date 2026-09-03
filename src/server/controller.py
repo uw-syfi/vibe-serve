@@ -33,7 +33,7 @@ class RunStatus(StrEnum):
     FAILED = "failed"
 
     @property
-    def is_terminal(self) -> bool:
+    def has_ended(self) -> bool:
         """Whether the run has settled into a status it never leaves."""
         match self:
             case RunStatus.COMPLETED | RunStatus.FAILED:
@@ -58,7 +58,7 @@ class ProjectRunState:
 
 
 class RunController:
-    """Coordinate run state, pause boundaries, steering, and terminal state."""
+    """Coordinate run state, pause boundaries, steering, and the ended state."""
 
     def __init__(
         self,
@@ -227,7 +227,7 @@ class RunController:
         return RunStatus.PAUSED if self._paused else self._run_status
 
     def run_status(self) -> RunStatus:
-        """Return the terminal-aware run status token."""
+        """Return the run status token, including whether the run has ended."""
         with self._condition:
             return self._run_status
 
@@ -238,9 +238,9 @@ class RunController:
         record_event: bool = True,
         diagnostic: Diagnostic | None = None,
     ) -> None:
-        """Transition the run to its terminal state exactly once."""
+        """Transition the run to its ended state exactly once."""
         with self._condition:
-            if self._run_status.is_terminal:
+            if self._run_status.has_ended:
                 return
             self._executions.interrupt_controlled_locked()
             self._run_status = RunStatus.FAILED if error else RunStatus.COMPLETED

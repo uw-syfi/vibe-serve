@@ -9,7 +9,7 @@ import {
   type StreamConnectionState,
   type SubscribeOptions,
 } from '@vibesys/backend-client';
-import {DEFAULT_CHAT_THREAD_ID, isTerminalRunStatus} from '@vibesys/core-state';
+import {DEFAULT_CHAT_THREAD_ID, hasRunEnded} from '@vibesys/core-state';
 import type {StartupTrace} from './boot-trace.js';
 import {helpText, parseChatCommand, parseCommand} from './commands.js';
 import {renderPerformanceCurve} from './performance-chart.js';
@@ -277,8 +277,7 @@ export class SocketSessionController implements SessionController {
       // messages and connection changes land.
       this.#stream.subscribe({
         cursor: () => this.#state.core.sequence,
-        shouldReconnect: () =>
-          !isTerminalRunStatus(this.#state.core.status) && !this.#streamProtocolError,
+        shouldReconnect: () => !hasRunEnded(this.#state.core) && !this.#streamProtocolError,
         onMessage: (message, {resumed}) => this.#onMessage(message, resumed),
         onConnectionState: state => this.#onConnectionState(state),
       }),

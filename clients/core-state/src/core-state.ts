@@ -124,31 +124,7 @@ export interface CoreDiagnostic {
 export type CoreRunStatus = RunStatus | 'connecting';
 
 /** The statuses a run never leaves. Named once; `terminate` writes only these. */
-export type TerminalRunStatus = Extract<CoreRunStatus, 'completed' | 'failed'>;
-
-/**
- * Whether a run status is one the run never leaves.
- *
- * Terminality is a function of the status, so core state stores the status
- * alone and every reader asks this predicate. The switch is exhaustive: a new
- * status in the protocol is a compile error here rather than a silent `false`.
- */
-export function isTerminalRunStatus(status: CoreRunStatus): status is TerminalRunStatus {
-  switch (status) {
-    case 'completed':
-    case 'failed':
-      return true;
-    case 'connecting':
-    case 'starting':
-    case 'running':
-    case 'paused':
-      return false;
-    default: {
-      const unhandled: never = status;
-      return unhandled;
-    }
-  }
-}
+export type EndedRunStatus = Extract<CoreRunStatus, 'completed' | 'failed'>;
 
 export interface CoreState {
   sequence: number;
@@ -214,6 +190,31 @@ export function initialCoreState(): CoreState {
     chatTypedToolEvents: {},
     historyAfterSequence: 0,
   };
+}
+
+/**
+ * Whether the run has reached a status it never leaves.
+ *
+ * Whether a run has ended is a function of its status, so core state stores the
+ * status alone and every reader asks this predicate. The switch is exhaustive:
+ * a new status in the protocol is a compile error here rather than a silent
+ * `false`.
+ */
+export function hasRunEnded(state: CoreState): boolean {
+  switch (state.status) {
+    case 'completed':
+    case 'failed':
+      return true;
+    case 'connecting':
+    case 'starting':
+    case 'running':
+    case 'paused':
+      return false;
+    default: {
+      const unhandled: never = state.status;
+      return unhandled;
+    }
+  }
 }
 
 /** The transcript for one chat thread; unknown threads read as empty. */
@@ -590,7 +591,7 @@ export function latestDiagnosticChange(
   );
 }
 
-function terminate(state: CoreState, status: TerminalRunStatus): CoreState {
+function terminate(state: CoreState, status: EndedRunStatus): CoreState {
   return {...state, status, activeExecutions: {}};
 }
 
