@@ -1,4 +1,10 @@
-import {BoxRenderable, type CliRenderer, ScrollBoxRenderable, TextRenderable} from '@opentui/core';
+import {
+  BoxRenderable,
+  type CliRenderer,
+  ScrollBoxRenderable,
+  TextAttributes,
+  TextRenderable,
+} from '@opentui/core';
 import {COMMAND_NAMES} from '../commands.js';
 import type {SessionController} from '../session-controller.js';
 import {
@@ -18,7 +24,7 @@ import {createCommandInputPanel} from './command-input.js';
 import {ConversationView} from './conversation.js';
 import {ErrorBannerView} from './error-banner.js';
 import {ExperimentLogView} from './experiment-log.js';
-import {renderHeader} from './header.js';
+import {type HeaderSpan, headerSpanStyle, MAX_HEADER_SPANS, renderHeader} from './header.js';
 import {bindKeybindings} from './keybindings.js';
 import {OverlayView} from './overlay.js';
 import {RightPaneView, rightPaneWidth, splitFits} from './right-pane.js';
@@ -96,13 +102,55 @@ export function createOpenTuiApp(
     borderStyle: 'rounded',
     borderColor: theme.border,
   });
-  const header = new TextRenderable(renderer, {
+  // One renderable per span, because a terminal cell carries one foreground
+  // colour and the header's roles do not share one. The row is allocated once
+  // at its maximum and repainted in place: the spans change on every frame, and
+  // rebuilding thirteen renderables that often is churn the header does not
+  // need.
+  //
+  // `flexShrink: 0` because `renderHeader` has already budgeted the line to this
+  // width, so a row that still overruns is a bug rather than something to
+  // absorb. Shrinking spans put an ellipsis through every one of them at once
+  // (`V...ys·r...ng`) instead of leaving the single cut the budget decided on.
+  const headerLine = new BoxRenderable(renderer, {
     id: 'header',
+    width: '100%',
     height: 1,
-    fg: theme.accent,
-    content: 'VibeSys · connecting',
+    flexDirection: 'row',
   });
-  headerFrame.add(header);
+  const headerSpans = Array.from(
+    {length: MAX_HEADER_SPANS},
+    (_unused, index) =>
+      new TextRenderable(renderer, {
+        id: `header-span-${index}`,
+        content: '',
+        fg: theme.textPrimary,
+        wrapMode: 'none',
+        flexShrink: 0,
+      }),
+  );
+  for (const span of headerSpans) headerLine.add(span);
+  headerFrame.add(headerLine);
+  /**
+   * Paints the budgeted spans onto the row. The tones come from the theme in
+   * scope, so a theme change is picked up by the next paint and needs no
+   * separate application.
+   *
+   * A span the current header does not use is hidden rather than emptied: an
+   * empty text renderable still measures one cell, and thirteen of those are
+   * most of a narrow terminal's header.
+   */
+  const paintHeader = (spans: HeaderSpan[]): void => {
+    for (const [index, cell] of headerSpans.entries()) {
+      const span = spans[index];
+      cell.visible = span !== undefined;
+      if (span === undefined) continue;
+      const style = headerSpanStyle(theme, span);
+      cell.content = span.text;
+      cell.fg = style.fg;
+      cell.attributes = style.bold ? TextAttributes.BOLD : TextAttributes.NONE;
+    }
+  };
   const focusTranscript = (): void => {
     controller.focusPane('left');
     controller.focusRound('transcript');
@@ -271,7 +319,6 @@ export function createOpenTuiApp(
     const previousMarkdownStyle = markdownStyle;
     markdownStyle = createMarkdownStyle(theme);
     root.backgroundColor = theme.canvas;
-    header.fg = theme.accent;
     headerFrame.borderColor = theme.border;
     transcriptFrame.borderColor = theme.border;
     help.fg = theme.textSubtle;
@@ -337,7 +384,7 @@ export function createOpenTuiApp(
         : chatPaneWidth(renderer.terminalWidth, rightWidth)
       : 0;
     const showExperimentLog = showLog && (zoomedPane === null || zoomedPane === 'experiments');
-    header.content = renderHeader(state, showLog, renderer.terminalWidth - HEADER_CHROME);
+    paintHeader(renderHeader(state, showLog, renderer.terminalWidth - HEADER_CHROME));
     errorBanner.render(state);
     // The log carries its own key hints in its footer, so when it shares the
     // row with a pane the global line is the place for the pane's keys.

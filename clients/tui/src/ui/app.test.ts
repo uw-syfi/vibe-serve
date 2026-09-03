@@ -4314,6 +4314,67 @@ describe('theming', () => {
   });
 });
 
+describe('header hierarchy', () => {
+  const runState = (status: string): SessionState => ({
+    ...initialSessionState(),
+    core: {
+      ...initialSessionState().core,
+      status,
+      agentKind: 'implementer',
+      roundLabel: 'round-1-retry-2-implementer',
+      usage: {inputTokens: 223_000, contextWindow: 400_000, model: 'claude-opus-5'},
+    },
+  });
+
+  it('draws each header role in its own tone rather than all in one accent', async () => {
+    const theme = resolveTheme('dark');
+    const testRenderer = await createTestRenderer({width: 100, height: 20});
+    const controller = new FakeController(runState('completed'));
+    const app = createOpenTuiApp(testRenderer.renderer, controller);
+    registerCleanup(testRenderer.renderer, app);
+    await testRenderer.waitForFrame(value => value.includes('223k/400k context'));
+
+    // Four tones on one line, which is the point: before this the renderer
+    // reported one accent-coloured span for the whole header.
+    expect(spanColors(testRenderer, 'VibeSys')?.fg).toBe(theme.accent);
+    expect(spanColors(testRenderer, 'completed')?.fg).toBe(theme.success);
+    expect(spanColors(testRenderer, 'implementing')?.fg).toBe(theme.textPrimary);
+    expect(spanColors(testRenderer, '223k/400k context')?.fg).toBe(theme.textMuted);
+  });
+
+  it('recolours the run state when the run ends badly', async () => {
+    const theme = resolveTheme('dark');
+    const testRenderer = await createTestRenderer({width: 100, height: 20});
+    const controller = new FakeController(runState('running'));
+    const app = createOpenTuiApp(testRenderer.renderer, controller);
+    registerCleanup(testRenderer.renderer, app);
+    await testRenderer.waitForFrame(value => value.includes('223k/400k context'));
+    expect(spanColors(testRenderer, 'running')?.fg).toBe(theme.textPrimary);
+
+    controller.publish({
+      ...controller.state,
+      core: {...controller.state.core, status: 'failed', terminal: true},
+    });
+    await testRenderer.waitForVisualIdle();
+
+    expect(spanColors(testRenderer, 'failed')?.fg).toBe(theme.error);
+  });
+
+  it('keeps the header whole in a terminal too narrow for all of it', async () => {
+    // One renderable per span means the row can shrink, and a shrinking row
+    // puts an ellipsis through every span at once (`V...ys·r...ng`) instead of
+    // the single cut the width budget decided on.
+    const testRenderer = await createTestRenderer({width: 24, height: 20});
+    const controller = new FakeController(runState('running'));
+    const app = createOpenTuiApp(testRenderer.renderer, controller);
+    registerCleanup(testRenderer.renderer, app);
+
+    const frame = await testRenderer.waitForFrame(value => value.includes('VibeSys'));
+    expect(frame).toContain('VibeSys · running');
+    expect(frame).not.toContain('V...');
+  });
+});
+
 /**
  * The experiment log settles synchronously, so there is no later frame to wait
  * for. Flush pending work, then read the single settled frame.
