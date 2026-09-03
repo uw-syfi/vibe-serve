@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Annotated, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, FiniteFloat, ValidationError, model_validator
 
 from server.diagnostics import Diagnostic
+from server.run_lifecycle import RunStatus
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -27,6 +28,7 @@ class EventType(StrEnum):  # noqa: D101  # tracked: #288
     RUN_STARTED = "run_started"
     EXPERIMENTS_CHANGED = "experiments_changed"
     RUN_INTERRUPTED = "run_interrupted"
+    RUN_STATUS_CHANGED = "run_status_changed"
     CHAT = "chat"
     CHAT_THREAD_CREATED = "chat_thread_created"
     STATUS_QUERY = "status_query"
@@ -174,6 +176,21 @@ class RunInterruptedData(EventPayload):  # noqa: D101  # tracked: #288
     kind: Literal["run_interrupted"] = "run_interrupted"
     reason: str
     signal: str | None = None
+
+
+class RunStatusChangedData(EventPayload):
+    """One move of the run through its lifecycle.
+
+    Carries the whole transition so a client folds the status instead of
+    inferring it: ``status`` is the new value and ``previous`` the one it
+    replaced. Which invocation boundary a pause landed on is on the event
+    envelope (``agent_kind``, ``round_label``, ``execution_id``) like every
+    other execution-scoped fact, not repeated here.
+    """
+
+    kind: Literal["run_status_changed"] = "run_status_changed"
+    status: RunStatus
+    previous: RunStatus
 
 
 class ExperimentsChangedData(EventPayload):  # noqa: D101  # tracked: #288
@@ -324,6 +341,7 @@ EventData = Annotated[
     | ServerReadyData
     | RunStartedData
     | RunInterruptedData
+    | RunStatusChangedData
     | ExperimentsChangedData
     | ConfigurationFailedData
     | PhaseData

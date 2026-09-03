@@ -14,6 +14,7 @@ from server.chat.factory import (
 )
 from server.chat.options import ChatRunSettings
 from server.events import EventData, EventStatus, EventType, RunEvent
+from server.run_lifecycle import RunTrigger
 from vibesys.agents.factory import supported_cli_providers
 from vibesys.render.sink import output_sink
 from vibesys.run.event_journal import EventJournal as CoreEventJournal
@@ -36,6 +37,16 @@ if TYPE_CHECKING:
     from vs_project import Project
 
 _EVENT_DATA_ADAPTER = TypeAdapter(EventData)
+_TERMINAL_TRIGGERS: dict[EventType, RunTrigger] = {
+    EventType.RUN_FINISHED: RunTrigger.COMPLETED,
+    EventType.RUN_FAILED: RunTrigger.FAILED,
+}
+"""How a core terminal event ends the run the server reports.
+
+The core owns when a run stops; the controller owns the status frontends read.
+Settling the controller before the terminal event is appended is what orders
+the status change ahead of it in the journal.
+"""
 _PRESENTATION_EVENTS = frozenset(
     {
         EventType.AGENT_OUTPUT_CHUNK,
@@ -300,6 +311,9 @@ class RunIntegrationAdapter:
                 invocation_id=event.execution_id,
             )
             return
+        terminal_trigger = _TERMINAL_TRIGGERS.get(event_type)
+        if terminal_trigger is not None:
+            self.controller.settle(terminal_trigger)
         self.journal.append(
             RunEvent(
                 timestamp=event.timestamp,

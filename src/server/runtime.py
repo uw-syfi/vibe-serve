@@ -120,6 +120,14 @@ class ServerRuntime:
                         retryability=DiagnosticRetryability.NEVER,
                     )
                     terminal_recorded = self._terminal_recorded_after(terminal_cursor)
+                    # End the run before its terminal event is recorded, so no
+                    # snapshot can report `running` at a sequence that already
+                    # contains that event.
+                    self.controller.finish(
+                        launcher_error,
+                        record_event=False,
+                        diagnostic=event_diagnostic,
+                    )
                     if not terminal_recorded:
                         self.journal.record(
                             EventType.RUN_INTERRUPTED,
@@ -130,11 +138,6 @@ class ServerRuntime:
                             ),
                             diagnostic=event_diagnostic,
                         )
-                    self.controller.finish(
-                        launcher_error,
-                        record_event=False,
-                        diagnostic=event_diagnostic,
-                    )
                     raise
                 except ConfigurationError as exc:
                     configuration_diagnostic = exc.diagnostic
@@ -150,6 +153,11 @@ class ServerRuntime:
                         severity=DiagnosticSeverity.FATAL,
                         retryability=DiagnosticRetryability.NEVER,
                     )
+                    self.controller.finish(
+                        exc,
+                        record_event=False,
+                        diagnostic=event_diagnostic,
+                    )
                     self.journal.record(
                         EventType.CONFIGURATION_FAILED,
                         event_diagnostic.summary,
@@ -161,11 +169,6 @@ class ServerRuntime:
                             usage=event_diagnostic.hint,
                             exit_code=configuration_diagnostic.exit_code,
                         ),
-                        diagnostic=event_diagnostic,
-                    )
-                    self.controller.finish(
-                        exc,
-                        record_event=False,
                         diagnostic=event_diagnostic,
                     )
                     transport.wait_for_subscriber_disconnect()

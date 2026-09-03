@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import StrEnum
 from pathlib import Path  # noqa: TC003
 from typing import TYPE_CHECKING, Any
 
 from server.diagnostics import Diagnostic, DiagnosticScope, DiagnosticSeverity
-from server.events import EventStatus, EventType
+from server.events import EventStatus, EventType, RunStatusChangedData
+from server.run_lifecycle import RunStatus, RunTrigger, transition
 
 if TYPE_CHECKING:
     import threading
@@ -16,30 +16,6 @@ if TYPE_CHECKING:
     from server.execution import ExecutionHandle, ExecutionTracker
     from server.journal import EventJournal
     from vs_project import Project, StateSnapshot
-
-
-class RunStatus(StrEnum):
-    """Lifecycle status of one run, as frontends observe it.
-
-    This is the authoritative closed set for the ``status`` field of
-    ``RunSnapshot``; the generated TypeScript protocol types derive their union
-    from it.
-    """
-
-    STARTING = "starting"
-    RUNNING = "running"
-    PAUSED = "paused"
-    COMPLETED = "completed"
-    FAILED = "failed"
-
-    @property
-    def has_ended(self) -> bool:
-        """Whether the run has settled into a status it never leaves."""
-        match self:
-            case RunStatus.COMPLETED | RunStatus.FAILED:
-                return True
-            case RunStatus.STARTING | RunStatus.RUNNING | RunStatus.PAUSED:
-                return False
 
 
 @dataclass(frozen=True)
@@ -70,10 +46,8 @@ class RunController:
         self._condition = condition
         self._journal = journal
         self._executions = executions
-        self._pause_after_call = False
-        self._paused = False
         self._pending_steer: list[str] = []
-        self._run_status: RunStatus = RunStatus.STARTING
+        self._status: RunStatus = RunStatus.STARTING
         self._project_run: ProjectRunState | None = None
 
     @property
@@ -101,27 +75,56 @@ class RunController:
             if project is not None and run_id is not None:
                 self._project_run = ProjectRunState(project, run_id)
             self._journal.attach(log_dir, run_id=run_id)
-            self._run_status = RunStatus.RUNNING
+            self._apply_locked(RunTrigger.ATTACHED)
+
+    def _apply_locked(
+        self,
+        trigger: RunTrigger,
+        *,
+        agent_kind: str | None = None,
+        round_label: str | None = None,
+        execution_id: str | None = None,
+    ) -> RunStatus:
+        """Apply one lifecycle trigger and publish the change it caused.
+
+        The caller must already hold ``self._condition``. Mutating the status
+        and recording its event under the same lock is what keeps event order
+        and state order the same: a snapshot taken at any sequence agrees with
+        the fold of the events up to that sequence. A trigger the current
+        status absorbs changes nothing and publishes nothing.
+        """
+        previous = self._status
+        current = transition(previous, trigger)
+        if current is previous:
+            return current
+        self._status = current
+        self._journal.record(
+            EventType.RUN_STATUS_CHANGED,
+            data=RunStatusChangedData(status=current, previous=previous),
+            agent_kind=agent_kind,
+            round_label=round_label,
+            execution_id=execution_id,
+        )
+        self._condition.notify_all()
+        return current
 
     def pause_after_call(self) -> None:
         """Request a pause after the current controlled invocation finishes."""
         with self._condition:
-            self._pause_after_call = True
-        self._journal.record(EventType.CONTROL, "/pause", status=EventStatus.PENDING)
+            self._apply_locked(RunTrigger.PAUSE_REQUESTED)
+            self._journal.record(EventType.CONTROL, "/pause", status=EventStatus.PENDING)
 
     def resume(self) -> None:
         """Resume controlled invocations and clear a pending pause."""
         with self._condition:
-            self._paused = False
-            self._pause_after_call = False
-            self._condition.notify_all()
-        self._journal.record(EventType.CONTROL, "/resume", status=EventStatus.CONSUMED)
+            self._apply_locked(RunTrigger.RESUMED)
+            self._journal.record(EventType.CONTROL, "/resume", status=EventStatus.CONSUMED)
 
     def steer(self, text: str) -> None:
         """Queue operator guidance for the next controlled invocation."""
         with self._condition:
             self._pending_steer.append(text)
-        self._journal.record(EventType.CONTROL, f"/steer: {text}", status=EventStatus.PENDING)
+            self._journal.record(EventType.CONTROL, f"/steer: {text}", status=EventStatus.PENDING)
 
     def start_agent_execution(  # noqa: PLR0913
         self,
@@ -139,7 +142,7 @@ class RunController:
     ) -> ExecutionHandle:
         """Enter one invocation boundary, applying pause and steering state."""
         with self._condition:
-            while participates_in_run_control and self._paused:
+            while participates_in_run_control and self._status is RunStatus.PAUSED:
                 self._condition.wait()
             steering = (
                 self._pending_steer if consume_steering and participates_in_run_control else []
@@ -190,10 +193,11 @@ class RunController:
         del kind, round_label
         resolved_id = self._executions.resolve_legacy(execution_id)
         if resolved_id is None:
+            # A finish with no execution to match: the compatibility boundary
+            # was never entered on this thread. It is still an invocation
+            # boundary, so a pending pause lands here like anywhere else.
             with self._condition:
-                if self._pause_after_call:
-                    self._pause_after_call = False
-                    self._paused = True
+                self._reach_pause_boundary_locked()
             return
         with self._condition:
             active, controlled = self._executions.finish_locked(
@@ -201,19 +205,38 @@ class RunController:
             )
             if active is None:
                 return
-            should_pause = controlled and self._pause_after_call
-            if should_pause:
-                self._pause_after_call = False
-                self._paused = True
-                self._journal.record(
-                    EventType.CONTROL,
-                    "/pause",
-                    status=EventStatus.CONSUMED,
+            if controlled:
+                self._reach_pause_boundary_locked(
                     agent_kind=active.agent_kind,
                     round_label=active.round_label,
                     execution_id=resolved_id,
                 )
         self._executions.clear_legacy(resolved_id)
+
+    def _reach_pause_boundary_locked(
+        self,
+        *,
+        agent_kind: str | None = None,
+        round_label: str | None = None,
+        execution_id: str | None = None,
+    ) -> None:
+        """Apply the invocation boundary, pausing only if one was requested."""
+        reached = self._apply_locked(
+            RunTrigger.INVOCATION_FINISHED,
+            agent_kind=agent_kind,
+            round_label=round_label,
+            execution_id=execution_id,
+        )
+        if reached is not RunStatus.PAUSED:
+            return
+        self._journal.record(
+            EventType.CONTROL,
+            "/pause",
+            status=EventStatus.CONSUMED,
+            agent_kind=agent_kind,
+            round_label=round_label,
+            execution_id=execution_id,
+        )
 
     def status(self) -> str:
         """Return a compact human-readable run status."""
@@ -224,12 +247,33 @@ class RunController:
 
     def status_locked(self) -> RunStatus:
         """Return run status while the caller holds the shared condition."""
-        return RunStatus.PAUSED if self._paused else self._run_status
+        return self._status
 
     def run_status(self) -> RunStatus:
         """Return the run status token, including whether the run has ended."""
         with self._condition:
-            return self._run_status
+            return self._status
+
+    def settle(self, trigger: RunTrigger) -> bool:
+        """End the run without a terminal event, reporting whether it did.
+
+        The projection of a core terminal event calls this before appending
+        that event, so the status change is ordered ahead of it: a snapshot at
+        any sequence that contains the terminal event already reports an ended
+        status. ``finish`` then finds the run ended and records nothing twice.
+        """
+        with self._condition:
+            return self._settle_locked(trigger)
+
+    def _settle_locked(self, trigger: RunTrigger) -> bool:
+        """End the run exactly once, interrupting controlled work first."""
+        if self._status.has_ended:
+            return False
+        self._executions.interrupt_controlled_locked()
+        # An ended status is not PAUSED, so ending a paused run releases the
+        # thread parked at the pause wait instead of leaving it to re-wait.
+        self._apply_locked(trigger)
+        return True
 
     def finish(
         self,
@@ -239,12 +283,8 @@ class RunController:
         diagnostic: Diagnostic | None = None,
     ) -> None:
         """Transition the run to its ended state exactly once."""
-        with self._condition:
-            if self._run_status.has_ended:
-                return
-            self._executions.interrupt_controlled_locked()
-            self._run_status = RunStatus.FAILED if error else RunStatus.COMPLETED
-            self._condition.notify_all()
+        if not self.settle(RunTrigger.FAILED if error else RunTrigger.COMPLETED):
+            return
         event_diagnostic = diagnostic
         if error is not None and event_diagnostic is not None:
             event_diagnostic = event_diagnostic.model_copy(

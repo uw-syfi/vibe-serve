@@ -254,7 +254,9 @@ def test_chat_execution_is_isolated_from_run_control(tmp_path):  # noqa: ANN001,
 
     assert parts.api.snapshot().agent_kind == "implementer"
     parts.controller.after_agent("chat", "experiment-chat", execution_id=chat.execution_id)
-    assert parts.api.snapshot().status == "running"
+    # A presentation-only execution is not a run-control boundary, so the
+    # pending pause is still pending rather than applied.
+    assert parts.api.snapshot().status == "pausing"
     parts.controller.after_agent("implementer", "round-1", execution_id=main.execution_id)
     assert parts.api.snapshot().status == "paused"
 

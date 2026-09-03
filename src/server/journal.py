@@ -62,6 +62,7 @@ _LEGACY_LIFECYCLE_EVENTS = frozenset({EventType.INVOCATION_STARTED, EventType.IN
 _BOOTSTRAP_SPINE_TYPES = frozenset(
     {
         EventType.RUN_STARTED,
+        EventType.RUN_STATUS_CHANGED,
         EventType.RUN_FINISHED,
         EventType.RUN_FAILED,
         EventType.RUN_INTERRUPTED,

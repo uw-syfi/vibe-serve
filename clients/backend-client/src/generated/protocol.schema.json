@@ -1069,6 +1069,7 @@
         "run_started",
         "experiments_changed",
         "run_interrupted",
+        "run_status_changed",
         "chat",
         "chat_thread_created",
         "status_query",
@@ -2404,6 +2405,7 @@
                   "round_finished": "#/$defs/RoundFinishedData",
                   "run_interrupted": "#/$defs/RunInterruptedData",
                   "run_started": "#/$defs/RunStartedData",
+                  "run_status_changed": "#/$defs/RunStatusChangedData",
                   "server_ready": "#/$defs/ServerReadyData",
                   "subprocess_output": "#/$defs/SubprocessOutputData",
                   "todo_update": "#/$defs/TodoUpdateData",
@@ -2446,6 +2448,9 @@
                 },
                 {
                   "$ref": "#/$defs/RunInterruptedData"
+                },
+                {
+                  "$ref": "#/$defs/RunStatusChangedData"
                 },
                 {
                   "$ref": "#/$defs/ExperimentsChangedData"
@@ -2628,16 +2633,40 @@
       "type": "object"
     },
     "RunStatus": {
-      "description": "Lifecycle status of one run, as frontends observe it.\n\nThis is the authoritative closed set for the ``status`` field of\n``RunSnapshot``; the generated TypeScript protocol types derive their union\nfrom it.",
+      "description": "Lifecycle status of one run, as frontends observe it.\n\nThis is the authoritative closed set for the ``status`` field of\n``RunSnapshot`` and of ``RunStatusChangedData``; the generated TypeScript\nprotocol types derive their union from it.\n\n``PAUSING`` and ``PAUSED`` are distinct because a pause is only applied at\nan invocation boundary: ``/pause`` records the request, and the run keeps\nexecuting the call already in flight until it reaches that boundary.",
       "enum": [
         "starting",
         "running",
+        "pausing",
         "paused",
         "completed",
         "failed"
       ],
       "title": "RunStatus",
       "type": "string"
+    },
+    "RunStatusChangedData": {
+      "description": "One move of the run through its lifecycle.\n\nCarries the whole transition so a client folds the status instead of\ninferring it: ``status`` is the new value and ``previous`` the one it\nreplaced. Which invocation boundary a pause landed on is on the event\nenvelope (``agent_kind``, ``round_label``, ``execution_id``) like every\nother execution-scoped fact, not repeated here.",
+      "properties": {
+        "kind": {
+          "const": "run_status_changed",
+          "default": "run_status_changed",
+          "title": "Kind",
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/RunStatus"
+        },
+        "previous": {
+          "$ref": "#/$defs/RunStatus"
+        }
+      },
+      "required": [
+        "status",
+        "previous"
+      ],
+      "title": "RunStatusChangedData",
+      "type": "object"
     },
     "ServerReadyData": {
       "properties": {

@@ -3,10 +3,39 @@
 import threading
 import time
 
-from tests.server.support import build_server_parts
+from tests.server.support import ServerParts, build_server_parts
 
 from server.api.protocol import PauseCommand, ResumeCommand, SteerCommand
-from server.events import AgentExecutionStartedData, EventStatus, EventType
+from server.events import (
+    AgentExecutionStartedData,
+    EventStatus,
+    EventType,
+    RunEvent,
+    RunStatusChangedData,
+)
+from server.run_lifecycle import RunStatus
+from vibesys.run.events import CoreEventType
+from vibesys.run.events import EventStatus as CoreEventStatus
+
+
+def _status_changes(parts: ServerParts) -> list[tuple[RunStatus, RunStatus]]:
+    """Return every published transition as ``(previous, status)``."""
+    return [
+        (event.data.previous, event.data.status)
+        for event in parts.journal.read()
+        if isinstance(event.data, RunStatusChangedData)
+    ]
+
+
+def _folded_status(events: list[RunEvent], through_sequence: int) -> RunStatus | None:
+    """Fold the published transitions the way a client does."""
+    folded: RunStatus | None = None
+    for event in events:
+        if event.sequence > through_sequence:
+            break
+        if isinstance(event.data, RunStatusChangedData):
+            folded = event.data.status
+    return folded
 
 
 def test_pause_takes_effect_at_next_safe_point(tmp_path):  # noqa: ANN001, ANN201
@@ -101,6 +130,117 @@ def test_finish_is_idempotent_and_interrupts_controlled_executions(tmp_path):  #
         and event.execution_id == execution.execution_id
     )
     assert finished.status is EventStatus.INTERRUPTED
+
+
+def test_pause_is_pending_until_the_invocation_boundary(tmp_path):  # noqa: ANN001, ANN201
+    """`/pause` is a request: the call in flight keeps running until it ends."""
+    parts = build_server_parts(tmp_path)
+    execution = parts.controller.start_agent_execution("implementer", "round 1", "work")
+
+    parts.api.execute(PauseCommand())
+
+    assert parts.api.snapshot().status is RunStatus.PAUSING
+    parts.controller.after_agent("implementer", "round 1", execution_id=execution.execution_id)
+    assert parts.api.snapshot().status is RunStatus.PAUSED
+
+
+def test_every_transition_publishes_exactly_one_status_event(tmp_path):  # noqa: ANN001, ANN201
+    """The status a client folds is the status the controller holds."""
+    parts = build_server_parts(tmp_path)
+    execution = parts.controller.start_agent_execution("implementer", "round 1", "work")
+    parts.controller.pause_after_call()
+    # A repeated request changes nothing, so it publishes nothing.
+    parts.controller.pause_after_call()
+    parts.controller.after_agent("implementer", "round 1", execution_id=execution.execution_id)
+    parts.controller.resume()
+    parts.controller.finish()
+
+    assert _status_changes(parts) == [
+        (RunStatus.STARTING, RunStatus.RUNNING),
+        (RunStatus.RUNNING, RunStatus.PAUSING),
+        (RunStatus.PAUSING, RunStatus.PAUSED),
+        (RunStatus.PAUSED, RunStatus.RUNNING),
+        (RunStatus.RUNNING, RunStatus.COMPLETED),
+    ]
+    # The human-readable audit record survives alongside the typed one.
+    controls = [
+        (event.text, event.status)
+        for event in parts.journal.read()
+        if event.type is EventType.CONTROL
+    ]
+    assert controls == [
+        ("/pause", EventStatus.PENDING),
+        ("/pause", EventStatus.PENDING),
+        ("/pause", EventStatus.CONSUMED),
+        ("/resume", EventStatus.CONSUMED),
+    ]
+
+
+def test_resume_before_the_boundary_cancels_the_pending_pause(tmp_path):  # noqa: ANN001, ANN201
+    """A resume that beats the boundary leaves no pause to apply later."""
+    parts = build_server_parts(tmp_path)
+    execution = parts.controller.start_agent_execution("implementer", "round 1", "work")
+    parts.controller.pause_after_call()
+    parts.controller.resume()
+    parts.controller.after_agent("implementer", "round 1", execution_id=execution.execution_id)
+
+    assert parts.api.snapshot().status is RunStatus.RUNNING
+    assert _status_changes(parts) == [
+        (RunStatus.STARTING, RunStatus.RUNNING),
+        (RunStatus.RUNNING, RunStatus.PAUSING),
+        (RunStatus.PAUSING, RunStatus.RUNNING),
+    ]
+
+
+def test_finish_ends_a_paused_run_and_releases_the_pause_wait(tmp_path):  # noqa: ANN001, ANN201
+    """A run that ends while paused reports the ended status, not `paused`."""
+    parts = build_server_parts(tmp_path)
+    execution = parts.controller.start_agent_execution("implementer", "round 1", "work")
+    parts.controller.pause_after_call()
+    parts.controller.after_agent("implementer", "round 1", execution_id=execution.execution_id)
+    assert parts.api.snapshot().status is RunStatus.PAUSED
+
+    entered: list[str] = []
+    waiter = threading.Thread(
+        target=lambda: entered.append(parts.controller.before_agent("judge", "round 1", "review"))
+    )
+    waiter.start()
+    time.sleep(0.02)
+    assert waiter.is_alive()
+
+    parts.controller.finish()
+
+    waiter.join(timeout=1)
+    assert entered == ["review"]
+    assert parts.api.snapshot().status is RunStatus.COMPLETED
+    assert _status_changes(parts)[-1] == (RunStatus.PAUSED, RunStatus.COMPLETED)
+
+
+def test_pause_applies_without_a_matching_execution(tmp_path):  # noqa: ANN001, ANN201
+    """The compatibility boundary is still a boundary, and still publishes."""
+    parts = build_server_parts(tmp_path)
+    parts.controller.pause_after_call()
+
+    parts.controller.after_agent("implementer", "round 1")
+
+    assert parts.api.snapshot().status is RunStatus.PAUSED
+    assert _status_changes(parts)[-1] == (RunStatus.PAUSING, RunStatus.PAUSED)
+
+
+def test_snapshot_status_agrees_with_the_fold_at_the_terminal_event(tmp_path):  # noqa: ANN001, ANN201
+    """No sequence containing the terminal event can still read as running."""
+    parts = build_server_parts(tmp_path)
+    parts.integration.events.emit(CoreEventType.RUN_FINISHED, status=CoreEventStatus.COMPLETED)
+
+    snapshot = parts.api.snapshot()
+    assert snapshot.status is RunStatus.COMPLETED
+    events = parts.journal.read()
+    terminal = next(event for event in events if event.type is EventType.RUN_FINISHED)
+    assert _folded_status(events, terminal.sequence) is RunStatus.COMPLETED
+    assert _folded_status(events, snapshot.sequence) is snapshot.status
+    # The run ended once: the later `finish` from the runtime adds nothing.
+    parts.controller.finish()
+    assert [event.type for event in parts.journal.read()].count(EventType.RUN_FINISHED) == 1
 
 
 def test_finish_does_not_interrupt_presentation_only_chat(tmp_path):  # noqa: ANN001, ANN201

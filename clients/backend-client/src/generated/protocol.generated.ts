@@ -148,10 +148,14 @@ export type Sequence = number;
  * Lifecycle status of one run, as frontends observe it.
  *
  * This is the authoritative closed set for the ``status`` field of
- * ``RunSnapshot``; the generated TypeScript protocol types derive their union
- * from it.
+ * ``RunSnapshot`` and of ``RunStatusChangedData``; the generated TypeScript
+ * protocol types derive their union from it.
+ *
+ * ``PAUSING`` and ``PAUSED`` are distinct because a pause is only applied at
+ * an invocation boundary: ``/pause`` records the request, and the run keeps
+ * executing the call already in flight until it reaches that boundary.
  */
-export type RunStatus = "starting" | "running" | "paused" | "completed" | "failed";
+export type RunStatus = "starting" | "running" | "pausing" | "paused" | "completed" | "failed";
 export type AgentKind = string | null;
 export type RoundLabel = string | null;
 export type ExecutionId = string;
@@ -181,6 +185,7 @@ export type EventType =
   | "run_started"
   | "experiments_changed"
   | "run_interrupted"
+  | "run_status_changed"
   | "chat"
   | "chat_thread_created"
   | "status_query"
@@ -225,6 +230,7 @@ export type Data =
       | ServerReadyData
       | RunStartedData
       | RunInterruptedData
+      | RunStatusChangedData
       | ExperimentsChangedData
       | ConfigurationFailedData
       | PhaseData
@@ -277,18 +283,19 @@ export type MaxRounds = number;
 export type Kind10 = "run_interrupted";
 export type Reason = string;
 export type Signal = string | null;
-export type Kind11 = "experiments_changed";
+export type Kind11 = "run_status_changed";
+export type Kind12 = "experiments_changed";
 export type Reason1 = "project_attached" | "active_hypothesis_changed" | "round_persisted";
-export type Kind12 = "configuration_failed";
+export type Kind13 = "configuration_failed";
 export type Code1 = string;
 export type Stage2 = string;
 export type Message = string;
 export type Usage = string | null;
 export type ExitCode = number;
-export type Kind13 = "phase";
+export type Kind14 = "phase";
 export type Phase = string;
 export type Attempt2 = number | null;
-export type Kind14 = "agent_output_chunk";
+export type Kind15 = "agent_output_chunk";
 export type Channel = "assistant" | "analysis" | "tool" | "diagnostic" | "prompt";
 export type Content1 = string;
 export type Progress = string | null;
@@ -296,49 +303,49 @@ export type AgentLabel = string | null;
 export type ElapsedSeconds = number;
 export type InputTokens = number;
 export type ContextWindow = number | null;
-export type Kind15 = "subprocess_output";
+export type Kind16 = "subprocess_output";
 export type ProcessId = string;
 export type ProcessKind = string;
 export type Stream1 = "stdout" | "stderr";
 export type Content2 = string;
-export type Kind16 = "judge_result";
+export type Kind17 = "judge_result";
 export type Verdict = "pass" | "fail";
 export type Feedback = string;
 export type Attempt3 = number;
-export type Kind17 = "benchmark_result";
+export type Kind18 = "benchmark_result";
 export type Metric = string;
 export type Value = number;
 export type Unit = string;
-export type Kind18 = "round_finished";
+export type Kind19 = "round_finished";
 export type Attempts = number;
 export type JudgeVerdict = "pass" | "fail" | "skipped";
 export type PerfMetric = number | null;
 export type PerfUnit = string | null;
-export type Kind19 = "tool_call";
+export type Kind20 = "tool_call";
 export type Tool1 = string;
 export type CallId = string | null;
-export type Kind20 = "tool_result";
+export type Kind21 = "tool_result";
 export type Tool2 = string;
 export type CallId1 = string | null;
 export type Content3 = string;
 export type IsError = boolean;
 export type Payload = (CommandResultPayload | JsonResultPayload) | null;
-export type Kind21 = "command";
+export type Kind22 = "command";
 export type Stdout = string;
 export type Stderr = string;
 export type ExitCode1 = number | null;
 export type Duration = number | null;
-export type Kind22 = "json";
+export type Kind23 = "json";
 export type Value1 =
   | {
       [k: string]: unknown;
     }
   | unknown[];
-export type Kind23 = "todo_update";
+export type Kind24 = "todo_update";
 export type Content4 = string;
 export type Status1 = string;
 export type Todos = TodoItemData[];
-export type Kind24 = "usage_update";
+export type Kind25 = "usage_update";
 export type InputTokens1 = number;
 export type ContextWindow1 = number | null;
 export type Model6 = string | null;
@@ -762,13 +769,28 @@ export interface RunInterruptedData {
   signal?: Signal;
   [k: string]: unknown;
 }
-export interface ExperimentsChangedData {
+/**
+ * One move of the run through its lifecycle.
+ *
+ * Carries the whole transition so a client folds the status instead of
+ * inferring it: ``status`` is the new value and ``previous`` the one it
+ * replaced. Which invocation boundary a pause landed on is on the event
+ * envelope (``agent_kind``, ``round_label``, ``execution_id``) like every
+ * other execution-scoped fact, not repeated here.
+ */
+export interface RunStatusChangedData {
   kind?: Kind11;
+  status: RunStatus;
+  previous: RunStatus;
+  [k: string]: unknown;
+}
+export interface ExperimentsChangedData {
+  kind?: Kind12;
   reason: Reason1;
   [k: string]: unknown;
 }
 export interface ConfigurationFailedData {
-  kind?: Kind12;
+  kind?: Kind13;
   code: Code1;
   stage: Stage2;
   message: Message;
@@ -777,13 +799,13 @@ export interface ConfigurationFailedData {
   [k: string]: unknown;
 }
 export interface PhaseData {
-  kind?: Kind13;
+  kind?: Kind14;
   phase: Phase;
   attempt?: Attempt2;
   [k: string]: unknown;
 }
 export interface AgentOutputChunkData {
-  kind?: Kind14;
+  kind?: Kind15;
   channel: Channel;
   content: Content1;
   status?: AgentStatusData | null;
@@ -805,7 +827,7 @@ export interface AgentStatusData {
   [k: string]: unknown;
 }
 export interface SubprocessOutputData {
-  kind?: Kind15;
+  kind?: Kind16;
   process_id: ProcessId;
   process_kind: ProcessKind;
   stream: Stream1;
@@ -813,21 +835,21 @@ export interface SubprocessOutputData {
   [k: string]: unknown;
 }
 export interface JudgeResultData {
-  kind?: Kind16;
+  kind?: Kind17;
   verdict: Verdict;
   feedback: Feedback;
   attempt: Attempt3;
   [k: string]: unknown;
 }
 export interface BenchmarkResultData {
-  kind?: Kind17;
+  kind?: Kind18;
   metric: Metric;
   value: Value;
   unit: Unit;
   [k: string]: unknown;
 }
 export interface RoundFinishedData {
-  kind?: Kind18;
+  kind?: Kind19;
   attempts: Attempts;
   judge_verdict: JudgeVerdict;
   perf_metric?: PerfMetric;
@@ -835,7 +857,7 @@ export interface RoundFinishedData {
   [k: string]: unknown;
 }
 export interface ToolCallData {
-  kind?: Kind19;
+  kind?: Kind20;
   tool: Tool1;
   call_id?: CallId;
   args?: Args;
@@ -846,7 +868,7 @@ export interface Args {
   [k: string]: unknown;
 }
 export interface ToolResultData {
-  kind?: Kind20;
+  kind?: Kind21;
   tool: Tool2;
   call_id?: CallId1;
   content: Content3;
@@ -858,7 +880,7 @@ export interface ToolResultData {
  * Structured result of a command-style tool execution.
  */
 export interface CommandResultPayload {
-  kind?: Kind21;
+  kind?: Kind22;
   stdout: Stdout;
   stderr: Stderr;
   exit_code?: ExitCode1;
@@ -869,12 +891,12 @@ export interface CommandResultPayload {
  * A tool result that is a JSON object or array, already parsed.
  */
 export interface JsonResultPayload {
-  kind?: Kind22;
+  kind?: Kind23;
   value: Value1;
   [k: string]: unknown;
 }
 export interface TodoUpdateData {
-  kind?: Kind23;
+  kind?: Kind24;
   todos?: Todos;
   [k: string]: unknown;
 }
@@ -884,7 +906,7 @@ export interface TodoItemData {
   [k: string]: unknown;
 }
 export interface UsageUpdateData {
-  kind?: Kind24;
+  kind?: Kind25;
   input_tokens: InputTokens1;
   context_window?: ContextWindow1;
   model?: Model6;

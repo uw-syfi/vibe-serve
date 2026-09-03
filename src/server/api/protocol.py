@@ -9,10 +9,10 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field, FiniteFloat
 
 from server.chat.options import ChatOptions
-from server.controller import RunStatus
 from server.diagnostics import Diagnostic, DiagnosticScope, exception_to_diagnostic
 from server.events import RunEvent
 from server.execution import ActiveAgentExecution
+from server.run_lifecycle import RunStatus
 from server.settings import InteractiveSetupDefaults
 
 PROTOCOL_VERSION = 1

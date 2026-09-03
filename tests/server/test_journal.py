@@ -39,10 +39,15 @@ def test_bootstrap_events_join_durable_history(tmp_path):  # noqa: ANN001, ANN20
     current.attach(tmp_path / "durable")
     current.journal.record(EventType.RUN_STARTED, status=EventStatus.ACTIVE)
 
+    # Each attach publishes the starting -> running transition, and the second
+    # session's lands after the first session's terminal event: a client that
+    # folds this history in order ends at `running`, not at the old `completed`.
     expected = [
         EventType.SERVER_STARTED,
+        EventType.RUN_STATUS_CHANGED,
         EventType.RUN_FINISHED,
         EventType.SERVER_STARTED,
+        EventType.RUN_STATUS_CHANGED,
         EventType.SERVER_READY,
         EventType.RUN_STARTED,
     ]

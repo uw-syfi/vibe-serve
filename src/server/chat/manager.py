@@ -21,8 +21,8 @@ if TYPE_CHECKING:
     import threading
 
     from server.chat.options import ChatRunSettings
-    from server.controller import RunStatus
     from server.journal import EventJournal
+    from server.run_lifecycle import RunStatus
 
 _CHAT_DRAIN_TIMEOUT_SECONDS = 5.0
 _CHAT_THREAD_TITLE_MAX_CHARS = 40
