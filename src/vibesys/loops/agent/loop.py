@@ -396,8 +396,10 @@ def _pareto_archive_summary(records: list[RoundRecord], space: MetricSpace) -> s
     ]
     if pending:
         lines.append(
-            "Measured frontier claims awaiting independent review (retain the commit, but "
-            "do not treat it as a trusted parent until its hard invariants pass):"
+            "Measured frontier claims not yet usable as trusted parents (retain the commit, "
+            "but do not treat it as a parent). A row lands here because its hard invariants "
+            "have not passed independent review, or because its numbers are the "
+            "implementer's own report rather than a framework measurement:"
         )
         for record in pending[-8:]:
             assert record.commit is not None  # noqa: S101  # tracked: #288
@@ -460,6 +462,10 @@ def _detect_plateau(
     Rules:
     - ``profile_skipped`` rounds don't count as fresh measurements (their
       perf was reused from earlier).
+    - Only rounds the framework measured itself count. An implementer's
+      self-reported number is not evidence that the search has stopped
+      making progress, and telling the orchestrator it has plateaued on
+      the strength of its own reports is a feedback loop.
     - Only rounds with the *same* ``perf_unit`` as the latest fresh round
       count toward the streak — comparing latency_ms against tok/s as raw
       floats is a category error.
@@ -474,6 +480,7 @@ def _detect_plateau(
         if r.passed
         and r.official_evaluation
         and r.perf_metric is not None
+        and trusted_perf_provenance(r.perf_provenance)
         and not r.profile_skipped
     ]
     if len(fresh) < min_streak:

@@ -1,6 +1,5 @@
 """Tests for the unified hypothesis aggregate and its pure transitions."""
 
-from dataclasses import replace
 from typing import Literal
 
 import pytest
@@ -362,7 +361,6 @@ def _declared(comparison: MetricComparison | None) -> ResolutionEvidence:
         passed=True,
         reviewed=True,
         comparison=comparison,
-        benchmark_expected=True,
     )
 
 
@@ -380,9 +378,11 @@ def test_resolution_consumes_the_comparison_rather_than_the_readings() -> None:
     assert resolve_hypothesis_outcome(_declared(MetricComparison.INCOMPARABLE)) is (
         HypothesisResolution.INCONCLUSIVE
     )
-    # ``None`` is a different fact: no official metric was recorded at all, so
-    # a nomination stays undecided rather than being ruled against.
-    assert resolve_hypothesis_outcome(_declared(None)) is HypothesisResolution.INCONCLUSIVE
+    # ``None`` is a different fact: no comparison exists, either because no
+    # official metric was recorded or because the number is the implementer's
+    # own. A nomination is then unmeasured, not inconclusive -- INCONCLUSIVE
+    # reports a trusted measurement that failed to decide the claim.
+    assert resolve_hypothesis_outcome(_declared(None)) is HypothesisResolution.UNMEASURED
 
 
 def test_retention_consumes_the_comparison_against_the_best_prior() -> None:

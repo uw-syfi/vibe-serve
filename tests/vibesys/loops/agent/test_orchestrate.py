@@ -1008,19 +1008,19 @@ def test_implementer_report_cannot_seed_archive_or_dominate_candidates():  # noq
     ``_trusted_candidate_records`` and must not count as a dominator in a later
     Pareto decision. A framework-provenance row of the same shape still does.
     """
-    objectives = [Objective("accuracy", "max")]
+    space = MetricSpace(objectives=(Objective(name="accuracy", direction="max"),))
     implementer = _accuracy_row(1, 0.95, provenance="implementer")
     framework = _accuracy_row(2, 0.95, provenance="framework")
 
     # Trusted Pareto-parent selection is gated on framework provenance.
-    assert _trusted_candidate_records([implementer], objectives) == []
-    assert _trusted_candidate_records([framework], objectives) == [framework]
+    assert _trusted_candidate_records([implementer], space) == []
+    assert _trusted_candidate_records([framework], space) == [framework]
 
     # A weaker later candidate is only dominated by the trusted framework row,
     # never by the untrusted implementer self-report.
     weaker = {"accuracy": 0.80}
-    assert _pareto_archive_dominators(weaker, [implementer], objectives) == []
-    assert _pareto_archive_dominators(weaker, [framework], objectives) == [framework]
+    assert _pareto_archive_dominators(weaker, [implementer], space) == []
+    assert _pareto_archive_dominators(weaker, [framework], space) == [framework]
 
 
 def test_official_evaluation_cadence_resets_at_verified_checkpoint():  # noqa: ANN201  # tracked: #288

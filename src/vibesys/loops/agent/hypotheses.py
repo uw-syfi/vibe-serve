@@ -339,14 +339,22 @@ def round_comparison(
 ) -> MetricComparison | None:
     """Return how one round's headline reading compared with its baseline.
 
-    ``None`` means the round recorded no official metric, so there was nothing
-    to order. A record that carries ``perf_comparison`` answers for itself: the
-    framework decided it once, when the round was written, and re-deriving it
-    later from a possibly re-configured space would let a resumed run disagree
-    with what it recorded. Older records have the comparison derived from
-    *space* instead.
+    ``None`` means there is nothing to order: the round recorded no official
+    metric, or the number it recorded is the implementer's own report. A record
+    that carries ``perf_comparison`` answers for itself: the framework decided
+    it once, when the round was written, and re-deriving it later from a
+    possibly re-configured space would let a resumed run disagree with what it
+    recorded. Older records have the comparison derived from *space* instead.
+
+    The provenance guard has to come before that re-derivation. A round the
+    implementer self-reported stores no comparison, which is indistinguishable
+    from a pre-#579 record; without this guard the fallback would re-derive one
+    from the space and resume, and the server read path, would resolve the
+    hypothesis INCONCLUSIVE where the loop resolved it UNMEASURED.
     """
     if not record.official_evaluation or record.perf_metric is None:
+        return None
+    if not trusted_perf_provenance(record.perf_provenance):
         return None
     if record.perf_comparison is not None:
         return record.perf_comparison

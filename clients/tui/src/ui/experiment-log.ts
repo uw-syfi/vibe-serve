@@ -645,8 +645,10 @@ export function entryRow(entry: HypothesisEntry, columns: Columns): string {
 
 /**
  * Green for a hypothesis that held, red for one that did not, and the active
- * accent while it is still open. Outcomes with no such reading (``continue``,
- * ``inconclusive``) stay in body text rather than being forced into a verdict.
+ * accent while it is still open. Outcomes with no such reading stay in body
+ * text rather than being forced into a verdict: `inconclusive`, where a
+ * trusted measurement did not decide the claim, and `unmeasured`, where the
+ * framework measured nothing to decide it with.
  */
 export function outcomeColor(theme: Theme, entry: HypothesisEntry): string {
   const outcome = entry.resolved_outcome ?? null;
