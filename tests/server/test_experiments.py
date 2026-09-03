@@ -17,6 +17,7 @@ from vibesys.loops.agent.model import (
     HypothesisStrategy,
 )
 from vibesys.loops.agent.state import AgentRunStateStore
+from vibesys.loops.metrics import MetricSpace, Objective
 from vibesys.schemas import HypothesisOutcome, OrchestratorPlan
 from vs_loop_state import MetricComparison, RoundRecord
 from vs_project import AgentRunConfiguration, Project, RunEnvironmentRecord
@@ -413,6 +414,75 @@ def test_service_rebuilds_legacy_measurement_and_resolution_from_round_evidence(
         regression.perf_direction,
         regression.perf_baseline_value,
     ) == ("ops_s", "max", 100.0)
+
+
+def test_service_projects_a_within_noise_delta_as_inconclusive(tmp_path: Path) -> None:
+    """Regression for #507: the read path must use the run's stored tolerance.
+
+    The server reprojects hypothesis evidence on every read. It has no access
+    to the task's ``objectives.toml``, so the tolerance has to travel with the
+    run state; otherwise a 1% delta under a 5% noise model reaches the client
+    as ``proven`` while the round record says the run learned nothing.
+    """
+    configuration = _configuration().model_copy(update={"objectives": ("ops_s:max",)})
+    project, run_id = _project_run(tmp_path / "project", configuration)
+    portable = project.state.portable_namespace(run_id, "agent")
+    AgentRunStateStore(portable).save(
+        AgentRunState(
+            metrics=MetricSpace(
+                objectives=(Objective(name="ops_s", direction="max"),),
+                relative_noise=0.05,
+            ),
+            hypotheses=[
+                _hypothesis(
+                    "H-parent",
+                    1,
+                    rounds=[
+                        _round(
+                            1,
+                            commit="a" * 40,
+                            hypothesis_id="H-parent",
+                            hypothesis_declared_outcome="nominated",
+                            judge_verdict="pass",
+                            passed=True,
+                            official_evaluation=True,
+                            perf_metric=100.0,
+                            perf_unit="ops_s",
+                            perf_direction="max",
+                        )
+                    ],
+                ),
+                _hypothesis(
+                    "H-within-noise",
+                    2,
+                    parent_round=1,
+                    parent_commit="a" * 40,
+                    rounds=[
+                        _round(
+                            2,
+                            commit="b" * 40,
+                            hypothesis_id="H-within-noise",
+                            hypothesis_parent_round=1,
+                            hypothesis_parent_commit="a" * 40,
+                            hypothesis_declared_outcome="nominated",
+                            hypothesis_outcome="inconclusive",
+                            judge_verdict="pass",
+                            passed=True,
+                            official_evaluation=True,
+                            perf_metric=101.0,
+                            perf_unit="ops_s",
+                            perf_direction="max",
+                        )
+                    ],
+                ),
+            ],
+        )
+    )
+    parts = build_server_parts(project.state.log_directory(run_id), project=project, run_id=run_id)
+    entries = parts.api.execute(ExperimentQuery()).experiments
+
+    entry = next(item for item in entries if item.hypothesis_id == "H-within-noise")
+    assert entry.resolved_outcome == "inconclusive"
 
 
 def test_service_returns_authoritative_empty_log_after_attach(tmp_path: Path) -> None:

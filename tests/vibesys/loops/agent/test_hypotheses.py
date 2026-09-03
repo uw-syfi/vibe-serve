@@ -7,6 +7,7 @@ from pydantic import ValidationError
 
 from vibesys.loops.agent.hypotheses import (
     ResolutionEvidence,
+    adopt_metric_space,
     append_round,
     apply_strategy_updates,
     metric_baseline,
@@ -54,6 +55,7 @@ def _round(  # noqa: PLR0913
     declared: str | None = "nominated",
     direction: Literal["max", "min"] = "max",
     retained: bool | None = True,
+    comparison: MetricComparison | None = None,
 ) -> RoundRecord:
     return RoundRecord(
         round_number=number,
@@ -73,6 +75,7 @@ def _round(  # noqa: PLR0913
         official_evaluation=metric is not None,
         perf_direction=direction if metric is not None else None,
         candidate_retained=retained,
+        perf_comparison=comparison,
     )
 
 
@@ -390,3 +393,155 @@ def test_retention_consumes_the_comparison_against_the_best_prior() -> None:
     assert scalar_candidate_retained(space.compare_to_best(candidate, [])) is True
     assert scalar_candidate_retained(space.compare_to_best(None, prior)) is None
 
+
+_NOISY_OPS = MetricSpace(
+    objectives=(Objective(name="total_ops_per_sec", direction="max"),),
+    relative_noise=0.05,
+)
+
+
+def _within_noise_run() -> AgentRunState:
+    """Two official rounds one percent apart, in a five percent metric space."""
+    state = AgentRunState(metrics=_NOISY_OPS)
+    baseline = append_round(
+        start_hypothesis(state, _plan("H-base"), started_round=1),
+        _round(1, 100.0, hypothesis_id="H-base"),
+        keep_active=False,
+    )
+    started = start_hypothesis(
+        baseline,
+        _plan("H-1"),
+        started_round=2,
+        parent_round=1,
+        parent_commit=f"{1:040x}",
+    )
+    return append_round(
+        started,
+        _round(
+            2,
+            101.0,
+            hypothesis_id="H-1",
+            parent_round=1,
+            parent_commit=f"{1:040x}",
+            outcome="inconclusive",
+            comparison=MetricComparison.WITHIN_NOISE,
+        ),
+        keep_active=False,
+    )
+
+
+def test_append_round_resolves_a_within_noise_delta_as_inconclusive() -> None:
+    """Regression for #507: a 1% delta under a 5% model is not a proven result.
+
+    ``append_round`` is the loop's own writer, so a tolerance it cannot reach
+    silently records the opposite verdict from the one the round observed.
+    """
+    hypothesis = _within_noise_run().by_id("H-1")
+
+    assert hypothesis is not None
+    assert hypothesis.measurement is not None
+    assert hypothesis.measurement.delta_pct == pytest.approx(1.0)
+    assert hypothesis.resolution is HypothesisResolution.INCONCLUSIVE
+
+
+def test_resume_reprojection_agrees_with_the_recorded_round_outcome() -> None:
+    """Regression for #507: ``--resume`` must not contradict the round record."""
+    completed = _within_noise_run()
+    live = completed.by_id("H-1")
+    resumed = reproject_run_evidence(completed).by_id("H-1")
+
+    assert live is not None
+    assert resumed is not None
+    assert resumed.resolution is live.resolution
+    assert [record.hypothesis_outcome for record in resumed.rounds] == ["inconclusive"]
+    assert resumed.resolution is HypothesisResolution.INCONCLUSIVE
+
+
+def test_retention_and_resolution_share_one_tolerance_boundary() -> None:
+    """The chosen semantics: tolerance is ``abs(baseline) * relative_noise``.
+
+    Retention and resolution used to scale the tolerance differently. They now
+    ask the same space the same question, boundary included: a delta exactly at
+    the tolerance is not a result.
+    """
+    space = MetricSpace(objectives=(Objective(name="ops", direction="max"),), relative_noise=0.05)
+    baseline = [Measurement(metric="ops", value=100.0)]
+    at_tolerance = space.compare_to_best(Measurement(metric="ops", value=105.0), baseline)
+    beyond = space.compare_to_best(Measurement(metric="ops", value=105.01), baseline)
+
+    assert resolve_hypothesis_outcome(_declared(at_tolerance)) is (
+        HypothesisResolution.INCONCLUSIVE
+    )
+    assert scalar_candidate_retained(at_tolerance) is False
+    assert resolve_hypothesis_outcome(_declared(beyond)) is HypothesisResolution.PROVEN
+    assert scalar_candidate_retained(beyond) is True
+
+
+def test_adopting_a_metric_space_rewrites_the_stored_space_and_evidence() -> None:
+    """The run's launch configuration is written once; readers take it from state."""
+    strict_run = _strip_stored_comparisons(
+        _within_noise_run().model_copy(
+            update={
+                "metrics": MetricSpace(
+                    objectives=(Objective(name="total_ops_per_sec", direction="max"),)
+                )
+            },
+            deep=True,
+        )
+    )
+    reprojected = reproject_run_evidence(strict_run).by_id("H-1")
+    assert reprojected is not None
+    assert reprojected.resolution is HypothesisResolution.PROVEN
+
+    adopted = adopt_metric_space(strict_run, _NOISY_OPS)
+    hypothesis = adopted.by_id("H-1")
+
+    assert adopted.metrics == _NOISY_OPS
+    assert hypothesis is not None
+    assert hypothesis.resolution is HypothesisResolution.INCONCLUSIVE
+
+
+def test_state_written_before_the_metric_space_loads_as_the_empty_strict_space() -> None:
+    legacy = AgentRunState.model_validate({"schema_version": 1, "hypotheses": []})
+
+    assert legacy.metrics == MetricSpace()
+
+
+def test_a_record_without_a_stored_comparison_is_re_derived_from_the_space() -> None:
+    """Compatibility path for rounds written before the comparison was stored."""
+    stripped = _strip_stored_comparisons(_within_noise_run())
+    assert [record.perf_comparison for record in stripped.rounds] == [None, None]
+
+    hypothesis = reproject_run_evidence(stripped).by_id("H-1")
+
+    assert hypothesis is not None
+    assert hypothesis.resolution is HypothesisResolution.INCONCLUSIVE
+
+
+def test_a_stored_comparison_survives_a_space_whose_tolerance_changed() -> None:
+    """The round answers for itself, so a re-configured space cannot rewrite it.
+
+    Editing ``objectives.toml`` between resumes changes how later rounds are
+    ordered, not how recorded ones were: a delta the run judged to be noise
+    stays noise. Stripping the stored answer is what puts a round back under
+    the space's control.
+    """
+    recorded = _within_noise_run()
+    strict = MetricSpace(objectives=_NOISY_OPS.objectives)
+
+    resolved = adopt_metric_space(recorded, strict).by_id("H-1")
+    re_derived = adopt_metric_space(_strip_stored_comparisons(recorded), strict).by_id("H-1")
+
+    assert resolved is not None
+    assert resolved.resolution is HypothesisResolution.INCONCLUSIVE
+    assert re_derived is not None
+    assert re_derived.resolution is HypothesisResolution.PROVEN
+
+
+def _strip_stored_comparisons(state: AgentRunState) -> AgentRunState:
+    """Return *state* as a run written before comparisons were persisted."""
+    payload = state.model_dump()
+    for hypothesis in payload["hypotheses"]:
+        for record in hypothesis["rounds"]:
+            record["perf_comparison"] = None
+    return AgentRunState.model_validate(payload)
