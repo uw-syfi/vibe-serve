@@ -149,7 +149,8 @@ stacking another surface on top.
 `Ctrl+W` moves focus one column to the right and wraps, through whichever
 columns are actually on screen. Every pane reads the same authoritative focus
 state: the focused pane carries the theme's focus border and a `▸` in its title,
-while every other pane uses the neutral border. Page Up and Page Down scroll
+while every other pane uses the neutral border. The treatment belongs to a pane
+frame, so a box inside one, the chat's composer for instance, never repeats it. Page Up and Page Down scroll
 whichever pane has focus, and Escape on the right pane closes it and restores
 the full-width view. Chat and transcript state survive the pane closing.
 
@@ -158,13 +159,16 @@ content row; pressing `F4` again restores the previous split and focus. It does
 not create a second pane or move its data, so hypothesis and agent selection,
 chat drafts, and pane scroll positions remain in place. The shortcut works for
 the hypothesis list, agent graph, transcript, experiment chat, and performance
-pane. Modal dialogs keep `F4` to themselves until they close.
+pane. It does nothing over an expanded todo list, which is as tall as its own
+contents and has no use for the row. Modal dialogs keep `F4` to themselves until
+they close.
 
 Pane widths are computed from the terminal, so a wide terminal gives the
 visualization real room while the left pane keeps a readable floor. Below 100
 columns there is not enough width for both, and visualizations fall back to the
-modal they used before panes existed. The layout re-flows on resize in either
-direction.
+modal they used before panes existed. That modal is the same surface as the
+pane, so it keeps the pane's title and its focus marker rather than reading as a
+generic dialog. The layout re-flows on resize in either direction.
 
 `/help`, `/theme`, and errors stay modal.
 
@@ -193,8 +197,8 @@ Inside a hypothesis the footer shows keyboard navigation. `←` and `→` step
 focus across the rounds rail, the agents graph, and the transcript, `↑` and `↓`
 move within whichever holds it, `[` and `]` select rounds from anywhere, Tab and
 Shift+Tab select agents, Page Up/Page Down scroll the transcript, and F2 (or
-Ctrl+T) expands the todo box, which then takes the arrow keys until Escape closes
-it.
+Ctrl+T) expands the todo box, which then takes the arrow keys, and the focus
+marker with them, until Escape closes it.
 F3 (or Ctrl+P) expands the latest prompt in the current selection. Function keys
 are offered alongside the Control chords because a terminal is free to keep a
 Control chord for itself, and on macOS several do.

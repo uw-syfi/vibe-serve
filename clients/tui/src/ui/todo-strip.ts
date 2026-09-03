@@ -2,7 +2,7 @@ import {BoxRenderable, type CliRenderer, TextRenderable} from '@opentui/core';
 import type {TodoItem} from '@vibesys/core-state';
 import type {SessionController} from '../session-controller.js';
 import type {SessionState} from '../session-model.js';
-import {visibleTodos} from '../session-model.js';
+import {focusedPane, visibleTodos} from '../session-model.js';
 import {paneBorderColor, paneBorderStyle, paneTitle} from './focus.js';
 import type {Theme} from './theme.js';
 
@@ -95,6 +95,7 @@ export class TodoStripView {
   #theme: Theme;
   #renderedTodos: TodoItem[] | null = null;
   #renderedExpanded = false;
+  #renderedFocused = false;
   #renderedSelection: number | null = null;
   #renderedWidth: number | null = null;
 
@@ -136,9 +137,13 @@ export class TodoStripView {
     // One source for the strip's height: siblings sized in this same paint read
     // it from `todoStripHeight` too, so the box cannot end up a row off them.
     this.output.height = todoStripHeight(state);
+    // The open list owns the arrow keys, so it is a pane like any other and
+    // asks the same authority whether it is the one holding them.
+    const focused = focusedPane(state) === 'todos';
     if (
       todos === this.#renderedTodos &&
       state.todosExpanded === this.#renderedExpanded &&
+      focused === this.#renderedFocused &&
       state.selectedTodoIndex === this.#renderedSelection &&
       width === this.#renderedWidth
     ) {
@@ -146,10 +151,11 @@ export class TodoStripView {
     }
     this.#renderedTodos = todos;
     this.#renderedExpanded = state.todosExpanded;
+    this.#renderedFocused = focused;
     this.#renderedSelection = state.selectedTodoIndex;
     this.#renderedWidth = width;
     this.#clear();
-    if (state.todosExpanded) this.#renderExpanded(todos, state.selectedTodoIndex);
+    if (state.todosExpanded) this.#renderExpanded(todos, state.selectedTodoIndex, focused);
     else this.#renderCollapsed(todos);
   }
 
@@ -164,7 +170,7 @@ export class TodoStripView {
     );
   }
 
-  #renderExpanded(todos: TodoItem[], selected: number | null): void {
+  #renderExpanded(todos: TodoItem[], selected: number | null, focused: boolean): void {
     const shown = todos.slice(0, MAX_EXPANDED_ITEMS);
     const hidden = todos.length - shown.length;
     const height = shown.length + (hidden > 0 ? 1 : 0) + 2;
@@ -179,12 +185,9 @@ export class TodoStripView {
       paddingLeft: 1,
       paddingRight: 1,
       border: true,
-      // The open list owns the arrow keys, so it carries the focused pane's
-      // chrome: the operator can see where the keys are going without being
-      // told.
-      borderStyle: paneBorderStyle(true),
-      borderColor: paneBorderColor(this.#theme, true),
-      title: paneTitle(todoTitle(todos), true),
+      borderStyle: paneBorderStyle(focused),
+      borderColor: paneBorderColor(this.#theme, focused),
+      title: paneTitle(todoTitle(todos), focused),
     });
     this.output.add(list);
     for (const [index, todo] of shown.entries()) {

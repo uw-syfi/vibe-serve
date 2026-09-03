@@ -3,20 +3,21 @@ import {BoxRenderable, type Renderable} from '@opentui/core';
 import {createTestRenderer, type TestRendererSetup} from '@opentui/core/testing';
 import type {SessionController} from '../session-controller.js';
 import {initialSessionState, type SessionState} from '../session-model.js';
-import {createChatDraft, pendingComposerTitle} from './chat-composer.js';
+import {createChatDraft, pendingComposerLabel} from './chat-composer.js';
 import {ChatPaneView} from './chat-pane.js';
+import {paneTitle} from './focus.js';
 import {createMarkdownStyle} from './styles.js';
 import {resolveTheme} from './theme.js';
 
 describe('pending composer title', () => {
   it('shows a spinner frame and the elapsed wait', () => {
-    expect(pendingComposerTitle(0, 0)).toBe(' Message · ⠋ 0s ');
-    expect(pendingComposerTitle(1, 5_000)).toBe(' Message · ⠙ 5s ');
+    expect(pendingComposerLabel(0, 0)).toBe('Message · ⠋ 0s');
+    expect(pendingComposerLabel(1, 5_000)).toBe('Message · ⠙ 5s');
   });
 
   it('wraps the frame index so a long wait keeps animating', () => {
-    expect(pendingComposerTitle(10, 1_000)).toBe(pendingComposerTitle(0, 1_000));
-    expect(pendingComposerTitle(23, 1_000)).toBe(pendingComposerTitle(3, 1_000));
+    expect(pendingComposerLabel(10, 1_000)).toBe(pendingComposerLabel(0, 1_000));
+    expect(pendingComposerLabel(23, 1_000)).toBe(pendingComposerLabel(3, 1_000));
   });
 });
 
@@ -92,12 +93,12 @@ describe('composer spinner across a hidden surface', () => {
     const dock = await dockedChat();
     setSystemTime(new Date(EPOCH));
     dock.render(true, true);
-    expect(dock.title()).toBe(' Message · ⠋ 0s ');
+    expect(dock.title()).toBe(paneTitle(pendingComposerLabel(0, 0), false));
 
     dock.render(true, false);
     dock.render(false, false);
 
-    expect(dock.title()).toBe(' Message ');
+    expect(dock.title()).toBe(paneTitle('Message', false));
   });
 
   it('restarts the elapsed wait for the question asked after a hidden one', async () => {
@@ -112,7 +113,7 @@ describe('composer spinner across a hidden surface', () => {
     dock.render(true, true);
 
     // The new question's wait, not the one that ran out of sight.
-    expect(dock.title()).toBe(' Message · ⠋ 0s ');
+    expect(dock.title()).toBe(paneTitle(pendingComposerLabel(0, 0), false));
   });
 
   it('animates again after a destroy rather than staying frozen', async () => {
@@ -124,6 +125,6 @@ describe('composer spinner across a hidden surface', () => {
     setSystemTime(new Date(EPOCH + 7_000));
     dock.render(true, true);
 
-    expect(dock.title()).toBe(' Message · ⠋ 0s ');
+    expect(dock.title()).toBe(paneTitle(pendingComposerLabel(0, 0), false));
   });
 });

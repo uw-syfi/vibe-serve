@@ -156,10 +156,16 @@ export class ExperimentLogView {
       return;
     }
     this.output.visible = true;
+    // Both the label and the focus channels are derived from the state being
+    // rendered, so this runs on every notification, including the ones the
+    // cache below returns from. Naming the panel `Experiments` here and
+    // correcting it during detail rendering left a same-state notification
+    // titling a hypothesis body with the index's title.
+    const detail = detailedHypothesis(state);
     applyPaneFocus(
       this.output,
       this.#theme,
-      EXPERIMENTS_TITLE,
+      detail === null ? EXPERIMENTS_TITLE : `Hypothesis ${detail.hypothesis_id}`,
       focusedPane(state) === 'experiments',
     );
     const width = this.#availableWidth ?? this.renderer.terminalWidth;
@@ -169,7 +175,6 @@ export class ExperimentLogView {
     this.#renderedWidth = width;
     this.#clear();
 
-    const detail = detailedHypothesis(state);
     if (detail !== null) {
       this.#renderDetail(detail, state);
       if (previousDetailKey !== state.hypothesisDetail?.entryKey) this.#rows.scrollTo(0);
@@ -281,12 +286,9 @@ export class ExperimentLogView {
 
   #renderDetail(entry: HypothesisEntry, state: SessionState): void {
     const selectedRound = state.hypothesisDetail?.selectedRound ?? null;
-    // Only the title: `render` already set the frame and the border colour on
-    // the box this draws into.
-    this.output.title = paneTitle(
-      `Hypothesis ${entry.hypothesis_id}`,
-      focusedPane(state) === 'experiments',
-    );
+    // The frame, its colour, and the title are `render`'s: it is the one place
+    // that runs on every notification, so it is the one place that can keep
+    // them in step with what the panel is showing.
     this.#header.content = hypothesisMetadata(entry);
     const title = entry.title?.trim();
     if (title) this.#line(title, this.#theme.textStrong);

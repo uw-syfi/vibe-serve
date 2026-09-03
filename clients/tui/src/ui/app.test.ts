@@ -1139,9 +1139,14 @@ describe('OpenTUI presentation', () => {
     const focused = await frameAfter(testRenderer);
 
     expect(controller.state.layout.focus).toBe('chat');
-    // And the box says so: clicking must move the border, not only the cursor.
+    // And the surface says so: clicking must move the treatment, not only the
+    // cursor. It moves onto the pane frame, since the composer is a box inside
+    // that pane rather than a pane of its own.
     expect(focused).not.toContain('Ctrl+W to type here');
-    expect(spanColors(testRenderer, 'Message')?.fg).toBe(resolveTheme('dark').borderFocus);
+    const theme = resolveTheme('dark');
+    const borders = paneBorders(testRenderer);
+    expect(borders['▸ Experiment chat']).toBe(theme.borderFocus);
+    expect(borders['Message']).toBe(theme.border);
   });
 
   it('gives the chat the keys when it is clicked, not only on Ctrl+W', async () => {
@@ -3909,6 +3914,117 @@ describe('theming', () => {
     });
   });
 
+  it('moves the focus treatment onto the expanded todo list, under every parent focus', async () => {
+    // Ctrl+T routes Up/Down to the list, so the list is the surface taking the
+    // keys and has to be the one wearing the marker. Whichever pane held them
+    // before goes back to rest, whether that is the transcript, the agent
+    // graph, or a visualization beside them.
+    const testRenderer = await createTestRenderer({width: 140, height: 32});
+    const controller = todoController();
+    const app = createOpenTuiApp(testRenderer.renderer, controller);
+    registerCleanup(testRenderer.renderer, app);
+    const theme = resolveTheme('dark');
+    await testRenderer.waitForFrame(value => value.includes('Todo 1/3'));
+
+    for (const parent of ['▸ Transcript', '▸ Agents', '▸ Performance'] as const) {
+      if (parent === '▸ Agents') controller.focusRound('agents');
+      if (parent === '▸ Performance') await controller.openPane('perf');
+      await frameAfter(testRenderer);
+      expect(markedPanes(paneBorders(testRenderer))).toEqual([parent]);
+
+      testRenderer.mockInput.pressKey('t', {ctrl: true});
+      const expanded = await testRenderer.waitForFrame(value =>
+        value.includes('Re-run the benchmark'),
+      );
+      expect(expanded).toContain('▸ Todo 1/3');
+      const borders = paneBorders(testRenderer);
+      expect(markedPanes(borders)).toEqual(['▸ Todo 1/3']);
+      expect(borders['▸ Todo 1/3']).toBe(theme.borderFocus);
+      // The pane it opened over is back at rest: one surface takes the keys,
+      // so one surface says so.
+      expect(borders[parent.slice(2)]).toBe(theme.border);
+
+      testRenderer.mockInput.pressKey('t', {ctrl: true});
+      await frameAfter(testRenderer);
+    }
+  });
+
+  it('keeps zoom and the expanded todo list from claiming the row together', async () => {
+    // The list holds the keys but is as tall as its own contents, so F4 has
+    // nothing to give it and leaves the row alone. A zoomed pane still has the
+    // strip under it, so opening the list there moves the marker onto it the
+    // same way, rather than lighting both.
+    const testRenderer = await createTestRenderer({width: 140, height: 32});
+    const controller = todoController();
+    const app = createOpenTuiApp(testRenderer.renderer, controller);
+    registerCleanup(testRenderer.renderer, app);
+    await testRenderer.waitForFrame(value => value.includes('Todo 1/3'));
+    testRenderer.mockInput.pressKey('t', {ctrl: true});
+    await testRenderer.waitForFrame(value => value.includes('Re-run the benchmark'));
+
+    testRenderer.mockInput.pressKey('F4');
+    const open = await frameAfter(testRenderer);
+
+    expect(controller.state.layout.zoomedPane).toBeNull();
+    expect(open).toContain('batched the prefill step');
+    expect(markedPanes(paneBorders(testRenderer))).toEqual(['▸ Todo 1/3']);
+
+    testRenderer.mockInput.pressKey('t', {ctrl: true});
+    await frameAfter(testRenderer);
+    testRenderer.mockInput.pressKey('F4');
+    await frameAfter(testRenderer);
+
+    expect(controller.state.layout.zoomedPane).toBe('transcript');
+    expect(markedPanes(paneBorders(testRenderer))).toEqual(['▸ Transcript']);
+
+    testRenderer.mockInput.pressKey('t', {ctrl: true});
+    await frameAfter(testRenderer);
+
+    expect(markedPanes(paneBorders(testRenderer))).toEqual(['▸ Todo 1/3']);
+  });
+
+  it('shows the narrow fallback as the focused visualization, not a Command box', async () => {
+    // Under the split width the visualization is drawn through the modal, so
+    // that modal is the keyboard target and has to carry the pane's own title
+    // and its focus marker. It used to render as a generic Command box in the
+    // info border, leaving the treatment on a RightPaneView nobody could see.
+    const testRenderer = await createTestRenderer({width: 90, height: 40});
+    const controller = splitController();
+    const app = createOpenTuiApp(testRenderer.renderer, controller);
+    registerCleanup(testRenderer.renderer, app);
+
+    await controller.openPane('perf');
+    const frame = await frameAfter(testRenderer);
+
+    expect(controller.state.layout.focus).toBe('right');
+    expect(frame).toContain('best r7 1135 tok_s');
+    const theme = resolveTheme('dark');
+    const borders = paneBorders(testRenderer);
+    expect(markedPanes(borders)).toEqual(['▸ Performance']);
+    expect(borders['▸ Performance']).toBe(theme.borderFocus);
+    // The shared command box is still on screen under the modal and stays
+    // neutral, so the only lit frame is the one taking the keys.
+    expect(borders['Command']).toBe(theme.border);
+  });
+
+  it('keeps the composer inside a focused chat pane at rest', async () => {
+    // The treatment belongs to the pane frame. The composer is a box inside
+    // that frame rather than a pane of its own, so a focused chat used to draw
+    // the marker and the focused border twice, one nested in the other.
+    const testRenderer = await createTestRenderer({width: 160, height: 24});
+    const controller = logController();
+    const app = createOpenTuiApp(testRenderer.renderer, controller);
+    registerCleanup(testRenderer.renderer, app);
+    await controller.openExperimentLog();
+    controller.focusPane('chat');
+    await frameAfter(testRenderer);
+
+    const theme = resolveTheme('dark');
+    const borders = paneBorders(testRenderer);
+    expect(markedPanes(borders)).toEqual(['▸ Experiment chat']);
+    expect(borders['Message']).toBe(theme.border);
+  });
+
   it('shows the hypothesis title as a heading in the detail view', async () => {
     const testRenderer = await createTestRenderer({width: 200, height: 22});
     const controller = logController();
@@ -4011,6 +4127,29 @@ describe('theming', () => {
     expect(annotated).toContain('- src/ffi.rs');
     // Stage facts stay on the round's own row, stated once.
     expect(annotated).not.toContain('Outcome proven');
+  });
+  it('keeps the hypothesis title through a no-op state notification', async () => {
+    // Clicking an already-focused log area calls focusPane('left'), which
+    // returns the same state; the controller notifies every listener anyway.
+    // The pane then has to redraw the title it is actually showing, not the
+    // index title, which the detail body underneath would contradict.
+    const testRenderer = await createTestRenderer({width: 200, height: 22});
+    const controller = logController();
+    const app = createOpenTuiApp(testRenderer.renderer, controller);
+    registerCleanup(testRenderer.renderer, app);
+    await controller.openExperimentLog();
+    controller.publish({
+      ...controller.state,
+      hypothesisDetail: {entryKey: 'H-07', selectedRound: 41},
+    });
+    await testRenderer.waitForFrame(value => value.includes('Hypothesis H-07'));
+
+    controller.focusPane('left');
+    const frame = await frameAfter(testRenderer);
+
+    expect(frame).toContain('▸ Hypothesis H-07');
+    expect(frame).not.toContain('Experiments');
+    expect(frame).toContain('batch the prefill step');
   });
 
   it('opens hypothesis detail from a row click and keeps pane clicks routed', async () => {
@@ -4661,6 +4800,41 @@ function splitController(): FakeController {
   return controller;
 }
 
+/** A live round with a todo list, and a visualization to open beside it. */
+function todoController(): FakeController {
+  const controller = new FakeController({
+    ...initialSessionState(),
+    core: {
+      ...initialSessionState().core,
+      status: 'running',
+      agentKind: 'implementer',
+      rounds: [{number: 7, status: 'active'}],
+      todos: [
+        {
+          agentKind: 'implementer',
+          roundNumber: null,
+          items: [
+            {content: 'Profile the hot loop', status: 'completed'},
+            {content: 'Vectorize the kernel', status: 'in_progress'},
+            {content: 'Re-run the benchmark', status: 'pending'},
+          ],
+        },
+      ],
+      transcript: [
+        {
+          id: 'a',
+          kind: 'assistant',
+          label: 'implementer · round 7',
+          content: 'batched the prefill step',
+          roundNumber: 7,
+        },
+      ],
+    },
+  });
+  controller.paneContent = 'Performance · tok_s\nbest r7 1135 tok_s';
+  return controller;
+}
+
 function logEntry(
   id: string,
   firstRound: number,
@@ -4697,6 +4871,14 @@ function paneBorders(testRenderer: TestRendererSetup): Record<string, string> {
     }
   }
   return borders;
+}
+
+/**
+ * The titles wearing the focus marker, which is never more than one: the marker
+ * says where the keys go, and the keys go to one surface.
+ */
+function markedPanes(borders: Record<string, string>): string[] {
+  return Object.keys(borders).filter(title => title.startsWith('▸'));
 }
 
 /** The frame glyphs a pane draws, in either border style. */
@@ -5023,8 +5205,7 @@ class FakeController implements SessionController {
     this.#promptToggle?.();
   }
   toggleTodos(): void {
-    this.state = {...this.state, todosExpanded: !this.state.todosExpanded};
-    for (const listener of this.#listeners) listener(this.state);
+    this.publish({...this.state, todosExpanded: !this.state.todosExpanded});
   }
 
   /** Rows the fake server returns for query.experiments. */

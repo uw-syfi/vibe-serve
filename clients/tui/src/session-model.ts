@@ -207,8 +207,14 @@ export interface LayoutState {
   zoomedPane: PaneId | null;
 }
 
-/** Semantic pane identities, independent of their current screen position. */
-export type PaneId = 'agents' | 'chat' | 'experiments' | 'performance' | 'transcript';
+/**
+ * Semantic pane identities, independent of their current screen position.
+ *
+ * `todos` is the expanded todo list. It is a strip rather than a column, but it
+ * takes the arrow keys from the pane it opens over, so it is a pane for the
+ * purpose the identities exist for: naming the one surface the keys are on.
+ */
+export type PaneId = 'agents' | 'chat' | 'experiments' | 'performance' | 'todos' | 'transcript';
 
 export interface ThemePicker {
   selected: ThemeName;
@@ -1287,10 +1293,28 @@ export function focusPane(state: SessionState, focus: PaneFocus): SessionState {
 }
 
 /**
+ * True while the expanded todo list is on screen and taking the arrow keys.
+ *
+ * `keybindings` routes Up and Down to the list for as long as it is open, so
+ * the list rather than the pane it opened over is the surface those keys are
+ * on. Derived from the toggle rather than stored beside it: collapsing the list
+ * hands the keys back to whichever pane held them, with nothing to restore.
+ *
+ * The strip is drawn whenever the visible agent has todos, including under a
+ * zoomed pane, so this is the whole condition: an empty list is not on screen
+ * and cannot hold the keys.
+ */
+export function todoListFocused(state: SessionState): boolean {
+  if (experimentLogVisible(state) || !state.todosExpanded) return false;
+  return visibleTodos(state).length > 0;
+}
+
+/**
  * The semantic pane currently receiving pane navigation keys, and the single
  * authority for the focus treatment: every pane view compares its own `PaneId`
  * against this, so at most one of them can be lit at a time. Surfaces that are
- * not panes, the command box above all, never wear that treatment.
+ * not panes, the command box above all, never wear that treatment, and neither
+ * does a box nested inside a pane that already wears it.
  */
 export function focusedPane(state: SessionState): PaneId {
   if (experimentLogVisible(state)) {
@@ -1298,6 +1322,10 @@ export function focusedPane(state: SessionState): PaneId {
     if (state.layout.focus === 'right' && state.layout.right !== null) return 'performance';
     return 'experiments';
   }
+  // The expanded todo list takes the arrow keys from whichever pane held them,
+  // so it holds the focus until it closes. Ahead of the panes below because the
+  // keys reach it first.
+  if (todoListFocused(state)) return 'todos';
   // Opening a visualization replaces the agent summary in the left column
   // with the transcript. Keep roundFocus intact so closing the visualization
   // can restore it, but never report the hidden Agents pane as focused.
@@ -1318,16 +1346,21 @@ export function focusedPane(state: SessionState): PaneId {
  * presentation, so toggling cannot replace or reconstruct pane state.
  */
 export function togglePaneZoom(state: SessionState): SessionState {
-  return {
-    ...state,
-    layout: {
-      ...state.layout,
-      zoomedPane: state.layout.zoomedPane === null ? focusedPane(state) : null,
-    },
-  };
+  if (state.layout.zoomedPane !== null) {
+    return {...state, layout: {...state.layout, zoomedPane: null}};
+  }
+  const pane = focusedPane(state);
+  // Zoom hands the content row to a column. The todo list is a strip as tall as
+  // its own contents, so the row has nothing to give it: leave the layout as it
+  // is rather than clearing the screen around a five-row box.
+  if (pane === 'todos') return state;
+  return {...state, layout: {...state.layout, zoomedPane: pane}};
 }
 
-/** Every pane currently available to focus or zoom in the active view. */
+/**
+ * Every pane the content row can be given to in the active view. The expanded
+ * todo list is deliberately absent: it can hold the keys, but not the row.
+ */
 export function visiblePaneIds(state: SessionState): PaneId[] {
   if (experimentLogVisible(state)) {
     return [

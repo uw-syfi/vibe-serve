@@ -26,14 +26,9 @@ const COMPOSER_TITLE = 'Message';
  * unpadded because the pane frame owns the padding and the focus gutter, so
  * the wait and the focus marker compose instead of overwriting each other.
  */
-function pendingComposerLabel(frame: number, elapsedMs: number): string {
+export function pendingComposerLabel(frame: number, elapsedMs: number): string {
   const spinner = SPINNER_FRAMES[frame % SPINNER_FRAMES.length] ?? SPINNER_FRAMES[0];
   return `${COMPOSER_TITLE} · ${spinner} ${elapsedLabel(elapsedMs)}`;
-}
-
-/** The same label as its own title, for callers that set one directly. */
-export function pendingComposerTitle(frame: number, elapsedMs: number): string {
-  return ` ${pendingComposerLabel(frame, elapsedMs)} `;
 }
 
 class ChatTextareaRenderable extends TextareaRenderable {
@@ -86,7 +81,6 @@ export class ChatComposerView {
   readonly #hint: TextRenderable;
   readonly #menuList: TextRenderable;
   #availableWidth = 1;
-  #focused = false;
   #theme: Theme;
   #renderedMenu: string | null = null;
   #lastState: SessionState | null = null;
@@ -254,7 +248,7 @@ export class ChatComposerView {
       this.#syncSuggestions();
     }
     this.#pending = pending;
-    this.setFocused(focused);
+    this.#applyChrome();
     this.#hint.content = pending
       ? 'Awaiting the agent · Enter: queue follow-up'
       : focused
@@ -312,7 +306,7 @@ export class ChatComposerView {
   }
 
   #refreshTitle(): void {
-    this.#applyFocus();
+    this.#applyChrome();
   }
 
   isEmpty(): boolean {
@@ -323,21 +317,25 @@ export class ChatComposerView {
     this.#editor.focus();
   }
 
-  setFocused(focused: boolean): void {
-    this.#focused = focused;
-    this.#applyFocus();
-  }
-
-  #applyFocus(): void {
+  /**
+   * The composer's frame, always the resting one.
+   *
+   * The focus treatment names the pane the keys are on, and this box is inside
+   * that pane rather than being one. Wearing it here drew the marker and the
+   * focused border twice, one nested in the other, which is the ambiguity the
+   * treatment exists to remove. Which composer has the cursor is carried by the
+   * cursor itself and by the hint line under the box, both non-colour channels.
+   */
+  #applyChrome(): void {
     const label = this.#pending
       ? pendingComposerLabel(this.#frame, Date.now() - this.#pendingSince)
       : COMPOSER_TITLE;
-    applyPaneFocus(this.#box, this.#theme, label, this.#focused);
+    applyPaneFocus(this.#box, this.#theme, label, false);
   }
 
   applyTheme(theme: Theme): void {
     this.#theme = theme;
-    this.#applyFocus();
+    this.#applyChrome();
     this.#editor.textColor = theme.textStrong;
     this.#editor.focusedTextColor = theme.textStrong;
     this.#hint.fg = theme.textSubtle;

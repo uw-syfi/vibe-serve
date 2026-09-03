@@ -498,11 +498,7 @@ export function createOpenTuiApp(
     experimentLog.render(state);
     experimentLog.output.visible = showExperimentLog;
     rightPane.render(state, showRightPane, rightWidth);
-    overlay.render(
-      paneFallback === null
-        ? state
-        : {...state, overlay: {kind: 'detail' as const, content: paneFallback.content}},
-    );
+    overlay.render(state, paneFallback);
     themePicker.render(state);
     chat.render(state);
     conversationActivityBar.render(state, !showLog);

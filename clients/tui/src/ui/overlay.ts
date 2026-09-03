@@ -1,5 +1,6 @@
 import {BoxRenderable, type CliRenderer, ScrollBoxRenderable, TextRenderable} from '@opentui/core';
-import type {SessionState} from '../session-model.js';
+import {focusedPane, type RightPane, type SessionState} from '../session-model.js';
+import {applyPaneFocus} from './focus.js';
 import type {Theme} from './theme.js';
 
 type OverlayKind = NonNullable<SessionState['overlay']>['kind'];
@@ -36,6 +37,7 @@ export class OverlayView {
   #theme: Theme;
   #renderedKind: OverlayKind | null = null;
   #renderedContent = '';
+  #renderedPane: RightPane | null = null;
 
   constructor(
     private readonly renderer: CliRenderer,
@@ -92,9 +94,22 @@ export class OverlayView {
     this.#hint.fg = theme.textSubtle;
     this.#renderedKind = null;
     this.#renderedContent = '';
+    this.#renderedPane = null;
   }
 
-  render(state: SessionState): void {
+  /**
+   * `pane` is the visualization the terminal is too narrow to split, drawn here
+   * because there is no column to put it in. It is the same surface as
+   * `RightPaneView` and takes the same keys, so it wears that pane's title and
+   * asks `focusedPane` the same question rather than appearing as a `Command`
+   * box with none of the focus treatment on the one thing taking keystrokes.
+   */
+  render(state: SessionState, pane: RightPane | null = null): void {
+    if (pane !== null) {
+      this.#renderPane(state, pane);
+      return;
+    }
+    this.#renderedPane = null;
     const overlay = state.overlay;
     if (overlay === null) {
       this.output.visible = false;
@@ -113,13 +128,36 @@ export class OverlayView {
     this.output.borderColor = borderFor(this.#theme, overlay.kind);
     this.output.title = ` ${TITLE[overlay.kind]} `;
     this.#clear();
+    this.#body(
+      overlay.content,
+      overlay.kind === 'error' ? this.#theme.conversation.failure.content : this.#theme.textPrimary,
+    );
+  }
+
+  #renderPane(state: SessionState, pane: RightPane): void {
+    this.output.visible = true;
+    this.#applyGeometry();
+    // Outside the cache below: focus moves without the content changing.
+    applyPaneFocus(this.output, this.#theme, pane.title, focusedPane(state) === 'performance');
+    if (pane === this.#renderedPane) return;
+    this.#renderedPane = pane;
+    // The next ordinary overlay repaints its own title and border rather than
+    // inheriting the pane's.
+    this.#renderedKind = null;
+    this.#renderedContent = '';
+    this.#clear();
+    if (pane.error !== null) this.#body(pane.error, this.#theme.conversation.failure.content);
+    else if (pane.pending && pane.content === '') {
+      this.#body('Loading...', this.#theme.textSubtle);
+    } else this.#body(pane.content, this.#theme.textPrimary);
+  }
+
+  /** One wrapped block in the scroll viewport, rebuilt per overlay or pane. */
+  #body(content: string, fg: string): void {
     this.#scroll.add(
       new TextRenderable(this.renderer, {
-        content: overlay.content,
-        fg:
-          overlay.kind === 'error'
-            ? this.#theme.conversation.failure.content
-            : this.#theme.textPrimary,
+        content,
+        fg,
         width: '100%',
         flexShrink: 0,
         wrapMode: 'word',

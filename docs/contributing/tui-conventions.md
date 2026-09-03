@@ -62,6 +62,28 @@ shifting rather than the pane lighting up.
 than an intention. It also pins the direction of the colour channel: a focused
 border is never lower-contrast against the canvas than a resting one.
 
+### One surface wears the focus treatment, and it is a pane
+
+`focusedPane` is the single authority for which one. Every pane compares its own
+`PaneId` against it, so at most one can answer yes, and a surface that is not a
+pane never asks. Two cases follow from that and are worth naming, because both
+were shipped wrong once:
+
+- A box nested inside a pane does not repeat the treatment. The chat's `Message`
+  composer sits inside the chat pane, so the pane frame carries the marker and
+  the composer keeps the resting frame. Which box holds the cursor is said by
+  the cursor and by the hint line under it.
+- A surface that takes the keys is a pane, whatever its shape. The expanded todo
+  list is a strip rather than a column, but `keybindings.ts` routes the arrow
+  keys to it, so it is a `PaneId` and the pane it opened over goes back to rest.
+  The same holds for a presentation swap: below `MIN_SPLIT_WIDTH` a
+  visualization is drawn through the overlay, and that overlay is then the
+  performance pane, with its title and its marker.
+
+Zoom is a separate question from focus. `visiblePaneIds` is the set the content
+row can be given to, and the todo list is deliberately not in it: it is as tall
+as its own contents, so `F4` over it leaves the layout alone.
+
 ### Esc goes back one level
 
 `Esc` cancels a modal, closes an overlay, leaves a drill-down, or returns pane
