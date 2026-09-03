@@ -50,6 +50,7 @@ from vibesys.schemas import (
     OrchestratorPlan,
     PreRoundDecision,
     ProfilerSummary,
+    SingleAgentRoundResponse,
     SkillResourceSelection,
     ValidationRecipe,
     ValidationRecipeArtifact,
@@ -142,7 +143,28 @@ command = ["uv", "run", "python", "benchmark/benchmark.py"]
     return str(ref)
 
 
-def _make_orchestrate_runner(  # noqa: ANN202, PLR0913  # tracked: #288
+def _single_agent_round(perf_metric: float | None) -> SingleAgentRoundResponse:
+    """One `--inner-loop=single-agent` round's combined response.
+
+    That ablation has one agent implement, self-judge, and profile, so this
+    response is the round's only source of a headline number unless the
+    framework benchmark overrides it.
+    """
+    return SingleAgentRoundResponse(
+        summary="Done.",
+        expected_behavior="ok",
+        self_review="gates hold",
+        feedback="",
+        verdict=Verdict.PASS,
+        bottlenecks="none",
+        suggestions="none",
+        profile_analysis="ok",
+        perf_metric=perf_metric,
+        perf_unit="tok/s" if perf_metric is not None else None,
+    )
+
+
+def _make_orchestrate_runner(  # noqa: ANN202, C901, PLR0913  # tracked: #288
     *,
     pre_decisions: list[PreRoundDecision] | None = None,
     plans: list[OrchestratorPlan] | None = None,
@@ -150,6 +172,7 @@ def _make_orchestrate_runner(  # noqa: ANN202, PLR0913  # tracked: #288
     judge_verdicts: list[str] | None = None,
     profiler_responses: list[ProfilerSummary] | None = None,
     implementer_perf_metrics: list[float | None] | None = None,
+    single_agent_perf_metrics: list[float | None] | None = None,
     implementer_skill_updates: list[list[SkillResourceSelection]] | None = None,
     implementer_validation_artifacts: list[str | None] | None = None,
     implementer_next_steps: list[str] | None = None,
@@ -172,6 +195,7 @@ def _make_orchestrate_runner(  # noqa: ANN202, PLR0913  # tracked: #288
     judge_q = list(judge_verdicts or [])
     prof_q = list(profiler_responses or [])
     impl_perf_q = list(implementer_perf_metrics or [])
+    single_agent_perf_q = list(single_agent_perf_metrics or [])
     impl_skill_q = list(implementer_skill_updates or [])
     impl_validation_q = list(implementer_validation_artifacts or [])
     impl_next_step_q = list(implementer_next_steps or [])
@@ -205,6 +229,9 @@ def _make_orchestrate_runner(  # noqa: ANN202, PLR0913  # tracked: #288
                 pass_criteria="no criteria",  # noqa: S106  # tracked: #288
                 reasoning="default noop plan — the loop's max_rounds bounds the test",
             )
+        if kind == "implementer" and response_cls is SingleAgentRoundResponse:
+            counters["impl"] += 1
+            return _single_agent_round(single_agent_perf_q.pop(0) if single_agent_perf_q else None)
         if kind == "implementer":
             counters["impl"] += 1
             if impl_parse_failure_q and impl_parse_failure_q.pop(0):
@@ -4472,6 +4499,71 @@ def test_a_round_with_no_headline_metric_carries_no_provenance(tmp_path, ref_fil
     runner = _make_orchestrate_runner(implementer_perf_metrics=[None])
 
     _invoke_orchestrate(tmp_path, ref_file, runner, max_rounds=1, judge_every=10)
+
+    rounds = _round_payloads(tmp_path)
+    assert rounds[0]["perf_metric"] is None
+    assert rounds[0]["perf_provenance"] is None
+
+
+def test_single_agent_self_reported_metric_is_stamped_implementer(tmp_path, ref_file):  # noqa: ANN001, ANN201  # tracked: #288
+    """The `--inner-loop=single-agent` ablation stamps provenance too.
+
+    One agent implements, self-judges, and profiles, so its `perf_metric` is
+    the agent's own report by construction. Nothing about that round makes it
+    more trustworthy than the multi-agent implementer's number.
+    """
+    runner = _make_orchestrate_runner(single_agent_perf_metrics=[123.5])
+
+    _invoke_orchestrate(
+        tmp_path,
+        ref_file,
+        runner,
+        max_rounds=1,
+        inner_loop="single-agent",
+    )
+
+    rounds = _round_payloads(tmp_path)
+    assert rounds[0]["perf_metric"] == 123.5
+    assert rounds[0]["perf_provenance"] == "implementer"
+
+
+def test_single_agent_framework_benchmark_overrides_and_stamps_framework(tmp_path, ref_file):  # noqa: ANN001, ANN201  # tracked: #288
+    """A framework benchmark replaces the single agent's number and its stamp."""
+    runner = _make_orchestrate_runner(single_agent_perf_metrics=[123.5])
+
+    with patch(
+        "vibesys.loops.agent.loop._run_framework_benchmark",
+        return_value=FrameworkBenchmarkOutcome(
+            metric_name="total_ops_per_sec",
+            metric_value=41250.3,
+            metric_direction="max",
+        ),
+    ):
+        _invoke_orchestrate(
+            tmp_path,
+            ref_file,
+            runner,
+            max_rounds=1,
+            inner_loop="single-agent",
+            benchmark_result_protocol=2,
+        )
+
+    rounds = _round_payloads(tmp_path)
+    assert rounds[0]["perf_metric"] == 41250.3
+    assert rounds[0]["perf_provenance"] == "framework"
+
+
+def test_single_agent_round_without_a_metric_carries_no_provenance(tmp_path, ref_file):  # noqa: ANN001, ANN201  # tracked: #288
+    """The invariant holds on the single-agent path as well."""
+    runner = _make_orchestrate_runner(single_agent_perf_metrics=[None])
+
+    _invoke_orchestrate(
+        tmp_path,
+        ref_file,
+        runner,
+        max_rounds=1,
+        inner_loop="single-agent",
+    )
 
     rounds = _round_payloads(tmp_path)
     assert rounds[0]["perf_metric"] is None
