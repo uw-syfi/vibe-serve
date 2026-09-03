@@ -80,6 +80,10 @@ export class ChatPaneView {
       border: true,
       borderStyle: 'rounded',
       borderColor: theme.border,
+      // The surface every other pane sits on. Without it this box falls
+      // through to the root's canvas, a lighter shade, so the chat read as a
+      // pale band beside panes that did not match it.
+      backgroundColor: theme.elevatedSurface,
       title: ' Experiment chat ',
       visible: false,
       // Clicking into the chat gives it the keys, the same thing Ctrl+W does.
@@ -130,6 +134,7 @@ export class ChatPaneView {
   applyTheme(theme: Theme, markdownStyle: SyntaxStyle): void {
     this.#theme = theme;
     this.output.borderColor = theme.border;
+    this.output.backgroundColor = theme.elevatedSurface;
     this.#conversation.applyTheme(theme, markdownStyle);
     this.#composer.applyTheme(theme);
     this.#renderedConversation = null;
