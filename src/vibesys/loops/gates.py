@@ -172,10 +172,19 @@ class BenchmarkGateResult:
     """
 
     command: str | None
-    passed: bool
     output: str
     executed: bool
     outcome: FrameworkBenchmarkOutcome
+
+    @property
+    def passed(self) -> bool:
+        """Whether the round may keep this benchmark reading.
+
+        Derived rather than stored: ``FrameworkBenchmarkOutcome.feedback`` is
+        set exactly when the run failed, so a stored boolean beside it would be
+        a second writer of the same fact.
+        """
+        return self.outcome.feedback is None
 
 
 def read_protocol_benchmark(
@@ -261,6 +270,22 @@ def _metric_values(value: object, metric: str) -> list[object]:
     return []
 
 
+def _check_output_slug(output_slug: str) -> None:
+    """Reject a slug that would move the result file out of its directory.
+
+    The slug reaches the shell inside a quoted path, so this is not an
+    injection guard: it keeps a caller from silently writing (and removing)
+    a file outside ``_BENCHMARK_OUTPUT_PREFIX``'s directory, which the
+    SkyPilot artifact allowlist and the cleanup both assume.
+    """
+    if not output_slug:
+        raise ValueError("output_slug must not be empty")  # noqa: TRY003  # tracked: #288
+    if "/" in output_slug or ".." in output_slug:
+        raise ValueError(  # noqa: TRY003  # tracked: #288
+            f"output_slug must be a single path segment, got {output_slug!r}"
+        )
+
+
 def run_benchmark_gate(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
     ctx: LoopContext,
     *,
@@ -283,11 +308,19 @@ def run_benchmark_gate(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #28
     (including another user on a shared ``/tmp``) can never satisfy this
     invocation's ``cat``: a benchmark that does not write its own fresh result
     fails instead of silently reporting a stale one.
+
+    ``output_slug`` names the caller's invocation (round and retry, or a
+    candidate id) and is interpolated into that path, so it must stay a single
+    path segment.
+
+    Raises:
+        ValueError: when ``output_slug`` is empty or would escape the result
+            directory.
     """
+    _check_output_slug(output_slug)
     if result_spec is None and result_protocol is None:
         return BenchmarkGateResult(
             command=None,
-            passed=True,
             output="",
             executed=False,
             outcome=FrameworkBenchmarkOutcome(),
@@ -298,7 +331,6 @@ def run_benchmark_gate(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #28
         feedback = "Benchmark result contract is configured without a benchmark command."
         return BenchmarkGateResult(
             command=None,
-            passed=False,
             output=feedback,
             executed=False,
             outcome=FrameworkBenchmarkOutcome(feedback=feedback),
@@ -349,6 +381,14 @@ def run_benchmark_gate(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #28
             # already recovered from stdout, so the file is dead weight; leaving
             # it leaks one JSON per benchmark on hosts where /tmp persists for
             # weeks. Best-effort: a cleanup failure must not mask the result.
+            #
+            # Limitation on the timeout path: the Docker and Modal backends
+            # report a timeout as exit code -1 rather than raising, so this
+            # cleanup runs while the timed-out benchmark may still be alive in
+            # the sandbox and can write its result file afterwards. The nonce
+            # keeps that orphan from being read by any later invocation -- the
+            # correctness property this gate owns -- but it can survive as a
+            # leaked file until the sandbox is torn down.
             with contextlib.suppress(Exception):
                 ctx.judge_backend.execute(f"rm -f -- {shlex.quote(output_path)}")
 
@@ -430,7 +470,6 @@ def run_benchmark_gate(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #28
         )
     return BenchmarkGateResult(
         command=base_command,
-        passed=passed,
         output=output,
         executed=True,
         outcome=outcome,

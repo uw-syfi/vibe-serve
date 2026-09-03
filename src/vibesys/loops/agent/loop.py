@@ -53,8 +53,6 @@ from vibesys.loops.agent.model import (
 )
 from vibesys.loops.agent.state import AgentRunStateStore
 from vibesys.loops.gates import (
-    GATE_FEEDBACK_TAIL_CHARS,
-    GATE_LOG_TAIL_CHARS,
     GATE_RECORD_TAIL_CHARS,
     PROTOCOL_OUTPUT_FLAG,
     FrameworkBenchmarkOutcome,
