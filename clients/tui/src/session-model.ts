@@ -1161,7 +1161,13 @@ function planningStage(
   if (roundLabel === null) return null;
   if (agentKind === 'orchestrator' && /^round-\d+-pre$/.test(roundLabel)) return 'pre';
   if (agentKind === 'profiler' && /^round-\d+-profiler$/.test(roundLabel)) return 'profile';
-  if (agentKind === 'orchestrator' && /^round-\d+-plan$/.test(roundLabel)) return 'plan';
+  // A plan the framework reprompted carries `round-N-retry-K-plan`. It is the
+  // same planning stage, produced by the same role for the same round, so it
+  // must not fall out of the planning activity just because the first attempt
+  // was rejected.
+  if (agentKind === 'orchestrator' && /^round-\d+(?:-retry-\d+)?-plan$/.test(roundLabel)) {
+    return 'plan';
+  }
   return null;
 }
 

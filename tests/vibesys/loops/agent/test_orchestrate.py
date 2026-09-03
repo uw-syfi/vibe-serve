@@ -1337,6 +1337,10 @@ def test_reused_hypothesis_id_after_failed_reprompt_is_not_written(tmp_path, ref
     with pytest.raises(ValueError, match="already used"):
         _invoke_orchestrate(tmp_path, ref_file, runner, max_rounds=2)
 
+    # Exactly one reprompt: round one's plan, round two's rejected plan, and
+    # its single corrective retry. A third plan call for round two would mean
+    # the loop kept re-asking an agent that already ignored the correction.
+    assert runner.counters["orch_plan"] == 3
     project = _created_project(tmp_path)
     assert not list(project.rglob("plans/round-0002.json"))
     assert all(
@@ -4811,3 +4815,62 @@ def test_framework_measured_improvement_resolves_proven(tmp_path, ref_file):  # 
         "inconclusive",
         "proven",
     ]
+
+
+def test_reprompted_plan_is_labelled_as_a_retry_of_the_same_round(tmp_path, ref_file):  # noqa: ANN001, ANN201  # tracked: #288
+    """The retry's label must stay parseable by both consumers.
+
+    `_attempt_from_label` in `vibesys.context` reads `retry-(\\d+)` to report
+    which attempt an execution belongs to, and the TUI's `planningStage` matches
+    `round-N[-retry-K]-plan` to keep showing the round as planning. A label the
+    framework invents that neither parses drops the retry out of the operator's
+    view of the round.
+    """
+    runner = _make_orchestrate_runner(
+        plans=[
+            OrchestratorPlan(
+                hypothesis_id="already-used",
+                task="complete the first investigation",
+                pass_criteria="review",  # noqa: S106  # tracked: #288
+                reasoning="create the identifier",
+            ),
+            OrchestratorPlan(
+                hypothesis_id="already-used",
+                hypothesis_updates=[
+                    HypothesisStrategyUpdate(
+                        hypothesis_id="already-used",
+                        disposition="parked",
+                        reason="names the new hypothesis, which is also rejected",
+                    )
+                ],
+                task="incorrectly reuse the identifier",
+                pass_criteria="review",  # noqa: S106  # tracked: #288
+                reasoning="exercise unique identity validation",
+            ),
+            OrchestratorPlan(
+                hypothesis_id="corrected-id",
+                task="proceed with a fresh identifier",
+                pass_criteria="review",  # noqa: S106  # tracked: #288
+                reasoning="corrected after the reprompt",
+            ),
+        ]
+    )
+
+    _invoke_orchestrate(tmp_path, ref_file, runner, max_rounds=2)
+
+    plan_calls = [
+        call
+        for call in runner.invoke.call_args_list
+        if call.kwargs.get("response_cls") is OrchestratorPlan
+    ]
+    assert [call.kwargs["round_label"] for call in plan_calls] == [
+        "round-1-plan",
+        "round-2-plan",
+        "round-2-retry-1-plan",
+    ]
+
+    # The corrective prompt names what was rejected, so the orchestrator does
+    # not have to guess which identifier collided.
+    corrective = plan_calls[2].kwargs["user_prompt"]
+    assert "already-used" in corrective
+    assert "never reuse an identifier used earlier in this run" in corrective.lower()

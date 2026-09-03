@@ -146,6 +146,20 @@ describe('hypothesis planning activity', () => {
     });
   });
 
+  it('still presents a reprompted plan as planning', () => {
+    // The framework reprompts the orchestrator once when a plan reuses a
+    // hypothesis_id, and labels that attempt `round-N-retry-K-plan`. It is the
+    // same stage of the same round, so the operator must not see planning
+    // silently stop just because the first attempt was rejected.
+    expect(
+      hypothesisPlanningActivity(stateFor('orchestrator', 'round-3-retry-1-plan')),
+    ).toMatchObject({stage: 'plan', roundNumber: 3});
+  });
+
+  it('does not treat an unrelated retry label as planning', () => {
+    expect(hypothesisPlanningActivity(stateFor('orchestrator', 'round-3-retry-1-judge'))).toBeNull();
+  });
+
   it('does not present a phase as planning after its round has a hypothesis', () => {
     const entries = [
       {
