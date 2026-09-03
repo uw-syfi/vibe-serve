@@ -4,13 +4,13 @@ import type {Theme} from './theme.js';
 /**
  * How a pane says it is the one taking keys.
  *
- * Three channels, in priority order: a marker in a reserved title gutter, the
- * border style, then colour. Colour is last because it cannot carry the signal
- * on its own. `borderFocus` and `border` sit within 1.5x of each other in five
- * of the eight built-in themes, and the high-contrast pair collapses them by
- * construction: those palettes are deliberately tiny, so there is no shade to
- * move to. The first two channels hold in any palette, and in a terminal with
- * no colour at all.
+ * Two channels, in priority order: a marker in a reserved title gutter, then
+ * colour. Colour is second because it cannot carry the signal on its own.
+ * `borderFocus` and `border` sit within 1.5x of each other in five of the eight
+ * built-in themes, and the high-contrast pair collapses them by construction:
+ * those palettes are deliberately tiny, so there is no shade to move to. The
+ * marker holds in any palette, and in a terminal with no colour at all. Frame
+ * weight is not a third channel; `PANE_BORDER` records why it was dropped.
  *
  * This module owns how focus looks, never which surface has it: `focusedPane`
  * is that authority, and each pane compares its own `PaneId` against it. A
@@ -63,16 +63,15 @@ export function paneTitle(label: string, focused: boolean): string {
 /**
  * The frame a pane draws.
  *
- * Both styles are one cell per side, and OpenTUI invalidates only the raster
- * when `borderStyle` changes, so a focus change cannot move the layout. A
- * border of a different *width* would, which is why this channel is a style
- * swap and not a thicker frame.
+ * The same frame at rest and in focus, which is why the parameter is unused. It
+ * is kept so callers read the same shape as the other helpers here, and so a
+ * future palette that can afford a third channel has somewhere to put it.
  */
 export function paneBorderStyle(_focused: boolean): BorderStyle {
   return PANE_BORDER;
 }
 
-/** Reinforces the two channels above, as far as a given palette allows. */
+/** Reinforces the marker above, as far as a given palette allows. */
 export function paneBorderColor(theme: Theme, focused: boolean): string {
   return focused ? theme.borderFocus : theme.border;
 }
