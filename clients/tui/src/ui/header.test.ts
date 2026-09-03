@@ -1,4 +1,5 @@
 import {describe, expect, it} from 'bun:test';
+import type {CoreRunStatus} from '@vibesys/core-state';
 import {initialSessionState, runStatusLabel, type SessionState} from '../session-model.js';
 import {
   type HeaderSpan,
@@ -162,7 +163,14 @@ describe('header', () => {
 
   it('holds the minimum width for every run state it can name', () => {
     // MIN_WIDTH is sized for the widest of these, so none of them is cut.
-    const states = ['running', 'pausing', 'paused', 'completed', 'failed', 'connecting'];
+    const states: CoreRunStatus[] = [
+      'running',
+      'pausing',
+      'paused',
+      'completed',
+      'failed',
+      'connecting',
+    ];
     for (const status of states) {
       const header = line(stateWith({}, {status}), false, MIN_WIDTH);
       expect(header).toBe(`VibeSys · ${runStatusLabel(status)}`);
@@ -283,10 +291,7 @@ describe('run state', () => {
     const dropped = stateWith({eventStreamAvailable: false}, {status: 'running'});
     expect(runStateText(dropped)).toBe('disconnected');
     // A finished run whose socket closed is not a disconnected run.
-    const finished = stateWith(
-      {eventStreamAvailable: false},
-      {status: 'completed', terminal: true},
-    );
+    const finished = stateWith({eventStreamAvailable: false}, {status: 'completed'});
     expect(runStateText(finished)).toBe('completed');
   });
 });
@@ -424,12 +429,12 @@ describe('header hierarchy', () => {
       theme.warning,
     );
     // An ended run, whose status is not restated as a lost stream.
-    expect(
-      stateTone(stateWith({eventStreamAvailable: false}, {status: 'failed', terminal: true})),
-    ).toBe(theme.error);
-    expect(
-      stateTone(stateWith({eventStreamAvailable: false}, {status: 'completed', terminal: true})),
-    ).toBe(theme.success);
+    expect(stateTone(stateWith({eventStreamAvailable: false}, {status: 'failed'}))).toBe(
+      theme.error,
+    );
+    expect(stateTone(stateWith({eventStreamAvailable: false}, {status: 'completed'}))).toBe(
+      theme.success,
+    );
   });
 
   it('keeps each role on its own span through a shortened title and a cut', () => {

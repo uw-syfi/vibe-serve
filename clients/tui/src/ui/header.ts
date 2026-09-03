@@ -22,6 +22,7 @@
  *   gives each role a tone: the run state carries a verdict, the phase and the
  *   title are content, the metadata recedes.
  */
+import {hasRunEnded} from '@vibesys/core-state';
 import {runStatusLabel, type SessionState} from '../session-model.js';
 import {describePhase, phaseText} from './phase-label.js';
 import {displayWidth, truncateToWidth} from './text-width.js';
@@ -144,9 +145,12 @@ export const MIN_WIDTH = displayWidth(`${BRAND}${SEPARATOR}${WIDEST_STATE}`);
  * reported as `disconnected` rather than as a value that has stopped moving. A
  * run that has ended is exempt: a status it never leaves cannot go stale, and a
  * finished run whose socket closed is finished rather than disconnected.
+ * `hasRunEnded` is the authority on which statuses those are, and it switches
+ * exhaustively, so a status added to the protocol is a compile error there
+ * rather than a run this header quietly reports as live.
  */
 export function runStateText(state: SessionState): string {
-  if (!state.core.terminal && !state.eventStreamAvailable) return DISCONNECTED;
+  if (!hasRunEnded(state.core) && !state.eventStreamAvailable) return DISCONNECTED;
   return runStatusLabel(state.core.status);
 }
 
