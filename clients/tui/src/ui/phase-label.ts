@@ -44,12 +44,19 @@ const STAGE_WORDS: Readonly<Record<string, string>> = {
   'single-agent': 'working',
 };
 
-/** Agent kinds, for when the label carries no stage of its own. */
+/**
+ * Agent kinds, for when the label carries no stage of its own.
+ *
+ * Every kind the backend runs an agent as, which is also every kind
+ * `expectedRoles` in `run-map.ts` seeds as a selectable phase: an entry missing
+ * here is a backend identifier on screen.
+ */
 const KIND_WORDS: Readonly<Record<string, string>> = {
   orchestrator: 'planning',
   implementer: 'implementing',
   judge: 'judging',
   profiler: 'profiling',
+  perf_eval: 'measuring',
   mutator: 'mutating',
   chat: 'answering',
 };
@@ -123,6 +130,20 @@ export function describePhase(
   // kind keeps an identifier off the screen; the label stays reachable in the
   // Agents pane and the round strip.
   return {activity: fallbackActivity(null, kind), attempt: null, subject: null};
+}
+
+/**
+ * The word for an agent kind on its own, or null when this file has none.
+ *
+ * Same table as `describePhase`'s fallback, and deliberately not the same
+ * contract. A phase description has to say something about what is running, so
+ * an unrecognized kind degrades to the kind itself; a note about which agent a
+ * view is filtered to has no such obligation, and printing the raw kind there
+ * is the backend identifier #517 exists to keep out of the header. Callers that
+ * can drop the text get null and drop it.
+ */
+export function agentKindText(agentKind: string | null): string | null {
+  return KIND_WORDS[agentKind?.trim() ?? ''] ?? null;
 }
 
 /** One line for the header: `implementing · attempt 2`, `mutating candidate 1`. */

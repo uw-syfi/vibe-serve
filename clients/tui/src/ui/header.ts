@@ -24,9 +24,9 @@
  */
 import {hasRunEnded} from '@vibesys/core-state';
 import {runStatusLabel, type SessionState} from '../session-model.js';
-import {describePhase, phaseText} from './phase-label.js';
+import {agentKindText, describePhase, phaseText} from './phase-label.js';
 import {displayWidth, truncateToWidth} from './text-width.js';
-import type {Theme} from './theme.js';
+import {ensureContrast, SUBTLE_TEXT_MIN_CONTRAST, type Theme} from './theme.js';
 
 /** Separator between header segments, matching the rest of the interface. */
 const SEPARATOR = ' · ';
@@ -205,9 +205,16 @@ export function headerSegments(state: SessionState, showLog: boolean): Segment[]
   const usage = usageText(state);
   if (usage !== null) segments.push({text: usage, role: 'usage', priority: PRIORITY.usage});
 
-  if (!showLog && state.selectedAgentKind !== null) {
+  // Through the same table the phase segment reads, because the selection is a
+  // phase kind and the header prints no phase kind raw. `perf_eval` is the one
+  // the plain loop seeds and the operator can select, and `selected perf_eval`
+  // is exactly the backend identifier #517 removed. A kind with no word is
+  // dropped rather than spelled out: this note is the second cheapest segment
+  // on the line, so saying nothing costs less than saying an identifier.
+  const selected = showLog ? null : agentKindText(state.selectedAgentKind);
+  if (selected !== null) {
     segments.push({
-      text: `selected ${state.selectedAgentKind}`,
+      text: `filtered to ${selected}`,
       role: 'selection',
       priority: PRIORITY.selection,
     });
@@ -261,8 +268,24 @@ export function renderHeader(state: SessionState, showLog: boolean, width: numbe
 }
 
 /**
- * Colour and weight for one span, against `theme.canvas`, which is what the
- * header pane sits on: it draws no fill of its own.
+ * The surface the header paints, and therefore the surface its text is read
+ * against.
+ *
+ * One definition for both: `app.ts` fills the frame with it and
+ * `headerSpanStyle` derives every tone against it. Two independent statements
+ * of where the header sits is how the contrast guarantee below comes to be
+ * measured against a background nothing draws.
+ *
+ * `elevatedSurface` because the header is a pane, and that is the surface every
+ * other pane sits on. Which shade that is belongs to the theme: #574 is open on
+ * the ladder being inverted, and moving it there moves the header with it.
+ */
+export function headerBackground(theme: Theme): string {
+  return theme.elevatedSurface;
+}
+
+/**
+ * Colour and weight for one span, against `headerBackground`.
  *
  * Four levels. The run state is the one fact the header exists to report, so it
  * is bold and carries a verdict colour. The brand is a masthead in the accent:
@@ -272,27 +295,40 @@ export function renderHeader(state: SessionState, showLog: boolean, width: numbe
  * metadata and recede to muted. The separators recede further still: dots
  * divide the words without competing with them.
  *
- * Every colour here comes from the theme, which has already held each of these
- * tokens to its own contrast floor against the canvas, so no theme can be given
- * an unreadable header by this function. `textSubtle` is the exception the
- * theme itself makes, at a floor of 3 rather than 4.5 or 7, which is why only
- * the punctuation is drawn in it and every word clears the full floor.
+ * Every colour comes from the theme, which holds each of these tokens to
+ * `minContrast` against the canvas. The header does not sit on the canvas, so
+ * that guarantee is not the one it needs, and each tone is put back through
+ * `ensureContrast` against the surface the header actually paints. In all eight
+ * built-in themes that is a no-op, because their elevated surface is further
+ * from mid grey than their canvas in every case. It is a no-op the header
+ * cannot assume: a theme, or #574 moving the ladder, can make the two
+ * disagree, and a tone that clears 4.5:1 on a background nothing draws is not
+ * a readable header.
+ *
+ * `textSubtle` is the exception the theme itself makes, at a floor of 3 rather
+ * than 4.5 or 7, which is why only the punctuation is drawn in it and every
+ * word clears the full floor.
  */
 export function headerSpanStyle(theme: Theme, span: HeaderSpan): HeaderSpanStyle {
+  const surface = headerBackground(theme);
+  const readable = (color: string): string => ensureContrast(color, surface, theme.minContrast);
   switch (span.role) {
     case 'brand':
-      return {fg: theme.accent, bold: true};
+      return {fg: readable(theme.accent), bold: true};
     case 'state':
-      return {fg: stateColor(theme, span.text), bold: true};
+      return {fg: readable(stateColor(theme, span.text)), bold: true};
     case 'phase':
     case 'title':
-      return {fg: theme.textPrimary, bold: false};
+      return {fg: readable(theme.textPrimary), bold: false};
     case 'usage':
     case 'selection':
     case 'hint':
-      return {fg: theme.textMuted, bold: false};
+      return {fg: readable(theme.textMuted), bold: false};
     case 'separator':
-      return {fg: theme.textSubtle, bold: false};
+      return {
+        fg: ensureContrast(theme.textSubtle, surface, SUBTLE_TEXT_MIN_CONTRAST),
+        bold: false,
+      };
   }
 }
 

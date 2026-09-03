@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'bun:test';
-import {describePhase, phaseText} from './phase-label.js';
+import {agentKindText, describePhase, phaseText} from './phase-label.js';
 
 /** Every label shape the three loops emit, from their `round_label=` sites. */
 const AGENT_LABELS: ReadonlyArray<[string, string | null, string]> = [
@@ -89,5 +89,36 @@ describe('phase description', () => {
   it('degrades to the kind verbatim for an agent kind it does not know', () => {
     // Better a real kind name than a parse failure; still not a round label.
     expect(phaseText(describePhase(null, 'verifier'))).toBe('verifier');
+  });
+
+  it('has a word for the plain loop measurement phase', () => {
+    // `perf_eval` is a kind, not only a label shape: `expectedRoles` in
+    // `run-map.ts` seeds it as a selectable phase for the plain loop, so it
+    // reaches the header with no label to parse.
+    expect(phaseText(describePhase(null, 'perf_eval'))).toBe('measuring');
+    expect(phaseText(describePhase('perf_eval iter 3', 'perf_eval'))).toBe('measuring');
+  });
+});
+
+describe('agent kind on its own', () => {
+  it('has a word for every kind the run map seeds as a selectable phase', () => {
+    // The union of `expectedRoles` over the three outer loops, plus the chat.
+    // A kind missing here is a backend identifier on an operator's screen.
+    const seeded = ['orchestrator', 'implementer', 'judge', 'profiler', 'perf_eval', 'chat'];
+    for (const kind of seeded) {
+      const word = agentKindText(kind);
+      expect({kind, word}).toEqual({kind, word: expect.any(String)});
+      expect({kind, leaks: word?.includes(kind) ?? true}).toEqual({kind, leaks: false});
+    }
+    expect(agentKindText('perf_eval')).toBe('measuring');
+    expect(agentKindText('mutator')).toBe('mutating');
+  });
+
+  it('says nothing rather than an identifier for a kind it does not know', () => {
+    // Deliberately unlike `describePhase`, which degrades to the kind: a
+    // caller that can drop the text drops it instead of printing `verifier`.
+    expect(agentKindText('verifier')).toBeNull();
+    expect(agentKindText(null)).toBeNull();
+    expect(agentKindText('')).toBeNull();
   });
 });

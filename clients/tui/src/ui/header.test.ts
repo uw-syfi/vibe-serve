@@ -1,9 +1,16 @@
 import {describe, expect, it} from 'bun:test';
-import type {CoreRunStatus} from '@vibesys/core-state';
-import {initialSessionState, runStatusLabel, type SessionState} from '../session-model.js';
+import type {RunEvent} from '@vibesys/backend-client';
+import {applyRunMapEvent, type CoreRunStatus} from '@vibesys/core-state';
+import {
+  initialSessionState,
+  runStatusLabel,
+  type SessionState,
+  selectAgent,
+} from '../session-model.js';
 import {
   type HeaderSpan,
   type HeaderSpanRole,
+  headerBackground,
   headerSpanStyle,
   MAX_HEADER_SPANS,
   MIN_WIDTH,
@@ -70,6 +77,24 @@ function withTitle(title: string): SessionState {
   };
 }
 
+/**
+ * The plain loop starting its measurement phase, as `loop.py` labels it.
+ *
+ * Fed to the run map rather than asserted on: what matters is the phase set the
+ * projection seeds from it, which is where `perf_eval` becomes selectable.
+ */
+function perfEvalStart(): RunEvent {
+  return {
+    sequence: 1,
+    timestamp: '2026-01-01T00:00:01Z',
+    type: 'agent_execution_started',
+    execution_id: 'exec-1',
+    invocation_id: 'exec-1',
+    agent_kind: 'perf_eval',
+    round_label: 'perf_eval iter 4',
+  };
+}
+
 /** How many times `needle` appears in `text`, for grapheme-integrity checks. */
 function occurrences(text: string, needle: string): number {
   return text.split(needle).length - 1;
@@ -125,7 +150,7 @@ describe('header', () => {
     expect(line(state, false, WIDE)).toContain('Esc: close dialog');
     const squeezed = line(state, false, NARROW);
     expect(squeezed).not.toContain('Esc: close dialog');
-    expect(squeezed).not.toContain('selected implementer');
+    expect(squeezed).not.toContain('filtered to');
     expect(squeezed).toContain('Preallocated lock-free SPSC ring');
   });
 
@@ -177,6 +202,37 @@ describe('header', () => {
     }
     const dropped = stateWith({eventStreamAvailable: false}, {status: 'running'});
     expect(line(dropped, false, MIN_WIDTH)).toBe('VibeSys · disconnected');
+  });
+
+  it('names a selected phase in words, for every kind the plain loop seeds', () => {
+    // The kinds come from the projection rather than from a literal here. The
+    // plain loop seeds `perf_eval` alongside `implementer` and `judge`, and
+    // `selectAgent` stores the phase kind verbatim, so an operator selecting
+    // the measurement phase put `selected perf_eval` on the curated header:
+    // the backend identifier this header exists to remove.
+    const seeded = applyRunMapEvent({outerLoop: 'plain', rounds: [], phases: []}, perfEvalStart());
+    const kinds = seeded.phases.map(phase => phase.kind);
+    expect(kinds).toContain('perf_eval');
+
+    for (const kind of kinds) {
+      const header = line(selectAgent(runningImplementer(), kind), false, WIDE);
+      expect({kind, leaks: header.includes(kind)}).toEqual({kind, leaks: false});
+      expect({kind, named: header.includes('filtered to ')}).toEqual({kind, named: true});
+    }
+    // The same table the phase segment reads, so the two cannot drift apart.
+    expect(line(selectAgent(runningImplementer(), 'perf_eval'), false, WIDE)).toContain(
+      'filtered to measuring',
+    );
+  });
+
+  it('says nothing about a selected kind it has no word for', () => {
+    // A kind added to the backend after this was written. There is no phrase
+    // to fall back to that is not the identifier itself, and this note is the
+    // second cheapest segment on the line, so it goes.
+    const header = line(selectAgent(runningImplementer(), 'verifier'), false, WIDE);
+    expect(header).not.toContain('verifier');
+    expect(header).not.toContain('filtered to');
+    expect(header).toContain('Preallocated lock-free SPSC ring');
   });
 
   it('cuts the line below the minimum width instead of dropping the state', () => {
@@ -297,10 +353,12 @@ describe('run state', () => {
 });
 
 /**
- * The floor `theme.ts` holds every token but `textSubtle` to against the
- * canvas, restated here so this is an independent check rather than a
- * restatement of the same expression. The header pane draws no fill, so the
- * canvas is what its text sits on.
+ * The floor every token but `textSubtle` is held to, restated here rather than
+ * read off `theme.minContrast` so this is an independent check.
+ *
+ * It is measured against `headerBackground`, not the canvas: the header frame
+ * paints a surface of its own, and a tone that clears the floor against a
+ * background nothing draws is not a readable header.
  */
 function minContrast(theme: Theme): number {
   return theme.name.startsWith('high-contrast') ? 7 : 4.5;
@@ -473,19 +531,42 @@ describe('header contrast', () => {
             theme: theme.name,
             role,
             text,
-            ratio: contrastRatio(fg, theme.canvas) >= floor,
+            ratio: contrastRatio(fg, headerBackground(theme)) >= floor,
           }).toEqual({theme: theme.name, role, text, ratio: true});
         }
       }
     }
   });
 
+  it('derives its tones against the surface it paints, not against the canvas', () => {
+    // No built-in theme separates the two: every one of the eight puts its
+    // elevated surface further from mid grey than its canvas, so a tone that
+    // clears the floor on the canvas clears it by more on the header. The
+    // header cannot assume that. #574 is open on the surface ladder being
+    // inverted, and a header background on the other side of the canvas is
+    // exactly what a canvas-derived tone gets wrong: it returns the raw token
+    // for a cell it is unreadable on.
+    const dark = resolveTheme('dark');
+    const moved: Theme = {...dark, elevatedSurface: resolveTheme('light').canvas};
+    expect(contrastRatio(dark.accent, moved.canvas)).toBeGreaterThanOrEqual(dark.minContrast);
+    expect(contrastRatio(dark.accent, headerBackground(moved))).toBeLessThan(dark.minContrast);
+
+    for (const role of SPAN_ROLES) {
+      const {fg} = headerSpanStyle(moved, {text: 'completed', role});
+      const floor = role === 'separator' ? SUBTLE_FLOOR : minContrast(moved);
+      expect({
+        role,
+        ratio: contrastRatio(fg, headerBackground(moved)) >= floor,
+      }).toEqual({role, ratio: true});
+    }
+  });
+
   it('draws metadata below content and separators below both, in every theme', () => {
     // What "greyed out" has to mean to hold in eight palettes: an ordering
-    // against the canvas, not a particular grey.
+    // against the surface the header paints, not a particular grey.
     for (const theme of listThemes()) {
       const against = (role: HeaderSpanRole): number =>
-        contrastRatio(headerSpanStyle(theme, {text: 'x', role}).fg, theme.canvas);
+        contrastRatio(headerSpanStyle(theme, {text: 'x', role}).fg, headerBackground(theme));
       expect({theme: theme.name, dimmer: against('usage') < against('title')}).toEqual({
         theme: theme.name,
         dimmer: true,

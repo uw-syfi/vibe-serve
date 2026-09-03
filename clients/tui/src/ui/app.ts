@@ -24,7 +24,13 @@ import {createCommandInputPanel} from './command-input.js';
 import {ConversationView} from './conversation.js';
 import {ErrorBannerView} from './error-banner.js';
 import {ExperimentLogView} from './experiment-log.js';
-import {type HeaderSpan, headerSpanStyle, MAX_HEADER_SPANS, renderHeader} from './header.js';
+import {
+  type HeaderSpan,
+  headerBackground,
+  headerSpanStyle,
+  MAX_HEADER_SPANS,
+  renderHeader,
+} from './header.js';
 import {bindKeybindings} from './keybindings.js';
 import {OverlayView} from './overlay.js';
 import {RightPaneView, rightPaneWidth, splitFits} from './right-pane.js';
@@ -102,10 +108,12 @@ export function createOpenTuiApp(
     borderStyle: 'rounded',
     borderColor: theme.border,
     // The same surface every other pane sits on. Without this the frame falls
-    // through to the root's `canvas`, which is a lighter shade, so the header
+    // through to the root's `canvas`, which is a different shade, so the header
     // read as a band laid over the UI rather than a pane within it. That is
-    // the exact quality the housing exists to remove.
-    backgroundColor: theme.elevatedSurface,
+    // the exact quality the housing exists to remove. Through
+    // `headerBackground` because `headerSpanStyle` derives the text tones
+    // against the same call: the fill and the contrast basis are one fact.
+    backgroundColor: headerBackground(theme),
   });
   // One renderable per span, because a terminal cell carries one foreground
   // colour and the header's roles do not share one. The row is allocated once
@@ -325,7 +333,7 @@ export function createOpenTuiApp(
     markdownStyle = createMarkdownStyle(theme);
     root.backgroundColor = theme.canvas;
     headerFrame.borderColor = theme.border;
-    headerFrame.backgroundColor = theme.elevatedSurface;
+    headerFrame.backgroundColor = headerBackground(theme);
     transcriptFrame.borderColor = theme.border;
     help.fg = theme.textSubtle;
     roundRail.applyTheme(theme);

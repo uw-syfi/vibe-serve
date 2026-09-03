@@ -64,6 +64,17 @@ export interface Theme {
   label: string;
   appearance: Appearance;
 
+  /**
+   * The contrast floor every token here clears, `textSubtle` excepted: it is
+   * held to `SUBTLE_TEXT_MIN_CONTRAST` instead.
+   *
+   * Carried on the theme rather than kept in the spec because `buildTheme`
+   * makes that guarantee against the canvas alone. A region that paints another
+   * surface has to remake it there, and the alternative to reading the number
+   * is restating it.
+   */
+  minContrast: number;
+
   canvas: string;
   surface: string;
   elevatedSurface: string;
@@ -197,7 +208,8 @@ interface ThemeSpec {
   };
 }
 
-const SUBTLE_TEXT_MIN_CONTRAST = 3;
+/** The lower floor `textSubtle` is held to: punctuation and rules, not words. */
+export const SUBTLE_TEXT_MIN_CONTRAST = 3;
 
 /**
  * How far a card's label is pulled toward the theme's strongest text before the
@@ -265,6 +277,7 @@ function buildTheme(spec: ThemeSpec): Theme {
     name: spec.name,
     label: spec.label,
     appearance: spec.appearance,
+    minContrast: spec.minContrast,
     canvas: spec.canvas,
     surface: spec.surface,
     elevatedSurface: spec.elevatedSurface,
