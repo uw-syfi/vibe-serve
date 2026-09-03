@@ -16,10 +16,16 @@
  *   clipped while `round-1-retry-1-implementer` survived. `renderHeader` drops
  *   whole segments in a defined order instead, and budgets in terminal cells
  *   rather than UTF-16 code units, which are not the same count.
+ * - Every segment was drawn in one colour, so a line that already knew which
+ *   part mattered read as an undifferentiated string. `renderHeader` returns
+ *   the budgeted segments rather than a joined line, and `headerSpanStyle`
+ *   gives each role a tone: the run state carries a verdict, the phase and the
+ *   title are content, the metadata recedes.
  */
 import type {SessionState} from '../session-model.js';
 import {describePhase, phaseText} from './phase-label.js';
 import {displayWidth, truncateToWidth} from './text-width.js';
+import type {Theme} from './theme.js';
 
 /** Separator between header segments, matching the rest of the interface. */
 const SEPARATOR = ' · ';
@@ -36,6 +42,8 @@ const BRAND = 'VibeSys';
  */
 interface Segment {
   text: string;
+  /** What the segment is, which is what decides its tone. */
+  role: HeaderRole;
   priority: number;
   /**
    * Never dropped. The brand and the run state are the header's floor, which
@@ -65,6 +73,38 @@ const PRIORITY = {
   selection: 30,
   hint: 10,
 } as const;
+
+/** What a segment is. `headerSegments` emits at most one segment per role. */
+export type HeaderRole = keyof typeof PRIORITY;
+
+/** A drawn run of the header: one segment, or one separator between two. */
+export type HeaderSpanRole = HeaderRole | 'separator';
+
+/**
+ * One run of the header line, in the order it is drawn.
+ *
+ * A terminal cell carries one foreground colour, so a header with internal
+ * hierarchy is several renderables laid out in a row rather than one string.
+ * The separators are spans of their own so the dots can recede behind the words
+ * they divide.
+ */
+export interface HeaderSpan {
+  text: string;
+  role: HeaderSpanRole;
+}
+
+/** How one span is drawn. */
+export interface HeaderSpanStyle {
+  fg: string;
+  bold: boolean;
+}
+
+/**
+ * The most spans `renderHeader` can return: every role at once, with a
+ * separator between each pair. A caller that keeps one renderable per span can
+ * size its row from this rather than rebuilding the row on every frame.
+ */
+export const MAX_HEADER_SPANS = Object.keys(PRIORITY).length * 2 - 1;
 
 /** Cells below which a shortened title is noise rather than an identifier. */
 const MIN_TITLE = 12;
@@ -139,18 +179,19 @@ function formatTokenCount(count: number): string {
 /** Segments for the current state, before any width budgeting. */
 export function headerSegments(state: SessionState, showLog: boolean): Segment[] {
   const segments: Segment[] = [
-    {text: BRAND, priority: PRIORITY.brand, required: true},
-    {text: runStateText(state), priority: PRIORITY.state, required: true},
+    {text: BRAND, role: 'brand', priority: PRIORITY.brand, required: true},
+    {text: runStateText(state), role: 'state', priority: PRIORITY.state, required: true},
   ];
 
   if (showLog) {
-    segments.push({text: 'experiments', priority: PRIORITY.phase});
+    segments.push({text: 'experiments', role: 'phase', priority: PRIORITY.phase});
   } else {
     const phase = phaseText(describePhase(state.core.roundLabel, state.core.agentKind));
-    if (phase !== null) segments.push({text: phase, priority: PRIORITY.phase});
+    if (phase !== null) segments.push({text: phase, role: 'phase', priority: PRIORITY.phase});
     if (state.hypothesisScope !== null) {
       segments.push({
         text: state.hypothesisScope.title,
+        role: 'title',
         priority: PRIORITY.title,
         truncatable: true,
       });
@@ -158,14 +199,20 @@ export function headerSegments(state: SessionState, showLog: boolean): Segment[]
   }
 
   const usage = usageText(state);
-  if (usage !== null) segments.push({text: usage, priority: PRIORITY.usage});
+  if (usage !== null) segments.push({text: usage, role: 'usage', priority: PRIORITY.usage});
 
   if (!showLog && state.selectedAgentKind !== null) {
-    segments.push({text: `selected ${state.selectedAgentKind}`, priority: PRIORITY.selection});
+    segments.push({
+      text: `selected ${state.selectedAgentKind}`,
+      role: 'selection',
+      priority: PRIORITY.selection,
+    });
   }
 
   const dialogOpen = state.chatOpen || state.overlay !== null || state.themePicker !== null;
-  if (dialogOpen) segments.push({text: 'Esc: close dialog', priority: PRIORITY.hint});
+  if (dialogOpen) {
+    segments.push({text: 'Esc: close dialog', role: 'hint', priority: PRIORITY.hint});
+  }
 
   return segments;
 }
@@ -185,8 +232,12 @@ export function headerSegments(state: SessionState, showLog: boolean): Segment[]
  *
  * At `MIN_WIDTH` and wider the brand and the run state both survive whole.
  * Narrower than that they do not fit together, and the line is cut and marked.
+ *
+ * The result is the budgeted spans in draw order, not a joined line, because a
+ * terminal cell carries one foreground colour and the roles do not share one.
+ * Concatenating the span texts reproduces the line exactly.
  */
-export function renderHeader(state: SessionState, showLog: boolean, width: number): string {
+export function renderHeader(state: SessionState, showLog: boolean, width: number): HeaderSpan[] {
   const kept = headerSegments(state, showLog);
   while (displayWidth(joined(kept)) > width) {
     const weakest = weakestIndex(kept);
@@ -199,11 +250,102 @@ export function renderHeader(state: SessionState, showLog: boolean, width: numbe
     if (kept[weakest]?.truncatable === true && shrinkTitle(kept, width)) break;
     kept.splice(weakest, 1);
   }
-  const line = joined(kept);
-  if (displayWidth(line) <= width) return line;
-  if (width <= 0) return '';
+  const spans = toSpans(kept);
+  if (displayWidth(joined(kept)) <= width) return spans;
+  if (width <= 0) return [];
+  return cutSpans(spans, width);
+}
+
+/**
+ * Colour and weight for one span, against `theme.canvas`, which is what the
+ * header pane sits on: it draws no fill of its own.
+ *
+ * Four levels. The run state is the one fact the header exists to report, so it
+ * is bold and carries a verdict colour. The brand is a masthead in the accent:
+ * fixed text that anchors the left edge and never reports anything. The phase
+ * and the title are what the run is doing and trying, so they stay in body
+ * text. The token meter, the selected-agent note and the dialog hint are
+ * metadata and recede to muted. The separators recede further still: dots
+ * divide the words without competing with them.
+ *
+ * Every colour here comes from the theme, which has already held each of these
+ * tokens to its own contrast floor against the canvas, so no theme can be given
+ * an unreadable header by this function. `textSubtle` is the exception the
+ * theme itself makes, at a floor of 3 rather than 4.5 or 7, which is why only
+ * the punctuation is drawn in it and every word clears the full floor.
+ */
+export function headerSpanStyle(theme: Theme, span: HeaderSpan): HeaderSpanStyle {
+  switch (span.role) {
+    case 'brand':
+      return {fg: theme.accent, bold: true};
+    case 'state':
+      return {fg: stateColor(theme, span.text), bold: true};
+    case 'phase':
+    case 'title':
+      return {fg: theme.textPrimary, bold: false};
+    case 'usage':
+    case 'selection':
+    case 'hint':
+      return {fg: theme.textMuted, bold: false};
+    case 'separator':
+      return {fg: theme.textSubtle, bold: false};
+  }
+}
+
+/**
+ * The verdict the run state carries.
+ *
+ * `running` and `connecting` are not verdicts, and neither is a status the
+ * backend added after this was written, so they stay in body text rather than
+ * being forced into one. What sets the state apart in those cases is the bold
+ * `headerSpanStyle` gives it, which is the reason the state is bold at all:
+ * colour alone would say nothing on the statuses that have no colour, and
+ * nothing at all on a terminal that drops it. The word is always spelled out.
+ */
+function stateColor(theme: Theme, state: string): string {
+  if (state === 'completed') return theme.success;
+  if (state === 'failed' || state === 'interrupted') return theme.error;
+  if (state === 'paused' || state === 'disconnected') return theme.warning;
+  return theme.textPrimary;
+}
+
+/** Segments in draw order with the separators between them made explicit. */
+function toSpans(segments: Segment[]): HeaderSpan[] {
+  const spans: HeaderSpan[] = [];
+  for (const segment of segments) {
+    if (spans.length > 0) spans.push({text: SEPARATOR, role: 'separator'});
+    spans.push({text: segment.text, role: segment.role});
+  }
+  return spans;
+}
+
+/**
+ * Cuts the spans to `width` and marks the cut, for the widths below `MIN_WIDTH`
+ * where not even the brand and the run state fit together. Equivalent to
+ * cutting the joined line, but it keeps the surviving text in its own spans so
+ * the tones hold to the last cell.
+ */
+function cutSpans(spans: HeaderSpan[], width: number): HeaderSpan[] {
   // One cell for the ellipsis that says the rest was cut.
-  return `${truncateToWidth(line, width - 1)}…`;
+  const budget = width - 1;
+  const cut: HeaderSpan[] = [];
+  let used = 0;
+  for (const span of spans) {
+    if (used >= budget) break;
+    const text = truncateToWidth(span.text, budget - used);
+    const fitted = displayWidth(text);
+    if (fitted > 0) {
+      cut.push({...span, text});
+      used += fitted;
+    }
+    // A span that did not survive whole ends the line, whether it was cut mid
+    // text or dropped entirely by a wide grapheme straddling the budget.
+    if (fitted < displayWidth(span.text)) break;
+  }
+  const last = cut.at(-1);
+  if (last === undefined) return [{text: '…', role: spans[0]?.role ?? 'brand'}];
+  cut[cut.length - 1] = {...last, text: `${last.text}…`};
+  return cut;
 }
 
 /** The segment given up first, or null once only required ones are left. */
