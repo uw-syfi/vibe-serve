@@ -7,13 +7,14 @@ import {
 import type {SessionController} from '../session-controller.js';
 import {
   type ConversationEntry,
-  chatPaneFocused,
   chatThreadHeading,
+  focusedPane,
   type SessionState,
 } from '../session-model.js';
 import {ChatComposerView, type ChatDraft} from './chat-composer.js';
 import {ConversationView} from './conversation.js';
 import {LOG_CLAIM_PANEL_WIDTH, LOG_COMPACT_PANEL_WIDTH} from './experiment-log.js';
+import {applyPaneFocus, paneBorderColor, paneBorderStyle, paneTitle} from './focus.js';
 import type {Theme} from './theme.js';
 
 /**
@@ -78,9 +79,13 @@ export class ChatPaneView {
       paddingLeft: 1,
       paddingRight: 1,
       border: true,
-      borderStyle: 'rounded',
-      borderColor: theme.border,
-      title: ' Experiment chat ',
+      borderStyle: paneBorderStyle(false),
+      borderColor: paneBorderColor(theme, false),
+      // The surface every other pane sits on. Without it this box falls
+      // through to the root's canvas, a lighter shade, so the chat read as a
+      // pale band beside panes that did not match it.
+      backgroundColor: theme.elevatedSurface,
+      title: paneTitle('Experiment chat', false),
       visible: false,
       // Clicking into the chat gives it the keys, the same thing Ctrl+W does.
       // Without this the pane took the click but the focus border stayed on the
@@ -130,6 +135,7 @@ export class ChatPaneView {
   applyTheme(theme: Theme, markdownStyle: SyntaxStyle): void {
     this.#theme = theme;
     this.output.borderColor = theme.border;
+    this.output.backgroundColor = theme.elevatedSurface;
     this.#conversation.applyTheme(theme, markdownStyle);
     this.#composer.applyTheme(theme);
     this.#renderedConversation = null;
@@ -162,15 +168,12 @@ export class ChatPaneView {
       return;
     }
     this.output.width = width;
-    const focused = chatPaneFocused(state);
-    this.output.borderColor = focused ? this.#theme.borderFocus : this.#theme.border;
-    // The column can be as narrow as its minimum, where a spelled-out "focused"
-    // costs the title itself: a box with no title reads as nothing at all. The
-    // marker is the one the table already uses for the row that has the keys.
+    const focused = focusedPane(state) === 'chat';
     // The title names the active thread so switching is visible at a glance,
-    // and its runtime so the operator can tell which agent is answering.
-    const label = chatThreadHeading(state);
-    this.output.title = focused ? ` ▸ ${label} ` : ` ${label} `;
+    // and its runtime so the operator can tell which agent is answering. The
+    // column can be as narrow as its minimum, where a spelled-out "focused"
+    // would cost the title itself.
+    applyPaneFocus(this.output, this.#theme, chatThreadHeading(state), focused);
     this.#composer.activate(Math.max(1, width - 4), focused, state.chatPending);
     this.#composer.renderMenu(state);
     if (state.chatConversation === this.#renderedConversation) return;
