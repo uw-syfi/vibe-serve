@@ -1,5 +1,11 @@
-import {describe, expect, it} from 'bun:test';
-import {todoItemLine, todoSummaryLine} from './todo-strip.js';
+import {afterEach, describe, expect, it} from 'bun:test';
+import {type Renderable, TextRenderable} from '@opentui/core';
+import {createTestRenderer, type TestRendererSetup} from '@opentui/core/testing';
+import type {TodoItem} from '@vibesys/core-state';
+import type {SessionController} from '../session-controller.js';
+import {initialSessionState, type SessionState} from '../session-model.js';
+import {resolveTheme} from './theme.js';
+import {TodoStripView, todoItemLine, todoSummaryLine} from './todo-strip.js';
 
 describe('todo strip formatting', () => {
   it('focuses the summary on the in-progress item', () => {
@@ -33,29 +39,121 @@ describe('todo strip formatting', () => {
     expect(todoItemLine({content: 'Mystery step', status: 'deferred'}, 80)).toBe('? Mystery step');
   });
 
-  it('collapsed summary truncates to box width minus 2 columns of padding', () => {
-    // The collapsed strip has 1 col padding each side = 2 cols chrome.
-    // A long item should fill exactly to that boundary and no further.
-    const boxWidth = 40;
-    const contentWidth = boxWidth - 2;
-    const todos = [{content: 'x'.repeat(100), status: 'in_progress' as const}];
-    const line = todoSummaryLine(todos, contentWidth);
-    expect(line.length).toBeLessThanOrEqual(contentWidth);
-    expect(line.endsWith('…')).toBe(true);
-  });
-
-  it('expanded item truncates to box width minus 6 columns of chrome', () => {
-    // The expanded strip has outer padding + list border + list padding = 6 cols chrome.
-    const boxWidth = 40;
-    const contentWidth = boxWidth - 6;
-    const line = todoItemLine({content: 'x'.repeat(100), status: 'pending' as const}, contentWidth);
-    expect(line.length).toBeLessThanOrEqual(contentWidth);
-    expect(line.endsWith('…')).toBe(true);
-  });
-
   it('truncates long lines to the available width with an ellipsis', () => {
     const line = todoItemLine({content: 'x'.repeat(50), status: 'pending'}, 20);
     expect(line).toHaveLength(20);
     expect(line.endsWith('…')).toBe(true);
+  });
+});
+
+/**
+ * The formatters above are pure and take the width they are told to take, so
+ * they cannot see a wrong width. The chrome arithmetic that picks that width is
+ * private to the view, so these tests render a strip at a fixed box width and
+ * compare the emitted text against the slot the layout actually gave it: a line
+ * that stops short of its own text renderable is a strip that stops short of
+ * the box edge.
+ */
+describe('todo strip rendering', () => {
+  const cleanup: Array<() => void> = [];
+
+  afterEach(() => {
+    for (const destroy of cleanup.splice(0).reverse()) destroy();
+  });
+
+  const BOX_WIDTH = 60;
+  const LONG_TODO: TodoItem = {content: 'x'.repeat(200), status: 'in_progress'};
+
+  function stateWith(todos: TodoItem[], expanded: boolean): SessionState {
+    const base = initialSessionState();
+    return {
+      ...base,
+      core: {...base.core, todos: [{agentKind: null, roundNumber: null, items: todos}]},
+      todosExpanded: expanded,
+    };
+  }
+
+  /** The view only calls back on a click, which none of these tests perform. */
+  const controller = {
+    toggleTodos: () => {},
+  } as unknown as SessionController;
+
+  interface RenderedLine {
+    text: string;
+    /** Columns the layout gave the line, i.e. how wide it was allowed to be. */
+    width: number;
+  }
+
+  function renderedLines(node: Renderable, out: RenderedLine[] = []): RenderedLine[] {
+    for (const child of node.getChildren()) {
+      if (child instanceof TextRenderable) {
+        out.push({
+          text: child.content.chunks.map(chunk => chunk.text).join(''),
+          width: child.width,
+        });
+      } else renderedLines(child, out);
+    }
+    return out;
+  }
+
+  function onlyLine(lines: RenderedLine[]): RenderedLine {
+    expect(lines).toHaveLength(1);
+    const [line] = lines;
+    if (line === undefined) throw new Error('the strip emitted no text');
+    return line;
+  }
+
+  async function renderStrip(
+    todos: TodoItem[],
+    expanded: boolean,
+    boxWidth: number,
+  ): Promise<{lines: RenderedLine[]; frame: string}> {
+    const testRenderer: TestRendererSetup = await createTestRenderer({width: 80, height: 24});
+    const strip = new TodoStripView(testRenderer.renderer, controller, resolveTheme(null));
+    testRenderer.renderer.root.add(strip.output);
+    cleanup.push(() => {
+      strip.output.destroyRecursively();
+      testRenderer.renderer.destroy();
+    });
+    strip.render(stateWith(todos, expanded), boxWidth);
+    await testRenderer.renderOnce();
+    return {lines: renderedLines(strip.output), frame: testRenderer.captureCharFrame()};
+  }
+
+  it('fills the collapsed summary to the box edge', async () => {
+    const {lines} = await renderStrip([LONG_TODO], false, BOX_WIDTH);
+    const summary = onlyLine(lines);
+    // 1 col of padding each side is the collapsed layout's only chrome.
+    expect(summary.width).toBe(BOX_WIDTH - 2);
+    expect(summary.text).toHaveLength(summary.width);
+    expect(summary.text.endsWith('…')).toBe(true);
+  });
+
+  it('fills the expanded item to the inner list edge', async () => {
+    const {lines} = await renderStrip([LONG_TODO], true, BOX_WIDTH);
+    const item = onlyLine(lines);
+    // Outer padding + inner list border + inner list padding = 6 cols; the
+    // selection marker is part of the line, not chrome the line gives up.
+    expect(item.width).toBe(BOX_WIDTH - 6);
+    expect(item.text).toHaveLength(item.width);
+    expect(item.text.endsWith('…')).toBe(true);
+  });
+
+  it('survives a box narrower than its own chrome', async () => {
+    for (const boxWidth of [8, 2]) {
+      const collapsed = await renderStrip([LONG_TODO], false, boxWidth);
+      for (const row of collapsed.frame.split('\n')) {
+        expect(row.trimEnd().length).toBeLessThanOrEqual(boxWidth);
+      }
+      // The expanded list carries a rounded border with a 4-column floor of its
+      // own, which a live strip never reaches because todoStripWidth() keeps the
+      // box at TODO_MIN_WIDTH or wider. Assert only that it renders and stays on
+      // screen.
+      const expanded = await renderStrip([LONG_TODO], true, boxWidth);
+      expect(expanded.lines).toHaveLength(1);
+      for (const row of expanded.frame.split('\n')) {
+        expect(row.trimEnd().length).toBeLessThanOrEqual(80);
+      }
+    }
   });
 });
