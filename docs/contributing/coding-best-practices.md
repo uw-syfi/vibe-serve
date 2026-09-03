@@ -72,6 +72,18 @@ adapters or presentation layers that consume its results.
 - Introduce an abstraction when it creates a genuine ownership boundary,
   clarifies the direction of data flow, or removes meaningful duplication. Do
   not add indirection without a shared interface to protect.
+- Keep one source of truth per fact. Store the minimal state and derive the
+  rest with a named selector or predicate. Do not add a field whose value is a
+  function of existing fields, such as an `isEmpty` flag beside a list, a
+  count beside the collection it counts, or a boolean that restates which
+  member of an enum is active. Every extra writer is a place the copies can
+  drift. Cache a derived value only when profiling shows the derivation is
+  too costly, and then document what invalidates the cache.
+- Represent closed sets as enums in both languages: `StrEnum` or `Literal` in
+  Python, and a string-literal union in TypeScript. When the values cross the
+  backend boundary, the union comes from the generated protocol types, not a
+  hand-written copy. Predicates over a closed set should branch exhaustively
+  so that a new member is a compile error rather than a silent default.
 
 ## Python Code
 
@@ -197,11 +209,20 @@ failure cases.
   at the producer.
 - Prefer assertions about observable contracts over assertions tied to private
   implementation details.
+- A bug-fix PR must include a regression test that fails at the merge base
+  and passes at the head, written at the lowest layer that reproduces the
+  reported symptom. A test that only restates the fix's constants, or that
+  passes unchanged on the pre-fix code, is not evidence. For the TUI, a
+  symptom stated in terminal geometry (columns, rows, alignment, clipping,
+  overlap) must be reproduced through the OpenTUI test renderer
+  (`createTestRenderer` from `@opentui/core/testing`); a pure-function test
+  over a formatter is not accepted for such symptoms.
 
 ## Avoid
 
 - Large unrelated refactors.
 - Raw strings where repo enums, registries, or typed models already exist.
+- Stored copies of state that another field already determines.
 - Ad hoc parsing when TOML, YAML, Pydantic, or standard library parsers are
   available.
 - Silent acceptance of misspelled config or metadata.
