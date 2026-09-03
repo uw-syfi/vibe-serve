@@ -28,6 +28,14 @@ from vibesys.domains.registry import resolve_domain
 from vibesys.domains.rendering import render_domain_section
 from vibesys.input_manifest import BenchmarkResult, WorkspaceSource  # noqa: TC001  # tracked: #288
 from vibesys.loops.agent import issue_board
+from vibesys.loops.agent.attempt import (
+    JudgeOutcome,
+    JudgeReviewed,
+    JudgeSkipped,
+    JudgeSkipReason,
+    attempt_was_reviewed,
+    recorded_judge_verdict,
+)
 from vibesys.loops.agent.hypotheses import (
     ResolutionEvidence,
     append_round,
@@ -2731,13 +2739,15 @@ def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
                         )
 
                 # --- Implementer / Judge retry loop ---
-                # A failed review can carry targeted feedback into the same
-                # persistent hypothesis on the next framework round.
+                # Round-scoped accumulators: these describe the round as a
+                # whole and intentionally survive every attempt (the best
+                # accepted implementation, the official evaluation the round
+                # completed, and the feedback carried forward). A failed review
+                # can carry targeted feedback into the same persistent
+                # hypothesis on the next framework round.
                 feedback: str | None = active_hypothesis.feedback
                 passed = False
                 review_started = False
-                final_attempt_reviewed = False
-                judge_verdict: Literal["pass", "fail", "deferred"] | None = None
                 framework_revalidation_required = active_hypothesis.gate_revalidation_pending
                 implementation: ImplementerResponse | None = None
                 single_agent_response: SingleAgentRoundResponse | None = None
@@ -2746,6 +2756,12 @@ def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
                 accepted_metrics: dict[str, float] = {}
                 accepted_evaluation_artifact: str | None = None
                 completed_official_evaluation_reason: str | None = None
+                # Attempt-scoped state: one immutable value describing the
+                # judge's treatment of the current attempt only. It is replaced
+                # wholesale at the top of every iteration and never updated in
+                # place, so an earlier attempt's verdict cannot survive into
+                # the round record (issue #503).
+                attempt_judge: JudgeOutcome = JudgeSkipped(JudgeSkipReason.NOT_REACHED)
                 # ``max_retries_per_round >= 1`` is validated at entry, so the
                 # loop always runs; the initializer keeps ``retry`` provably
                 # bound for the post-loop round bookkeeping.
@@ -2765,16 +2781,12 @@ def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
                     )
                 for retry in range(first_retry, max_retries_per_round + 1):
                     ctx.lprint(f"\n--- attempt {retry}/{max_retries_per_round} ---\n")
-                    final_attempt_reviewed = False
-                    # Reset alongside ``final_attempt_reviewed``: the persisted
-                    # record must reflect the final attempt, not an earlier
-                    # audit.  A cadence review of attempt N sets a verdict; if
-                    # the final attempt N+1 defers re-review (the sparse-review
-                    # break below), that stale verdict must not survive.
-                    # Otherwise the round is recorded with attempt N's
-                    # ``judge_verdict`` while ``reviewed=False``/outcome=continue,
-                    # and projection rejects a still-active hypothesis.
-                    judge_verdict = None
+                    # The persisted record must reflect this attempt, not an
+                    # earlier audit.  A cadence review of attempt N returns a
+                    # verdict; if the final attempt N+1 defers re-review (the
+                    # sparse-review break below), that verdict belongs to a
+                    # different implementation and must not survive.
+                    attempt_judge = JudgeSkipped(JudgeSkipReason.NOT_REACHED)
                     if inner_loop == "multi-agent":
                         prior_attempt_artifact_locations = tuple(
                             issue_board.display_path(path, ctx.workspace)
@@ -2820,6 +2832,7 @@ def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
                             # failure silently consume the whole round. When
                             # retries are exhausted the round still commits the
                             # fail-closed response, unreviewed, as before.
+                            attempt_judge = JudgeSkipped(JudgeSkipReason.UNPARSEABLE_IMPLEMENTATION)
                             ctx.lprint(
                                 f"[implementer] attempt {retry}/{max_retries_per_round} "
                                 "returned no parseable structured response; the framework "
@@ -2867,6 +2880,7 @@ def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
                             # due again.
                             review_due = False
                         if not review_due:
+                            attempt_judge = JudgeSkipped(JudgeSkipReason.SPARSE_REVIEW_POLICY)
                             issue_board.append_judge_skipped(
                                 progress_path,
                                 round_number,
@@ -2879,7 +2893,6 @@ def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
                             )
                             break
                         review_started = True
-                        final_attempt_reviewed = True
                         framework_revalidation_required = False
                         candidate_archive_conflict = _pareto_archive_conflict(
                             candidate_disposition=implementation.candidate_disposition,
@@ -2916,7 +2929,7 @@ def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
                             official_evaluation_reason=planned_official_reason,
                             pareto_archive_conflict=candidate_archive_conflict,
                         )
-                        judge_verdict = verdict.verdict.value
+                        attempt_judge = JudgeReviewed(verdict.verdict)
                         if verdict.verdict == Verdict.PASS:
                             validation_feedback = _run_framework_validation_gate(
                                 ctx,
@@ -3099,7 +3112,7 @@ def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
                             pareto_records=records,
                             objectives=objectives,
                         )
-                        judge_verdict = single_agent_response.verdict.value
+                        attempt_judge = JudgeReviewed(single_agent_response.verdict)
                         if single_agent_response.verdict == Verdict.PASS:
                             official_reason = _official_evaluation_reason(
                                 records=records,
@@ -3191,6 +3204,9 @@ def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
                         )
 
                 # --- Record round result & update carry-over ---
+                # Only the final attempt describes the round, so its outcome is
+                # the one the record and the lifecycle transition read.
+                final_attempt_reviewed = attempt_was_reviewed(attempt_judge)
                 commit = ctx.git.current_sha()
                 # `profile_skipped` is True when no fresh profile ran this round
                 # (cold-start or the orchestrator/framework decided to skip).
@@ -3433,12 +3449,13 @@ def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
                     perf_unit=perf_unit,
                     passed=passed,
                     profile_skipped=profile_skipped,
-                    reviewed=reviewed,
                     hypothesis_id=plan.hypothesis_id,
                     hypothesis_declared_outcome=(
                         declared_outcome.value if declared_outcome is not None else None
                     ),
-                    judge_verdict=(judge_verdict if judge_verdict is not None else "deferred"),
+                    # ``RoundRecord.reviewed`` derives from this verdict, so
+                    # the record cannot claim a verdict it never received.
+                    judge_verdict=recorded_judge_verdict(attempt_judge),
                     hypothesis_outcome=(
                         hypothesis_resolution.value
                         if hypothesis_resolution is not None

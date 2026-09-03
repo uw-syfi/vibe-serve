@@ -4,6 +4,7 @@ import pytest
 from pydantic import ValidationError
 
 from vs_loop_state import (
+    JudgeVerdict,
     RoundHistory,
     RoundRecord,
     parse_round_record,
@@ -109,6 +110,97 @@ def test_parse_round_record_rejects_unknown_fields() -> None:
                 "made_up_field": "surprise",
             }
         )
+
+
+def _judged_record(round_number: int, verdict: JudgeVerdict) -> RoundRecord:
+    return RoundRecord(
+        round_number=round_number,
+        commit=f"{round_number:040x}",
+        perf_metric=None,
+        perf_unit=None,
+        passed=verdict == "pass",
+        judge_verdict=verdict,
+    )
+
+
+def test_review_state_is_derived_from_the_verdict() -> None:
+    """``reviewed`` restates the verdict, so only the verdict is stored."""
+    assert _judged_record(1, "pass").reviewed is True
+    assert _judged_record(2, "fail").reviewed is True
+    assert _judged_record(3, "deferred").reviewed is False
+
+
+def test_serialized_record_keeps_the_reviewed_key() -> None:
+    payload = serialize_round_record(_judged_record(4, "deferred"))
+
+    assert payload["reviewed"] is False
+    assert payload["judge_verdict"] == "deferred"
+    assert parse_round_record(payload).reviewed is False
+
+
+def test_legacy_record_without_a_verdict_keeps_its_reviewed_flag() -> None:
+    """Records written before ``judge_verdict`` existed still load unchanged."""
+    reviewed = parse_round_record(
+        {"round": 1, "commit": None, "perf_metric": None, "perf_unit": None, "passed": True}
+    )
+    unreviewed = parse_round_record(
+        {
+            "round": 2,
+            "commit": None,
+            "perf_metric": None,
+            "perf_unit": None,
+            "passed": False,
+            "reviewed": False,
+        }
+    )
+
+    assert reviewed.judge_verdict is None
+    assert reviewed.reviewed is True
+    assert unreviewed.judge_verdict is None
+    assert unreviewed.reviewed is False
+    assert serialize_round_record(unreviewed)["reviewed"] is False
+
+
+@pytest.mark.parametrize("verdict", ["pass", "fail"])
+def test_unreviewed_record_with_a_verdict_normalizes_to_deferred(verdict: str) -> None:
+    """Repairs runs corrupted by the stale-verdict bug (issue #503).
+
+    Such a record can only have taken its verdict from an earlier implementer
+    attempt of the same round, so it must reproject as unreviewed instead of
+    resolving the hypothesis on evidence that describes a different attempt.
+    """
+    record = parse_round_record(
+        {
+            "round": 3,
+            "commit": "c" * 40,
+            "perf_metric": None,
+            "perf_unit": None,
+            "passed": False,
+            "reviewed": False,
+            "judge_verdict": verdict,
+            "hypothesis_outcome": "continue",
+        }
+    )
+
+    assert record.judge_verdict == "deferred"
+    assert record.reviewed is False
+    assert serialize_round_record(record)["judge_verdict"] == "deferred"
+
+
+def test_constructing_an_unreviewed_verdict_normalizes_it_too() -> None:
+    """The invariant holds for in-memory construction, not only for loads."""
+    record = RoundRecord(
+        round_number=4,
+        commit="d" * 40,
+        perf_metric=None,
+        perf_unit=None,
+        passed=False,
+        reviewed=False,
+        judge_verdict="pass",
+    )
+
+    assert record.judge_verdict == "deferred"
+    assert record.reviewed is False
 
 
 def test_round_history_starts_empty_and_appends_records() -> None:

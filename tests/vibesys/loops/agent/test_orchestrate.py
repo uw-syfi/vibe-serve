@@ -3006,6 +3006,56 @@ def test_cadence_review_is_not_duplicated_for_provisional_retry(tmp_path, ref_fi
     assert stable.resolution is None
 
 
+def test_gate_retry_does_not_persist_the_previous_attempts_pass(tmp_path, ref_file):  # noqa: ANN001, ANN201  # tracked: #288
+    """A judged attempt's ``pass`` must not describe a later unjudged attempt.
+
+    Attempt 1 is judged, passes, and then fails the framework accuracy gate,
+    which spends a retry. Attempt 2 returns no parseable response, so the
+    framework synthesizes a fail-closed one that no judge reviews. The round
+    record describes attempt 2, so it must carry ``deferred`` rather than
+    attempt 1's stale ``pass`` (issue #503).
+    """
+    runner = _make_orchestrate_runner(
+        plans=[
+            OrchestratorPlan(
+                hypothesis_id="gate-retry",
+                hypothesis="the gate rejects a stale checkpoint",
+                task="Build",
+                pass_criteria="tests",  # noqa: S106  # tracked: #288
+                reasoning="start",
+            )
+        ],
+        judge_verdicts=["pass"],
+        implementer_parse_failures=[False, True],
+    )
+
+    result = _invoke_orchestrate(
+        tmp_path,
+        ref_file,
+        runner,
+        max_rounds=1,
+        max_retries_per_round=2,
+        _accuracy_gate_results=["checker rejected history"],
+    )
+
+    assert result is True
+    assert runner.counters["impl"] == 2
+    assert runner.counters["judge"] == 1
+    rounds = _round_payloads(tmp_path)
+    assert len(rounds) == 1
+    assert rounds[0]["passed"] is False
+    assert rounds[0]["reviewed"] is False
+    assert rounds[0]["judge_verdict"] == "deferred"
+
+    project = _created_project(tmp_path)
+    state = Project.open(project).state
+    unified = AgentRunStateStore(state.portable_namespace(_run_id(project), "agent")).load()
+    hypothesis = reproject_run_evidence(unified).by_id("gate-retry")
+    assert hypothesis is not None
+    assert hypothesis.review is HypothesisReview.DEFERRED
+    assert hypothesis.resolution is not HypothesisResolution.REJECTED
+
+
 def test_unreviewed_terminal_outcome_returns_control_to_designer(tmp_path, ref_file):  # noqa: ANN001, ANN201  # tracked: #288
     runner = _make_orchestrate_runner(
         plans=[

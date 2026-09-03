@@ -17,6 +17,11 @@ aliased first field without a plain default conflicts with dataclass
 field-ordering rules (a later required field would "follow a default
 argument").
 
+``judge_verdict`` is the single source of truth for a round's review state.
+The on-disk key ``reviewed`` predates it and is kept only so legacy records
+still load; ``RoundRecord.reviewed`` derives the boolean instead of storing a
+second copy that can disagree with the verdict.
+
 ``RoundHistory`` owns only in-memory collection behavior and rollback-base
 resolution. The application-level project-state library owns persistence and
 the on-disk layout.
@@ -26,14 +31,18 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Literal
 
-from pydantic import ConfigDict, Field, TypeAdapter
+from pydantic import ConfigDict, Field, TypeAdapter, model_validator
 from pydantic.dataclasses import dataclass
 
 if TYPE_CHECKING:
     from collections.abc import Container
 
+#: A round's review state. ``deferred`` means no independent judge ran, so it
+#: is the only value compatible with an unreviewed round.
+JudgeVerdict = Literal["pass", "fail", "deferred"]
 
-@dataclass(config=ConfigDict(extra="forbid"))
+
+@dataclass(config=ConfigDict(extra="forbid", populate_by_name=True, serialize_by_alias=True))
 class RoundRecord:
     """One completed round of the agent loop."""
 
@@ -48,13 +57,19 @@ class RoundRecord:
     # these so a chain of skipped-profile rounds doesn't masquerade as a
     # real plateau.
     profile_skipped: bool = False
-    # False means the implementer was still investigating and sparse-review
-    # policy intentionally deferred both the independent judge and official
-    # framework gates. Such a round is provisional, not a failed attempt.
-    reviewed: bool = True
+    # Legacy encoding of the review state, persisted under the on-disk key
+    # ``reviewed``. It is authoritative only for records written before
+    # ``judge_verdict`` existed; otherwise ``_normalize_review`` keeps it equal
+    # to the verdict. Read it through the ``reviewed`` property, never here.
+    legacy_reviewed: bool = Field(default=True, alias="reviewed")
     hypothesis_id: str | None = None
     hypothesis_declared_outcome: str | None = None
-    judge_verdict: Literal["pass", "fail", "deferred"] | None = None
+    # The round's review state, decided by its final implementer attempt.
+    # ``deferred`` means sparse-review policy skipped both the independent
+    # judge and the official framework gates: such a round is provisional, not
+    # a failed attempt. ``None`` identifies a legacy record written before the
+    # framework recorded a verdict.
+    judge_verdict: JudgeVerdict | None = None
     hypothesis_outcome: str | None = None
     # Plan text carried alongside the id so a resolved hypothesis stays
     # readable after ``active_hypothesis.json`` has moved on. Only the live
@@ -96,6 +111,33 @@ class RoundRecord:
     perf_baseline_commit: str | None = None
     perf_baseline_metric: float | None = None
     perf_delta_pct: float | None = None
+
+    @model_validator(mode="after")
+    def _normalize_review(self) -> RoundRecord:
+        """Keep the review state expressible only through ``judge_verdict``.
+
+        A ``pass``/``fail`` verdict on an unreviewed record is contradictory:
+        it can only have come from an earlier implementer attempt of the same
+        round (issue #503), because the judge that would own it never ran for
+        the attempt this record describes. Normalize such a record to
+        ``deferred``, which is what the framework should have written, so a
+        resumed run and the server read path both project it as unreviewed
+        rather than rejecting a still-active hypothesis.
+        """
+        if self.judge_verdict is None:
+            # Legacy record: the boolean is all the review state there is.
+            return self
+        if self.judge_verdict != "deferred" and not self.legacy_reviewed:
+            self.judge_verdict = "deferred"
+        self.legacy_reviewed = self.judge_verdict != "deferred"
+        return self
+
+    @property
+    def reviewed(self) -> bool:
+        """Whether an independent judge ruled on this round's final attempt."""
+        if self.judge_verdict is None:
+            return self.legacy_reviewed
+        return self.judge_verdict != "deferred"
 
 
 _ROUND_RECORD_ADAPTER: TypeAdapter[RoundRecord] = TypeAdapter(RoundRecord)
