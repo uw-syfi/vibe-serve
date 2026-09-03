@@ -116,7 +116,9 @@ Chat composer: `Enter` submit, `Shift+Enter` newline.
   `request→Request failed`, `input→Input error`, `run→Run failed`. Equivalent
   reports fold into one banner and bump `count`.
 - **Modal overlay** (`detail`/`help`/`error`): titles Command/Help/Error;
-  footer `Esc to close`. Used for acks, `/help`, perf modal fallback.
+  footer `Esc to close · PgUp/PgDn: scroll` on its own reserved row, over a
+  scroll viewport that PgUp/PgDn page while the overlay is open and that starts
+  at the top on every open. Used for acks, `/help`, perf modal fallback.
 - **argparse diagnostics** print to the terminal for `-h`/`validate` (bypass
   TUI). In server mode a backend argparse failure is surfaced as an error-banner
   diagnostic (stage `argument_parsing`, exit code, hint) rather than exiting.
