@@ -67,7 +67,7 @@ class OutputSink:
 
         return unsubscribe
 
-    def emit(  # noqa: PLR0913  # tracked: #288
+    def emit(
         self,
         event_type: CoreEventType,
         text: str = "",
@@ -94,7 +94,7 @@ class OutputSink:
             handler(event)
         return event
 
-    def agent_output(  # noqa: D102, PLR0913  # tracked: #288
+    def agent_output(  # noqa: D102  # tracked: #288
         self,
         content: str,
         *,
@@ -114,7 +114,7 @@ class OutputSink:
             execution_id=invocation_id,
         )
 
-    def tool_call(  # noqa: D102, PLR0913  # tracked: #288
+    def tool_call(  # noqa: D102  # tracked: #288
         self,
         tool: str,
         args: dict[str, Any],
@@ -133,7 +133,7 @@ class OutputSink:
             execution_id=invocation_id,
         )
 
-    def tool_result(  # noqa: D102, PLR0913  # tracked: #288
+    def tool_result(  # noqa: D102  # tracked: #288
         self,
         tool: str,
         content: str,
@@ -179,7 +179,7 @@ class OutputSink:
             execution_id=invocation_id,
         )
 
-    def usage_update(  # noqa: D102, PLR0913  # tracked: #288
+    def usage_update(  # noqa: D102  # tracked: #288
         self,
         input_tokens: int,
         *,

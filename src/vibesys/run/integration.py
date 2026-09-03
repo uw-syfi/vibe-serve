@@ -70,7 +70,7 @@ class RunAttachment:
 class InvocationLifecycle(Protocol):
     """Optional application control around core agent invocations."""
 
-    def start(  # noqa: D102, PLR0913
+    def start(  # noqa: D102
         self,
         kind: str,
         round_label: str,
@@ -105,7 +105,7 @@ class InvocationLifecycle(Protocol):
 class DirectInvocationLifecycle:
     """Headless invocation policy with no pause or steering behavior."""
 
-    def start(  # noqa: D102, PLR0913
+    def start(  # noqa: D102
         self,
         kind: str,
         round_label: str,

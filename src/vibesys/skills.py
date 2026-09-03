@@ -353,7 +353,7 @@ def build_skill_catalog(skill_dirs: Iterable[str | Path]) -> dict[str, SkillCata
     return catalog
 
 
-def _resolve_skill_resource(  # noqa: PLR0911  # tracked: #288
+def _resolve_skill_resource(
     entry: SkillCatalogEntry,
     raw_resource: str,
 ) -> tuple[str | None, str | None]:

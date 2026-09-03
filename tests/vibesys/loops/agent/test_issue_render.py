@@ -18,7 +18,7 @@ from vs_issue_board import (
 )
 
 
-def _make_issue(  # noqa: PLR0913  # tracked: #288
+def _make_issue(
     *,
     id: int = 1,  # noqa: A002  # tracked: #288
     title: str = "Test issue",
@@ -53,7 +53,7 @@ def _make_issue(  # noqa: PLR0913  # tracked: #288
     )
 
 
-def _make_event(  # noqa: PLR0913  # tracked: #288
+def _make_event(
     *,
     actor: str,
     action: str,

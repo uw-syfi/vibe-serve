@@ -56,7 +56,7 @@ def _suggest_repository_owner(config: Config) -> str | None:
         return None
 
 
-def _resolve_tui_defaults(  # noqa: PLR0913  # tracked: #288
+def _resolve_tui_defaults(
     *,
     config_path: Path | None = None,
     stub_agent: bool = False,

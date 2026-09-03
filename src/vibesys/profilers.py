@@ -144,7 +144,7 @@ def allowed_profiler_kinds(domain: DomainName) -> frozenset[ProfilerKind]:
     )
 
 
-def resolve_profiler_kind(  # noqa: C901, PLR0911, PLR0912  # tracked: #288
+def resolve_profiler_kind(
     requested: ProfilerKind,
     *,
     domain: DomainName,

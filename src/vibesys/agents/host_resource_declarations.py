@@ -268,7 +268,7 @@ def container_runtime_resources(env: Mapping[str, str] | None = None) -> tuple[H
     )
 
 
-def task_agent_host_resources(  # noqa: PLR0913
+def task_agent_host_resources(
     *,
     container_topology: bool,
     cli_sandboxed: bool,

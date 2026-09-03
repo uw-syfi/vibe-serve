@@ -240,7 +240,7 @@ class TraceRootGraph(BaseModel):
     critical_path: CriticalPathSummary
 
     @model_validator(mode="after")
-    def validate_graph(self) -> "TraceRootGraph":  # noqa: C901, D102  # tracked: #288
+    def validate_graph(self) -> "TraceRootGraph":  # noqa: D102  # tracked: #288
         if self.error_count > self.trace_count or self.latency_ms.count != self.trace_count:
             raise ValueError("root latency counts must match trace counts")  # noqa: TRY003  # tracked: #288
         node_by_id = {node.id: node for node in self.nodes}

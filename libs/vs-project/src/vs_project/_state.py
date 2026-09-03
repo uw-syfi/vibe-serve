@@ -1077,7 +1077,7 @@ class ProjectState:
         self._validate_storage_roots()
         return _load_model(self._project_manifest_path, ProjectManifest)
 
-    def new_run_manifest(  # noqa: PLR0913
+    def new_run_manifest(
         self,
         display_name: str,
         *,

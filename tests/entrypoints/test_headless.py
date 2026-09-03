@@ -266,7 +266,7 @@ def _evolve_configuration(*, max_generations: int = 5) -> EvolveRunConfiguration
     )
 
 
-def _write_project_run(  # noqa: PLR0913
+def _write_project_run(
     project: Path,
     run_id: str,
     *,

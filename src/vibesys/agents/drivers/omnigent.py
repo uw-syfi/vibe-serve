@@ -272,7 +272,7 @@ def _adapt_provider_environment(
     provider_environment.update(environment)
 
 
-def _build_os_tools(  # noqa: C901  # construction cleans every partially-created helper
+def _build_os_tools(  # construction cleans every partially-created helper
     os_env_spec: Any,  # noqa: ANN401
     workspace: Path,
     environment: dict[str, str] | None = None,
@@ -459,7 +459,7 @@ async def _drive_turn(
 class OmnigentSession:
     """One configured Omnigent executor and provider conversation."""
 
-    def __init__(  # noqa: PLR0913
+    def __init__(
         self,
         *,
         driver: OmnigentDriver,
@@ -677,7 +677,7 @@ class OmnigentDriver:
                 self._creating_sessions -= 1
                 self._lifecycle.notify_all()
 
-    def close(self) -> None:  # noqa: C901, PLR0912  # exhaustive owner cleanup
+    def close(self) -> None:  # exhaustive owner cleanup
         """Close every outstanding session."""
         if self.owns_current_loop_thread():
             raise RuntimeError("Omnigent driver cannot be closed from its event-loop thread")
@@ -831,7 +831,7 @@ class OmnigentDriver:
             sandbox=sandbox,
         )
 
-    def _build_executor(  # noqa: C901, PLR0915
+    def _build_executor(
         self, spec: AgentSessionSpec
     ) -> tuple[Any, list[dict[str, Any]], _OmnigentMCPTools | None, _ExecutorResources]:
         executor_spec = _resolve_executor_spec(spec.provider)

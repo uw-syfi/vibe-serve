@@ -295,7 +295,7 @@ class InputManifest(BaseModel):
         return self
 
 
-def render_input_manifest(manifest: InputManifest) -> str:  # noqa: C901, PLR0912
+def render_input_manifest(manifest: InputManifest) -> str:
     """Serialize a validated input manifest as deterministic TOML."""
 
     def toml_string(value: str) -> str:
@@ -515,7 +515,7 @@ def load_project_task(project: Project, task: TaskDirectory) -> InputBundle:
     )
 
 
-def _load_input_bundle(  # noqa: C901, PLR0912, PLR0915  # tracked: #288
+def _load_input_bundle(
     *,
     project_root: Path,
     task_root: Path,

@@ -242,7 +242,7 @@ def _candidate_runtime_notes(
     return runtime.prompt_notes, runtime.deployment_name
 
 
-def _run_mutator(  # noqa: PLR0913  # tracked: #288
+def _run_mutator(
     ctx: LoopContext,
     *,
     generation: int,
@@ -303,7 +303,7 @@ def _run_mutator(  # noqa: PLR0913  # tracked: #288
     )
 
 
-def _run_judge(  # noqa: PLR0913  # tracked: #288
+def _run_judge(
     ctx: LoopContext,
     *,
     generation: int,
@@ -368,7 +368,7 @@ def _format_objectives_for_profiler(objectives: list[Objective]) -> str:
     )
 
 
-def _run_profiler(  # noqa: PLR0913  # tracked: #288
+def _run_profiler(
     ctx: LoopContext,
     *,
     generation: int,
@@ -459,7 +459,7 @@ def _run_framework_accuracy_gate(
     return result.feedback
 
 
-def _evaluate_candidate(  # noqa: PLR0913  # tracked: #288
+def _evaluate_candidate(
     ctx: LoopContext,
     *,
     generation: int,
@@ -595,7 +595,7 @@ def _evaluate_candidate(  # noqa: PLR0913  # tracked: #288
         _teardown_candidate_deployment(ctx, cand_deployment, keep=keep_deployments)
 
 
-def _record_outcome(  # noqa: PLR0913  # tracked: #288
+def _record_outcome(
     ctx: LoopContext,
     population: Population,
     state_store: EvolutionStateStore,
@@ -658,7 +658,7 @@ def _record_outcome(  # noqa: PLR0913  # tracked: #288
     return individual
 
 
-def _plan_candidate(  # noqa: PLR0913  # tracked: #288
+def _plan_candidate(
     ctx: LoopContext,
     population: Population,
     state_store: EvolutionStateStore,
@@ -701,7 +701,7 @@ def _plan_candidate(  # noqa: PLR0913  # tracked: #288
     return selection
 
 
-def _run_generation_serial(  # noqa: PLR0913  # tracked: #288
+def _run_generation_serial(
     ctx: LoopContext,
     *,
     generation: int,
@@ -789,7 +789,7 @@ def _run_generation_serial(  # noqa: PLR0913  # tracked: #288
             )
 
 
-def _evaluate_in_subcontext(  # noqa: PLR0913  # tracked: #288
+def _evaluate_in_subcontext(
     parent_ctx: LoopContext,
     *,
     config: Config,
@@ -891,7 +891,7 @@ def _evaluate_in_subcontext(  # noqa: PLR0913  # tracked: #288
             parent_ctx.lprint(f"[warn] candidate {label} teardown failed: {exc}")
 
 
-def _run_generation_parallel(  # noqa: PLR0913  # tracked: #288
+def _run_generation_parallel(
     parent_ctx: LoopContext,
     *,
     config: Config,
@@ -1011,7 +1011,7 @@ def _run_generation_parallel(  # noqa: PLR0913  # tracked: #288
 # ---------------------------------------------------------------------------
 
 
-def _bootstrap_seed(  # noqa: PLR0913, PLR0915  # tracked: #288
+def _bootstrap_seed(
     ctx: LoopContext,
     *,
     objective: str,
@@ -1216,7 +1216,7 @@ def _bootstrap_seed(  # noqa: PLR0913, PLR0915  # tracked: #288
 # ---------------------------------------------------------------------------
 
 
-def _initialize_search_policy(  # noqa: PLR0913  # tracked: #288
+def _initialize_search_policy(
     ctx: LoopContext,
     population: Population,
     state_store: EvolutionStateStore,
@@ -1262,7 +1262,7 @@ def _initialize_search_policy(  # noqa: PLR0913  # tracked: #288
     return policy_name, policy
 
 
-def run_evolve_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
+def run_evolve_loop(
     config: Config,
     exp_name: str,
     input_path: str,

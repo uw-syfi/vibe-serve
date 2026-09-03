@@ -236,7 +236,7 @@ def _coerce_skills_dirs(raw_dirs: list[str] | None) -> list[Path]:
     return result
 
 
-def create_run_context(  # noqa: PLR0913  # tracked: #288
+def create_run_context(
     config: Config,
     exp_name: str,
     input_path: str,
@@ -328,7 +328,7 @@ def _close_after_construction_failure(
         )
 
 
-def _assemble_run_context(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
+def _assemble_run_context(
     *,
     teardown_stack: ExitStack,
     config: Config,
@@ -1020,7 +1020,7 @@ def _assemble_run_context(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: 
     return result
 
 
-def create_candidate_context(  # noqa: PLR0913  # tracked: #288
+def create_candidate_context(
     parent: "_RunContext",
     *,
     config: Config,
@@ -1065,7 +1065,7 @@ def create_candidate_context(  # noqa: PLR0913  # tracked: #288
         raise
 
 
-def _assemble_candidate_context(  # noqa: PLR0913  # tracked: #288
+def _assemble_candidate_context(
     *,
     teardown_stack: ExitStack,
     parent: "_RunContext",
@@ -1256,7 +1256,7 @@ class _RunContext:
     sandbox session.
     """
 
-    def __init__(  # noqa: ANN204, PLR0913  # tracked: #288
+    def __init__(  # noqa: ANN204  # tracked: #288
         self,
         *,
         backend: ComputeBackend,
@@ -1436,7 +1436,7 @@ class _RunContext:
             return None
         return self._progress_stack[-1]
 
-    def invoke(  # noqa: PLR0913  # tracked: #288
+    def invoke(
         self,
         *,
         kind: str,

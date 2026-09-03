@@ -85,7 +85,7 @@ class PlainLoopAgentClient(AgentClient):
         """Close the inner client."""
         self._inner.close()
 
-    def invoke_text(  # noqa: PLR0913
+    def invoke_text(
         self,
         *,
         kind: str,

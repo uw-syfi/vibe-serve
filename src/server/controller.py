@@ -126,7 +126,7 @@ class RunController:
             self._pending_steer.append(text)
             self._journal.record(EventType.CONTROL, f"/steer: {text}", status=EventStatus.PENDING)
 
-    def start_agent_execution(  # noqa: PLR0913
+    def start_agent_execution(
         self,
         kind: str,
         round_label: str,

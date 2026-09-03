@@ -134,7 +134,7 @@ class DeepAgentsClient(AgentClient):
         self._agent_signatures[kind] = signature
         return agent
 
-    def invoke(  # noqa: D102, PLR0913  # tracked: #288
+    def invoke(  # noqa: D102  # tracked: #288
         self,
         *,
         kind: str,
@@ -191,7 +191,7 @@ class DeepAgentsClient(AgentClient):
             log_file=self._run_log_file,
         )
 
-    def invoke_text(  # noqa: PLR0913  # tracked: #288
+    def invoke_text(
         self,
         *,
         kind: str,

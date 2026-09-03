@@ -20,7 +20,7 @@ def _make_store(tmp_path) -> IssueBoard:  # noqa: ANN001  # tracked: #288
     return IssueBoard(tmp_path / "issues.json")
 
 
-def _create(  # noqa: PLR0913  # tracked: #288
+def _create(
     store,  # noqa: ANN001  # tracked: #288
     *,
     type=IssueType.BUG,  # noqa: A002, ANN001  # tracked: #288

@@ -148,7 +148,7 @@ class RocmBackend:
 
     # -- ComputeBackendImpl protocol ---------------------------------------
 
-    def make_sandbox(  # noqa: D102, PLR0913  # tracked: #288
+    def make_sandbox(  # noqa: D102  # tracked: #288
         self,
         kind: SandboxKind,
         *,

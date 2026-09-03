@@ -42,7 +42,7 @@ def _plan(identifier: str, *, updates: list[HypothesisStrategyUpdate] | None = N
     )
 
 
-def _round(  # noqa: PLR0913
+def _round(
     number: int,
     metric: float | None,
     *,

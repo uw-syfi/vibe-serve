@@ -129,7 +129,7 @@ class DockerCommandExecutor:
                 + (f": {detail}" if detail else "")
             )
 
-    def run(  # noqa: C901, D102  # tracked: #288
+    def run(  # noqa: D102  # tracked: #288
         self,
         request: CommandRequest,
         sink: CommandStreamSink,
@@ -229,7 +229,7 @@ class DockerCommandExecutor:
             stderr="".join(stderr_lines),
         )
 
-    def _wait_with_docker_exec_watchdog(  # noqa: C901  # tracked: #288
+    def _wait_with_docker_exec_watchdog(
         self,
         process: subprocess.Popen[str],
         cmd: Sequence[str],
@@ -339,7 +339,7 @@ class DockerCommandExecutor:
                 return thread_id
         return None
 
-    def _read_codex_rollout_completion(  # noqa: C901, PLR0912  # tracked: #288
+    def _read_codex_rollout_completion(
         self,
         thread_id: str,
     ) -> _CodexRolloutCompletion | None:

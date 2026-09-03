@@ -148,7 +148,7 @@ class AgentClient:
 
     backend_name = "cli"
 
-    def __init__(  # noqa: PLR0913
+    def __init__(
         self,
         driver: AgentDriver,
         *,
@@ -222,7 +222,7 @@ class AgentClient:
         if self._driver_log is not None:
             self._driver_log.stream = stream
 
-    def invoke(  # noqa: PLR0913
+    def invoke(
         self,
         *,
         kind: str,
@@ -275,7 +275,7 @@ class AgentClient:
         log_json_and_print(parsed.model_dump_json(indent=2), self._run_log_file)
         return parsed
 
-    def invoke_text(  # noqa: PLR0913
+    def invoke_text(
         self,
         *,
         kind: str,
@@ -316,7 +316,7 @@ class AgentClient:
             log_and_print(f"No response received from {label.lower()}.", self._run_log_file)
         return result.text
 
-    def _invoke_turn(  # noqa: PLR0913
+    def _invoke_turn(
         self,
         *,
         kind: str,

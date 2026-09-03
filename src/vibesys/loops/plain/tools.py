@@ -33,7 +33,7 @@ from vs_issue_board import (
 )
 
 
-def build_issue_tools(  # noqa: PLR0913  # tracked: #288
+def build_issue_tools(
     store: IssueBoard,
     *,
     iteration: int,

@@ -129,7 +129,7 @@ class OmnigentAsyncRuntime:
         """Return whether the caller is executing on the runtime loop."""
         return threading.current_thread() is self._thread
 
-    def close(self) -> None:  # noqa: C901  # cleanup continues after every failure
+    def close(self) -> None:  # cleanup continues after every failure
         """Drain loop-owned facilities, stop the thread, and close the loop."""
         if self.is_current_thread():
             raise RuntimeError("Omnigent async runtime cannot close from its event-loop thread")

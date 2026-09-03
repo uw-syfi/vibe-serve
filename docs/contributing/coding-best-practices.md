@@ -198,6 +198,32 @@ failure cases.
 - Prefer assertions about observable contracts over assertions tied to private
   implementation details.
 
+## Size And Complexity Limits
+
+God files, god functions, deep branching, and long parameter lists are enforced
+by the linters already in the toolchain, not by review alone. These are hard
+limits: existing code is not grandfathered and suppressions are not permitted.
+
+| Metric | Python | TypeScript |
+| --- | --- | --- |
+| Cyclomatic / cognitive complexity | ruff `C901` (max 10) and `PLR0912` (max 12 branches) | biome `complexity/noExcessiveCognitiveComplexity`, max 15 |
+| Function length | ruff `PLR0915`, max 50 statements | biome `complexity/noExcessiveLinesPerFunction`, 80 lines, blanks skipped |
+| Parameters | ruff `PLR0913`, max 5 | biome `complexity/useMaxParams`, max 6 |
+| File length | `scripts/check_file_length.py`, 1,600 lines | biome `style/noExcessiveLinesPerFile`, 1,600 lines |
+
+The limits apply to both production and test files within the configured scan
+roots. The thresholds live in `pyproject.toml` (`[tool.ruff.lint]`,
+`[tool.vibesys.file_length]`) and `biome.json`.
+
+Do not add Ruff `noqa` or Biome suppression comments for the rules in this
+table. Do not add per-file exceptions to the Python file-length checker. Split
+the file or function until it satisfies the configured limit.
+
+```bash
+uv run python scripts/check_file_length.py
+pnpm lint:ts
+```
+
 ## Avoid
 
 - Large unrelated refactors.

@@ -530,7 +530,7 @@ def append_judge_skipped(  # noqa: D103  # tracked: #288
     _append(progress_path, block, round_number)
 
 
-def append_official_evaluation_decision(  # noqa: D103, PLR0913  # tracked: #288
+def append_official_evaluation_decision(  # noqa: D103  # tracked: #288
     progress_path: Path,
     round_number: int,
     retry: int,
@@ -586,7 +586,7 @@ def append_single_agent_round(  # noqa: D103  # tracked: #288
     _append(progress_path, block, round_number)
 
 
-def append_framework_accuracy_gate(  # noqa: D103, PLR0913  # tracked: #288
+def append_framework_accuracy_gate(  # noqa: D103  # tracked: #288
     progress_path: Path,
     round_number: int,
     retry: int,
@@ -629,7 +629,7 @@ def append_framework_validation_gate(
     _append(progress_path, "\n".join(lines) + "\n", round_number)
 
 
-def append_framework_benchmark(  # noqa: D103, PLR0913  # tracked: #288
+def append_framework_benchmark(  # noqa: D103  # tracked: #288
     progress_path: Path,
     round_number: int,
     retry: int,

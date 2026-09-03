@@ -55,7 +55,7 @@ if TYPE_CHECKING:
 class RunApi:
     """Authoritative request API consumed by frontend clients."""
 
-    def __init__(  # noqa: PLR0913  # Explicit dependencies define the API boundary.
+    def __init__(  # Explicit dependencies define the API boundary.
         self,
         condition: threading.Condition,
         controller: RunController,
@@ -77,7 +77,7 @@ class RunApi:
         self._tui_defaults: InteractiveSetupDefaults | None = None
         self._tui_defaults_lock = threading.Lock()
 
-    def execute(self, request: ProtocolRequest) -> Response:  # noqa: C901, PLR0911
+    def execute(self, request: ProtocolRequest) -> Response:
         """Execute one typed request and return its protocol response."""
         if isinstance(request, (PauseCommand, ResumeCommand, SteerCommand)):
             return self._execute_command(request)

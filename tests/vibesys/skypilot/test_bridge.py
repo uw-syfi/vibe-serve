@@ -94,7 +94,7 @@ class FakeRunner(SkyPilotJobRunner):
             return None
         return ClusterInfo(name, self.cluster_status)
 
-    def run(  # noqa: PLR0913
+    def run(
         self,
         cluster_name: str,
         resources: ResolvedSkyPilotResources,  # noqa: ARG002
@@ -530,7 +530,7 @@ def test_job_discovered_during_close_is_cancelled_and_released(
     assert set(runner.release_names) == {"new-lease", "old-lease"}
 
 
-def test_bridge_stages_allowlisted_command_streams_and_cleans_up(  # noqa: PLR0915
+def test_bridge_stages_allowlisted_command_streams_and_cleans_up(
     tmp_path: Path, socket_dir: Path
 ) -> None:
     workspace = tmp_path / "workspace"

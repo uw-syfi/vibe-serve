@@ -187,7 +187,7 @@ def cmd_kernels(args):  # noqa: ANN001, ANN201  # tracked: #288
 # ---------------------------------------------------------------------------
 
 
-def cmd_cpu_overhead(args):  # noqa: ANN001, ANN201, C901  # tracked: #288
+def cmd_cpu_overhead(args):  # noqa: ANN001, ANN201  # tracked: #288
     """CPU-side CUDA runtime overhead and launch-bound detection."""
     conn, strings = _open_db(_ensure_sqlite(args.report))  # noqa: RUF059  # tracked: #288
     if not _table_exists(conn, "CUPTI_ACTIVITY_KIND_RUNTIME"):
@@ -297,7 +297,7 @@ def cmd_cpu_overhead(args):  # noqa: ANN001, ANN201, C901  # tracked: #288
 # ---------------------------------------------------------------------------
 
 
-def cmd_idle_gaps(args):  # noqa: ANN001, ANN201, C901  # tracked: #288
+def cmd_idle_gaps(args):  # noqa: ANN001, ANN201  # tracked: #288
     """Find largest GPU idle gaps between kernels."""
     conn, strings = _open_db(_ensure_sqlite(args.report))
     if not _table_exists(conn, "CUPTI_ACTIVITY_KIND_KERNEL"):
@@ -472,7 +472,7 @@ def cmd_graph_replays(args):  # noqa: ANN001, ANN201  # tracked: #288
 # ---------------------------------------------------------------------------
 
 
-def cmd_step_timeline(args):  # noqa: ANN001, ANN201, C901, PLR0912, PLR0915  # tracked: #288
+def cmd_step_timeline(args):  # noqa: ANN001, ANN201  # tracked: #288
     """Per-decode-step kernel breakdown.
 
     Detects repeating kernel patterns to identify individual decode steps,

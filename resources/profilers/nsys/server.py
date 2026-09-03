@@ -47,7 +47,7 @@ def _capture(fn, **kwargs) -> str:  # noqa: ANN001, ANN003  # tracked: #288
     return out or "(no output)"
 
 
-def build_server() -> FastMCP:  # noqa: C901  # tracked: #288
+def build_server() -> FastMCP:
     """Construct the FastMCP instance with nsys analysis tools.
 
     Exposed separately so unit tests can introspect registered tools

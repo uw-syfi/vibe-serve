@@ -21,7 +21,7 @@ _MAX_FRAME_BYTES = 1024 * 1024
 _FRAMEWORK_ARGUMENT_COUNT = 2
 
 
-def run_evaluator(  # noqa: C901, PLR0911, PLR0912, PLR0915
+def run_evaluator(
     kind: str,
     socket_path: Path,
     *,

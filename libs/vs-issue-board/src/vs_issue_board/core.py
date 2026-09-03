@@ -223,7 +223,7 @@ class IssueBoard:
                     return issue.model_copy(deep=True)
         return None
 
-    def update_status(  # noqa: D102, PLR0913  # tracked: #288
+    def update_status(  # noqa: D102  # tracked: #288
         self,
         issue_id: int,
         status: IssueStatus | str,

@@ -178,7 +178,7 @@ class ModalSandbox(BaseSandbox):
 
     _CONTAINER_ROOT = "/workspace"
 
-    def __init__(  # noqa: D417, PLR0913  # tracked: #288
+    def __init__(  # noqa: D417  # tracked: #288
         self,
         host_workspace: str,
         image: str,
@@ -341,7 +341,7 @@ class ModalSandbox(BaseSandbox):
             self._delete_workspace_volume()
             raise
 
-    def _create_container(self) -> None:  # noqa: C901  # tracked: #288
+    def _create_container(self) -> None:
         """Create (or recreate) the Modal sandbox container on top of the
         already-populated workspace volume. Shared by ``start`` and
         ``_restart_sandbox``.

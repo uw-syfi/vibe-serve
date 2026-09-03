@@ -65,7 +65,7 @@ __all__ = [
 ]
 
 
-def __getattr__(name: str) -> Any:  # noqa: ANN401, PLR0911  # tracked: #288
+def __getattr__(name: str) -> Any:  # noqa: ANN401  # tracked: #288
     if name == "DockerSandbox":
         from vs_sandbox.docker_sandbox import DockerSandbox  # noqa: PLC0415  # tracked: #288
 

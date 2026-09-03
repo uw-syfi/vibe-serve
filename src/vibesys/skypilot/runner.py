@@ -275,7 +275,7 @@ def build_task_document(
 class SkyPilotJobRunner:
     """Inspect, launch, use, cancel, and release named SkyPilot clusters."""
 
-    def __init__(  # noqa: PLR0913
+    def __init__(
         self,
         command_runner: CommandRunner | None = None,
         *,
@@ -362,7 +362,7 @@ class SkyPilotJobRunner:
             self.release(name, timeout=self._remaining(deadline, default=60) or 60)
         return self.launch(name, resources, timeout=self._remaining(deadline))
 
-    def run(  # noqa: PLR0913
+    def run(
         self,
         cluster_name: str,
         resources: ResolvedSkyPilotResources,

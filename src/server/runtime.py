@@ -85,7 +85,7 @@ class ServerRuntime:
         )
         self.chat.enable_terminal_retention()
 
-    def run(self, run: Callable[[], Any]) -> Any:  # noqa: ANN401, PLR0915
+    def run(self, run: Callable[[], Any]) -> Any:  # noqa: ANN401
         """Serve requests while executing ``run`` in the calling thread."""
         previous_sigterm = signal.getsignal(signal.SIGTERM)
 

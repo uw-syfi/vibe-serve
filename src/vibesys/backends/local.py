@@ -40,7 +40,7 @@ _DEFAULT_CPU_IMAGE = "python:3.12-bookworm"
 class LocalBackend:
     """No-device backend (Metal / CPU) — hardware hooks are no-ops."""
 
-    def __init__(  # noqa: D107, PLR0913  # tracked: #288
+    def __init__(  # noqa: D107  # tracked: #288
         self,
         name: ComputeBackend,
         log_dir: Path,
@@ -64,7 +64,7 @@ class LocalBackend:
 
     # -- ComputeBackendImpl protocol -----------------------------------------
 
-    def make_sandbox(  # noqa: D102, PLR0913  # tracked: #288
+    def make_sandbox(  # noqa: D102  # tracked: #288
         self,
         kind: SandboxKind,
         *,

@@ -129,7 +129,7 @@ class ModelConfig:
     # ------------------------------------------------------------------
 
     @classmethod
-    def from_string(  # noqa: PLR0911  # tracked: #288
+    def from_string(
         cls,
         model_str: str,
         *,
@@ -263,7 +263,7 @@ class ModelConfig:
     # Environment validation
     # ------------------------------------------------------------------
 
-    def validate_env(self) -> None:  # noqa: C901  # tracked: #288
+    def validate_env(self) -> None:
         """Check that required environment variables are present for this provider.
 
         Raises:

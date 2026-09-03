@@ -641,7 +641,7 @@ def _provisional_candidates_since_official(records: list[RoundRecord]) -> int:
     return count
 
 
-def _official_evaluation_reason(  # noqa: PLR0913  # tracked: #288
+def _official_evaluation_reason(
     *,
     records: list[RoundRecord],
     round_number: int,
@@ -827,7 +827,7 @@ def _is_fresh_cold_start(round_number: int, records: list[RoundRecord]) -> bool:
     return round_number == 1 and not records
 
 
-def _run_pre_round_decision(  # noqa: PLR0913  # tracked: #288
+def _run_pre_round_decision(
     ctx: LoopContext,
     *,
     round_number: int,
@@ -905,7 +905,7 @@ def _effective_profiler_definition(  # noqa: ANN202  # tracked: #288
     return definition
 
 
-def _run_profiler(  # noqa: PLR0913  # tracked: #288
+def _run_profiler(
     ctx: LoopContext,
     *,
     round_number: int,
@@ -1026,7 +1026,7 @@ def _domain_render_context(
     }
 
 
-def _run_orchestrator_plan(  # noqa: PLR0913  # tracked: #288
+def _run_orchestrator_plan(
     ctx: LoopContext,
     *,
     agent_run_state: AgentRunState,
@@ -1214,7 +1214,7 @@ def _validate_skill_selections(
     return validated, resolved
 
 
-def _run_implementer(  # noqa: PLR0913  # tracked: #288
+def _run_implementer(
     ctx: LoopContext,
     *,
     round_number: int,
@@ -1340,7 +1340,7 @@ def _run_implementer(  # noqa: PLR0913  # tracked: #288
     )
 
 
-def _run_judge(  # noqa: PLR0913  # tracked: #288
+def _run_judge(
     ctx: LoopContext,
     *,
     round_number: int,
@@ -1490,7 +1490,7 @@ def _run_judge(  # noqa: PLR0913  # tracked: #288
     return response
 
 
-def _run_single_agent_round(  # noqa: PLR0913  # tracked: #288
+def _run_single_agent_round(
     ctx: LoopContext,
     *,
     round_number: int,
@@ -1724,7 +1724,7 @@ def _load_validation_recipes(workspace: Path, artifact: str) -> list[ValidationR
         raise ValueError(f"validation recipe artifact does not match version 1: {exc}") from exc  # noqa: TRY003  # tracked: #288
 
 
-def _run_framework_validation_gate(  # noqa: C901, PLR0912, PLR0915  # tracked: #288
+def _run_framework_validation_gate(
     ctx: LoopContext,
     *,
     recipe_artifact: str | None,
@@ -1886,7 +1886,7 @@ def _with_candidate_revision(
     return f"env {' '.join(environment)} {command}"
 
 
-def _run_framework_accuracy_gate(  # noqa: PLR0913  # tracked: #288
+def _run_framework_accuracy_gate(
     ctx: LoopContext,
     *,
     round_number: int,
@@ -2036,7 +2036,7 @@ def _metric_values(value: object, metric: str) -> list[object]:
     return []
 
 
-def _run_framework_benchmark(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
+def _run_framework_benchmark(
     ctx: LoopContext,
     *,
     result_spec: BenchmarkResult | None,
@@ -2229,7 +2229,7 @@ def _reconcile_model_requests(ctx: LoopContext) -> str | None:
     return None
 
 
-def _run_framework_gates(  # noqa: PLR0913  # tracked: #288
+def _run_framework_gates(
     ctx: LoopContext,
     *,
     benchmark_result: BenchmarkResult | None,
@@ -2302,7 +2302,7 @@ def _run_framework_gates(  # noqa: PLR0913  # tracked: #288
 # ---------------------------------------------------------------------------
 
 
-def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
+def run_agent_loop(
     config: Config,
     exp_name: str,
     input_path: str,

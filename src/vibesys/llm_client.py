@@ -28,7 +28,7 @@ def _has_thinking(thinking: ThinkingCfg) -> bool:
     return thinking.level is not None or thinking.budget is not None
 
 
-def build_model(config: Config):  # noqa: ANN201, C901, PLR0911, PLR0912  # tracked: #288
+def build_model(config: Config):  # noqa: ANN201  # tracked: #288
     """Build the chat model from a parsed :class:`Config`."""
     model_name = config.model.name
     provider = config.model.provider

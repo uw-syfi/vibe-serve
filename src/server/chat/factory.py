@@ -168,7 +168,7 @@ def build_chat_agent(
 class ExperimentChatFactory:
     """Build and own chat sessions from an attached core run."""
 
-    def __init__(  # noqa: PLR0913  # Construction wires independent run resources.
+    def __init__(  # Construction wires independent run resources.
         self,
         *,
         manager: ChatManager,

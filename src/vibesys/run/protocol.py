@@ -84,7 +84,7 @@ class LoopContext(Protocol):  # noqa: D101  # tracked: #288
 
     def switch_log_file(self, label: int | str) -> None: ...  # noqa: D102  # tracked: #288
 
-    def invoke(  # noqa: D102, PLR0913  # tracked: #288
+    def invoke(  # noqa: D102  # tracked: #288
         self,
         *,
         kind: str,

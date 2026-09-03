@@ -180,7 +180,7 @@ def _extract_hot_symbols(report_text: str, *, limit: int = 20) -> tuple[str, ...
     return tuple(hot)
 
 
-def collect(  # noqa: PLR0913  # tracked: #288
+def collect(
     command: list[str],
     output_dir: Path,
     *,
@@ -348,7 +348,7 @@ def collect(  # noqa: PLR0913  # tracked: #288
     )
 
 
-def _write_metadata(  # noqa: PLR0913  # tracked: #288
+def _write_metadata(
     output_dir: Path,
     *,
     command: list[str],

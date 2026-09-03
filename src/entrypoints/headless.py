@@ -1297,7 +1297,7 @@ def _restore_resume_constraints(
     return requested != recorded.operator_constraints
 
 
-def _restore_resume_run_environment(  # noqa: C901
+def _restore_resume_run_environment(
     args: argparse.Namespace,
     recorded: RunConfiguration,
     explicit: frozenset[str],
@@ -2291,7 +2291,7 @@ def _build_evolve_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _validate_evolve(args: argparse.Namespace) -> None:  # noqa: C901  # tracked: #288
+def _validate_evolve(args: argparse.Namespace) -> None:
     _validate_target_inputs(args)
     _validate_run_environment_profiler(args)
     if args.children_per_generation < 1:

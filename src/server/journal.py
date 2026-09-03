@@ -165,7 +165,7 @@ class EventJournal:
                 return event
             return self._apply_recorded(store.append(event))
 
-    def record_failure(  # noqa: PLR0913
+    def record_failure(
         self,
         event_type: EventType,
         error: BaseException,
@@ -197,7 +197,7 @@ class EventJournal:
             **fields,
         )
 
-    def record_terminal_failure(  # noqa: PLR0913
+    def record_terminal_failure(
         self,
         event_type: EventType,
         error: BaseException,
@@ -229,7 +229,7 @@ class EventJournal:
         )
 
     @contextmanager
-    def capture_failure(  # noqa: PLR0913
+    def capture_failure(
         self,
         *,
         event_type: EventType,

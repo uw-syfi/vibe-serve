@@ -224,7 +224,7 @@ class _DecodedLogSpool:
 class SkyPilotBridge:
     """Serve a fixed evaluator allowlist over a host-owned Unix socket."""
 
-    def __init__(  # noqa: PLR0913
+    def __init__(
         self,
         *,
         runner: SkyPilotJobRunner,
@@ -422,7 +422,7 @@ class SkyPilotBridge:
             ).encode()
         ).hexdigest()
 
-    def _run(  # noqa: C901, PLR0913, PLR0915
+    def _run(
         self,
         request: EvaluationRequest,
         command: tuple[str, ...],

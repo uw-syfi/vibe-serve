@@ -43,7 +43,7 @@ def __getattr__(name: str) -> Any:  # noqa: ANN401
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")  # noqa: TRY003
 
 
-def build_agent_client(  # noqa: PLR0913
+def build_agent_client(
     config: Config,
     *,
     agent_backend: str | None,

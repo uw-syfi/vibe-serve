@@ -142,7 +142,7 @@ command = ["uv", "run", "python", "benchmark/benchmark.py"]
     return str(ref)
 
 
-def _make_orchestrate_runner(  # noqa: ANN202, PLR0913  # tracked: #288
+def _make_orchestrate_runner(  # noqa: ANN202  # tracked: #288
     *,
     pre_decisions: list[PreRoundDecision] | None = None,
     plans: list[OrchestratorPlan] | None = None,
@@ -181,7 +181,7 @@ def _make_orchestrate_runner(  # noqa: ANN202, PLR0913  # tracked: #288
     runner = MagicMock(spec=AgentClient)
     runner.backend_name = "deepagents"
 
-    def _invoke(*, kind, response_cls, fallback_factory, **kwargs):  # noqa: ANN001, ANN003, ANN202, ARG001, PLR0911  # tracked: #288
+    def _invoke(*, kind, response_cls, fallback_factory, **kwargs):  # noqa: ANN001, ANN003, ANN202, ARG001  # tracked: #288
         if kind == "orchestrator" and response_cls is PreRoundDecision:
             counters["orch_pre"] += 1
             return (

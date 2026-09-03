@@ -129,7 +129,7 @@ class SearchPolicy(Protocol):
     @property
     def requires_code(self) -> bool: ...  # noqa: D102  # tracked: #288
 
-    def select(  # noqa: D102, PLR0913  # tracked: #288
+    def select(  # noqa: D102  # tracked: #288
         self,
         population: Population,
         *,
@@ -161,7 +161,7 @@ class VibeSysSearchPolicy:
     def requires_code(self) -> bool:  # noqa: D102  # tracked: #288
         return False
 
-    def select(  # noqa: D102, PLR0913  # tracked: #288
+    def select(  # noqa: D102  # tracked: #288
         self,
         population: Population,
         *,
@@ -367,7 +367,7 @@ class OpenEvolveSearchPolicy:
         if not isinstance(self._database.archive, _SortedIterationSet):
             self._database.archive = _SortedIterationSet(self._database.archive)
 
-    def _canonicalize_new_upstream_programs(self, program_ids_before: set[str]) -> None:  # noqa: C901, PLR0912  # tracked: #288
+    def _canonicalize_new_upstream_programs(self, program_ids_before: set[str]) -> None:
         """Replace upstream random IDs and timestamps with state-derived values."""
         new_programs = [
             program
@@ -428,7 +428,7 @@ class OpenEvolveSearchPolicy:
                 if prompts is not None:
                     self._database.prompts_by_program[canonical_id] = prompts
 
-    def select(  # noqa: D102, PLR0913  # tracked: #288
+    def select(  # noqa: D102  # tracked: #288
         self,
         population: Population,
         *,

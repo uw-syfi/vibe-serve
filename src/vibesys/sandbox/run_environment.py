@@ -1001,7 +1001,7 @@ def build_run_environment(spec: RunEnvironmentSpec) -> RunEnvironment:  # noqa: 
     raise ValueError(f"unknown run environment: {spec.name!r}")  # noqa: TRY003  # tracked: #288
 
 
-def make_run_environment_spec(  # noqa: PLR0913  # tracked: #288
+def make_run_environment_spec(
     *,
     use_docker: bool = False,
     docker_image: str | None = None,
@@ -1395,7 +1395,7 @@ def _docker_workspace_run(
     )
 
 
-def _container_mount_plan(  # noqa: C901  # tracked: #288
+def _container_mount_plan(
     request: RunEnvironmentRequest,
     *,
     include_cli_provider_mounts: bool = True,

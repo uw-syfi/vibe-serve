@@ -263,7 +263,7 @@ def _extract_typed_structured_response(update: Any, response_cls: type[T]) -> T 
 # ---------------------------------------------------------------------------
 
 
-def run_agent(  # noqa: PLR0913  # tracked: #288
+def run_agent(
     agent: Any,  # noqa: ANN401  # tracked: #288
     prompt: str,
     callbacks: list[BaseCallbackHandler] | None = None,
@@ -313,7 +313,7 @@ def run_agent(  # noqa: PLR0913  # tracked: #288
     return last_ai_message
 
 
-def run_typed_agent(  # noqa: PLR0913  # tracked: #288
+def run_typed_agent(
     agent: Any,  # noqa: ANN401  # tracked: #288
     prompt: str,
     *,
@@ -380,7 +380,7 @@ def run_typed_agent(  # noqa: PLR0913  # tracked: #288
     return structured_response
 
 
-def run_implementer_agent(  # noqa: PLR0913  # tracked: #288
+def run_implementer_agent(
     agent: Any,  # noqa: ANN401  # tracked: #288
     prompt: str,
     callbacks: list[BaseCallbackHandler] | None = None,
@@ -405,7 +405,7 @@ def run_implementer_agent(  # noqa: PLR0913  # tracked: #288
     )
 
 
-def run_judge_agent(  # noqa: PLR0913  # tracked: #288
+def run_judge_agent(
     agent: Any,  # noqa: ANN401  # tracked: #288
     prompt: str,
     callbacks: list[BaseCallbackHandler] | None = None,
@@ -435,7 +435,7 @@ def run_judge_agent(  # noqa: PLR0913  # tracked: #288
     )
 
 
-def run_perf_eval_agent(  # noqa: PLR0913  # tracked: #288
+def run_perf_eval_agent(
     agent: Any,  # noqa: ANN401  # tracked: #288
     prompt: str,
     callbacks: list[BaseCallbackHandler] | None = None,
@@ -529,7 +529,7 @@ def _extract_profiler_structured_response(update: dict[str, Any]) -> ProfilerRes
 # ---------------------------------------------------------------------------
 
 
-def run_profiler_agent(  # noqa: PLR0913  # tracked: #288
+def run_profiler_agent(
     agent: Any,  # noqa: ANN401  # tracked: #288
     prompt: str,
     callbacks: list[BaseCallbackHandler] | None = None,
@@ -591,7 +591,7 @@ def run_profiler_agent(  # noqa: PLR0913  # tracked: #288
     return structured_response
 
 
-def run_issue_implementer_agent(  # noqa: PLR0913  # tracked: #288
+def run_issue_implementer_agent(
     agent: Any,  # noqa: ANN401  # tracked: #288
     prompt: str,
     *,
@@ -620,7 +620,7 @@ def run_issue_implementer_agent(  # noqa: PLR0913  # tracked: #288
     )
 
 
-def run_issue_judge_agent(  # noqa: PLR0913  # tracked: #288
+def run_issue_judge_agent(
     agent: Any,  # noqa: ANN401  # tracked: #288
     prompt: str,
     *,
@@ -650,7 +650,7 @@ def run_issue_judge_agent(  # noqa: PLR0913  # tracked: #288
     )
 
 
-def run_issue_perf_eval_agent(  # noqa: PLR0913  # tracked: #288
+def run_issue_perf_eval_agent(
     agent: Any,  # noqa: ANN401  # tracked: #288
     prompt: str,
     callbacks: list[BaseCallbackHandler] | None = None,

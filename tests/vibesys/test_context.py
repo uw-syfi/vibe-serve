@@ -154,7 +154,7 @@ command = ["python", "benchmark.py"]
     return task
 
 
-def _create_context(  # noqa: PLR0913
+def _create_context(
     project: Path,
     *,
     runs_dir: Path | None = None,

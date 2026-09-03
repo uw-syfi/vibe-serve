@@ -19,7 +19,7 @@ _TRAJECTORY_SYNC_LOCK = threading.Lock()
 class TrajectoryEvidence:
     """Refresh the bounded project-state and log evidence exposed to chat."""
 
-    def __init__(  # noqa: PLR0913  # Snapshot inputs have distinct ownership roles.
+    def __init__(  # Snapshot inputs have distinct ownership roles.
         self,
         *,
         state_dir: Path,

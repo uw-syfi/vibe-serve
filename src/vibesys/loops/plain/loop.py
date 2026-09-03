@@ -262,7 +262,7 @@ def _ensure_bootstrap_issue(
 # ---------------------------------------------------------------------------
 
 
-def run_plain_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
+def run_plain_loop(
     config: Config,
     exp_name: str,
     input_path: str,

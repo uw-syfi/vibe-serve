@@ -38,7 +38,7 @@ NKI_SKILL_NAMES = {
 }
 
 
-def _args(  # noqa: ANN202, PLR0913  # tracked: #288
+def _args(  # noqa: ANN202  # tracked: #288
     tmp_path,  # noqa: ANN001  # tracked: #288
     backend,  # noqa: ANN001  # tracked: #288
     *,

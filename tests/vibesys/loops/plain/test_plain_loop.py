@@ -433,7 +433,7 @@ _EXPECTED_TRACKER_TOOL_NAMES = {
 @patch("vibesys.context.build_model")
 @patch("vibesys.backends.cuda.make_local_shell_sandbox")
 @patch("vibesys.context.build_agent_client")
-def test_judge_invoke_receives_tracker_kwargs(  # noqa: ANN201, PLR0913  # tracked: #288
+def test_judge_invoke_receives_tracker_kwargs(  # noqa: ANN201  # tracked: #288
     mock_build_runner,  # noqa: ANN001  # tracked: #288
     mock_backend,  # noqa: ANN001, ARG001  # tracked: #288
     mock_build,  # noqa: ANN001  # tracked: #288
@@ -499,7 +499,7 @@ def test_judge_invoke_receives_tracker_kwargs(  # noqa: ANN201, PLR0913  # track
 @patch("vibesys.context.build_model")
 @patch("vibesys.backends.cuda.make_local_shell_sandbox")
 @patch("vibesys.context.build_agent_client")
-def test_perf_eval_invoke_receives_tracker_kwargs(  # noqa: ANN201, PLR0913  # tracked: #288
+def test_perf_eval_invoke_receives_tracker_kwargs(  # noqa: ANN201  # tracked: #288
     mock_build_runner,  # noqa: ANN001  # tracked: #288
     mock_backend,  # noqa: ANN001, ARG001  # tracked: #288
     mock_build,  # noqa: ANN001  # tracked: #288
@@ -632,7 +632,7 @@ def test_judge_phase_calls_store_reload_after_invoke(  # noqa: ANN201  # tracked
 @patch("vibesys.context.build_model")
 @patch("vibesys.backends.cuda.make_local_shell_sandbox")
 @patch("vibesys.context.build_agent_client")
-def test_implementer_invoke_has_no_tracker_kwargs(  # noqa: ANN201, PLR0913  # tracked: #288
+def test_implementer_invoke_has_no_tracker_kwargs(  # noqa: ANN201  # tracked: #288
     mock_build_runner,  # noqa: ANN001  # tracked: #288
     mock_backend,  # noqa: ANN001, ARG001  # tracked: #288
     mock_build,  # noqa: ANN001  # tracked: #288

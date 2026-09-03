@@ -59,7 +59,7 @@ class ComputeBackendImpl(Protocol):
     name: ComputeBackend
     profiler_kind: ProfilerKind  # picks profiler support, MCP, and prompt template
 
-    def make_sandbox(  # noqa: PLR0913  # tracked: #288
+    def make_sandbox(
         self,
         kind: SandboxKind,
         *,
@@ -137,7 +137,7 @@ class ModalOptions:
     container so future backends can ignore it without typing gymnastics.
     """
 
-    def __init__(  # noqa: D107, PLR0913  # tracked: #288
+    def __init__(  # noqa: D107  # tracked: #288
         self,
         *,
         gpu: str | None = "H100",

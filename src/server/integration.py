@@ -66,7 +66,7 @@ class ServerInvocationLifecycle:
         self._controller = controller
         self._executions = executions
 
-    def start(  # noqa: PLR0913
+    def start(
         self,
         kind: str,
         round_label: str,

@@ -625,7 +625,7 @@ class _DeploymentKeepWarm:
             _healthy_now(self._base_url)
 
 
-def _execute_colocated(  # noqa: PLR0913
+def _execute_colocated(
     command: Sequence[str],
     *,
     workspace: str,
@@ -695,7 +695,7 @@ def _execute_colocated(  # noqa: PLR0913
     return exit_code
 
 
-def run_evaluator(  # noqa: PLR0913
+def run_evaluator(
     command: Sequence[str],
     *,
     workspace: str = "/workspace",
@@ -731,7 +731,7 @@ def run_evaluator(  # noqa: PLR0913
         )
 
 
-def _run_evaluator_unlocked(  # noqa: C901, PLR0911, PLR0912, PLR0913, PLR0915  # tracked: #288
+def _run_evaluator_unlocked(
     command: Sequence[str],
     *,
     workspace: str,

@@ -194,7 +194,7 @@ def test_provider_environment_is_explicit_and_does_not_modify_process_environmen
     assert inherited == "ambient"
 
 
-def test_distinct_tool_helpers_snapshot_their_own_environment_without_command_rewrite(  # noqa: C901
+def test_distinct_tool_helpers_snapshot_their_own_environment_without_command_rewrite(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

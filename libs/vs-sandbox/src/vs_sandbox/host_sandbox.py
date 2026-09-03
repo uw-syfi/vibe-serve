@@ -534,7 +534,7 @@ def _resource_paths(
     return list(imports.read_paths), list(imports.write_paths)
 
 
-def build(  # noqa: PLR0913
+def build(
     workspace: Path | str,
     *,
     env: dict[str, str],

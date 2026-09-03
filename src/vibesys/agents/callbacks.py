@@ -72,7 +72,7 @@ class AgentLogger(BaseCallbackHandler):
     ``AgentLogger`` itself never writes to the terminal.
     """
 
-    def __init__(  # noqa: ANN204, D107, PLR0913  # tracked: #288
+    def __init__(  # noqa: ANN204, D107  # tracked: #288
         self,
         log_file: TextIO | None = None,
         model_name: str | None = None,
@@ -415,7 +415,7 @@ class AgentLogger(BaseCallbackHandler):
             normalized = {"args": str(args)}
         self.log_tool_call(tool, normalized)
 
-    def on_tool_result(  # noqa: D102, PLR0913  # tracked: #288
+    def on_tool_result(  # noqa: D102  # tracked: #288
         self,
         tool: str,
         stdout: str = "",

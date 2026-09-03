@@ -150,7 +150,7 @@ class CliAgentRunner:
     def close(self) -> None:
         """AgentShim launches one process per turn and retains no live process."""
 
-    def __init__(  # noqa: ANN204, D107, PLR0913  # tracked: #288
+    def __init__(  # noqa: ANN204, D107  # tracked: #288
         self,
         *,
         provider: str,
@@ -200,7 +200,7 @@ class CliAgentRunner:
         self._agents: dict[str, CodingAgent] = {}
         self._session_turn_counts: dict[str, int] = {}
 
-    def invoke(  # noqa: D102, PLR0913  # tracked: #288
+    def invoke(  # noqa: D102  # tracked: #288
         self,
         *,
         kind: str,
@@ -291,7 +291,7 @@ class CliAgentRunner:
         log_json_and_print(parsed.model_dump_json(indent=2), self._run_log_file)
         return parsed
 
-    def invoke_text(  # noqa: PLR0913  # tracked: #288
+    def invoke_text(
         self,
         *,
         kind: str,
@@ -333,7 +333,7 @@ class CliAgentRunner:
             log_and_print(f"No response received from {label.lower()}.", self._run_log_file)
         return text
 
-    def _generate(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
+    def _generate(
         self,
         *,
         kind: str,

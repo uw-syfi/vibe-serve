@@ -160,7 +160,7 @@ class CodingAgent(ABC):
             del backups[target]
             raise
 
-    def _restore_mcp_config_file(self, target: Path) -> None:  # noqa: C901, PLR0912  # tracked: #288
+    def _restore_mcp_config_file(self, target: Path) -> None:
         """Restore a config saved by :meth:`_install_mcp_config_file`."""
         backups = getattr(self, "_mcp_config_backups", None)
         if backups is None or target not in backups:

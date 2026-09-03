@@ -193,7 +193,7 @@ class _AgentShimEventHandler:
 class AgentShimSession:
     """One configured AgentShim conversation."""
 
-    def __init__(  # noqa: D107, PLR0913  # tracked: #288
+    def __init__(  # noqa: D107  # tracked: #288
         self,
         *,
         agent: CodingAgent,
@@ -214,7 +214,7 @@ class AgentShimSession:
         self._turn_count = 0
         self._closed = False
 
-    def run_turn(  # noqa: C901, D102, PLR0912  # tracked: #288
+    def run_turn(  # noqa: D102  # tracked: #288
         self,
         request: AgentTurnRequest,
         observer: AgentObserver | None = None,

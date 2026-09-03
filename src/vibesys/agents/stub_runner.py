@@ -40,7 +40,7 @@ class StubAgentClient:
         """Accept log retargeting; the deterministic stub emits no file logs."""
         del stream
 
-    def invoke(  # noqa: D102, PLR0913  # tracked: #288
+    def invoke(  # noqa: D102  # tracked: #288
         self,
         *,
         kind: str,
@@ -72,7 +72,7 @@ class StubAgentClient:
         )
         return response_cls.model_validate(response) if response is not None else fallback_factory()
 
-    def invoke_text(  # noqa: PLR0913  # tracked: #288
+    def invoke_text(
         self,
         *,
         kind: str,

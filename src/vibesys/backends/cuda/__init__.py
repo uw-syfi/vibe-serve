@@ -67,7 +67,7 @@ class CudaBackend:
 
     # -- ComputeBackendImpl protocol ---------------------------------------------
 
-    def make_sandbox(  # noqa: PLR0913  # tracked: #288
+    def make_sandbox(
         self,
         kind: SandboxKind,
         *,

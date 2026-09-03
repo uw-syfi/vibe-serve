@@ -189,7 +189,7 @@ command = ["python", "-c", "print('ok')"]
     return str(ref)
 
 
-def _make_runner(  # noqa: ANN202, C901, PLR0913  # tracked: #288
+def _make_runner(  # noqa: ANN202  # tracked: #288
     *,
     judge_verdicts: list[str] | None = None,
     profiler_responses: list[ProfilerSummary] | None = None,

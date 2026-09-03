@@ -28,7 +28,7 @@ def _config(**agent: object) -> Config:
     return Config.model_validate({"model": {"name": "m"}, "agent": agent})
 
 
-def _build(  # noqa: PLR0913
+def _build(
     config: Config,
     *,
     backends: dict[str, Any] | None = None,

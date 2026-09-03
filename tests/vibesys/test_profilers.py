@@ -47,7 +47,7 @@ def test_profiler_definition_needs_no_path_or_dispatch_declaration():  # noqa: A
     assert definition.prompt_template == "profilers/nsys.j2"
 
 
-def _expected_resolved(  # noqa: PLR0911  # tracked: #288
+def _expected_resolved(
     requested: ProfilerKind,
     *,
     domain: DomainName,

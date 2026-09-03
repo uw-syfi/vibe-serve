@@ -28,7 +28,7 @@ class RunInspector:
     def __init__(self, integration: RunIntegrationAdapter):  # noqa: ANN204, D107  # tracked: #288
         self.integration = integration
 
-    def answer(self, question: str) -> str:  # noqa: D102, PLR0911  # tracked: #288
+    def answer(self, question: str) -> str:  # noqa: D102  # tracked: #288
         configuration_failure = self._latest_configuration_failure()
         if configuration_failure is not None:
             return self._status_answer(question, configuration_failure)

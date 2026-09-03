@@ -101,7 +101,7 @@ WorkspaceStep = CopySpec | InputProjectSpec | GitSourceSpec
 class Workspace:
     """The canonical project root and every rule for populating it."""
 
-    def __init__(  # noqa: D107, PLR0913  # tracked: #288
+    def __init__(  # noqa: D107  # tracked: #288
         self,
         root: Path,
         *,
@@ -137,7 +137,7 @@ class Workspace:
 
     # -- setup planning -------------------------------------------------------
 
-    def plan_setup(  # noqa: C901, PLR0912, PLR0913  # tracked: #288
+    def plan_setup(
         self,
         *,
         existing: bool,
@@ -362,7 +362,7 @@ class Workspace:
                     path.unlink()
                     marker.write_text(str(target))
 
-    def copy_dir(  # noqa: C901, D102, PLR0912, PLR0913, PLR0915  # tracked: #288
+    def copy_dir(  # noqa: D102  # tracked: #288
         self,
         src: Path,
         dst: Path,

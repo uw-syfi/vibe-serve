@@ -66,7 +66,7 @@ _UNSUPPORTED_NATIVE_SCHEMA_KEYWORDS = frozenset(
 )
 
 
-def _validate_native_output_schema(  # noqa: C901  # tracked: #288
+def _validate_native_output_schema(
     schema: object,
     *,
     allow_arbitrary_keys: bool = False,
@@ -101,7 +101,7 @@ def _validate_native_output_schema(  # noqa: C901  # tracked: #288
         # Preserved verbatim; a schema-valued map is traversed by the generic
         # key walk below so nested subschemas obey the same rules.
 
-    def visit(node: object, location: str) -> None:  # noqa: C901, PLR0912  # tracked: #288
+    def visit(node: object, location: str) -> None:
         if isinstance(node, list):
             for index, value in enumerate(node):
                 visit(value, f"{location}/{index}")
@@ -212,7 +212,7 @@ def _platform_prune_ignore(
     return _ignore
 
 
-def materialize_skills(  # noqa: C901  # tracked: #288
+def materialize_skills(
     workspace: Path,
     skill_dirs: list[Path],
     *,

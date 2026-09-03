@@ -86,7 +86,7 @@ def supported_cli_providers(driver_name: str) -> tuple[str, ...]:
     )
 
 
-def build_agent_client(  # noqa: C901, PLR0912, PLR0913
+def build_agent_client(
     config: Config,
     *,
     agent_backend: str | None,

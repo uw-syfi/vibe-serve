@@ -137,7 +137,7 @@ class DockerSandbox(BaseSandbox):
 
     _CONTAINER_ROOT = "/workspace"
 
-    def __init__(  # noqa: D417, PLR0913  # tracked: #288
+    def __init__(  # noqa: D417  # tracked: #288
         self,
         host_workspace: str,
         image: str,
@@ -361,7 +361,7 @@ class DockerSandbox(BaseSandbox):
         # Fallback: pass through as-is (e.g. user explicitly set gpus="device=0")
         return gpus
 
-    def start(self) -> None:  # noqa: C901, PLR0912  # tracked: #288
+    def start(self) -> None:
         """Start the Docker container."""
         self._container_name = f"vibesys-{uuid.uuid4().hex[:12]}"
         cmd = [
