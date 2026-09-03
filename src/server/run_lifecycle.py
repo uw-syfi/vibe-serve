@@ -1,0 +1,136 @@
+"""The run lifecycle: its statuses, its triggers, and the legal moves between.
+
+Pure module. It owns what a run's status may become and nothing else: no
+locks, no journal, no I/O. :class:`~server.controller.RunController` owns the
+current value and the side effects of changing it, so the rules here can be
+enumerated in a unit test without composing a server.
+"""
+
+from __future__ import annotations
+
+from enum import StrEnum
+from types import MappingProxyType
+from typing import Final
+
+
+class RunStatus(StrEnum):
+    """Lifecycle status of one run, as frontends observe it.
+
+    This is the authoritative closed set for the ``status`` field of
+    ``RunSnapshot`` and of ``RunStatusChangedData``; the generated TypeScript
+    protocol types derive their union from it.
+
+    ``PAUSING`` and ``PAUSED`` are distinct because a pause is only applied at
+    an invocation boundary: ``/pause`` records the request, and the run keeps
+    executing the call already in flight until it reaches that boundary.
+    """
+
+    STARTING = "starting"
+    RUNNING = "running"
+    PAUSING = "pausing"
+    PAUSED = "paused"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+    @property
+    def has_ended(self) -> bool:
+        """Whether the run has settled into a status it never leaves."""
+        match self:
+            case RunStatus.COMPLETED | RunStatus.FAILED:
+                return True
+            case RunStatus.STARTING | RunStatus.RUNNING | RunStatus.PAUSING | RunStatus.PAUSED:
+                return False
+
+
+class RunTrigger(StrEnum):
+    """What happened to a run, in the vocabulary the controller observes.
+
+    Triggers are facts, not commands: ``INVOCATION_FINISHED`` fires at every
+    controlled invocation boundary whether or not a pause is pending, and the
+    transition table decides whether that boundary is where a pause lands.
+    """
+
+    ATTACHED = "attached"
+    """Durable run storage was attached; the run may execute.
+
+    A run can be attached more than once (a later attach re-bootstraps the
+    journal), so this trigger is idempotent once the run is under way.
+    """
+
+    PAUSE_REQUESTED = "pause_requested"
+    """An operator asked to pause at the next invocation boundary."""
+
+    INVOCATION_FINISHED = "invocation_finished"
+    """A controlled invocation reached its boundary."""
+
+    RESUMED = "resumed"
+    """An operator asked to resume, cancelling any pending pause."""
+
+    COMPLETED = "completed"
+    """The run finished its work."""
+
+    FAILED = "failed"
+    """The run stopped because of an error or an interruption."""
+
+
+class IllegalRunTransitionError(Exception):
+    """A trigger the run's current status cannot accept."""
+
+    def __init__(self, current: RunStatus, trigger: RunTrigger) -> None:
+        """Name the rejected pair so the caller's log identifies the bug."""
+        super().__init__(
+            f"a run in status {current.value!r} cannot accept trigger {trigger.value!r}"
+        )
+        self.current = current
+        self.trigger = trigger
+
+
+_TRANSITIONS: Final[MappingProxyType[tuple[RunStatus, RunTrigger], RunStatus]] = MappingProxyType(
+    {
+        (RunStatus.STARTING, RunTrigger.ATTACHED): RunStatus.RUNNING,
+        (RunStatus.STARTING, RunTrigger.COMPLETED): RunStatus.COMPLETED,
+        (RunStatus.STARTING, RunTrigger.FAILED): RunStatus.FAILED,
+        (RunStatus.RUNNING, RunTrigger.ATTACHED): RunStatus.RUNNING,
+        (RunStatus.RUNNING, RunTrigger.PAUSE_REQUESTED): RunStatus.PAUSING,
+        (RunStatus.RUNNING, RunTrigger.INVOCATION_FINISHED): RunStatus.RUNNING,
+        (RunStatus.RUNNING, RunTrigger.RESUMED): RunStatus.RUNNING,
+        (RunStatus.RUNNING, RunTrigger.COMPLETED): RunStatus.COMPLETED,
+        (RunStatus.RUNNING, RunTrigger.FAILED): RunStatus.FAILED,
+        (RunStatus.PAUSING, RunTrigger.ATTACHED): RunStatus.PAUSING,
+        (RunStatus.PAUSING, RunTrigger.PAUSE_REQUESTED): RunStatus.PAUSING,
+        (RunStatus.PAUSING, RunTrigger.INVOCATION_FINISHED): RunStatus.PAUSED,
+        (RunStatus.PAUSING, RunTrigger.RESUMED): RunStatus.RUNNING,
+        (RunStatus.PAUSING, RunTrigger.COMPLETED): RunStatus.COMPLETED,
+        (RunStatus.PAUSING, RunTrigger.FAILED): RunStatus.FAILED,
+        (RunStatus.PAUSED, RunTrigger.ATTACHED): RunStatus.PAUSED,
+        (RunStatus.PAUSED, RunTrigger.PAUSE_REQUESTED): RunStatus.PAUSED,
+        (RunStatus.PAUSED, RunTrigger.INVOCATION_FINISHED): RunStatus.PAUSED,
+        (RunStatus.PAUSED, RunTrigger.RESUMED): RunStatus.RUNNING,
+        (RunStatus.PAUSED, RunTrigger.COMPLETED): RunStatus.COMPLETED,
+        (RunStatus.PAUSED, RunTrigger.FAILED): RunStatus.FAILED,
+    }
+)
+"""Every legal move out of a status that has not ended, as data.
+
+Absent pairs are illegal and raise. A status that has ended is absorbing and
+is deliberately not listed: :func:`transition` answers for it first.
+"""
+
+
+def transition(current: RunStatus, trigger: RunTrigger) -> RunStatus:
+    """Return the status ``trigger`` produces from ``current``.
+
+    An ended status absorbs every trigger, which is what makes ``finish``
+    idempotent and lets a late ``/resume`` or a boundary reached after the run
+    stopped be a no-op rather than an error.
+
+    Raises:
+        IllegalRunTransitionError: The pair is not in the table, so the caller
+            observed something the lifecycle says cannot happen.
+    """
+    if current.has_ended:
+        return current
+    result = _TRANSITIONS.get((current, trigger))
+    if result is None:
+        raise IllegalRunTransitionError(current, trigger)
+    return result
