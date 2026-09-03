@@ -965,7 +965,12 @@ def test_pareto_archive_distinguishes_trusted_and_pending_candidates():  # noqa:
 
     assert "Trusted frontier parents" in summary
     assert "round 49" in summary
-    assert "awaiting independent review" in summary
+    # The pending row is listed separately and told apart by *why* it is not a
+    # trusted parent. Both reasons are named, because after #535 a row can land
+    # here for failing review or for carrying an implementer-reported number.
+    assert "not yet usable as trusted parents" in summary
+    assert "independent review" in summary
+    assert "implementer's own report" in summary
     assert "round 51" in summary
 
 
@@ -4407,8 +4412,8 @@ def test_loop_threads_roadmap_into_orchestrator_prompt(tmp_path, ref_file):  # n
 
 
 def test_loop_threads_plateau_warning_into_prompt(tmp_path, ref_file):  # noqa: ANN001, ANN201  # tracked: #288
-    """When the prior rounds plateau on perf, the orchestrator's next prompt
-    must include the plateau warning."""
+    """When the prior rounds plateau on framework-measured perf, the
+    orchestrator's next prompt must include the plateau warning."""
     seen_prompts: list[str] = []
     # Five rounds: round 1 is cold-start (no profiler), rounds 2-4 produce
     # flat perf metrics, and round 5 is the round under test (its plan call
@@ -4453,7 +4458,6 @@ def test_loop_threads_plateau_warning_into_prompt(tmp_path, ref_file):  # noqa: 
                 perf_unit="tok/s",
             ),
         ],
-        implementer_perf_metrics=[None, 42.0, 42.1, 41.9, 42.05],
     )
     real = runner.invoke.side_effect
 
@@ -4464,13 +4468,31 @@ def test_loop_threads_plateau_warning_into_prompt(tmp_path, ref_file):  # noqa: 
 
     runner.invoke.side_effect = spy
 
-    _invoke_orchestrate(
-        tmp_path,
-        ref_file,
-        runner,
-        max_rounds=5,
-        official_eval_every=1,
-    )
+    # The plateau signal is built from framework measurements only, so the
+    # readings have to come from the benchmark gate. Round one measures
+    # nothing; rounds 2-5 are flat at 41.9-42.1.
+    with patch(
+        "vibesys.loops.agent.loop._run_framework_benchmark",
+        side_effect=[
+            FrameworkBenchmarkOutcome(),
+            *(
+                FrameworkBenchmarkOutcome(
+                    metric_name="total_ops_per_sec",
+                    metric_value=value,
+                    metric_direction="max",
+                )
+                for value in (42.0, 42.1, 41.9, 42.05)
+            ),
+        ],
+    ):
+        _invoke_orchestrate(
+            tmp_path,
+            ref_file,
+            runner,
+            max_rounds=5,
+            official_eval_every=1,
+            benchmark_result_protocol=2,
+        )
     assert len(seen_prompts) == 5
     # Rounds 1-4 have <3 valid perf records before each plan call → no
     # warning yet (round 1: 0 perf; round 2: 0 perf; round 3: 1 perf; round 4: 2 perf).
@@ -4483,6 +4505,53 @@ def test_loop_threads_plateau_warning_into_prompt(tmp_path, ref_file):  # noqa: 
     assert "Plateau detected" in seen_prompts[4]
     assert "Refresh an analytical performance model" in seen_prompts[4]
     assert "unexplained residual" in seen_prompts[4]
+
+
+def test_self_reported_numbers_do_not_raise_a_plateau_warning(tmp_path, ref_file):  # noqa: ANN001, ANN201  # tracked: #288
+    """The same flat trajectory, self-reported, is not evidence of a plateau.
+
+    Telling the orchestrator it has stopped making progress on the strength of
+    its own reports is a feedback loop: the agent would be reacting to numbers
+    it chose. The consequence is deliberate and worth stating -- a task that
+    declares no benchmark result contract gets no plateau warning at all,
+    because the framework has measured nothing to detect a plateau in.
+    """
+    seen_prompts: list[str] = []
+    plans = [
+        OrchestratorPlan(task=f"r{i}", pass_criteria="p", reasoning=f"r{i}")  # noqa: S106  # tracked: #288
+        for i in range(1, 6)  # noqa: RUF100, S106  # tracked: #288
+    ]
+    runner = _make_orchestrate_runner(
+        pre_decisions=[PreRoundDecision(need_profile=True, profile_focus="x", reasoning="ok")] * 4,
+        plans=plans,
+        profiler_responses=[
+            ProfilerSummary(
+                analysis="a",
+                bottlenecks="b",
+                suggestions="s",
+                perf_metric=value,
+                perf_unit="tok/s",
+            )
+            for value in (42.0, 42.1, 41.9, 42.05)
+        ],
+        implementer_perf_metrics=[None, 42.0, 42.1, 41.9, 42.05],
+    )
+    real = runner.invoke.side_effect
+
+    def spy(*, kind, response_cls, **kwargs):  # noqa: ANN001, ANN003, ANN202  # tracked: #288
+        if kind == "orchestrator" and response_cls is OrchestratorPlan:
+            seen_prompts.append(kwargs.get("system_prompt", ""))
+        return real(kind=kind, response_cls=response_cls, **kwargs)
+
+    runner.invoke.side_effect = spy
+
+    _invoke_orchestrate(tmp_path, ref_file, runner, max_rounds=5, official_eval_every=1)
+
+    assert len(seen_prompts) == 5
+    assert [round_data["perf_provenance"] for round_data in _round_payloads(tmp_path)][1:] == [
+        "implementer"
+    ] * 4
+    assert all("Plateau detected" not in prompt for prompt in seen_prompts)
 
 
 def test_completed_round_records_which_implementer_produced_it(tmp_path, ref_file):  # noqa: ANN001, ANN201  # tracked: #288
