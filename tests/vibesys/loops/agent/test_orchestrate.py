@@ -4420,3 +4420,59 @@ def test_completed_round_records_which_implementer_produced_it(tmp_path, ref_fil
     assert round_one["implementer_model"] == "gpt-5.6-sol"
     # The record is portable state; a host-local session ID must never reach it.
     assert not [key for key in round_one if "session" in key]
+
+
+def test_round_records_stamp_who_produced_the_headline_metric(tmp_path, ref_file):  # noqa: ANN001, ANN201  # tracked: #288
+    """A round's `perf_provenance` names the source of its `perf_metric`.
+
+    `official_evaluation` only says the framework's gates ran; it is true for
+    both rounds below. Without a separate stamp, a consumer deciding whether a
+    number is trustworthy cannot tell the agent's self-report from a
+    framework-owned measurement, which is what #479 is about.
+    """
+    runner = _make_orchestrate_runner(implementer_perf_metrics=[321.5])
+
+    _invoke_orchestrate(tmp_path, ref_file, runner, max_rounds=1, judge_every=10)
+
+    rounds = _round_payloads(tmp_path)
+    assert rounds[0]["official_evaluation"] is True
+    assert rounds[0]["perf_metric"] == 321.5
+    assert rounds[0]["perf_provenance"] == "implementer"
+
+
+def test_framework_measured_round_is_stamped_framework(tmp_path, ref_file):  # noqa: ANN001, ANN201  # tracked: #288
+    """The framework benchmark's number overrides the agent's, stamp included."""
+    runner = _make_orchestrate_runner(implementer_perf_metrics=[321.5])
+
+    with patch(
+        "vibesys.loops.agent.loop._run_framework_benchmark",
+        return_value=FrameworkBenchmarkOutcome(
+            metric_name="total_ops_per_sec",
+            metric_value=41250.3,
+            metric_direction="max",
+        ),
+    ):
+        _invoke_orchestrate(
+            tmp_path,
+            ref_file,
+            runner,
+            max_rounds=1,
+            judge_every=10,
+            benchmark_result_protocol=2,
+        )
+
+    rounds = _round_payloads(tmp_path)
+    assert rounds[0]["official_evaluation"] is True
+    assert rounds[0]["perf_metric"] == 41250.3
+    assert rounds[0]["perf_provenance"] == "framework"
+
+
+def test_a_round_with_no_headline_metric_carries_no_provenance(tmp_path, ref_file):  # noqa: ANN001, ANN201  # tracked: #288
+    """The invariant: provenance is set exactly when a metric is recorded."""
+    runner = _make_orchestrate_runner(implementer_perf_metrics=[None])
+
+    _invoke_orchestrate(tmp_path, ref_file, runner, max_rounds=1, judge_every=10)
+
+    rounds = _round_payloads(tmp_path)
+    assert rounds[0]["perf_metric"] is None
+    assert rounds[0]["perf_provenance"] is None
