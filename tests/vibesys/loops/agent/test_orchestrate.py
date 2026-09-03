@@ -1884,8 +1884,10 @@ def test_framework_benchmark_removes_transport_artifact(tmp_path):  # noqa: ANN0
     """Regression for #532: the per-nonce result file is removed on every path.
 
     Runs the gate against a real shell backend so the transport JSON is
-    genuinely written under ``/tmp``, then asserts it no longer exists after
-    both a successful parse and a malformed-output failure.
+    genuinely written under ``/tmp``, then asserts it no longer exists after a
+    successful parse, a malformed-output failure, and a nonzero-exit benchmark
+    that writes the file before failing. Success, nonzero exit, timeout, and
+    malformed output all leave through the same ``finally`` cleanup.
     """
     import sys  # noqa: PLC0415  # tracked: #288
 
@@ -1909,14 +1911,17 @@ def test_framework_benchmark_removes_transport_artifact(tmp_path):  # noqa: ANN0
             )
             return SimpleNamespace(exit_code=proc.returncode, output=proc.stdout)
 
-    def run_once(payload):  # noqa: ANN001, ANN202  # tracked: #288
+    def run_once(payload, *, fail_after_write=False):  # noqa: ANN001, ANN202  # tracked: #288
         # The benchmark "command" copies a fixed source file to the result path
         # the gate appends as its last argument, so the payload text controls
-        # whether the recovered JSON parses.
+        # whether the recovered JSON parses. ``fail_after_write`` writes the
+        # file and then exits nonzero, exercising the leaked-artifact path.
         src = tmp_path / "payload.json"
         src.write_text(payload)
+        tail = "; sys.exit(1)" if fail_after_write else ""
         writer = (
-            f"{sys.executable} -c \"import sys, shutil; shutil.copyfile('{src}', sys.argv[-1])\""
+            f'{sys.executable} -c "import sys, shutil; '
+            f"shutil.copyfile('{src}', sys.argv[-1]){tail}\""
         )
         ctx = MagicMock()
         ctx.judge_benchmark_command = writer
@@ -1943,6 +1948,12 @@ def test_framework_benchmark_removes_transport_artifact(tmp_path):  # noqa: ANN0
 
     # Malformed output: parsing fails, but the artifact is still removed.
     result, artifact = run_once("this is not json")
+    assert not result.passed
+    assert not artifact.exists()
+
+    # Nonzero exit: the benchmark writes the result file and then fails, the
+    # exact leak the fixed-name path used to strand; still removed.
+    result, artifact = run_once('{"tok_per_sec": 42.0}', fail_after_write=True)
     assert not result.passed
     assert not artifact.exists()
 
