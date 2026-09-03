@@ -105,6 +105,31 @@ additionally re-serialize to itself byte for byte, which is what catches a field
 being added. `bad-cpp-round1` is declared legacy there and only has to validate.
 A new fixture has to declare the same, or the directory check fails.
 
+### Legacy translation
+
+A legacy capture still replays with its agent executions, because the harness
+applies the same translation the real read path applies. `journal.ts` ports it:
+`execution_id` is recovered from the legacy `invocation_id`, and
+`invocation_started`/`invocation_finished` are rewritten into
+`agent_execution_started`/`agent_execution_finished`, with the opening activity
+synthesized from the agent kind the way `EventJournal` synthesizes it. A journal
+that recorded both spellings of a boundary, which `queue-rs-payloads` does,
+delivers the canonical one and drops the legacy one, so 628 recorded events
+reach the client as 622.
+
+The port cannot import the Python it copies, so the two are pinned to one file:
+`test_canonical_events_match_the_backend_read_path` reads both fixtures through
+a real `EventJournal` and writes `canonical-events.golden.json`, and the parity
+test in `harness.test.ts` holds `journal.ts` to it. Regenerate the golden with
+`UPDATE_CANONICAL_EVENTS=1 uv run pytest tests/server/test_tui_dev_harness.py`
+and read the diff as a backend change the harness has not been taught yet.
+
+One branch of the Python is not ported: the one that synthesizes a lifecycle
+event from `phase_started`/`phase_finished` for an execution that recorded no
+lifecycle event at all. Neither fixture reaches it, and it is the only branch
+that emits a second event at an already-used sequence, which the replay's
+one-event-per-sequence stepping does not model.
+
 ## Protocol notes
 
 Relevant if you extend `mock-server.ts`:
@@ -120,7 +145,10 @@ Relevant if you extend `mock-server.ts`:
   live batches. `history_after_sequence: 0` tells the TUI it holds the whole
   history and suppresses backfill requests.
 - The recorded `run-events.jsonl` line format is exactly the `RunEvent` that
-  goes on the wire, so replay is just re-enveloping lines into `event_batch`.
+  goes on the wire, so replay is re-enveloping lines into `event_batch`, after
+  the legacy translation above. Re-enveloping alone was wrong for a legacy
+  capture: the server never serves one raw, and a client that receives one folds
+  no agent executions out of it.
 - A snapshot and every `event_batch` carry `active_executions`, the server's
   liveness checkpoint. The mock derives it from the events it has delivered
   rather than keeping a second description of the same fact. Answered from the
@@ -137,7 +165,10 @@ Relevant if you extend `mock-server.ts`:
 
 `harness.test.ts` covers the parts that only exist at runtime: process
 lifetime, by driving `mock-ui.sh` with a client that exits before it
-subscribes, and the liveness checkpoint, by folding a real bootstrap batch plus
-the snapshot query that follows it through `@vibesys/core-state`. It runs with
-the TUI's own suite (`pnpm --dir clients/tui test`). The fixtures and the static
-response bodies are checked separately, in `tests/server/test_tui_dev_harness.py`.
+subscribes; the liveness checkpoint, by folding a real bootstrap batch plus the
+snapshot query that follows it through `@vibesys/core-state`; and the legacy
+translation, by replaying `bad-cpp-round1` over a real socket and folding the
+executions back out with the client's own reducer. It runs with the TUI's own
+suite (`pnpm --dir clients/tui test`). The fixtures, the static response bodies,
+and the canonicalization golden are checked separately, in
+`tests/server/test_tui_dev_harness.py`.

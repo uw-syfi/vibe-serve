@@ -124,3 +124,5 @@ reproduce a layout bug and is not accepted as evidence for one.
 To exercise rendering by hand without a backend, a provider, or tokens, replay a recorded run through
 the development harness described in
 [`clients/tui/dev/README.md`](https://github.com/uw-syfi/vibesys/blob/main/clients/tui/dev/README.md).
+The harness applies the same legacy translation the server's read path applies, so a capture recorded
+before `execution_id` existed replays with its agent executions intact, as a client would receive it.

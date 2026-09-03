@@ -3,18 +3,22 @@
  *
  * The harness is two processes and a shell script that wires them together, so
  * the things that go wrong with it are process lifetime and wire bytes, neither
- * of which a unit test over a helper would see. Both tests here run the real
- * scripts and speak the real protocol over a real socket.
+ * of which a unit test over a helper would see. The tests here therefore run
+ * the real scripts and speak the real protocol over a real socket. The parity
+ * test at the end is the exception, and says why.
  *
  * `tests/server/test_tui_dev_harness.py` covers the other half, the static
  * response bodies and the recorded fixtures, against the Python models. It
  * cannot reach anything the mock computes at runtime, because CI's pytest job
- * has no JavaScript runtime.
+ * has no JavaScript runtime, and nothing here can call the Python. The
+ * canonicalization the two halves share therefore meets in a file: that test
+ * writes `canonical-events.golden.json` from the real read path, and the parity
+ * test below holds `journal.ts` to it.
  */
 
 import {afterEach, expect, test} from 'bun:test';
-import {type ChildProcess, spawn, spawnSync} from 'node:child_process';
-import {chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync} from 'node:fs';
+import {spawn, spawnSync} from 'node:child_process';
+import {chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync} from 'node:fs';
 import {createConnection, type Socket} from 'node:net';
 import {tmpdir} from 'node:os';
 import {dirname, join} from 'node:path';
@@ -26,10 +30,13 @@ import {
   reduceEventBatch,
   reduceSnapshot,
 } from '@vibesys/core-state';
+import {canonicalJournalEvents, readJournalRecords} from './journal.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const MOCK_UI = join(HERE, 'mock-ui.sh');
 const MOCK_SERVER = join(HERE, 'mock-server.ts');
+const FIXTURE_DIR = join(HERE, 'fixtures');
+const CANONICAL_GOLDEN = join(HERE, 'canonical-events.golden.json');
 
 /** Generous: these wait on process exits, not on anything that should be slow. */
 const TEST_TIMEOUT_MS = 30_000;
@@ -38,11 +45,12 @@ const WAIT_TIMEOUT_MS = 15_000;
 /**
  * Bootstrap size that stops inside the first agent execution.
  *
- * `queue-rs-payloads` opens one at sequence 37 and closes it at 126, so a
- * 40-event bootstrap is delivered mid-invocation: the client folds an active
- * execution out of it, and a snapshot taken at the same sequence has to agree.
+ * `queue-rs-payloads` opens one at sequence 37 and closes it at 126, and
+ * `bad-cpp-round1` opens one at 10 and closes it at 79, so a 40-event bootstrap
+ * is delivered mid-execution on either: the client folds an active execution
+ * out of it, and a snapshot taken at the same sequence has to agree.
  */
-const MID_INVOCATION_BOOTSTRAP = 40;
+const MID_EXECUTION_BOOTSTRAP = 40;
 
 const cleanups: (() => void)[] = [];
 
@@ -120,6 +128,29 @@ function request(socket: Socket, payload: Record<string, unknown>): void {
   socket.write(`${JSON.stringify({protocol_version: 1, ...payload})}\n`);
 }
 
+/** Starts a mock server bound to `socketPath` and waits for it to accept. */
+async function startMockServer(socketPath: string, args: string[]): Promise<void> {
+  const server = spawn(
+    'bun',
+    [MOCK_SERVER, '--socket', socketPath, '--owner-pid', String(process.pid), ...args],
+    {stdio: 'ignore'},
+  );
+  cleanups.push(() => server.kill('SIGKILL'));
+  await waitFor('the mock server to bind', () => isListening(socketPath));
+}
+
+/** Subscribes on its own connection and resolves with the bootstrap batch. */
+async function bootstrapBatch(socketPath: string): Promise<Record<string, unknown>> {
+  const stream = await connect(socketPath);
+  const batch = nextMessage(stream, message => message['type'] === 'event_batch');
+  request(stream, {request_id: 'sub-1', type: 'subscribe'});
+  return batch;
+}
+
+function countByType(events: readonly RunEvent[], type: string): number {
+  return events.filter(event => event.type === type).length;
+}
+
 test(
   'terminates the mock server when the client exits before it subscribes',
   async () => {
@@ -163,29 +194,14 @@ test(
   async () => {
     const directory = scratchDirectory('vs-mock-snapshot-');
     const socketPath = join(directory, 'mock.sock');
-    const server: ChildProcess = spawn(
-      'bun',
-      [
-        MOCK_SERVER,
-        '--socket',
-        socketPath,
-        '--fixture',
-        'queue-rs-payloads.jsonl',
-        '--bootstrap',
-        String(MID_INVOCATION_BOOTSTRAP),
-        '--paused',
-        '--owner-pid',
-        String(process.pid),
-      ],
-      {stdio: 'ignore'},
-    );
-    cleanups.push(() => server.kill('SIGKILL'));
-    await waitFor('the mock server to bind', () => isListening(socketPath));
-
-    const stream = await connect(socketPath);
-    const batchMessage = nextMessage(stream, message => message['type'] === 'event_batch');
-    request(stream, {request_id: 'sub-1', type: 'subscribe'});
-    const batch = await batchMessage;
+    await startMockServer(socketPath, [
+      '--fixture',
+      'queue-rs-payloads.jsonl',
+      '--bootstrap',
+      String(MID_EXECUTION_BOOTSTRAP),
+      '--paused',
+    ]);
+    const batch = await bootstrapBatch(socketPath);
 
     // A second connection, the way the TUI queries while its stream runs. Boot
     // issues both concurrently, so this answer can land after the batch.
@@ -195,7 +211,11 @@ test(
     const snapshot = (await snapshotMessage)['snapshot'] as RunSnapshot;
 
     const throughSequence = batch['through_sequence'] as number;
-    expect(throughSequence).toBe(MID_INVOCATION_BOOTSTRAP);
+    // The bootstrap counts events, not sequences, and the two stopped agreeing
+    // when the replay started applying the server's legacy translation: this
+    // capture records both spellings of each lifecycle boundary, and the
+    // superseded legacy one is dropped before it reaches the wire.
+    expect(batch['events']).toHaveLength(MID_EXECUTION_BOOTSTRAP);
     // The equal-sequence case is the one `reduceSnapshot` accepts.
     expect(snapshot.sequence).toBe(throughSequence);
 
@@ -214,3 +234,84 @@ test(
   },
   TEST_TIMEOUT_MS,
 );
+
+test(
+  'replays a legacy capture with the executions the read path translates into it',
+  async () => {
+    const directory = scratchDirectory('vs-mock-legacy-');
+    const socketPath = join(directory, 'mock.sock');
+    await startMockServer(socketPath, [
+      '--fixture',
+      'bad-cpp-round1.jsonl',
+      '--bootstrap',
+      String(MID_EXECUTION_BOOTSTRAP),
+      '--paused',
+    ]);
+    const batch = await bootstrapBatch(socketPath);
+    const events = batch['events'] as RunEvent[];
+
+    // The capture records `invocation_started` and carries the execution
+    // identity under `invocation_id` alone, so both of these are the
+    // translation's doing and neither held before it.
+    expect(countByType(events, 'invocation_started')).toBe(0);
+    expect(countByType(events, 'agent_execution_started')).toBe(1);
+
+    // Folded with no checkpoint, so what this proves is that the delivered
+    // events open the execution, not that the mock also described one.
+    const folded = reduceEventBatch(
+      initialCoreState(),
+      events,
+      undefined,
+      batch['through_sequence'] as number,
+      batch['history_after_sequence'] as number,
+    );
+    const executions = Object.values(folded.activeExecutions);
+    expect(executions).toHaveLength(1);
+    // Synthesized by the translation, which is the only reason the pane has an
+    // activity to render: the legacy payload carries none.
+    expect(executions[0]?.stage).toBe('orchestrator');
+    expect(executions[0]?.activity).toEqual({mode: 'thinking', summary: 'Planning', tool: null});
+    // The checkpoint the same batch carries describes that same execution.
+    const reconciled = reduceEventBatch(
+      initialCoreState(),
+      events,
+      batch['active_executions'] as ActiveExecutionCheckpoint,
+      batch['through_sequence'] as number,
+      batch['history_after_sequence'] as number,
+    );
+    expect(reconciled.activeExecutions).toEqual(folded.activeExecutions);
+
+    // The whole capture, over the backfill query, which reads the same replay.
+    const control = await connect(socketPath);
+    const answer = nextMessage(control, message => message['request_id'] === 'events-1');
+    request(control, {request_id: 'events-1', type: 'query.events', after_sequence: 0});
+    const all = (await answer)['events'] as RunEvent[];
+    expect(countByType(all, 'agent_execution_started')).toBe(3);
+    expect(countByType(all, 'agent_execution_finished')).toBe(3);
+    expect(countByType(all, 'invocation_started')).toBe(0);
+    expect(countByType(all, 'invocation_finished')).toBe(0);
+  },
+  TEST_TIMEOUT_MS,
+);
+
+/**
+ * The one test here that runs no process: what it checks is a hand port of
+ * Python, and the golden it reads is the only place the two languages meet.
+ */
+test('canonicalizes recorded journals the way the backend read path does', () => {
+  const golden = JSON.parse(readFileSync(CANONICAL_GOLDEN, 'utf8')) as Record<string, unknown[][]>;
+  expect(Object.keys(golden)).not.toHaveLength(0);
+  for (const [fixture, expected] of Object.entries(golden)) {
+    const records = readJournalRecords(join(FIXTURE_DIR, fixture));
+    const recordedType = new Map(records.map(record => [record.sequence, record.type]));
+    // The same projection `_canonical_projection` writes: identity and order for
+    // every delivered event, and the whole payload for the ones the translation
+    // rebuilt, which are exactly those whose type no longer matches the record.
+    const projection = canonicalJournalEvents(records).map(event => {
+      const entry: unknown[] = [event.sequence, event.type, event.execution_id ?? null];
+      if (event.type !== recordedType.get(event.sequence)) entry.push(event.data ?? null);
+      return entry;
+    });
+    expect(projection).toEqual(expected);
+  }
+});

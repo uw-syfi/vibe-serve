@@ -22,14 +22,24 @@
  * The response bodies live in `mock-responses.json` rather than in this file so
  * `tests/server/test_tui_dev_harness.py` can validate the exact bytes that go
  * on the wire against the Python protocol contract.
+ *
+ * What goes on the wire is the recorded journal as the server's read path would
+ * have served it, not as it was recorded: `journal.ts` applies the same legacy
+ * translation before anything is replayed.
  */
 
 import {readFileSync, unlinkSync} from 'node:fs';
 import {createServer, type Socket} from 'node:net';
 import {dirname, join} from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {gunzipSync} from 'node:zlib';
 import type {ActiveExecutionCheckpoint} from '@vibesys/core-state';
+import {
+  canonicalJournalEvents,
+  optionalString,
+  type RunEventRecord,
+  readJournalRecords,
+  stringOr,
+} from './journal.js';
 
 /**
  * One entry of the liveness checkpoint the real server puts on a snapshot and
@@ -38,19 +48,6 @@ import type {ActiveExecutionCheckpoint} from '@vibesys/core-state';
  * silently thinner checkpoint on the wire.
  */
 type ExecutionCheckpoint = ActiveExecutionCheckpoint[number];
-
-interface RunEventRecord {
-  sequence?: number;
-  timestamp?: string;
-  type?: string;
-  run_id?: string;
-  status?: string | null;
-  round_label?: string | null;
-  agent_kind?: string | null;
-  execution_id?: string | null;
-  data?: Record<string, unknown> | null;
-  [key: string]: unknown;
-}
 
 interface Options {
   socketPath: string;
@@ -200,14 +197,6 @@ function replayRunStatus(delivered: RunEventRecord[]): string {
   return 'starting';
 }
 
-function stringOr(value: unknown, fallback: string): string {
-  return typeof value === 'string' ? value : fallback;
-}
-
-function optionalString(value: unknown): string | null {
-  return typeof value === 'string' ? value : null;
-}
-
 /** Run-ending event types, the same set the client's `foldEvent` terminates on. */
 function isRunTerminal(type: string | undefined): boolean {
   return (
@@ -238,8 +227,9 @@ function activeExecutionsFrom(delivered: RunEventRecord[]): ActiveExecutionCheck
     if (isRunTerminal(event.type)) active.clear();
     // `execution_id` only, never the legacy `invocation_id`: the checkpoint has
     // to describe the state the client folded, and the client keys executions
-    // by `execution_id` alone. A fixture predating that field carries no
-    // executions here, which is exactly what the client makes of it.
+    // by `execution_id` alone. A capture that predates the field still reaches
+    // here with one, because `journal.ts` has already applied the same
+    // execution-identity translation the server's read path applies.
     const executionId = event.execution_id;
     const data = event.data;
     if (typeof executionId !== 'string' || !data) continue;
@@ -254,8 +244,9 @@ function activeExecutionsFrom(delivered: RunEventRecord[]): ActiveExecutionCheck
         assignment: stringOr(data['user_prompt'], ''),
         started_at: stringOr(event.timestamp, ''),
         // Carried through, not rebuilt: `test_tui_dev_harness.py` validates
-        // every fixture line as a `RunEvent`, so this payload is already an
-        // `AgentExecutionActivityData`, closed `mode` set included.
+        // every fixture line as a `RunEvent`, so a recorded payload is already
+        // an `AgentExecutionActivityData`, closed `mode` set included, and a
+        // translated one was built as that type in `journal.ts`.
         activity: data['activity'] as ExecutionCheckpoint['activity'],
         driver: optionalString(data['driver']),
         provider: optionalString(data['provider']),
@@ -273,20 +264,6 @@ function activeExecutionsFrom(delivered: RunEventRecord[]): ActiveExecutionCheck
     if (data['kind'] === 'agent_execution_finished') active.delete(executionId);
   }
   return [...active.values()];
-}
-
-function loadFixture(path: string): RunEventRecord[] {
-  const raw = readFileSync(path);
-  const text = path.endsWith('.gz') ? gunzipSync(raw).toString('utf8') : raw.toString('utf8');
-  const events: RunEventRecord[] = [];
-  for (const line of text.split('\n')) {
-    if (!line.trim()) continue;
-    events.push(JSON.parse(line) as RunEventRecord);
-  }
-  if (events.length === 0) throw new Error(`fixture ${path} contains no events`);
-  // Recorded streams are already ordered, but a hand-edited fixture may not be,
-  // and the client folds strictly by sequence.
-  return events.map((event, index) => ({...event, sequence: event.sequence ?? index + 1}));
 }
 
 /** Milliseconds to wait before `next`, from the recorded timestamps. */
@@ -489,7 +466,10 @@ function ok(requestId: unknown, body: Record<string, unknown> = {}): Record<stri
 function main(): void {
   const options = parseOptions(process.argv.slice(2));
   options.fixture = resolveFixture(options.fixture);
-  const events = loadFixture(options.fixture);
+  // Canonicalized on the way in, the way the server canonicalizes on the way
+  // out: every read path a client can reach translates legacy lifecycle events,
+  // so the replay owes the TUI the translated stream, not the recorded one.
+  const events = canonicalJournalEvents(readJournalRecords(options.fixture));
   const replay = new Replay(events, options);
   process.stderr.write(
     `mock: ${String(events.length)} events from ${options.fixture}\n` +
