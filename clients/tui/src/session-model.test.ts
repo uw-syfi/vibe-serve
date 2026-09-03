@@ -1,6 +1,6 @@
 import {describe, expect, it, test} from 'bun:test';
-import type {RunEvent} from '@vibesys/backend-client';
-import {hasRunEnded} from '@vibesys/core-state';
+import type {RunEvent, RunStatus} from '@vibesys/backend-client';
+import {type CoreRunStatus, hasRunEnded} from '@vibesys/core-state';
 import type {SessionState} from './session-model.js';
 import {
   applyActiveExecutionCheckpoint,
@@ -1327,6 +1327,40 @@ describe('session event model', () => {
     expect(state.todosExpanded).toBe(false);
     expect(toggleTodos(state).todosExpanded).toBe(true);
     expect(toggleTodos(toggleTodos(state)).todosExpanded).toBe(false);
+  });
+
+  // The header carries exactly one status token, read from backend-owned core
+  // state. `/pause` is visible as `pausing…` until the backend says the pause
+  // landed, and the run's ended status replaces it rather than joining it.
+  it('renders one header status token per backend run status', () => {
+    const withStatus = (status: CoreRunStatus): string =>
+      statusText({
+        ...initialSessionState(),
+        core: {...initialSessionState().core, status},
+      });
+
+    expect(withStatus('running')).toBe('running · starting · no round yet');
+    expect(withStatus('pausing')).toBe('pausing… · starting · no round yet');
+    expect(withStatus('paused')).toBe('paused · starting · no round yet');
+    expect(withStatus('completed')).toBe('completed · starting · no round yet');
+  });
+
+  it('reads a pause from the backend and drops it when the run ends', () => {
+    const statusChange = (sequence: number, status: RunStatus, previous: RunStatus) =>
+      event(sequence, 'run_status_changed', {
+        kind: 'run_status_changed',
+        status,
+        previous,
+      });
+
+    let state = applyEvent(initialSessionState(), statusChange(1, 'pausing', 'running'));
+    expect(statusText(state)).toContain('pausing…');
+    state = applyEvent(state, statusChange(2, 'paused', 'pausing'));
+    expect(statusText(state)).toContain('paused');
+    state = applyEvent(state, statusChange(3, 'completed', 'paused'));
+
+    expect(statusText(state)).toContain('completed');
+    expect(statusText(state)).not.toContain('paused');
   });
 
   it('feeds usage updates into the status token meter', () => {

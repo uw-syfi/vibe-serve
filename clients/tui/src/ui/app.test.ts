@@ -114,6 +114,24 @@ describe('OpenTUI presentation', () => {
     expect(frame).toContain('Type /help for commands');
   });
 
+  // A command ack for /pause or /steer submitted from the modal chat has to
+  // render over that modal, and under the theme picker.
+  it('stacks the command overlay above the chat modal and below the theme picker', async () => {
+    const testRenderer = await createTestRenderer({width: 100, height: 24});
+    const controller = new FakeController(initialSessionState());
+    const app = createOpenTuiApp(testRenderer.renderer, controller);
+    registerCleanup(testRenderer.renderer, app);
+    await testRenderer.waitForFrame(value => value.includes('Command'));
+
+    const root = testRenderer.renderer.root;
+    const overlay = root.findDescendantById('overlay')?.zIndex;
+    const chatModal = root.findDescendantById('chat-overlay')?.zIndex;
+    const themePicker = root.findDescendantById('theme-picker')?.zIndex;
+
+    expect(overlay).toBeGreaterThan(chatModal ?? Number.POSITIVE_INFINITY);
+    expect(overlay).toBeLessThan(themePicker ?? Number.NEGATIVE_INFINITY);
+  });
+
   it('shows and dismisses a fatal error above the empty experiment log', async () => {
     const testRenderer = await createTestRenderer({width: 100, height: 24});
     const controller = new FakeController(initialSessionState());

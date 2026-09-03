@@ -11,6 +11,7 @@ import {
   type AgentPhase,
   type ChatThread,
   type CoreDiagnostic,
+  type CoreRunStatus,
   type CoreState,
   DEFAULT_CHAT_THREAD_ID,
   type ExecutionTodos,
@@ -1753,8 +1754,34 @@ export function showDetail(
   return {...state, overlay: {kind, content}};
 }
 
+/**
+ * How one backend run status reads in the header.
+ *
+ * The header shows exactly one status token, and it is this one: the backend
+ * owns the run's lifecycle, so there is no second flag to prefix. The switch is
+ * exhaustive, making a new status a compile error rather than a raw token.
+ */
+export function runStatusLabel(status: CoreRunStatus): string {
+  switch (status) {
+    case 'pausing':
+      // Requested, but the call already in flight has to finish first.
+      return 'pausing…';
+    case 'connecting':
+    case 'starting':
+    case 'running':
+    case 'paused':
+    case 'completed':
+    case 'failed':
+      return status;
+    default: {
+      const unhandled: never = status;
+      return unhandled;
+    }
+  }
+}
+
 export function statusText(state: SessionState): string {
-  const base = `${state.core.status} · ${state.core.agentKind ?? 'starting'} · ${state.core.roundLabel ?? 'no round yet'}`;
+  const base = `${runStatusLabel(state.core.status)} · ${state.core.agentKind ?? 'starting'} · ${state.core.roundLabel ?? 'no round yet'}`;
   if (state.core.usage === null) return base;
   const used = formatTokenCount(state.core.usage.inputTokens);
   const meter =

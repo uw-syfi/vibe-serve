@@ -41,7 +41,9 @@ export class OverlayView {
       borderStyle: 'rounded',
       borderColor: theme.info,
       backgroundColor: theme.elevatedSurface,
-      zIndex: 10,
+      // Above the chat modal (20), below the theme picker (30): a command ack
+      // submitted from the modal chat has to be visible over it.
+      zIndex: 25,
     });
   }
 

@@ -201,17 +201,23 @@ export function initialCoreState(): CoreState {
  * `false`.
  */
 export function hasRunEnded(state: CoreState): boolean {
-  switch (state.status) {
+  return endedRunStatus(state.status) !== null;
+}
+
+/** The ended status `status` is, or `null` while the run can still move on. */
+function endedRunStatus(status: CoreRunStatus): EndedRunStatus | null {
+  switch (status) {
     case 'completed':
     case 'failed':
-      return true;
+      return status;
     case 'connecting':
     case 'starting':
     case 'running':
+    case 'pausing':
     case 'paused':
-      return false;
+      return null;
     default: {
-      const unhandled: never = state.status;
+      const unhandled: never = status;
       return unhandled;
     }
   }
@@ -240,6 +246,11 @@ export function reduceSnapshot(state: CoreState, snapshot: RunSnapshot): CoreSta
     state,
   );
   if (snapshot.sequence < registered.sequence) return registered;
+  // Boot issues the snapshot query and the subscription concurrently, so a
+  // snapshot can arrive after the events it was taken alongside. Once the fold
+  // has seen the run end, a snapshot no newer than the fold cannot un-end it;
+  // a genuinely newer one (a resumed run) still applies.
+  if (hasRunEnded(registered) && snapshot.sequence <= registered.sequence) return registered;
   return {
     ...registered,
     status: snapshot.status,
@@ -556,6 +567,9 @@ function foldEvent(state: CoreState, event: RunEvent, folder: TranscriptFolder |
     ];
   }
   if (data?.kind === 'experiments_changed') next.experimentsRevision = sequence;
+  // The backend owns the run's lifecycle and publishes every move through it,
+  // so the projection folds the status it is told rather than inferring one.
+  if (data?.kind === 'run_status_changed') next = applyRunStatus(next, data.status);
 
   const legacyToolChunk =
     data?.kind === 'agent_output_chunk' && data.channel === 'tool' && next.typedToolEvents;
@@ -589,6 +603,12 @@ export function latestDiagnosticChange(
     current.diagnostics.find((diagnostic, index) => diagnostic !== previous.diagnostics[index]) ??
     null
   );
+}
+
+/** Folds one backend-published status, ending the run when that status has. */
+function applyRunStatus(state: CoreState, status: CoreRunStatus): CoreState {
+  const ended = endedRunStatus(status);
+  return ended === null ? {...state, status} : terminate(state, ended);
 }
 
 function terminate(state: CoreState, status: EndedRunStatus): CoreState {

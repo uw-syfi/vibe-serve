@@ -675,6 +675,7 @@ describe('whether a run has ended', () => {
     expect(hasRunEnded(withStatus('connecting'))).toBe(false);
     expect(hasRunEnded(withStatus('starting'))).toBe(false);
     expect(hasRunEnded(withStatus('running'))).toBe(false);
+    expect(hasRunEnded(withStatus('pausing'))).toBe(false);
     expect(hasRunEnded(withStatus('paused'))).toBe(false);
   });
 
@@ -697,6 +698,80 @@ describe('whether a run has ended', () => {
         ...baseEvent(2, 'run_started'),
         data: {kind: 'run_started', outer_loop: 'agent', input: '.', max_rounds: 3},
       },
+    ]);
+
+    expect(state.status).toBe('running');
+    expect(hasRunEnded(state)).toBe(false);
+  });
+});
+
+// The backend owns the run lifecycle and publishes every move through it. The
+// projection folds those events and holds no lifecycle flag of its own, so a
+// pause is visible for exactly as long as the backend says it lasts.
+describe('the run lifecycle', () => {
+  const statusEvent = (sequence: number, status: CoreRunStatus, previous: CoreRunStatus) =>
+    ({
+      ...baseEvent(sequence, 'run_status_changed'),
+      data: {kind: 'run_status_changed', status, previous},
+    }) as RunEvent;
+
+  it('folds a pause request, its boundary, and the resume', () => {
+    const requested = reduceEvent(initialCoreState(), statusEvent(1, 'pausing', 'running'));
+    expect(requested.status).toBe('pausing');
+
+    const paused = reduceEvent(requested, statusEvent(2, 'paused', 'pausing'));
+    expect(paused.status).toBe('paused');
+
+    const resumed = reduceEvent(paused, statusEvent(3, 'running', 'paused'));
+    expect(resumed.status).toBe('running');
+    expect(hasRunEnded(resumed)).toBe(false);
+  });
+
+  it('ends a run that was paused when it stopped', () => {
+    const state = reduceEventBatch(initialCoreState(), [
+      statusEvent(1, 'pausing', 'running'),
+      statusEvent(2, 'paused', 'pausing'),
+      statusEvent(3, 'completed', 'paused'),
+    ]);
+
+    expect(state.status).toBe('completed');
+    expect(hasRunEnded(state)).toBe(true);
+  });
+
+  it('drops the active executions of a run that ended while paused', () => {
+    const running = reduceSnapshot(initialCoreState(), {
+      run_id: 'run',
+      status: 'paused',
+      sequence: 1,
+      active_executions: [checkpoint('exec-1')],
+    } satisfies RunSnapshot);
+
+    const state = reduceEvent(running, statusEvent(2, 'failed', 'paused'));
+
+    expect(state.activeExecutions).toEqual({});
+  });
+
+  it('keeps an ended run ended against a snapshot no newer than the fold', () => {
+    const ended = reduceEventBatch(initialCoreState(), [
+      statusEvent(1, 'pausing', 'running'),
+      statusEvent(2, 'completed', 'pausing'),
+      baseEvent(3, 'run_finished'),
+    ]);
+
+    const stale = reduceSnapshot(ended, {
+      run_id: 'run',
+      status: 'running',
+      sequence: 3,
+    } satisfies RunSnapshot);
+
+    expect(stale.status).toBe('completed');
+  });
+
+  it('reads a resumed run as running from the transition after the replay', () => {
+    const state = reduceEventBatch(initialCoreState(), [
+      statusEvent(1, 'completed', 'running'),
+      baseEvent(2, 'run_finished'),
+      statusEvent(3, 'running', 'starting'),
     ]);
 
     expect(state.status).toBe('running');
