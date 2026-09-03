@@ -38,6 +38,7 @@ from vibesys.loops.agent.attempt import (
 )
 from vibesys.loops.agent.hypotheses import (
     ResolutionEvidence,
+    adopt_metric_space,
     append_round,
     apply_strategy_updates,
     metric_baseline,
@@ -52,12 +53,16 @@ from vibesys.loops.agent.model import (
     HypothesisResolution,
 )
 from vibesys.loops.agent.state import AgentRunStateStore
-from vibesys.loops.evolve.population import Objective  # noqa: TC001  # tracked: #288
 from vibesys.loops.gates import (
     GATE_FEEDBACK_TAIL_CHARS,
     GATE_LOG_TAIL_CHARS,
     GATE_RECORD_TAIL_CHARS,
     run_accuracy_gate,
+)
+from vibesys.loops.metrics import (
+    Measurement,
+    MetricSpace,
+    Objective,
 )
 from vibesys.loops.profiler import mcp_spec as profiler_mcp_spec
 from vibesys.profilers import (
@@ -249,9 +254,6 @@ def _metric_value(record: RoundRecord, metric_name: str | None) -> float | None:
 # ---------------------------------------------------------------------------
 
 
-_DEFAULT_PARETO_RELATIVE_NOISE = 0.0
-
-
 def _record_candidate_metrics(record: RoundRecord) -> dict[str, float]:
     """Return the comparable objective row associated with *record*.
 
@@ -301,50 +303,11 @@ def _provisional_candidate_retained(
     return None
 
 
-def _noise_aware_dominates(
-    a: dict[str, float],
-    b: dict[str, float],
-    objectives: list[Objective],
-    *,
-    relative_noise: float = _DEFAULT_PARETO_RELATIVE_NOISE,
-) -> bool:
-    """Return whether *a* materially dominates *b* outside benchmark noise.
-
-    A candidate dominates only when it is no worse than ``b`` within the
-    declared relative noise on every configured axis and better by more than
-    that noise on at least one. Missing axes make points incomparable. This
-    intentionally retains near-equal alternatives instead of converting a
-    sub-noise fluctuation into an automatic rollback.
-    """
-    if not objectives:
-        return False
-    materially_better = False
-    for objective in objectives:
-        a_value = a.get(objective.name)
-        b_value = b.get(objective.name)
-        if a_value is None or b_value is None:
-            return False
-        a_effective = objective.signed(a_value)
-        b_effective = objective.signed(b_value)
-        tolerance = abs(b_effective) * relative_noise
-        if a_effective < b_effective - tolerance:
-            return False
-        if a_effective > b_effective + tolerance:
-            materially_better = True
-    return materially_better
-
-
-def _trusted_candidate_records(
-    records: list[RoundRecord], objectives: list[Objective]
-) -> list[RoundRecord]:
+def _trusted_candidate_records(records: list[RoundRecord], space: MetricSpace) -> list[RoundRecord]:
     """Return reviewed checkpoints with complete comparable objective rows."""
-    objective_names = {objective.name for objective in objectives}
-    if not objective_names:
-        return []
     trusted: list[RoundRecord] = []
     for record in records:
-        metrics = _record_candidate_metrics(record)
-        if not objective_names.issubset(metrics):
+        if not space.complete(_record_candidate_metrics(record)):
             continue
         if not record.commit or not record.passed or not record.reviewed:
             continue
@@ -356,52 +319,31 @@ def _trusted_candidate_records(
 
 def _pareto_frontier_records(
     records: list[RoundRecord],
-    objectives: list[Objective],
-    *,
-    relative_noise: float = _DEFAULT_PARETO_RELATIVE_NOISE,
+    space: MetricSpace,
 ) -> list[RoundRecord]:
     """Compute the noise-aware frontier over independently reviewed points."""
-    candidates = _trusted_candidate_records(records, objectives)
-    return [
-        candidate
-        for candidate in candidates
-        if not any(
-            other is not candidate
-            and _noise_aware_dominates(
-                _record_candidate_metrics(other),
-                _record_candidate_metrics(candidate),
-                objectives,
-                relative_noise=relative_noise,
-            )
-            for other in candidates
-        )
-    ]
+    return space.frontier(
+        _trusted_candidate_records(records, space),
+        _record_candidate_metrics,
+    )
 
 
 def _pareto_archive_dominators(
     candidate_metrics: dict[str, float],
     records: list[RoundRecord],
-    objectives: list[Objective],
-    *,
-    relative_noise: float = _DEFAULT_PARETO_RELATIVE_NOISE,
+    space: MetricSpace,
 ) -> list[RoundRecord]:
     """Return trusted archive points that dominate a proposed candidate row."""
-    objective_names = {objective.name for objective in objectives}
-    if not objective_names or not objective_names.issubset(candidate_metrics):
+    if not space.complete(candidate_metrics):
         return []
     return [
         record
-        for record in _trusted_candidate_records(records, objectives)
-        if _noise_aware_dominates(
-            _record_candidate_metrics(record),
-            candidate_metrics,
-            objectives,
-            relative_noise=relative_noise,
-        )
+        for record in _trusted_candidate_records(records, space)
+        if space.dominates(_record_candidate_metrics(record), candidate_metrics)
     ]
 
 
-def _format_metric_row(metrics: dict[str, float], objectives: list[Objective]) -> str:
+def _format_metric_row(metrics: dict[str, float], objectives: Sequence[Objective]) -> str:
     return ", ".join(
         f"{objective.name}={metrics[objective.name]:.6g} ({objective.direction})"
         for objective in objectives
@@ -409,13 +351,9 @@ def _format_metric_row(metrics: dict[str, float], objectives: list[Objective]) -
     )
 
 
-def _pareto_archive_summary(
-    records: list[RoundRecord],
-    objectives: list[Objective],
-    *,
-    relative_noise: float = _DEFAULT_PARETO_RELATIVE_NOISE,
-) -> str:
+def _pareto_archive_summary(records: list[RoundRecord], space: MetricSpace) -> str:
     """Render trusted frontier parents and any measured points awaiting review."""
+    objectives = space.objectives
     if not objectives:
         return (
             "No objective axes are configured. Use objectives.toml to enable "
@@ -427,11 +365,11 @@ def _pareto_archive_summary(
         + ", ".join(f"{objective.name}:{objective.direction}" for objective in objectives),
         (
             "Dominance is variance-aware: a point removes another only when it is no worse "
-            f"within {relative_noise:.0%} on every axis and better by more than "
-            f"{relative_noise:.0%} on at least one."
+            f"within {space.relative_noise:.0%} on every axis and better by more than "
+            f"{space.relative_noise:.0%} on at least one."
         ),
     ]
-    frontier = _pareto_frontier_records(records, objectives, relative_noise=relative_noise)
+    frontier = _pareto_frontier_records(records, space)
     if frontier:
         lines.append("Trusted frontier parents:")
         for record in frontier:
@@ -447,9 +385,7 @@ def _pareto_archive_summary(
     else:
         lines.append("Trusted frontier parents: none recorded yet.")
 
-    trusted_rounds = {
-        record.round_number for record in _trusted_candidate_records(records, objectives)
-    }
+    trusted_rounds = {record.round_number for record in _trusted_candidate_records(records, space)}
     pending = [
         record
         for record in records
@@ -480,16 +416,16 @@ def _pareto_archive_conflict(
     candidate_disposition: CandidateDisposition,
     candidate_metrics: dict[str, float],
     records: list[RoundRecord],
-    objectives: list[Objective],
+    space: MetricSpace,
 ) -> str | None:
     """Explain why a claimed frontier row is dominated by the live archive."""
     if candidate_disposition is not CandidateDisposition.PARETO_FRONTIER:
         return None
-    dominators = _pareto_archive_dominators(candidate_metrics, records, objectives)
+    dominators = _pareto_archive_dominators(candidate_metrics, records, space)
     if not dominators:
         return None
     rows = "; ".join(
-        f"round {record.round_number} ({_format_metric_row(_record_candidate_metrics(record), objectives)})"
+        f"round {record.round_number} ({_format_metric_row(_record_candidate_metrics(record), space.objectives)})"
         for record in dominators
     )
     return (
@@ -1509,7 +1445,7 @@ def _run_single_agent_round(  # noqa: PLR0913  # tracked: #288
     official_evaluation_reason: str | None = None,
     framework_benchmark_enabled: bool = False,
     pareto_records: list[RoundRecord] | None = None,
-    objectives: list[Objective] | None = None,
+    space: MetricSpace,
 ) -> SingleAgentRoundResponse:
     """Invoke one agent that plays implementer + judge + profiler.
 
@@ -1616,7 +1552,7 @@ def _run_single_agent_round(  # noqa: PLR0913  # tracked: #288
         candidate_disposition=response.candidate_disposition,
         candidate_metrics=dict(response.candidate_metrics),
         records=pareto_records or [],
-        objectives=objectives or [],
+        space=space,
     )
     if response.verdict is Verdict.PASS and archive_conflict:
         response = response.model_copy(
@@ -2313,8 +2249,7 @@ def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
     runs_dir: Path | None,
     task_name: str | None = None,
     task_root: Path | None = None,
-    objectives: list[Objective] | None = None,
-    pareto_relative_noise: float = _DEFAULT_PARETO_RELATIVE_NOISE,
+    metrics: MetricSpace,
     workspace_sources: tuple[WorkspaceSource, ...] = (),
     evaluator_path: Path | None = None,
     evaluator_package_root: Path | None = None,
@@ -2383,8 +2318,6 @@ def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
         raise ValueError(f"judge_every must be >= 1, got {judge_every}")  # noqa: TRY003  # tracked: #288
     if official_eval_every < 1:
         raise ValueError(f"official_eval_every must be >= 1, got {official_eval_every}")  # noqa: TRY003  # tracked: #288
-    if not 0 <= pareto_relative_noise < 1:
-        raise ValueError(f"pareto_relative_noise must be in [0, 1), got {pareto_relative_noise}")  # noqa: TRY003  # tracked: #288
     if memory_layout not in issue_board.MEMORY_LAYOUTS:
         raise ValueError(  # noqa: TRY003  # tracked: #288
             f"Unknown memory_layout {memory_layout!r}; "
@@ -2397,19 +2330,22 @@ def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
     # Resolve the registered domain once (fail fast on an unknown name). The
     # per-role files carry language, tooling, and use-case-specific contracts.
     domain_definition = resolve_domain(domain)
-    objectives = list(objectives or [])
+    objectives = list(metrics.objectives)
     # Either result contract means a framework-owned benchmark runs this round,
     # which is what the prompts and the official-evaluation record key off.
     framework_benchmark_configured = benchmark_result is not None or (
         benchmark_result_protocol is not None
     )
-    legacy_metric_directions: dict[str, Literal["max", "min"]] = {
+    # Axes recorded in the run manifest. The server reads them back to build a
+    # metric space for runs whose unified state predates one; they include the
+    # framework benchmark's own axis, which is not a frontier axis.
+    manifest_axes: dict[str, Literal["max", "min"]] = {
         objective.name: objective.direction for objective in objectives
     }
     if benchmark_result is not None:
         # The legacy scalar result contract predates explicit directions and
         # has always defined its reported metric as a maximization objective.
-        legacy_metric_directions.setdefault(benchmark_result.metric, "max")
+        manifest_axes.setdefault(benchmark_result.metric, "max")
     if modality is None and domain_definition.name is DomainName.LLM_SERVING:
         modality = "text_generation"
     run_environment = run_environment or make_run_environment_spec()
@@ -2449,9 +2385,7 @@ def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
         inner_model=normalized_config.agent.inner.model,
         inner_reasoning_effort=normalized_config.agent.inner.reasoning_effort,
         operator_constraints=operator_constraints,
-        objectives=tuple(
-            f"{name}:{direction}" for name, direction in legacy_metric_directions.items()
-        ),
+        objectives=tuple(f"{name}:{direction}" for name, direction in manifest_axes.items()),
     )
     ctx = create_run_context(
         config=normalized_config,
@@ -2510,8 +2444,14 @@ def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
     agent_run_state = state_store.migrate_legacy(
         rounds=legacy_records,
         local_namespace=local_agent_state,
-        legacy_directions=legacy_metric_directions,
+        legacy_space=metrics,
     )
+    # The one write of the run's metric space. Everything downstream -- round
+    # projection, retention, the Pareto frontier, ``--resume`` reprojection,
+    # and the server read path -- takes it from the persisted state, so the
+    # launching task file wins here and nowhere else re-reads it. Rounds that
+    # already recorded a comparison keep it; only their derivation changes.
+    agent_run_state = adopt_metric_space(agent_run_state, metrics)
     active_hypothesis = agent_run_state.active_hypothesis
     if active_hypothesis is not None and _backfill_revert_commit(
         active_hypothesis, agent_run_state.rounds
@@ -2549,11 +2489,7 @@ def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
             ctx.switch_log_file(f"round{round_number:03d}")
             issue_board.write_pareto_archive(
                 progress_path,
-                _pareto_archive_summary(
-                    records,
-                    objectives,
-                    relative_noise=pareto_relative_noise,
-                ),
+                _pareto_archive_summary(records, agent_run_state.metrics),
             )
             round_progress = RoundProgress(round_number, max_rounds)
             ctx.lprint(f"\n{'=' * 60}\n  {round_progress.label()}\n{'=' * 60}\n")
@@ -2903,7 +2839,7 @@ def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
                             candidate_disposition=implementation.candidate_disposition,
                             candidate_metrics=dict(implementation.candidate_metrics),
                             records=records,
-                            objectives=objectives,
+                            space=agent_run_state.metrics,
                         )
                         ctx.reselect_gpu()
                         verdict = _run_judge(
@@ -3115,7 +3051,7 @@ def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
                             official_evaluation_reason=planned_official_reason,
                             framework_benchmark_enabled=framework_benchmark_configured,
                             pareto_records=records,
-                            objectives=objectives,
+                            space=agent_run_state.metrics,
                         )
                         attempt_judge = JudgeReviewed(single_agent_response.verdict)
                         if single_agent_response.verdict == Verdict.PASS:
@@ -3399,15 +3335,40 @@ def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
                 baseline_metric = (
                     _metric_value(parent_record, metric_name) if parent_record is not None else None
                 )
+                # The round's headline reading is ordered against its causal
+                # baseline exactly once, here, and stored on the record. Every
+                # later reader -- resume reprojection and the server -- consumes
+                # the stored answer instead of re-deriving it.
+                space = agent_run_state.metrics
+                official_reading = (
+                    Measurement(
+                        metric=metric_name,
+                        value=official_metric,
+                        direction=metric_direction,
+                    )
+                    if metric_name is not None and official_metric is not None
+                    else None
+                )
+                perf_comparison = (
+                    space.compare(
+                        official_reading,
+                        Measurement(
+                            metric=metric_name,
+                            value=baseline_metric,
+                            direction=metric_direction,
+                        )
+                        if metric_name is not None and baseline_metric is not None
+                        else None,
+                    )
+                    if official_evaluation and official_metric is not None
+                    else None
+                )
                 hypothesis_resolution = resolve_hypothesis_outcome(
                     ResolutionEvidence(
                         declared=declared_outcome,
                         passed=passed,
                         reviewed=reviewed,
-                        official_metric=(official_metric if official_evaluation else None),
-                        baseline_metric=baseline_metric,
-                        direction=metric_direction,
-                        noise_fraction=pareto_relative_noise,
+                        comparison=perf_comparison,
                         benchmark_expected=framework_benchmark_configured,
                     )
                 )
@@ -3420,21 +3381,22 @@ def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
                     candidate_retained = not _pareto_archive_dominators(
                         accepted_metrics,
                         records,
-                        objectives,
-                        relative_noise=pareto_relative_noise,
+                        space,
                     )
                 elif official_evaluation:
-                    prior_values = [
-                        value
+                    prior_readings = [
+                        Measurement(
+                            metric=metric_name,
+                            value=value,
+                            direction=metric_direction,
+                        )
                         for record in records
-                        if record.official_evaluation
+                        if metric_name is not None
+                        and record.official_evaluation
                         and (value := _metric_value(record, metric_name)) is not None
                     ]
                     candidate_retained = scalar_candidate_retained(
-                        metric=official_metric,
-                        direction=metric_direction,
-                        prior=prior_values,
-                        noise_fraction=pareto_relative_noise,
+                        space.compare_to_best(official_reading, prior_readings)
                     )
                 else:
                     candidate_retained = _provisional_candidate_retained(disposition)
@@ -3498,6 +3460,7 @@ def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
                     ),
                     perf_baseline_metric=baseline_metric,
                     perf_delta_pct=perf_delta_pct,
+                    perf_comparison=perf_comparison,
                 )
                 # Compute the completed lifecycle transition in memory so its
                 # exact representation can enter the write-ahead journal before
@@ -3552,7 +3515,6 @@ def run_agent_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
                     state_before_round,
                     completed_record,
                     keep_active=next_active_hypothesis is not None,
-                    legacy_directions=legacy_metric_directions,
                 )
                 state_transition = state_store.transition(next_agent_run_state)
                 ctx.begin_completed_round(

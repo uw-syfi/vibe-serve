@@ -24,7 +24,6 @@ from vibesys.loops.agent.loop import (
     _candidate_evidence_is_fresh,
     _invoke_read_only_role,
     _missing_implementer_response,
-    _noise_aware_dominates,
     _official_evaluation_reason,
     _pareto_archive_summary,
     _pareto_frontier_records,
@@ -36,7 +35,7 @@ from vibesys.loops.agent.loop import (
 )
 from vibesys.loops.agent.model import Hypothesis, HypothesisResolution, HypothesisReview
 from vibesys.loops.agent.state import AgentRunStateStore
-from vibesys.loops.evolve.population import Objective
+from vibesys.loops.metrics import MetricSpace, Objective
 from vibesys.profilers import ProfilerKind, ProfilerPreflightResult
 from vibesys.prompts import PROMPTS_DIR
 from vibesys.run import GitTracker, RepositoryVisibility
@@ -274,8 +273,7 @@ class _AgentLoopArguments(TypedDict, total=False):
     runs_dir: Path | None
     task_name: str | None
     task_root: Path | None
-    objectives: list[Objective] | None
-    pareto_relative_noise: float
+    metrics: MetricSpace
     workspace_sources: tuple[WorkspaceSource, ...]
     evaluator_path: Path | None
     evaluator_package_root: Path | None
@@ -307,6 +305,14 @@ class _AgentLoopArguments(TypedDict, total=False):
     repo_visibility: RepositoryVisibility
 
 
+_THROUGHPUT_LATENCY = MetricSpace(
+    objectives=(
+        Objective(name="throughput", direction="max"),
+        Objective(name="latency", direction="min"),
+    )
+)
+
+
 def _invoke_orchestrate(
     tmp_path: Path,
     ref_file: str,
@@ -327,6 +333,7 @@ def _invoke_orchestrate(
         "max_rounds": 5,
         "max_retries_per_round": 2,
         "domain": DomainName.LLM_SERVING,
+        "metrics": MetricSpace(),
     }
     defaults.update(kwargs)
     with (
@@ -419,6 +426,7 @@ def test_project_configuration_captures_effective_agent_behavior(tmp_path: Path)
             memory_layout="directories",
             operator_constraints=("Preserve ordering",),
             domain=DomainName.GENERIC,
+            metrics=MetricSpace(),
             run_environment=make_run_environment_spec(
                 use_modal=True,
                 modal_gpu="A100-80GB",
@@ -796,34 +804,23 @@ def test_typed_unknown_retention_is_not_trusted_as_pareto_state():  # noqa: ANN2
         candidate_retained=None,
     )
 
-    assert (
-        _pareto_frontier_records(
-            [record],
-            [Objective("throughput", "max"), Objective("latency", "min")],
-        )
-        == []
-    )
+    assert _pareto_frontier_records([record], _THROUGHPUT_LATENCY) == []
 
 
 def test_noise_aware_dominance_preserves_sub_noise_alternatives():  # noqa: ANN201  # tracked: #288
-    objectives = [Objective("throughput", "max"), Objective("latency", "min")]
+    space = MetricSpace(objectives=_THROUGHPUT_LATENCY.objectives, relative_noise=0.03)
 
-    assert not _noise_aware_dominates(
+    assert not space.dominates(
         {"throughput": 102.0, "latency": 101.0},
         {"throughput": 100.0, "latency": 100.0},
-        objectives,
-        relative_noise=0.03,
     )
-    assert _noise_aware_dominates(
+    assert space.dominates(
         {"throughput": 110.0, "latency": 101.0},
         {"throughput": 100.0, "latency": 100.0},
-        objectives,
-        relative_noise=0.03,
     )
 
 
 def test_pareto_frontier_keeps_throughput_latency_tradeoff_and_drops_dominated_point():  # noqa: ANN201  # tracked: #288
-    objectives = [Objective("throughput", "max"), Objective("latency", "min")]
 
     def candidate(round_number: int, throughput: float, latency: float) -> RoundRecord:
         return RoundRecord(
@@ -843,7 +840,10 @@ def test_pareto_frontier_keeps_throughput_latency_tradeoff_and_drops_dominated_p
     throughput_parent = candidate(2, 140.0, 100.0)
     dominated = candidate(3, 90.0, 110.0)
 
-    frontier = _pareto_frontier_records([latency_parent, throughput_parent, dominated], objectives)
+    frontier = _pareto_frontier_records(
+        [latency_parent, throughput_parent, dominated],
+        _THROUGHPUT_LATENCY,
+    )
 
     assert [record.round_number for record in frontier] == [1, 2]
 
@@ -851,7 +851,6 @@ def test_pareto_frontier_keeps_throughput_latency_tradeoff_and_drops_dominated_p
 def test_live_archive_rejects_stale_frontier_claim_for_dominated_candidate():  # noqa: ANN201  # tracked: #288
     from vibesys.loops.agent.loop import _pareto_archive_conflict  # noqa: PLC0415  # tracked: #288
 
-    objectives = [Objective("throughput", "max"), Objective("latency", "min")]
     trusted = RoundRecord(
         61,
         "a" * 40,
@@ -867,7 +866,7 @@ def test_live_archive_rejects_stale_frontier_claim_for_dominated_candidate():  #
         candidate_disposition=CandidateDisposition.PARETO_FRONTIER,
         candidate_metrics={"throughput": 7258.5, "latency": 9601.6},
         records=[trusted],
-        objectives=objectives,
+        space=_THROUGHPUT_LATENCY,
     )
 
     assert conflict is not None
@@ -878,7 +877,6 @@ def test_live_archive_rejects_stale_frontier_claim_for_dominated_candidate():  #
 def test_live_archive_preserves_real_throughput_latency_tradeoff():  # noqa: ANN201  # tracked: #288
     from vibesys.loops.agent.loop import _pareto_archive_conflict  # noqa: PLC0415  # tracked: #288
 
-    objectives = [Objective("throughput", "max"), Objective("latency", "min")]
     trusted = RoundRecord(
         6,
         "a" * 40,
@@ -895,14 +893,13 @@ def test_live_archive_preserves_real_throughput_latency_tradeoff():  # noqa: ANN
             candidate_disposition=CandidateDisposition.PARETO_FRONTIER,
             candidate_metrics={"throughput": 140.0, "latency": 100.0},
             records=[trusted],
-            objectives=objectives,
+            space=_THROUGHPUT_LATENCY,
         )
         is None
     )
 
 
 def test_pareto_archive_distinguishes_trusted_and_pending_candidates():  # noqa: ANN201  # tracked: #288
-    objectives = [Objective("throughput", "max"), Objective("latency", "min")]
     trusted = RoundRecord(
         49,
         "a" * 40,
@@ -929,7 +926,7 @@ def test_pareto_archive_distinguishes_trusted_and_pending_candidates():  # noqa:
         candidate_retention_reason="higher-throughput tradeoff",
     )
 
-    summary = _pareto_archive_summary([trusted, pending], objectives)
+    summary = _pareto_archive_summary([trusted, pending], _THROUGHPUT_LATENCY)
 
     assert "Trusted frontier parents" in summary
     assert "round 49" in summary
@@ -2045,7 +2042,12 @@ def test_official_protocol_benchmark_row_becomes_the_round_metrics(tmp_path, ref
             max_rounds=1,
             judge_every=10,
             benchmark_result_protocol=2,
-            objectives=[Objective("total_ops_per_sec", "max"), Objective("p99_latency_ns", "min")],
+            metrics=MetricSpace(
+                objectives=(
+                    Objective(name="total_ops_per_sec", direction="max"),
+                    Objective(name="p99_latency_ns", direction="min"),
+                )
+            ),
         )
 
     rounds = _round_payloads(tmp_path)
@@ -2053,6 +2055,9 @@ def test_official_protocol_benchmark_row_becomes_the_round_metrics(tmp_path, ref
     assert rounds[0]["perf_unit"] == "total_ops_per_sec"
     assert rounds[0]["metrics"] == {"total_ops_per_sec": 41250.3, "p99_latency_ns": 812.0}
     assert rounds[0]["official_evaluation"] is True
+    # Every official round is written with the comparison the framework made,
+    # so no later reader has to re-derive it. Round one has no causal baseline.
+    assert rounds[0]["perf_comparison"] == "incomparable"
 
 
 # ---------------------------------------------------------------------------

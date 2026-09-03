@@ -23,6 +23,7 @@ from vibesys.loops.agent.model import (
     HypothesisResolution,
     HypothesisStrategy,
 )
+from vibesys.loops.metrics import Measurement, MetricComparison, MetricSpace, Objective
 from vibesys.schemas import (
     HypothesisOutcome,
     HypothesisStrategyUpdate,
@@ -273,6 +274,7 @@ def test_legacy_performance_remains_visible_without_objective_direction() -> Non
         Hypothesis(hypothesis_id="H-1", plan=_plan("H-1"), started_round=1),
         record,
         prior_rounds=[],
+        space=MetricSpace(),
     )
 
     assert projected.measurement is not None
@@ -287,6 +289,7 @@ def test_legacy_resolution_fails_closed_without_objective_direction() -> None:
         Hypothesis(hypothesis_id="H-1", plan=_plan("H-1"), started_round=1),
         record,
         prior_rounds=[],
+        space=MetricSpace(),
     )
 
     assert projected.resolution is HypothesisResolution.INCONCLUSIVE
@@ -296,12 +299,13 @@ def test_legacy_resolution_fails_closed_without_objective_direction() -> None:
     "direction",
     ["max", "min"],
 )
-def test_reprojection_uses_legacy_direction_for_resolution_and_retention(
+def test_reprojection_uses_the_stored_space_for_resolution_and_retention(
     direction: Literal["max", "min"],
 ) -> None:
     baseline = _legacy_evidence_round(1, 100.0)
     regression = _legacy_evidence_round(2, 90.0, parent_round=1)
     state = AgentRunState(
+        metrics=MetricSpace(objectives=(Objective(name="ops", direction=direction),)),
         hypotheses=[
             Hypothesis(
                 hypothesis_id="H-1",
@@ -309,10 +313,10 @@ def test_reprojection_uses_legacy_direction_for_resolution_and_retention(
                 started_round=1,
                 rounds=[baseline, regression],
             )
-        ]
+        ],
     )
 
-    reprojected = reproject_run_evidence(state, legacy_directions={"ops": direction})
+    reprojected = reproject_run_evidence(state)
 
     hypothesis = reprojected.by_id("H-1")
     assert hypothesis is not None
@@ -348,36 +352,41 @@ def test_metric_baseline_prefers_exact_parent_commit_and_fails_closed() -> None:
     )
 
 
-def test_resolution_and_retention_respect_objective_direction_and_noise() -> None:
-    maximize = resolve_hypothesis_outcome(
-        ResolutionEvidence(
-            declared=HypothesisOutcome.NOMINATED,
-            passed=True,
-            reviewed=True,
-            official_metric=90.0,
-            baseline_metric=100.0,
-            direction="max",
-            benchmark_expected=True,
-        )
-    )
-    minimize = resolve_hypothesis_outcome(
-        ResolutionEvidence(
-            declared=HypothesisOutcome.NOMINATED,
-            passed=True,
-            reviewed=True,
-            official_metric=90.0,
-            baseline_metric=100.0,
-            direction="min",
-            benchmark_expected=True,
-        )
+def _declared(comparison: MetricComparison | None) -> ResolutionEvidence:
+    return ResolutionEvidence(
+        declared=HypothesisOutcome.NOMINATED,
+        passed=True,
+        reviewed=True,
+        comparison=comparison,
+        benchmark_expected=True,
     )
 
-    assert maximize is HypothesisResolution.DISPROVEN
-    assert minimize is HypothesisResolution.PROVEN
-    assert (
-        scalar_candidate_retained(
-            metric=100.2, direction="max", prior=[100.0], noise_fraction=0.005
-        )
-        is False
+
+def test_resolution_consumes_the_comparison_rather_than_the_readings() -> None:
+    """Resolution never sees a value, an axis direction, or a tolerance."""
+    assert resolve_hypothesis_outcome(_declared(MetricComparison.BETTER)) is (
+        HypothesisResolution.PROVEN
     )
-    assert scalar_candidate_retained(metric=90.0, direction="min", prior=[100.0]) is True
+    assert resolve_hypothesis_outcome(_declared(MetricComparison.WORSE)) is (
+        HypothesisResolution.DISPROVEN
+    )
+    assert resolve_hypothesis_outcome(_declared(MetricComparison.WITHIN_NOISE)) is (
+        HypothesisResolution.INCONCLUSIVE
+    )
+    assert resolve_hypothesis_outcome(_declared(MetricComparison.INCOMPARABLE)) is (
+        HypothesisResolution.INCONCLUSIVE
+    )
+    # ``None`` is a different fact: no official metric was recorded at all, so
+    # a nomination stays undecided rather than being ruled against.
+    assert resolve_hypothesis_outcome(_declared(None)) is HypothesisResolution.INCONCLUSIVE
+
+
+def test_retention_consumes_the_comparison_against_the_best_prior() -> None:
+    space = MetricSpace(objectives=(Objective(name="ops", direction="max"),), relative_noise=0.005)
+    candidate = Measurement(metric="ops", value=100.2)
+    prior = [Measurement(metric="ops", value=100.0)]
+
+    assert scalar_candidate_retained(space.compare_to_best(candidate, prior)) is False
+    assert scalar_candidate_retained(space.compare_to_best(candidate, [])) is True
+    assert scalar_candidate_retained(space.compare_to_best(None, prior)) is None
+

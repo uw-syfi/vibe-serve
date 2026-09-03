@@ -18,7 +18,7 @@ from vibesys.loops.agent.model import (
 )
 from vibesys.loops.agent.state import AgentRunStateStore
 from vibesys.schemas import HypothesisOutcome, OrchestratorPlan
-from vs_loop_state import RoundRecord
+from vs_loop_state import MetricComparison, RoundRecord
 from vs_project import AgentRunConfiguration, Project, RunEnvironmentRecord
 
 if TYPE_CHECKING:
@@ -58,6 +58,7 @@ class _RoundFields(TypedDict, total=False):
     perf_baseline_commit: str | None
     perf_baseline_metric: float | None
     perf_delta_pct: float | None
+    perf_comparison: MetricComparison | None
 
 
 class _HypothesisFields(TypedDict, total=False):

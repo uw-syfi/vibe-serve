@@ -19,6 +19,7 @@ from vibesys.domains.registry import resolve_domain
 from vibesys.domains.rendering import render_domain_section
 from vibesys.errors import ConfigurationError
 from vibesys.loops.agent.loop import _effective_profiler_definition
+from vibesys.loops.metrics import MetricSpace
 from vibesys.profilers import ProfilerKind
 from vibesys.prompts import PROMPTS_DIR, render_template
 
@@ -83,6 +84,7 @@ def test_loop_constants_and_rejects_unknown_interface():  # noqa: ANN201  # trac
             benchmark_command="benchmark",
             objective="o",
             runs_dir=Path("/tmp/vibesys-test-runs"),  # noqa: S108
+            metrics=MetricSpace(),
             interface="native",
         )
 

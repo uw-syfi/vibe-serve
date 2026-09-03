@@ -18,8 +18,7 @@ if TYPE_CHECKING:
 from entrypoints.headless import (
     _extract_flag,
     _extract_loop_selection,
-    _load_objectives_toml,
-    _load_pareto_relative_noise_toml,
+    _load_metric_space_toml,
     _parse_cli_objective,
     _prepare_experiment_repository,
     _render_configuration_error,
@@ -36,6 +35,7 @@ from vibesys.constants import ComputeBackend
 from vibesys.domains.base import DomainName
 from vibesys.errors import ConfigurationDiagnostic, ConfigurationError
 from vibesys.input_manifest import load_input_bundle
+from vibesys.loops.metrics import MetricSpace, Objective
 from vibesys.profilers import ProfilerKind
 from vibesys.run.events import CoreEventType
 from vibesys.run.integration import LocalRunIntegration
@@ -1684,23 +1684,23 @@ def test_parse_cli_objective_rejects_malformed_specs(spec: str, message: str) ->
 
 
 def test_objective_files_are_optional_and_validated(tmp_path: Path) -> None:
-    assert _load_objectives_toml(tmp_path) == []
-    assert _load_pareto_relative_noise_toml(tmp_path) == 0.0
+    """The axes and the tolerance are one fact, read together or not at all."""
+    assert _load_metric_space_toml(tmp_path) == MetricSpace()
 
     (tmp_path / "objectives.toml").write_text(
         '[[objective]]\nname = "latency"\ndirection = "min"\n[pareto]\nrelative_noise = 0.03\n'
     )
-    assert [(item.name, item.direction) for item in _load_objectives_toml(tmp_path)] == [
-        ("latency", "min")
-    ]
-    assert _load_pareto_relative_noise_toml(tmp_path) == 0.03
+    assert _load_metric_space_toml(tmp_path) == MetricSpace(
+        objectives=(Objective(name="latency", direction="min"),),
+        relative_noise=0.03,
+    )
 
 
 @pytest.mark.parametrize("value", ["true", "-0.1", "1.0", '"noisy"'])
 def test_pareto_relative_noise_rejects_invalid_values(tmp_path: Path, value: str) -> None:
     (tmp_path / "objectives.toml").write_text(f"[pareto]\nrelative_noise = {value}\n")
     with pytest.raises(ValueError, match=r"pareto\.relative_noise"):
-        _load_pareto_relative_noise_toml(tmp_path)
+        _load_metric_space_toml(tmp_path)
 
 
 def test_render_configuration_error_prints_usage(

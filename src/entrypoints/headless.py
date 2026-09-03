@@ -37,6 +37,7 @@ from vibesys.constants import (
 from vibesys.domains.base import DomainName
 from vibesys.errors import ConfigurationDiagnostic, ConfigurationError
 from vibesys.input_manifest import InputBundle, load_input_bundle, load_project_task
+from vibesys.loops.metrics import MetricSpace, Objective
 from vibesys.profilers import CLI_PROFILER_CHOICES, ProfilerKind, coerce_profiler_kind
 from vibesys.render.headless import HeadlessRenderer
 from vibesys.repository import (
@@ -71,7 +72,6 @@ from vs_project import (
 )
 
 if TYPE_CHECKING:
-    from vibesys.loops.evolve.population import Objective
     from vibesys.loops.evolve.search_policy import OpenEvolveSearchConfig
 
 __all__ = ["PROJECT_ROOT"]
@@ -2069,8 +2069,7 @@ def _run_agent(args: argparse.Namespace, integration: RunIntegration) -> None:
             print(f"Resuming VibeSys run {exp_name} in {bundle.root}/")  # noqa: T201  # tracked: #288
 
         with boot_trace.span("load_objectives_toml"):
-            objectives = _load_objectives_toml(bundle.task_root)
-            pareto_relative_noise = _load_pareto_relative_noise_toml(bundle.task_root)
+            metrics = _load_metric_space_toml(bundle.task_root)
 
         with boot_trace.span("run_environment_spec"):
             run_environment = run_environment_spec_from_args(
@@ -2095,8 +2094,7 @@ def _run_agent(args: argparse.Namespace, integration: RunIntegration) -> None:
         accuracy_timeout_seconds=bundle.manifest.accuracy.timeout_seconds,
         benchmark_timeout_seconds=bundle.manifest.benchmark.timeout_seconds,
         objective=objective,
-        objectives=objectives,
-        pareto_relative_noise=pareto_relative_noise,
+        metrics=metrics,
         max_rounds=args.max_rounds,
         max_retries_per_round=args.max_retries_per_round,
         judge_every=args.judge_every,
@@ -2135,10 +2133,8 @@ def _run_agent(args: argparse.Namespace, integration: RunIntegration) -> None:
 # ===========================================================================
 
 
-def _parse_cli_objective(spec: str):  # noqa: ANN202  # tracked: #288
+def _parse_cli_objective(spec: str) -> Objective:
     """Parse a ``--objective`` flag value (``name:direction``)."""
-    from vibesys.loops.evolve.population import Objective  # noqa: PLC0415  # tracked: #288
-
     if ":" not in spec:
         raise argparse.ArgumentTypeError(f"--objective {spec!r} must be 'name:max' or 'name:min'")  # noqa: TRY003  # tracked: #288
     name, _, direction = spec.partition(":")
@@ -2153,17 +2149,24 @@ def _parse_cli_objective(spec: str):  # noqa: ANN202  # tracked: #288
     return Objective(name=name, direction=direction)
 
 
-def _load_objectives_toml(input_path: Path) -> list[Objective]:
-    """Read loop-independent Pareto axes from an input bundle when present."""
-    from vibesys.loops.evolve.population import Objective  # noqa: PLC0415  # tracked: #288
+def _load_metric_space_toml(input_path: Path) -> MetricSpace:
+    """Read the run's metric space from the task's ``objectives.toml``.
 
+    The axes and the measurement tolerance are one fact about the workload and
+    are read together, once. ``run_agent_loop`` persists the returned space
+    into the run state, and every consumer that has to order two readings takes
+    it from there.
+
+    Exact comparison remains the default. Inputs with measured benchmark
+    variation can opt into a relative margin under ``[pareto]`` without
+    imposing one domain's noise level on every optimization workload.
+    """
     path = input_path / "objectives.toml"
     if not path.exists():
-        return []
+        return MetricSpace()
     data = tomllib.loads(path.read_text())
-    raw_list = data.get("objective") or []
     objectives = []
-    for entry in raw_list:
+    for entry in data.get("objective") or []:
         name = entry.get("name")
         direction = entry.get("direction")
         if not name or direction not in ("max", "min"):
@@ -2172,20 +2175,6 @@ def _load_objectives_toml(input_path: Path) -> list[Objective]:
                 f"must set name and direction (max|min)."
             )
         objectives.append(Objective(name=name, direction=direction))
-    return objectives
-
-
-def _load_pareto_relative_noise_toml(input_path: Path) -> float:
-    """Read the agent loop's variance-aware dominance margin.
-
-    Exact Pareto dominance remains the default. Inputs with measured benchmark
-    variation can opt into a relative margin under ``[pareto]`` without
-    imposing one domain's noise level on every optimization workload.
-    """
-    path = input_path / "objectives.toml"
-    if not path.exists():
-        return 0.0
-    data = tomllib.loads(path.read_text())
     raw_value = (data.get("pareto") or {}).get("relative_noise", 0.0)
     if isinstance(raw_value, bool):
         raise ValueError(f"Malformed pareto.relative_noise in {path}: {raw_value!r}")  # noqa: TRY003, TRY004  # tracked: #288
@@ -2198,13 +2187,13 @@ def _load_pareto_relative_noise_toml(input_path: Path) -> float:
             f"Malformed pareto.relative_noise in {path}: expected a finite value "
             f"in [0, 1), got {raw_value!r}"
         )
-    return value
+    return MetricSpace(objectives=tuple(objectives), relative_noise=value)
 
 
 def _resolve_objectives(args: argparse.Namespace) -> list[Objective]:
     if args.objective:
         return list(args.objective)
-    return _load_objectives_toml(args.input_bundle.task_root)
+    return list(_load_metric_space_toml(args.input_bundle.task_root).objectives)
 
 
 def _build_evolve_parser() -> argparse.ArgumentParser:

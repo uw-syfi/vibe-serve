@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, assert_never
 
 from vibesys.loops.agent.model import (
     AgentRunState,
@@ -13,6 +13,7 @@ from vibesys.loops.agent.model import (
     HypothesisReview,
     HypothesisStrategy,
 )
+from vibesys.loops.metrics import Measurement, MetricComparison, MetricSpace
 from vibesys.schemas import (
     HypothesisOutcome,
     HypothesisStrategyUpdate,
@@ -20,22 +21,26 @@ from vibesys.schemas import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Sequence
 
     from vs_loop_state import RoundRecord
 
 
 @dataclass(frozen=True)
 class ResolutionEvidence:
-    """Inputs the framework needs to finalize one hypothesis declaration."""
+    """Inputs the framework needs to finalize one hypothesis declaration.
+
+    ``comparison`` is the round's headline reading ordered against its causal
+    baseline. ``None`` means no official metric was recorded, which is a
+    different fact from ``MetricComparison.INCOMPARABLE``: one was recorded but
+    could not be ordered. Resolution consumes the comparison and never the
+    readings, the axis direction, or the measurement tolerance behind it.
+    """
 
     declared: HypothesisOutcome | None
     passed: bool
     reviewed: bool
-    official_metric: float | None
-    baseline_metric: float | None
-    direction: Literal["max", "min"] | None
-    noise_fraction: float = 0.0
+    comparison: MetricComparison | None
     benchmark_expected: bool = False
 
 
@@ -61,8 +66,8 @@ def resolve_hypothesis_outcome(
         elif resolution is None:
             if not evidence.benchmark_expected:
                 resolution = HypothesisResolution.PROVEN
-            elif evidence.official_metric is not None:
-                resolution = _resolve_metric_evidence(evidence)
+            elif evidence.comparison is not None:
+                resolution = _resolve_metric_evidence(evidence.comparison)
             elif evidence.declared is HypothesisOutcome.SUPPORTED:
                 resolution = HypothesisResolution.PROVEN
             else:
@@ -70,41 +75,35 @@ def resolve_hypothesis_outcome(
     return resolution
 
 
-def _resolve_metric_evidence(evidence: ResolutionEvidence) -> HypothesisResolution:
-    if (
-        evidence.official_metric is None
-        or evidence.baseline_metric in {None, 0}
-        or evidence.direction not in {"max", "min"}
-    ):
-        return HypothesisResolution.INCONCLUSIVE
-    baseline = evidence.baseline_metric
-    assert baseline is not None  # noqa: S101  # narrowed by the guard above
-    raw_delta = (evidence.official_metric - baseline) / abs(baseline) * 100
-    benefit = raw_delta if evidence.direction == "max" else -raw_delta
-    tolerance_pct = evidence.noise_fraction * 100
-    if benefit < -tolerance_pct:
-        return HypothesisResolution.DISPROVEN
-    if benefit > tolerance_pct:
-        return HypothesisResolution.PROVEN
-    return HypothesisResolution.INCONCLUSIVE
+def _resolve_metric_evidence(comparison: MetricComparison) -> HypothesisResolution:
+    match comparison:
+        case MetricComparison.BETTER:
+            return HypothesisResolution.PROVEN
+        case MetricComparison.WORSE:
+            return HypothesisResolution.DISPROVEN
+        case MetricComparison.WITHIN_NOISE | MetricComparison.INCOMPARABLE:
+            # A sub-noise delta and an unmeasurable one are both "the evidence
+            # does not decide this hypothesis".
+            return HypothesisResolution.INCONCLUSIVE
+    assert_never(comparison)
 
 
-def scalar_candidate_retained(
-    *,
-    metric: float | None,
-    direction: Literal["max", "min"] | None,
-    prior: Sequence[float],
-    noise_fraction: float = 0.0,
-) -> bool | None:
-    """Return whether an official scalar candidate advances the best checkpoint."""
-    if metric is None or direction not in {"max", "min"}:
-        return None
-    if not prior:
-        return True
-    best = max(prior) if direction == "max" else min(prior)
-    scale = abs(best) if best != 0 else 1.0
-    improvement = metric - best if direction == "max" else best - metric
-    return improvement > scale * noise_fraction
+def scalar_candidate_retained(comparison: MetricComparison) -> bool | None:
+    """Return whether an official scalar candidate advances the best checkpoint.
+
+    *comparison* orders the candidate against the best prior official reading,
+    which callers obtain from ``MetricSpace.compare_to_best``. An empty history
+    compares as ``BETTER`` there, so the first trusted checkpoint is retained.
+    """
+    match comparison:
+        case MetricComparison.BETTER:
+            return True
+        case MetricComparison.WORSE | MetricComparison.WITHIN_NOISE:
+            # Retention requires a real advance: matching the best checkpoint
+            # within noise is not one.
+            return False
+        case MetricComparison.INCOMPARABLE:
+            return None
 
 
 def metric_baseline(
@@ -186,7 +185,6 @@ def append_round(
     record: RoundRecord,
     *,
     keep_active: bool,
-    legacy_directions: Mapping[str, Literal["max", "min"]] | None = None,
 ) -> AgentRunState:
     """Append one completed round to the active hypothesis."""
     active = state.active_hypothesis
@@ -204,7 +202,7 @@ def append_round(
         updated_active,
         record,
         prior_rounds=state.rounds,
-        legacy_directions=legacy_directions,
+        space=state.metrics,
     )
     index = next(
         index
@@ -270,9 +268,16 @@ def project_round_evidence(
     record: RoundRecord,
     *,
     prior_rounds: Sequence[RoundRecord],
-    legacy_directions: Mapping[str, Literal["max", "min"]] | None = None,
+    space: MetricSpace,
 ) -> Hypothesis:
-    """Return a hypothesis updated with one completed round's evidence."""
+    """Return a hypothesis updated with one completed round's evidence.
+
+    The round's own ``perf_comparison`` decides its resolution. *space* is the
+    owning run's persisted metric space; callers holding an ``AgentRunState``
+    pass ``state.metrics``. It is used to re-derive a comparison for records
+    written before the framework stored one, and to order retention against
+    the best prior official reading.
+    """
     if record.hypothesis_id != hypothesis.hypothesis_id:
         raise ValueError("round hypothesis_id must match its owning hypothesis")  # noqa: TRY003
     if any(item.round_number == record.round_number for item in hypothesis.rounds):
@@ -281,7 +286,8 @@ def project_round_evidence(
     updated.rounds.append(record)
     updated.declared_outcome = _declared_outcome(record.hypothesis_declared_outcome)
     updated.review = _review(record)
-    measurement = _measurement(record, prior_rounds, legacy_directions)
+    measurement = _measurement(record, prior_rounds, space)
+    comparison = round_comparison(record, measurement, space)
     if record.judge_verdict is not None:
         updated.resolution = resolve_hypothesis_outcome(
             ResolutionEvidence(
@@ -289,11 +295,7 @@ def project_round_evidence(
                 passed=record.passed,
                 reviewed=updated.review
                 not in {HypothesisReview.PENDING, HypothesisReview.DEFERRED},
-                official_metric=record.perf_metric if record.official_evaluation else None,
-                baseline_metric=(measurement.baseline_value if measurement is not None else None),
-                direction=(
-                    measurement.direction if measurement is not None else record.perf_direction
-                ),
+                comparison=comparison,
                 benchmark_expected=record.official_evaluation,
             )
         )
@@ -305,20 +307,74 @@ def project_round_evidence(
         )
     if measurement is not None:
         updated.measurement = measurement
-    retained = _retained(record, prior_rounds, legacy_directions)
+    retained = _retained(record, prior_rounds, space)
     if retained is not None:
         updated.candidate_retained = retained
     if record.judge_verdict is None:
-        _correct_legacy_resolution(updated, record, measurement)
+        _correct_legacy_resolution(updated, record, measurement, comparison)
     return Hypothesis.model_validate(updated.model_dump())
 
 
-def reproject_run_evidence(
-    state: AgentRunState,
-    *,
-    legacy_directions: Mapping[str, Literal["max", "min"]] | None = None,
-) -> AgentRunState:
-    """Rebuild hypothesis summaries from their authoritative round evidence."""
+def round_comparison(
+    record: RoundRecord,
+    measurement: HypothesisMeasurement | None,
+    space: MetricSpace,
+) -> MetricComparison | None:
+    """Return how one round's headline reading compared with its baseline.
+
+    ``None`` means the round recorded no official metric, so there was nothing
+    to order. A record that carries ``perf_comparison`` answers for itself: the
+    framework decided it once, when the round was written, and re-deriving it
+    later from a possibly re-configured space would let a resumed run disagree
+    with what it recorded. Older records have the comparison derived from
+    *space* instead.
+    """
+    if not record.official_evaluation or record.perf_metric is None:
+        return None
+    if record.perf_comparison is not None:
+        return record.perf_comparison
+    if measurement is None:
+        return MetricComparison.INCOMPARABLE
+    return space.compare(
+        _reading(measurement, measurement.value),
+        _reading(measurement, measurement.baseline_value),
+    )
+
+
+def _reading(
+    measurement: HypothesisMeasurement,
+    value: float | None,
+) -> Measurement | None:
+    if value is None:
+        return None
+    return Measurement(
+        metric=measurement.metric,
+        value=value,
+        direction=measurement.direction,
+    )
+
+
+def adopt_metric_space(state: AgentRunState, space: MetricSpace) -> AgentRunState:
+    """Record the run's metric space and re-derive evidence within it.
+
+    Called once when a run starts, with the axes and tolerance the task
+    declares. Every later reader takes the space from the returned state, so a
+    resumed run, its persisted hypothesis resolutions, and the server read path
+    agree without any of them re-reading the task file.
+    """
+    updated = state.clone()
+    updated.metrics = space
+    return reproject_run_evidence(updated)
+
+
+def reproject_run_evidence(state: AgentRunState) -> AgentRunState:
+    """Rebuild hypothesis summaries from their authoritative round evidence.
+
+    Every round answers with the comparison it recorded, and ``state.metrics``
+    supplies the space for records written before the framework stored one, so
+    reprojection on ``--resume`` and in the server read path reproduces exactly
+    what the loop recorded.
+    """
     updated = state.clone()
     updated.hypotheses = [
         hypothesis.model_copy(
@@ -352,7 +408,7 @@ def reproject_run_evidence(
             updated.hypotheses[index],
             record,
             prior_rounds=prior_rounds,
-            legacy_directions=legacy_directions,
+            space=state.metrics,
         )
         prior_rounds.append(record)
     return _validated_state(updated)
@@ -366,7 +422,14 @@ def _correct_legacy_resolution(
     hypothesis: Hypothesis,
     record: RoundRecord,
     measurement: HypothesisMeasurement | None,
+    comparison: MetricComparison | None,
 ) -> None:
+    """Re-decide a legacy record's self-declared ``proven`` from its evidence.
+
+    Records written before the framework resolved outcomes carry the
+    implementer's own label. Only the measurement may overrule it, and it does
+    so through the same comparison every other reader consumes.
+    """
     if record.judge_verdict is not None or hypothesis.resolution is not HypothesisResolution.PROVEN:
         return
     if (
@@ -376,16 +439,15 @@ def _correct_legacy_resolution(
     ):
         hypothesis.resolution = HypothesisResolution.INCONCLUSIVE
         return
-    if measurement is None:
+    if measurement is None or comparison is None:
         return
-    assert measurement.delta_pct is not None  # noqa: S101  # guarded above
-    benefit = measurement.delta_pct
-    if measurement.direction == "min":
-        benefit = -benefit
-    if benefit < 0:
-        hypothesis.resolution = HypothesisResolution.DISPROVEN
-    elif benefit == 0:
-        hypothesis.resolution = HypothesisResolution.INCONCLUSIVE
+    match comparison:
+        case MetricComparison.BETTER:
+            pass
+        case MetricComparison.WORSE:
+            hypothesis.resolution = HypothesisResolution.DISPROVEN
+        case MetricComparison.WITHIN_NOISE | MetricComparison.INCOMPARABLE:
+            hypothesis.resolution = HypothesisResolution.INCONCLUSIVE
 
 
 def _declared_outcome(value: str | None) -> HypothesisOutcome | None:
@@ -419,11 +481,17 @@ def _resolution(value: str | None) -> HypothesisResolution | None:
 def _measurement(
     record: RoundRecord,
     prior_rounds: Sequence[RoundRecord],
-    legacy_directions: Mapping[str, Literal["max", "min"]] | None,
+    space: MetricSpace,
 ) -> HypothesisMeasurement | None:
     if not record.official_evaluation or record.perf_metric is None or record.perf_unit is None:
         return None
-    direction = record.perf_direction or _configured_legacy_direction(record, legacy_directions)
+    direction = space.direction(
+        Measurement(
+            metric=record.perf_unit,
+            value=record.perf_metric,
+            direction=record.perf_direction,
+        )
+    )
     baseline = _baseline(record, prior_rounds)
     baseline_value = record.perf_baseline_metric
     if baseline_value is None and baseline is not None:
@@ -463,7 +531,7 @@ def _baseline(record: RoundRecord, prior_rounds: Sequence[RoundRecord]) -> Round
 def _retained(
     record: RoundRecord,
     prior_rounds: Sequence[RoundRecord],
-    legacy_directions: Mapping[str, Literal["max", "min"]] | None,
+    space: MetricSpace,
 ) -> bool | None:
     if record.candidate_retained is not None:
         retained = record.candidate_retained
@@ -475,31 +543,23 @@ def _retained(
         retained = False
     elif not record.official_evaluation or record.perf_metric is None:
         retained = None
+    elif record.perf_unit is None:
+        # An official reading with no axis cannot be ordered against anything.
+        retained = None
     else:
-        direction = record.perf_direction or _configured_legacy_direction(
-            record,
-            legacy_directions,
+        candidate = Measurement(
+            metric=record.perf_unit,
+            value=record.perf_metric,
+            direction=record.perf_direction,
         )
+        axis = space.direction(candidate)
         comparable = [
-            prior.perf_metric
+            Measurement(metric=record.perf_unit, value=prior.perf_metric, direction=axis)
             for prior in prior_rounds
             if prior.official_evaluation
             and prior.passed
             and prior.perf_metric is not None
             and prior.perf_unit == record.perf_unit
         ]
-        retained = scalar_candidate_retained(
-            metric=record.perf_metric,
-            direction=direction,
-            prior=comparable,
-        )
+        retained = scalar_candidate_retained(space.compare_to_best(candidate, comparable))
     return retained
-
-
-def _configured_legacy_direction(
-    record: RoundRecord,
-    directions: Mapping[str, Literal["max", "min"]] | None,
-) -> Literal["max", "min"] | None:
-    if record.judge_verdict is not None or record.perf_unit is None or directions is None:
-        return None
-    return directions.get(record.perf_unit)

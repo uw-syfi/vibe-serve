@@ -7,6 +7,7 @@ from typing import Annotated, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, FiniteFloat, model_validator
 
+from vibesys.loops.metrics import MetricSpace
 from vibesys.schemas import (
     CandidateDisposition,
     HypothesisOutcome,
@@ -120,12 +121,22 @@ class Hypothesis(BaseModel):
 
 
 class AgentRunState(BaseModel):
-    """The single authoritative state aggregate for an agent-loop run."""
+    """The single authoritative state aggregate for an agent-loop run.
+
+    ``metrics`` is the run's metric space: the objective axes and the
+    measurement tolerance, written once when the run starts from the task's
+    ``objectives.toml``. Every consumer that has to order two readings -- the
+    loop, the hypothesis projection, checkpoint retention, the Pareto frontier,
+    and the server read path -- reads it from here rather than being handed a
+    tolerance through a call chain. State written before this field existed
+    loads as the empty strict space, which is the behavior those runs had.
+    """
 
     model_config = ConfigDict(extra="forbid", validate_assignment=True)
 
     schema_version: Literal[1] = 1
     active_hypothesis_id: str | None = None
+    metrics: MetricSpace = Field(default_factory=MetricSpace)
     hypotheses: list[Hypothesis] = Field(default_factory=list)
 
     @model_validator(mode="after")

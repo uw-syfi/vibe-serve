@@ -21,6 +21,7 @@ from vibesys.loops.agent.model import (
     HypothesisReview,
     HypothesisStrategy,
 )
+from vibesys.loops.metrics import MetricSpace
 from vibesys.schemas import (
     CandidateDisposition,
     HypothesisOutcome,
@@ -28,7 +29,7 @@ from vibesys.schemas import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Sequence
 
     from vs_loop_state import RoundRecord
     from vs_project import StateNamespace, StateSlot, StateTransition
@@ -74,15 +75,21 @@ class AgentRunStateStore:
         *,
         rounds: Sequence[RoundRecord],
         local_namespace: StateNamespace,
-        legacy_directions: Mapping[str, Literal["max", "min"]] | None = None,
+        legacy_space: MetricSpace,
     ) -> AgentRunState:
-        """Build unified state from legacy files without modifying either format."""
+        """Build unified state from legacy files without modifying either format.
+
+        An existing ``state.json`` carries the run's own metric space and
+        answers for itself. *legacy_space* applies only where there is none:
+        unified state written before the space was persisted, and the older
+        ledger and active-checkpoint files. The loop passes the space the task
+        declares and adopts it immediately after this call; the server, which
+        cannot read the task directory, passes the axes recorded in the run
+        manifest, which carries no tolerance and therefore compares exactly.
+        """
         existing = self.load_optional()
         if existing is not None:
-            return reproject_run_evidence(
-                existing,
-                legacy_directions=legacy_directions,
-            )
+            return reproject_run_evidence(_with_legacy_space(existing, legacy_space))
         ledger = self._namespace.load_optional(
             self._LEGACY_LEDGER_FILE,
             _LegacyHypothesisLedger,
@@ -95,7 +102,7 @@ class AgentRunStateStore:
             rounds=rounds,
             ledger=ledger,
             active=active,
-            legacy_directions=legacy_directions,
+            legacy_space=legacy_space,
         )
 
     def cleanup_legacy(
@@ -125,6 +132,13 @@ class AgentRunStateStore:
     def namespace(self) -> StateNamespace:
         """Return the namespace used for durable Git snapshots."""
         return self._namespace
+
+
+def _with_legacy_space(state: AgentRunState, legacy_space: MetricSpace) -> AgentRunState:
+    """Supply a space to unified state written before one was persisted."""
+    if state.metrics != MetricSpace():
+        return state
+    return state.model_copy(update={"metrics": legacy_space}, deep=True)
 
 
 class _LegacyHypothesisStrategy(StrEnum):
@@ -192,7 +206,7 @@ def _migrate_legacy_state(
     rounds: Sequence[RoundRecord],
     ledger: _LegacyHypothesisLedger | None,
     active: _LegacyActiveHypothesis | None,
-    legacy_directions: Mapping[str, Literal["max", "min"]] | None,
+    legacy_space: MetricSpace,
 ) -> AgentRunState:
     ordered_rounds = sorted(rounds, key=lambda record: record.round_number)
     records_by_id = {
@@ -218,7 +232,7 @@ def _migrate_legacy_state(
         )
         for identifier in identifiers
     ]
-    state = AgentRunState(hypotheses=hypotheses)
+    state = AgentRunState(metrics=legacy_space, hypotheses=hypotheses)
     prior_rounds: list[RoundRecord] = []
     for round_record in ordered_rounds:
         identifier = round_record.hypothesis_id or _legacy_unassigned_id(round_record.round_number)
@@ -233,7 +247,7 @@ def _migrate_legacy_state(
             hypothesis,
             normalized_record,
             prior_rounds=prior_rounds,
-            legacy_directions=legacy_directions,
+            space=state.metrics,
         )
         index = next(
             index for index, item in enumerate(state.hypotheses) if item.hypothesis_id == identifier

@@ -38,6 +38,7 @@ from server.chat.options import ChatOptions, build_chat_options
 from server.events import EventType, RunEvent
 from vibesys.loops.agent.hypotheses import reproject_run_evidence
 from vibesys.loops.agent.state import AgentRunStateStore
+from vibesys.loops.metrics import MetricSpace, Objective
 from vs_project import ProjectStateError
 
 if TYPE_CHECKING:
@@ -301,11 +302,21 @@ class RunApi:
             local = project_run.project.state.local_namespace(
                 project_run.run_id, RunStateNamespace.AGENT
             )
+            # Unified state predating the persisted metric space: the run
+            # manifest records the axes but no tolerance, so legacy rounds are
+            # ordered exactly, which is what they were ordered by when written.
             return store.migrate_legacy(
                 rounds=project_run.project.state.load_rounds(project_run.run_id),
                 local_namespace=local,
-                legacy_directions=metric_directions(manifest.configuration.objectives),
+                legacy_space=MetricSpace(
+                    objectives=tuple(
+                        Objective(name=name, direction=direction)
+                        for name, direction in metric_directions(
+                            manifest.configuration.objectives
+                        ).items()
+                    )
+                ),
             )
-        return reproject_run_evidence(
-            state, legacy_directions=metric_directions(manifest.configuration.objectives)
-        )
+        # The run's own space and each round's own comparison travel with the
+        # state, so the read path needs no measurement configuration of its own.
+        return reproject_run_evidence(state)

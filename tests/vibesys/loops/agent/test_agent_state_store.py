@@ -12,6 +12,7 @@ from vibesys.loops.agent.model import (
     HypothesisStrategy,
 )
 from vibesys.loops.agent.state import AgentRunStateStore
+from vibesys.loops.metrics import MetricSpace, Objective
 from vibesys.schemas import HypothesisStrategyUpdate, OrchestratorPlan
 from vs_loop_state import RoundRecord
 from vs_project import (
@@ -73,6 +74,11 @@ class _LegacyActive(BaseModel):
     gate_approved_candidate_retention_reason: str = ""
     gate_candidate_commit: str | None = None
     gate_accuracy_passed: bool = False
+
+
+def _ops_space() -> MetricSpace:
+    """The space a run measuring ``ops`` declares in its objectives file."""
+    return MetricSpace(objectives=(Objective(name="ops", direction="max"),))
 
 
 def _project(tmp_path):  # noqa: ANN001, ANN202
@@ -184,7 +190,7 @@ def test_legacy_migration_unifies_ledger_active_and_rounds_without_writing(tmp_p
     migrated = store.migrate_legacy(
         rounds=[first],
         local_namespace=local,
-        legacy_directions={"ops": "max"},
+        legacy_space=_ops_space(),
     )
 
     assert store.load_optional() is None
@@ -222,10 +228,14 @@ def test_existing_unified_state_wins_over_legacy_inputs(tmp_path) -> None:  # no
     )
     store.save(unified)
 
-    assert store.migrate_legacy(rounds=[], local_namespace=local) == unified
+    assert (
+        store.migrate_legacy(rounds=[], local_namespace=local, legacy_space=MetricSpace())
+        == unified
+    )
 
 
-def test_existing_unified_state_is_reprojected_when_directions_become_available(tmp_path) -> None:  # noqa: ANN001
+def test_unified_state_written_before_a_metric_space_adopts_the_legacy_one(tmp_path) -> None:  # noqa: ANN001
+    """State that declares no space is reprojected in the caller's fallback."""
     project = _project(tmp_path)
     portable = project.state.portable_namespace("run-1", "agent")
     local = project.state.local_namespace("run-1", "agent")
@@ -270,7 +280,7 @@ def test_existing_unified_state_is_reprojected_when_directions_become_available(
     reprojected = store.migrate_legacy(
         rounds=[],
         local_namespace=local,
-        legacy_directions={"ops": "max"},
+        legacy_space=_ops_space(),
     )
 
     hypothesis = reprojected.by_id("H-1")
@@ -312,6 +322,7 @@ def test_stale_legacy_ledger_active_without_checkpoint_is_not_resurrected(tmp_pa
     migrated = AgentRunStateStore(portable).migrate_legacy(
         rounds=[completed],
         local_namespace=local,
+        legacy_space=MetricSpace(),
     )
 
     assert migrated.active_hypothesis_id is None
@@ -333,7 +344,7 @@ def test_legacy_migration_normalizes_rounds_without_hypothesis_ids(tmp_path) -> 
     migrated = AgentRunStateStore(portable).migrate_legacy(
         rounds=[record],
         local_namespace=local,
-        legacy_directions={"ops": "max"},
+        legacy_space=_ops_space(),
     )
 
     assert len(migrated.hypotheses) == 1
@@ -385,6 +396,7 @@ def test_legacy_migration_replays_strategy_updates_from_active_plan(tmp_path) ->
     migrated = AgentRunStateStore(portable).migrate_legacy(
         rounds=[first],
         local_namespace=local,
+        legacy_space=MetricSpace(),
     )
 
     prior = migrated.by_id("H-1")
