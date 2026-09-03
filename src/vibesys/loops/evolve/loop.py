@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import random
 import threading
+from collections.abc import Sequence  # noqa: TC003  # tracked: #288
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path  # noqa: TC003  # tracked: #288
@@ -50,7 +51,6 @@ from vibesys.domains.rendering import render_domain_section
 from vibesys.input_manifest import WorkspaceSource  # noqa: TC001  # tracked: #288
 from vibesys.loops.evolve.population import (
     Individual,
-    Objective,
     Population,
 )
 from vibesys.loops.evolve.search_policy import (
@@ -63,6 +63,7 @@ from vibesys.loops.evolve.search_policy import (
 )
 from vibesys.loops.evolve.state import EvolutionStateStore
 from vibesys.loops.gates import run_accuracy_gate
+from vibesys.loops.metrics import MetricSpace, Objective
 from vibesys.loops.profiler import invoke_profiler
 from vibesys.profilers import ProfilerKind, profiler_definition
 from vibesys.prompts import PROMPTS_DIR
@@ -253,7 +254,7 @@ def _run_mutator(  # noqa: PLR0913  # tracked: #288
     modality: str | None,
     domain_definition: DomainDefinition,
     is_cold_start: bool,
-    objectives: list[Objective] | None = None,
+    space: MetricSpace,
     failed_lessons: list[str] | None = None,
     num_failed_attempts: int = 0,
     repair_seed: bool = False,
@@ -275,7 +276,7 @@ def _run_mutator(  # noqa: PLR0913  # tracked: #288
         parent=parent,
         inspirations=inspirations,
         is_cold_start=is_cold_start,
-        objectives=objectives,
+        space=space,
         interface=_INTERFACE,
         domain_implementer=domain_implementer,
         runtime_notes=prompt_runtime_notes,
@@ -362,7 +363,7 @@ If the benchmark JSON does not contain a field, set its entry to `null` rather t
 """
 
 
-def _format_objectives_for_profiler(objectives: list[Objective]) -> str:
+def _format_objectives_for_profiler(objectives: Sequence[Objective]) -> str:
     return "\n".join(
         f"- `{o.name}` ({'maximize' if o.direction == 'max' else 'minimize'})" for o in objectives
     )
@@ -376,7 +377,7 @@ def _run_profiler(  # noqa: PLR0913  # tracked: #288
     modality: str | None,
     domain_definition: DomainDefinition,
     objective: str,
-    objectives: list[Objective] | None = None,
+    space: MetricSpace,
     runtime_notes: str | None = None,
 ) -> ProfilerSummary | None:
     if ctx.profiler_kind is ProfilerKind.NONE:
@@ -404,9 +405,9 @@ def _run_profiler(  # noqa: PLR0913  # tracked: #288
         profiler_support_name=definition.support_name,
         profiler_mcp_name=definition.mcp_name,
     )
-    if objectives:
+    if space.objectives:
         addendum = _PARETO_PROFILER_ADDENDUM.format(
-            objective_list=_format_objectives_for_profiler(objectives),
+            objective_list=_format_objectives_for_profiler(space.objectives),
         )
         system_prompt = base_prompt + addendum
     else:
@@ -467,7 +468,7 @@ def _evaluate_candidate(  # noqa: PLR0913  # tracked: #288
     parent: Individual,
     inspirations: list[Individual],
     objective: str,
-    objectives: list[Objective] | None,
+    space: MetricSpace,
     modality: str | None,
     domain_definition: DomainDefinition,
     pass_criteria: str,
@@ -517,7 +518,7 @@ def _evaluate_candidate(  # noqa: PLR0913  # tracked: #288
             modality=modality,
             domain_definition=domain_definition,
             is_cold_start=False,
-            objectives=objectives,
+            space=space,
             runtime_notes=cand_notes,
         )
 
@@ -572,7 +573,7 @@ def _evaluate_candidate(  # noqa: PLR0913  # tracked: #288
             modality=modality,
             domain_definition=domain_definition,
             objective=objective,
-            objectives=objectives,
+            space=space,
             runtime_notes=cand_notes,
         )
 
@@ -603,7 +604,7 @@ def _record_outcome(  # noqa: PLR0913  # tracked: #288
     *,
     generation: int,
     search_policy: SearchPolicy,
-    objectives: list[Objective] | None,
+    space: MetricSpace,
 ) -> Individual:
     """Assign an id, add the individual to the population, and persist it.
 
@@ -639,7 +640,7 @@ def _record_outcome(  # noqa: PLR0913  # tracked: #288
                 ),
                 policy_parent_id=outcome.policy_parent_id,
                 target_island=outcome.target_island,
-                objectives=objectives,
+                space=space,
             )
         metrics_repr = (
             " ".join(f"{k}={v:g}" for k, v in individual.metrics.items())
@@ -667,7 +668,7 @@ def _plan_candidate(  # noqa: PLR0913  # tracked: #288
     k_top_inspirations: int,
     k_random_inspirations: int,
     selection_temperature: float,
-    objectives: list[Objective] | None,
+    space: MetricSpace,
     frontier_bias: float,
     search_policy: SearchPolicy | None = None,
 ) -> SearchSelection | None:
@@ -688,7 +689,7 @@ def _plan_candidate(  # noqa: PLR0913  # tracked: #288
         k_top_inspirations=k_top_inspirations,
         k_random_inspirations=k_random_inspirations,
         selection_temperature=selection_temperature,
-        objectives=objectives,
+        space=space,
         frontier_bias=frontier_bias,
     )
     _persist_evolve_state(
@@ -714,7 +715,7 @@ def _run_generation_serial(  # noqa: PLR0913  # tracked: #288
     k_random_inspirations: int,
     selection_temperature: float,
     objective: str,
-    objectives: list[Objective] | None,
+    space: MetricSpace,
     frontier_bias: float,
     modality: str | None,
     domain_definition: DomainDefinition,
@@ -738,7 +739,7 @@ def _run_generation_serial(  # noqa: PLR0913  # tracked: #288
                 k_top_inspirations=k_top_inspirations,
                 k_random_inspirations=k_random_inspirations,
                 selection_temperature=selection_temperature,
-                objectives=objectives,
+                space=space,
                 frontier_bias=frontier_bias,
                 search_policy=search_policy,
             )
@@ -760,7 +761,7 @@ def _run_generation_serial(  # noqa: PLR0913  # tracked: #288
                 parent=parent,
                 inspirations=inspirations,
                 objective=objective,
-                objectives=objectives,
+                space=space,
                 modality=modality,
                 domain_definition=domain_definition,
                 pass_criteria=pass_criteria,
@@ -776,7 +777,7 @@ def _run_generation_serial(  # noqa: PLR0913  # tracked: #288
                 outcome,
                 generation=generation,
                 search_policy=search_policy,
-                objectives=objectives,
+                space=space,
             )
             if not outcome.passed:
                 # Dead-end mutation: revert the dirty tree back to the passing
@@ -800,7 +801,7 @@ def _evaluate_in_subcontext(  # noqa: PLR0913  # tracked: #288
     parent: Individual,
     inspirations: list[Individual],
     objective: str,
-    objectives: list[Objective] | None,
+    space: MetricSpace,
     modality: str | None,
     domain_definition: DomainDefinition,
     pass_criteria: str,
@@ -858,7 +859,7 @@ def _evaluate_in_subcontext(  # noqa: PLR0913  # tracked: #288
             parent=parent,
             inspirations=inspirations,
             objective=objective,
-            objectives=objectives,
+            space=space,
             modality=modality,
             domain_definition=domain_definition,
             pass_criteria=pass_criteria,
@@ -907,7 +908,7 @@ def _run_generation_parallel(  # noqa: PLR0913  # tracked: #288
     k_random_inspirations: int,
     selection_temperature: float,
     objective: str,
-    objectives: list[Objective] | None,
+    space: MetricSpace,
     frontier_bias: float,
     modality: str | None,
     domain_definition: DomainDefinition,
@@ -935,7 +936,7 @@ def _run_generation_parallel(  # noqa: PLR0913  # tracked: #288
             k_top_inspirations=k_top_inspirations,
             k_random_inspirations=k_random_inspirations,
             selection_temperature=selection_temperature,
-            objectives=objectives,
+            space=space,
             frontier_bias=frontier_bias,
             search_policy=search_policy,
         )
@@ -973,7 +974,7 @@ def _run_generation_parallel(  # noqa: PLR0913  # tracked: #288
                 parent=plan.parent,
                 inspirations=plan.inspirations,
                 objective=objective,
-                objectives=objectives,
+                space=space,
                 modality=modality,
                 domain_definition=domain_definition,
                 pass_criteria=pass_criteria,
@@ -997,7 +998,7 @@ def _run_generation_parallel(  # noqa: PLR0913  # tracked: #288
             outcomes[child_idx],
             generation=generation,
             search_policy=search_policy,
-            objectives=objectives,
+            space=space,
         )
         _persist_evolve_state(
             parent_ctx,
@@ -1015,7 +1016,7 @@ def _bootstrap_seed(  # noqa: PLR0913, PLR0915  # tracked: #288
     ctx: LoopContext,
     *,
     objective: str,
-    objectives: list[Objective] | None,
+    space: MetricSpace,
     modality: str | None,
     domain_definition: DomainDefinition,
     pass_criteria: str,
@@ -1087,7 +1088,7 @@ def _bootstrap_seed(  # noqa: PLR0913, PLR0915  # tracked: #288
                 modality=modality,
                 domain_definition=domain_definition,
                 is_cold_start=True,
-                objectives=objectives,
+                space=space,
                 failed_lessons=failed_lessons,
                 num_failed_attempts=num_failed_attempts,
                 repair_seed=wip_seed is not None,
@@ -1164,7 +1165,7 @@ def _bootstrap_seed(  # noqa: PLR0913, PLR0915  # tracked: #288
                 modality=modality,
                 domain_definition=domain_definition,
                 objective=objective,
-                objectives=objectives,
+                space=space,
                 runtime_notes=cand_notes,
             )
             ctx.snapshot_workspace("gen-0-seed")
@@ -1190,7 +1191,7 @@ def _bootstrap_seed(  # noqa: PLR0913, PLR0915  # tracked: #288
                     code=_candidate_code(ctx, commit) if search_policy.requires_code else "",
                     policy_parent_id=None,
                     target_island=None,
-                    objectives=objectives,
+                    space=space,
                 )
                 ctx.git.retain_candidate(f"individual-{seed.id}", commit)
             _persist_evolve_state(
@@ -1224,7 +1225,7 @@ def _initialize_search_policy(  # noqa: PLR0913  # tracked: #288
     requested: SearchPolicyName | str | None,
     seed: int | None,
     config: OpenEvolveSearchConfig | None,
-    objectives: list[Objective] | None,
+    space: MetricSpace,
 ) -> tuple[SearchPolicyName, SearchPolicy]:
     state_dir = state_store.namespace.external_directory("openevolve")
     if requested is None:
@@ -1244,7 +1245,7 @@ def _initialize_search_policy(  # noqa: PLR0913  # tracked: #288
         state_dir=state_dir,
         seed=seed,
         config=config,
-        objectives=objectives,
+        space=space,
     )
     for individual in population.passed:
         if not individual.commit:
@@ -1257,7 +1258,7 @@ def _initialize_search_policy(  # noqa: PLR0913  # tracked: #288
                 or (f"vibesys-{individual.parent_id}" if individual.parent_id is not None else None)
             ),
             target_island=individual.policy_target_island,
-            objectives=objectives,
+            space=space,
         )
     return policy_name, policy
 
@@ -1298,7 +1299,7 @@ def run_evolve_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
     backend: ComputeBackend = DEFAULT_COMPUTE_BACKEND,
     modality: str | None = None,
     domain: DomainName | None = None,
-    objectives: list[Objective] | None = None,
+    space: MetricSpace,
     frontier_bias: float = 0.7,
     bootstrap_max_attempts: int = 5,
     keep_deployments: bool = False,
@@ -1314,13 +1315,17 @@ def run_evolve_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
     Returns True if the loop completed normally; False on early
     exception / KeyboardInterrupt.
 
-    When ``objectives`` is non-empty the loop runs in **multi-objective
-    mode**: parent / inspiration sampling biases toward the Pareto
-    frontier with probability ``frontier_bias`` and the profiler is
-    expected to populate ``ProfilerSummary.metrics`` with values for
-    every objective name. When ``objectives`` is None the loop runs in
-    single-objective mode using ``perf_metric`` only — the legacy
-    behavior, kept for back-compat.
+    ``space`` is the run's metric space: the objective axes the task declares
+    and the relative tolerance below which two readings are indistinguishable.
+    It is persisted with the run and is the only thing that decides whether one
+    candidate beats another, so selection honors the declared tolerance.
+
+    When the space has axes the loop runs in **multi-objective mode**: parent /
+    inspiration sampling biases toward the Pareto frontier with probability
+    ``frontier_bias`` and the profiler is expected to populate
+    ``ProfilerSummary.metrics`` with values for every objective name. With no
+    axes the loop runs in single-objective mode using ``perf_metric`` only —
+    the legacy behavior, kept for back-compat.
     """
     if domain is None:
         raise ValueError("domain is required; declare [agent].domain in vibesys.input.toml")  # noqa: TRY003  # tracked: #288
@@ -1377,7 +1382,7 @@ def run_evolve_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
         bootstrap_max_attempts=bootstrap_max_attempts,
         keep_deployments=keep_deployments,
         max_parallelism=max_parallelism,
-        objectives=tuple(f"{item.name}:{item.direction}" for item in (objectives or [])),
+        objectives=tuple(f"{item.name}:{item.direction}" for item in space.objectives),
     )
     ctx = create_run_context(
         config=normalized_config,
@@ -1409,18 +1414,32 @@ def run_evolve_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
     ctx.lprint(f"[log] evolutionary run: {ctx.run_log_path}")
     ctx.lprint(f"[log] project root: {ctx.project_root}")
     ctx.lprint(f"[log] objective: {objective.splitlines()[0] if objective else '(empty)'}")
-    if objectives:
-        spec = ", ".join(f"{o.name}({o.direction})" for o in objectives)
-        ctx.lprint(f"[log] pareto objectives: [{spec}], frontier_bias={frontier_bias}")
+    if space.objectives:
+        spec = ", ".join(f"{o.name}({o.direction})" for o in space.objectives)
+        ctx.lprint(
+            f"[log] pareto objectives: [{spec}], frontier_bias={frontier_bias}, "
+            f"tolerance={space.relative_noise:.0%}"
+        )
     else:
         ctx.lprint("[log] single-objective mode (no Pareto frontier)")
 
     state_store = EvolutionStateStore(ctx.state.portable(RunStateNamespace.EVOLVE))
     try:
         population = state_store.load_population()
+        # A resumed run whose task file has been edited selects by the new
+        # space from here on; say so rather than letting the change be silent.
+        if state_store.load_metric_space() not in {space, MetricSpace()}:
+            ctx.lprint(
+                "[log] this run recorded a different metric space; the task file "
+                f"wins and selection now uses {len(space.objectives)} axes within "
+                f"a {space.relative_noise:.0%} tolerance"
+            )
         # Materialize an empty population too, so a newly initialized run has
-        # one complete, inspectable persistence contract from the start.
+        # one complete, inspectable persistence contract from the start. The
+        # metric space is written the same way and in the same place: one
+        # record of how this run decides that a candidate is better.
         state_store.save_population(population)
+        state_store.save_metric_space(space)
         policy_name, policy = _initialize_search_policy(
             ctx,
             population,
@@ -1428,7 +1447,7 @@ def run_evolve_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
             requested=search_policy,
             seed=seed,
             config=openevolve_config,
-            objectives=objectives,
+            space=space,
         )
         _persist_evolve_state(
             ctx,
@@ -1455,7 +1474,7 @@ def run_evolve_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
             seed_individual = _bootstrap_seed(
                 ctx,
                 objective=objective,
-                objectives=objectives,
+                space=space,
                 modality=modality,
                 domain_definition=domain_definition,
                 pass_criteria=pass_criteria,
@@ -1512,7 +1531,7 @@ def run_evolve_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
                     k_random_inspirations=k_random_inspirations,
                     selection_temperature=selection_temperature,
                     objective=objective,
-                    objectives=objectives,
+                    space=space,
                     frontier_bias=frontier_bias,
                     modality=modality,
                     domain_definition=domain_definition,
@@ -1534,7 +1553,7 @@ def run_evolve_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
                     k_random_inspirations=k_random_inspirations,
                     selection_temperature=selection_temperature,
                     objective=objective,
-                    objectives=objectives,
+                    space=space,
                     frontier_bias=frontier_bias,
                     modality=modality,
                     domain_definition=domain_definition,
@@ -1551,8 +1570,8 @@ def run_evolve_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
                 label=f"evolve: complete generation {generation}",
             )
 
-        if objectives:
-            front = population.frontier(objectives)
+        if space.objectives:
+            front = population.frontier(space)
             if front:
                 ctx.lprint(f"\nFinal Pareto frontier ({len(front)} individuals):")
                 for ind in front:
@@ -1560,7 +1579,7 @@ def run_evolve_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
                         f"{o.name}={ind.metrics.get(o.name, 'n/a'):g}"
                         if isinstance(ind.metrics.get(o.name), (int, float))
                         else f"{o.name}=n/a"
-                        for o in objectives
+                        for o in space.objectives
                     )
                     ctx.lprint(
                         f"  #{ind.id}: {metrics_repr} "
@@ -1569,7 +1588,7 @@ def run_evolve_loop(  # noqa: C901, PLR0912, PLR0913, PLR0915  # tracked: #288
             else:
                 ctx.lprint("\nFrontier is empty (no individual reported all objective metrics).")
 
-        best = population.best()
+        best = population.best(space)
         if best is None and population.passed:
             # A profiler-disabled run has no scalar fitness. Prefer the latest
             # passing individual, matching the search-policy fallback.

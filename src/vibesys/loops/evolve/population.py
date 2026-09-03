@@ -7,12 +7,12 @@ loop-owned state adapter converts populations to strict persisted contracts.
 
 The module supports two selection modes:
 
-- **Scalar** (objectives=None): rank by ``Individual.perf_metric``;
-  parent sampling is a softmax over normalized fitness. Used when the
-  caller doesn't provide an objective list (the default for
+- **Scalar** (a space with no configured axes): rank by
+  ``Individual.perf_metric``; parent sampling is a softmax over normalized
+  fitness. Used when the task declares no objectives (the default for
   back-compatibility with runs that predate Pareto support).
 
-- **Multi-objective Pareto** (objectives=[...]): keep a non-dominated
+- **Multi-objective Pareto** (a space with axes): keep a non-dominated
   *frontier* over ``Individual.metrics``; with probability
   ``frontier_bias`` parent selection draws uniformly from the frontier,
   otherwise it falls back to the scalar softmax over the *primary*
@@ -23,6 +23,16 @@ The two modes share data structures: every passing individual stores
 both ``perf_metric`` (back-compat scalar) and ``metrics`` (the dict the
 profiler reported). Mode is chosen at the call site, not at the data
 layer.
+
+## Comparison versus ranking
+
+Every question of the form "is this candidate better?" -- dominance, frontier
+membership, and the scalar champion -- is answered by the run's
+:class:`~vibesys.loops.metrics.MetricSpace`, so the task's declared measurement
+tolerance applies to selection. Parent sampling deliberately does not: the
+softmax over normalized fitness ranks the whole archive rather than comparing
+two candidates, and squashing near-ties there would flatten the very gradient
+the sampler exists to follow.
 """
 
 from __future__ import annotations
@@ -31,49 +41,18 @@ import math
 import random  # noqa: TC003  # tracked: #288
 from dataclasses import dataclass, field
 
-from vibesys.loops.metrics import Objective
+from vibesys.loops.metrics import Measurement, MetricSpace, Objective
 
 __all__ = [
     "Individual",
-    "Objective",
     "Population",
 ]
 
-# ---------------------------------------------------------------------------
-# Dominance
-#
-# ``Objective`` now lives in ``vibesys.loops.metrics`` alongside the shared
-# metric space. It is re-exported here so this module and its importers keep
-# their existing surface. The selection logic below still compares exactly,
-# without a measurement tolerance; delegating it to ``MetricSpace`` is a
-# deliberate behavior change for the evolve loop and belongs in its own change.
-# ---------------------------------------------------------------------------
-
-
-def _dominates(a: Individual, b: Individual, objectives: list[Objective]) -> bool:
-    """True if ``a`` Pareto-dominates ``b`` under *objectives*.
-
-    Convention: a dominates b iff for every objective, a is at-least-as
-    good as b, AND for at least one objective, a is strictly better.
-    Both must have a value for every objective name; missing values are
-    treated as "incomparable" (neither dominates).
-    """
-    if not objectives:
-        return False
-    strictly_better_anywhere = False
-    for obj in objectives:
-        a_val = a.metrics.get(obj.name)
-        b_val = b.metrics.get(obj.name)
-        if a_val is None or b_val is None:
-            return False
-        a_eff = obj.signed(a_val)
-        b_eff = obj.signed(b_val)
-        if a_eff < b_eff:
-            return False  # a worse on this axis → can't dominate
-        if a_eff > b_eff:
-            strictly_better_anywhere = True
-    return strictly_better_anywhere
-
+# The axis ``best`` orders on when the task declares no objectives. Scalar mode
+# predates configurable objectives and has always read ``perf_metric`` as a
+# maximization axis; naming it here as an axis lets the run's tolerance apply
+# in that mode too, without any caller passing a direction.
+_SCALAR_AXIS = Objective(name="perf_metric", direction="max")
 
 # ---------------------------------------------------------------------------
 # Individual
@@ -168,42 +147,40 @@ class Population:
         ind.validate_fitness()
         self._individuals.append(ind)
 
-    def best(self) -> Individual | None:
-        """Return the passed individual with the highest ``perf_metric``.
+    def best(self, space: MetricSpace) -> Individual | None:
+        """Return the passed individual leading on the run's headline axis.
 
-        Single-objective view; for multi-objective use ``frontier``.
-        Ties broken by latest id (most recent wins).
+        Single-objective view; for multi-objective use ``frontier``. The axis
+        is the space's primary objective, or ``perf_metric`` when the task
+        declares none. Ties, including ties inside the declared tolerance, go
+        to the latest id (most recent wins), which the reversed iteration order
+        expresses to ``MetricSpace.best``.
         """
-        best: Individual | None = None
-        best_metric = float("-inf")
-        for ind in self.passed:
-            metric = ind.perf_metric
-            if metric is None:
-                continue
-            if best is None or metric > best_metric or (metric == best_metric and ind.id > best.id):
-                best = ind
-                best_metric = metric
-        return best
+        headline = _headline_space(space)
+        newest_first: list[Individual] = sorted(
+            self.passed, key=lambda individual: individual.id, reverse=True
+        )
+
+        def reading(individual: Individual) -> Measurement | None:
+            return _headline_reading(individual, headline)
+
+        return headline.best(newest_first, reading)
 
     # -- frontier ------------------------------------------------------------
 
-    def frontier(self, objectives: list[Objective]) -> list[Individual]:
+    def frontier(self, space: MetricSpace) -> list[Individual]:
         """Return the Pareto-non-dominated subset of passed individuals.
 
-        Only individuals with values for *every* objective name are
-        eligible — a partial-metric individual is incomparable on the
-        missing axis and silently dropped from the frontier.
+        Only individuals with values for *every* configured axis are eligible;
+        a partial-metric individual is incomparable on the missing axis and is
+        silently dropped from the frontier. Dominance is decided by *space*, so
+        a candidate within the declared tolerance of a frontier member is not
+        dominated by it.
         """
-        if not objectives:
-            return []
-        eligible = [i for i in self.passed if all(o.name in i.metrics for o in objectives)]
-        non_dominated: list[Individual] = []
-        for cand in eligible:
-            if not any(
-                _dominates(other, cand, objectives) for other in eligible if other.id != cand.id
-            ):
-                non_dominated.append(cand)  # noqa: PERF401  # tracked: #288
-        return non_dominated
+        return space.frontier(
+            [individual for individual in self.passed if space.complete(individual.metrics)],
+            lambda individual: individual.metrics,
+        )
 
     # -- selection -----------------------------------------------------------
 
@@ -212,25 +189,24 @@ class Population:
         *,
         rng: random.Random,
         temperature: float = 1.0,
-        objectives: list[Objective] | None = None,
+        space: MetricSpace,
         frontier_bias: float = 0.7,
     ) -> Individual | None:
         """Sample a parent from passed individuals.
 
         Two modes:
 
-        - **Pareto** (``objectives`` provided): with probability
-          ``frontier_bias`` draw uniformly from the frontier; otherwise
-          fall back to the scalar softmax. If the frontier is empty
-          (e.g. no individual has all required metrics yet) this also
-          falls back to scalar softmax — keeps the loop unblocked
-          early in a run before the profiler emits all axes.
-        - **Scalar** (``objectives=None``): softmax over normalized
+        - **Pareto** (*space* has axes): with probability ``frontier_bias``
+          draw uniformly from the frontier; otherwise fall back to the scalar
+          softmax. If the frontier is empty (e.g. no individual has all
+          required metrics yet) this also falls back to scalar softmax — keeps
+          the loop unblocked early in a run before the profiler emits all axes.
+        - **Scalar** (*space* has no axes): softmax over normalized
           ``perf_metric`` with ``temperature``. Lower temperature →
           greedy on the best; higher temperature → uniform.
         """
-        if objectives:
-            front = self.frontier(objectives)
+        if space.objectives:
+            front = self.frontier(space)
             if front and rng.random() < frontier_bias:
                 return rng.choice(front)
         return self._scalar_softmax_parent(rng=rng, temperature=temperature)
@@ -271,20 +247,20 @@ class Population:
         k_top: int,
         k_random: int,
         rng: random.Random,
-        objectives: list[Objective] | None = None,
+        space: MetricSpace,
     ) -> list[Individual]:
         """Pick a small set of peer individuals to show the mutator.
 
         Two modes:
 
-        - **Pareto** (``objectives`` provided): take up to ``k_top`` from
-          the frontier (parent excluded), then ``k_random`` random
-          others. Frontier members are sorted by the *primary*
-          objective (first in the list) so the strongest example on the
-          headline axis comes first; the rest of the frontier still
-          shows the mutator alternative axes. If the frontier is too
-          small, the slack is filled from off-frontier passers.
-        - **Scalar** (``objectives=None``): top-K-by-perf + random-K, as
+        - **Pareto** (*space* has axes): take up to ``k_top`` from the frontier
+          (parent excluded), then ``k_random`` random others. Frontier members
+          are sorted by the *primary* objective so the strongest example on the
+          headline axis comes first; the rest of the frontier still shows the
+          mutator alternative axes. If the frontier is too small, the slack is
+          filled from off-frontier passers. This ordering is a ranking, not a
+          comparison, so it reads signed axis values directly.
+        - **Scalar** (*space* has no axes): top-K-by-perf + random-K, as
           before.
 
         The parent is always excluded; duplicates are removed.
@@ -293,10 +269,10 @@ class Population:
         if not pool:
             return []
 
-        if objectives:
-            front_ids = {i.id for i in self.frontier(objectives) if i.id != parent_id}
+        primary = space.primary
+        if primary is not None:
+            front_ids = {i.id for i in self.frontier(space) if i.id != parent_id}
             front_pool = [i for i in pool if i.id in front_ids]
-            primary = objectives[0]
             front_pool.sort(
                 key=lambda i: primary.signed(i.metrics.get(primary.name, float("-inf"))),
                 reverse=True,
@@ -322,6 +298,28 @@ class Population:
         rest = [i for i in pool if i.id not in top_ids]
         rnd = rng.sample(rest, k=min(k_random, len(rest))) if rest else []
         return top + rnd
+
+
+def _headline_space(space: MetricSpace) -> MetricSpace:
+    """Return the space ``best`` orders in: the run's, or the scalar fallback.
+
+    A task that declares objectives names its headline axis first. One that
+    declares none is still measured with the run's tolerance, on the
+    back-compat ``perf_metric`` axis.
+    """
+    if space.primary is not None:
+        return space
+    return MetricSpace(objectives=(_SCALAR_AXIS,), relative_noise=space.relative_noise)
+
+
+def _headline_reading(individual: Individual, headline: MetricSpace) -> Measurement | None:
+    """Read *individual* on the headline axis of an already-resolved space."""
+    primary = headline.primary
+    assert primary is not None  # noqa: S101  # guaranteed by _headline_space
+    value = individual.metrics.get(primary.name, individual.perf_metric)
+    if value is None:
+        return None
+    return Measurement(metric=primary.name, value=value)
 
 
 def _require_finite_metric(value: float | None, field_name: str) -> None:

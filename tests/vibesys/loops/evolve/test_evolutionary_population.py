@@ -13,11 +13,18 @@ from typing import Any
 
 import pytest
 
-from vibesys.loops.evolve.population import (
-    Individual,
-    Objective,
-    Population,
-    _dominates,
+from vibesys.loops.evolve.population import Individual, Population
+from vibesys.loops.metrics import MetricSpace, Objective
+
+
+def _space(*objectives: Objective, noise: float = 0.0) -> MetricSpace:
+    """The metric space a task declaring *objectives* would produce."""
+    return MetricSpace(objectives=objectives, relative_noise=noise)
+
+
+_TPUT_LAT = _space(
+    Objective(name="tput", direction="max"),
+    Objective(name="lat", direction="min"),
 )
 
 # ---------------------------------------------------------------------------
@@ -73,17 +80,17 @@ def test_passed_filter_excludes_no_commit_and_failed():  # noqa: ANN201  # track
 
 def test_best_picks_highest_perf_metric():  # noqa: ANN201  # tracked: #288
     pop = Population([_passed(1, 10.0), _passed(2, 12.0), _passed(3, 11.0)])
-    assert _selected_id(pop.best()) == 2
+    assert _selected_id(pop.best(MetricSpace())) == 2
 
 
 def test_best_returns_none_with_no_passed_individuals():  # noqa: ANN201  # tracked: #288
     pop = Population([_failed(1), _failed(2)])
-    assert pop.best() is None
+    assert pop.best(MetricSpace()) is None
 
 
 def test_best_breaks_ties_by_id():  # noqa: ANN201  # tracked: #288
     pop = Population([_passed(1, 10.0), _passed(2, 10.0)])
-    assert _selected_id(pop.best()) == 2
+    assert _selected_id(pop.best(MetricSpace())) == 2
 
 
 # ---------------------------------------------------------------------------
@@ -92,24 +99,27 @@ def test_best_breaks_ties_by_id():  # noqa: ANN201  # tracked: #288
 
 
 def test_select_parent_empty_returns_none():  # noqa: ANN201  # tracked: #288
-    assert Population().select_parent(rng=random.Random(0)) is None  # noqa: S311  # tracked: #288
+    assert Population().select_parent(rng=random.Random(0), space=MetricSpace()) is None  # noqa: S311  # tracked: #288
 
 
 def test_select_parent_only_failed_returns_none():  # noqa: ANN201  # tracked: #288
     pop = Population([_failed(1), _failed(2)])
-    assert pop.select_parent(rng=random.Random(0)) is None  # noqa: S311  # tracked: #288
+    assert pop.select_parent(rng=random.Random(0), space=MetricSpace()) is None  # noqa: S311  # tracked: #288
 
 
 def test_select_parent_single_passed_returns_it():  # noqa: ANN201  # tracked: #288
     pop = Population([_failed(1), _passed(2, 10.0)])
-    assert _selected_id(pop.select_parent(rng=random.Random(0))) == 2  # noqa: S311  # tracked: #288
+    assert _selected_id(pop.select_parent(rng=random.Random(0), space=MetricSpace())) == 2  # noqa: S311  # tracked: #288
 
 
 def test_select_parent_low_temperature_concentrates_on_best():  # noqa: ANN201  # tracked: #288
     """A near-zero temperature should pick the best almost every time."""
     pop = Population([_passed(1, 1.0), _passed(2, 5.0), _passed(3, 10.0)])
     rng = random.Random(123)  # noqa: S311  # tracked: #288
-    counts = Counter(_selected_id(pop.select_parent(rng=rng, temperature=0.01)) for _ in range(200))
+    counts = Counter(
+        _selected_id(pop.select_parent(space=MetricSpace(), rng=rng, temperature=0.01))
+        for _ in range(200)
+    )
     # The best (id=3) should dominate.
     assert counts[3] > 180
 
@@ -119,7 +129,8 @@ def test_select_parent_high_temperature_spreads():  # noqa: ANN201  # tracked: #
     pop = Population([_passed(1, 1.0), _passed(2, 5.0), _passed(3, 10.0)])
     rng = random.Random(123)  # noqa: S311  # tracked: #288
     counts = Counter(
-        _selected_id(pop.select_parent(rng=rng, temperature=100.0)) for _ in range(600)
+        _selected_id(pop.select_parent(space=MetricSpace(), rng=rng, temperature=100.0))
+        for _ in range(600)
     )
     # All three should be picked a meaningful number of times.
     assert all(counts[i] > 100 for i in (1, 2, 3))
@@ -128,7 +139,9 @@ def test_select_parent_high_temperature_spreads():  # noqa: ANN201  # tracked: #
 def test_select_parent_uniform_when_all_perfs_equal():  # noqa: ANN201  # tracked: #288
     pop = Population([_passed(1, 7.0), _passed(2, 7.0), _passed(3, 7.0)])
     rng = random.Random(42)  # noqa: S311  # tracked: #288
-    counts = Counter(_selected_id(pop.select_parent(rng=rng)) for _ in range(300))
+    counts = Counter(
+        _selected_id(pop.select_parent(rng=rng, space=MetricSpace())) for _ in range(300)
+    )
     assert all(counts[i] > 50 for i in (1, 2, 3))
 
 
@@ -142,7 +155,7 @@ def test_select_inspirations_excludes_parent_and_dedupes():  # noqa: ANN201  # t
         [_passed(i, float(i)) for i in range(1, 8)]  # ids 1..7, perf 1..7
     )
     rng = random.Random(0)  # noqa: S311  # tracked: #288
-    picks = pop.select_inspirations(parent_id=7, k_top=2, k_random=2, rng=rng)
+    picks = pop.select_inspirations(parent_id=7, k_top=2, k_random=2, rng=rng, space=MetricSpace())
     ids = [i.id for i in picks]
     assert 7 not in ids  # parent excluded
     assert len(set(ids)) == len(ids)  # no dupes
@@ -151,7 +164,7 @@ def test_select_inspirations_excludes_parent_and_dedupes():  # noqa: ANN201  # t
 def test_select_inspirations_top_first_then_random():  # noqa: ANN201  # tracked: #288
     pop = Population([_passed(i, float(i)) for i in range(1, 8)])
     rng = random.Random(0)  # noqa: S311  # tracked: #288
-    picks = pop.select_inspirations(parent_id=1, k_top=2, k_random=2, rng=rng)
+    picks = pop.select_inspirations(parent_id=1, k_top=2, k_random=2, rng=rng, space=MetricSpace())
     # First two should be the top-2 highest-perf (ids 7 and 6).
     assert picks[0].id == 7
     assert picks[1].id == 6
@@ -167,6 +180,7 @@ def test_select_inspirations_handles_small_population():  # noqa: ANN201  # trac
         k_top=2,
         k_random=2,
         rng=random.Random(0),  # noqa: S311  # tracked: #288
+        space=MetricSpace(),
     )
     # Only one other passed individual exists; no dupes / no errors.
     assert [p.id for p in picks] == [2]
@@ -179,6 +193,7 @@ def test_select_inspirations_empty_when_only_parent_passed():  # noqa: ANN201  #
         k_top=3,
         k_random=3,
         rng=random.Random(0),  # noqa: S311  # tracked: #288
+        space=MetricSpace(),
     )
     assert picks == []
 
@@ -223,47 +238,6 @@ def test_objective_signed_min_negates():  # noqa: ANN201  # tracked: #288
     assert Objective("x", "min").signed(5.0) == -5.0
 
 
-def test_dominates_max_objective():  # noqa: ANN201  # tracked: #288
-    a = _multi(1, {"throughput": 100.0})
-    b = _multi(2, {"throughput": 80.0})
-    objs = [Objective("throughput", "max")]
-    assert _dominates(a, b, objs) is True
-    assert _dominates(b, a, objs) is False
-
-
-def test_dominates_min_objective():  # noqa: ANN201  # tracked: #288
-    a = _multi(1, {"latency_ms": 50.0})
-    b = _multi(2, {"latency_ms": 80.0})
-    objs = [Objective("latency_ms", "min")]
-    assert _dominates(a, b, objs) is True
-
-
-def test_dominates_requires_strictly_better_on_at_least_one():  # noqa: ANN201  # tracked: #288
-    """Equal on every axis → no domination either way."""
-    a = _multi(1, {"x": 5.0, "y": 5.0})
-    b = _multi(2, {"x": 5.0, "y": 5.0})
-    objs = [Objective("x", "max"), Objective("y", "max")]
-    assert _dominates(a, b, objs) is False
-    assert _dominates(b, a, objs) is False
-
-
-def test_dominates_two_axis_mixed_is_non_dominated():  # noqa: ANN201  # tracked: #288
-    """Throughput/latency tradeoff: neither dominates."""
-    a = _multi(1, {"tput": 100.0, "lat": 80.0})
-    b = _multi(2, {"tput": 80.0, "lat": 50.0})
-    objs = [Objective("tput", "max"), Objective("lat", "min")]
-    assert _dominates(a, b, objs) is False
-    assert _dominates(b, a, objs) is False
-
-
-def test_dominates_missing_metric_treats_as_incomparable():  # noqa: ANN201  # tracked: #288
-    a = _multi(1, {"tput": 100.0})  # missing 'lat'
-    b = _multi(2, {"tput": 80.0, "lat": 50.0})
-    objs = [Objective("tput", "max"), Objective("lat", "min")]
-    assert _dominates(a, b, objs) is False
-    assert _dominates(b, a, objs) is False
-
-
 def test_frontier_returns_only_non_dominated():  # noqa: ANN201  # tracked: #288
     pop = Population(
         [
@@ -273,8 +247,7 @@ def test_frontier_returns_only_non_dominated():  # noqa: ANN201  # tracked: #288
             _multi(4, {"tput": 90.0, "lat": 60.0}),  # frontier (middle)
         ]
     )
-    objs = [Objective("tput", "max"), Objective("lat", "min")]
-    front_ids = {i.id for i in pop.frontier(objs)}
+    front_ids = {i.id for i in pop.frontier(_TPUT_LAT)}
     assert front_ids == {1, 2, 4}
 
 
@@ -285,15 +258,14 @@ def test_frontier_excludes_individuals_missing_metrics():  # noqa: ANN201  # tra
             _multi(2, {"tput": 80.0}),  # missing 'lat'
         ]
     )
-    objs = [Objective("tput", "max"), Objective("lat", "min")]
-    front_ids = {i.id for i in pop.frontier(objs)}
+    front_ids = {i.id for i in pop.frontier(_TPUT_LAT)}
     # Only id=1 is fully metric'd.
     assert front_ids == {1}
 
 
 def test_frontier_empty_when_no_objectives():  # noqa: ANN201  # tracked: #288
     pop = Population([_multi(1, {"tput": 100.0})])
-    assert pop.frontier([]) == []
+    assert pop.frontier(MetricSpace()) == []
 
 
 # ---------------------------------------------------------------------------
@@ -310,10 +282,9 @@ def test_select_parent_pareto_mode_draws_from_frontier_with_full_bias():  # noqa
             _multi(3, {"tput": 50.0, "lat": 200.0}),  # dominated
         ]
     )
-    objs = [Objective("tput", "max"), Objective("lat", "min")]
     rng = random.Random(0)  # noqa: S311  # tracked: #288
     counts = Counter(
-        _selected_id(pop.select_parent(rng=rng, objectives=objs, frontier_bias=1.0))
+        _selected_id(pop.select_parent(rng=rng, space=_TPUT_LAT, frontier_bias=1.0))
         for _ in range(200)
     )
     assert counts[3] == 0  # never the dominated one
@@ -330,13 +301,12 @@ def test_select_parent_pareto_mode_falls_back_to_scalar_when_bias_zero():  # noq
             _multi(2, {"tput": 80.0, "lat": 50.0}),
         ]
     )
-    objs = [Objective("tput", "max"), Objective("lat", "min")]
     rng = random.Random(0)  # noqa: S311  # tracked: #288
     counts = Counter(
         _selected_id(
             pop.select_parent(
                 rng=rng,
-                objectives=objs,
+                space=_TPUT_LAT,
                 frontier_bias=0.0,
                 temperature=0.01,
             )
@@ -355,9 +325,8 @@ def test_select_parent_falls_back_when_frontier_is_empty():  # noqa: ANN201  # t
             _multi(2, {"tput": 80.0}),  # missing 'lat'
         ]
     )
-    objs = [Objective("tput", "max"), Objective("lat", "min")]
     rng = random.Random(0)  # noqa: S311  # tracked: #288
-    pick = pop.select_parent(rng=rng, objectives=objs, frontier_bias=1.0)
+    pick = pop.select_parent(rng=rng, space=_TPUT_LAT, frontier_bias=1.0)
     # We get *some* individual via scalar fallback rather than None.
     assert pick is not None
     assert pick.id in (1, 2)
@@ -374,14 +343,13 @@ def test_select_inspirations_pareto_mode_pulls_from_frontier_first():  # noqa: A
             _multi(5, {"tput": 50.0, "lat": 110.0}),  # dominated
         ]
     )
-    objs = [Objective("tput", "max"), Objective("lat", "min")]
     rng = random.Random(0)  # noqa: S311  # tracked: #288
     picks = pop.select_inspirations(
         parent_id=1,
         k_top=2,
         k_random=1,
         rng=rng,
-        objectives=objs,
+        space=_TPUT_LAT,
     )
     # First two slots are frontier members (excluding parent #1), sorted by
     # primary objective 'tput' descending: id=3 (tput=90) before id=2 (tput=80).
@@ -402,14 +370,13 @@ def test_select_inspirations_backfills_when_frontier_smaller_than_k_top():  # no
             _multi(4, {"tput": 60.0, "lat": 100.0}),  # dominated
         ]
     )
-    objs = [Objective("tput", "max"), Objective("lat", "min")]
     rng = random.Random(0)  # noqa: S311  # tracked: #288
     picks = pop.select_inspirations(
         parent_id=1,
         k_top=3,
         k_random=0,
         rng=rng,
-        objectives=objs,
+        space=_TPUT_LAT,
     )
     ids = [p.id for p in picks]
     assert ids[0] == 2  # frontier first
@@ -445,7 +412,7 @@ def test_best_revalidates_mutated_fitness_before_ranking():  # noqa: ANN201  # t
     individual.perf_metric = float("nan")
 
     with pytest.raises(ValueError, match="perf_metric must be a finite number"):
-        population.best()
+        population.best(MetricSpace())
 
 
 def test_frontier_revalidates_mutated_metrics_before_comparison():  # noqa: ANN201  # tracked: #288
@@ -462,7 +429,7 @@ def test_frontier_revalidates_mutated_metrics_before_comparison():  # noqa: ANN2
     individual.metrics["throughput"] = float("inf")
 
     with pytest.raises(ValueError, match=r"metrics\['throughput'\] must be a finite number"):
-        population.frontier([Objective("throughput", "max")])
+        population.frontier(_space(Objective(name="throughput", direction="max")))
 
 
 def test_softmax_revalidates_mutated_fitness_before_sampling():  # noqa: ANN201  # tracked: #288
@@ -471,4 +438,97 @@ def test_softmax_revalidates_mutated_fitness_before_sampling():  # noqa: ANN201 
     individual.perf_metric = float("-inf")
 
     with pytest.raises(ValueError, match="perf_metric must be a finite number"):
-        population.select_parent(rng=random.Random(0))  # noqa: S311  # tracked: #288
+        population.select_parent(rng=random.Random(0), space=MetricSpace())  # noqa: S311  # tracked: #288
+
+
+# ---------------------------------------------------------------------------
+# Noise-aware selection
+# ---------------------------------------------------------------------------
+
+
+def _near_frontier() -> Population:
+    """Two candidates 3% apart on both axes: a tie only under a tolerance."""
+    return Population(
+        [
+            _multi(1, {"tput": 100.0, "lat": 80.0}),
+            _multi(2, {"tput": 97.0, "lat": 82.4}),
+        ]
+    )
+
+
+def _tput_lat(noise: float) -> MetricSpace:
+    return _space(
+        Objective(name="tput", direction="max"),
+        Objective(name="lat", direction="min"),
+        noise=noise,
+    )
+
+
+def test_frontier_retains_a_candidate_within_the_declared_tolerance():  # noqa: ANN201  # tracked: #288
+    """Behavior change: selection now honors the task's measurement tolerance.
+
+    Individual 2 is 3% behind on both axes. Compared exactly it is dominated;
+    within a declared 5% tolerance that difference is not a measured result, so
+    the candidate stays on the frontier and remains eligible as a parent.
+    """
+    assert {i.id for i in _near_frontier().frontier(_tput_lat(0.05))} == {1, 2}
+
+
+def test_a_zero_tolerance_reproduces_the_previous_exact_frontier():  # noqa: ANN201  # tracked: #288
+    """The pre-change behavior is the zero-tolerance case of the same rule."""
+    assert {i.id for i in _near_frontier().frontier(_tput_lat(0.0))} == {1}
+
+
+def test_a_candidate_beyond_the_tolerance_is_still_dominated():  # noqa: ANN201  # tracked: #288
+    """The tolerance widens the tie band; it does not disable dominance."""
+    assert {i.id for i in _near_frontier().frontier(_tput_lat(0.01))} == {1}
+
+
+def test_best_prefers_the_latest_of_two_readings_within_the_tolerance():  # noqa: ANN201  # tracked: #288
+    """Behavior change: a near-tie on the headline axis is a tie.
+
+    Individual 2 measures 2% lower, which a 5% tolerance calls
+    indistinguishable. ``Population.best`` breaks ties by latest id, which it
+    expresses to ``MetricSpace.best`` by ordering newest first.
+    """
+    population = Population([_passed(1, 100.0), _passed(2, 98.0)])
+    tolerant = _space(Objective(name="perf_metric", direction="max"), noise=0.05)
+
+    best = population.best(tolerant)
+
+    assert best is not None
+    assert best.id == 2
+
+
+def test_best_with_a_zero_tolerance_still_takes_the_strictly_higher_reading():  # noqa: ANN201  # tracked: #288
+    """The pre-change behavior: only an exact tie goes to the latest id."""
+    strict = Population([_passed(1, 100.0), _passed(2, 98.0)]).best(MetricSpace())
+    tied = Population([_passed(1, 100.0), _passed(2, 100.0)]).best(MetricSpace())
+
+    assert strict is not None
+    assert strict.id == 1
+    assert tied is not None
+    assert tied.id == 2
+
+
+def test_best_orders_on_the_primary_axis_when_the_task_declares_one():  # noqa: ANN201  # tracked: #288
+    """A minimized headline axis makes the lowest reading the champion."""
+    population = Population([_multi(1, {"latency_ms": 80.0}), _multi(2, {"latency_ms": 50.0})])
+
+    best = population.best(_space(Objective(name="latency_ms", direction="min")))
+
+    assert best is not None
+    assert best.id == 2
+
+
+def test_frontier_bias_can_still_reach_a_near_tie_parent():  # noqa: ANN201  # tracked: #288
+    """The retained near-tie is a real selection outcome, not just a listing."""
+    population = _near_frontier()
+    rng = random.Random(0)  # noqa: S311  # tracked: #288
+
+    picked = {
+        _selected_id(population.select_parent(rng=rng, space=_tput_lat(0.05), frontier_bias=1.0))
+        for _ in range(200)
+    }
+
+    assert picked == {1, 2}

@@ -2190,10 +2190,19 @@ def _load_metric_space_toml(input_path: Path) -> MetricSpace:
     return MetricSpace(objectives=tuple(objectives), relative_noise=value)
 
 
-def _resolve_objectives(args: argparse.Namespace) -> list[Objective]:
+def _resolve_metric_space(args: argparse.Namespace) -> MetricSpace:
+    """Build the run's metric space, letting ``--objective`` override its axes.
+
+    The tolerance always comes from the task file: it describes the workload's
+    measurement variation, which a command-line axis list does not change.
+    """
+    space = _load_metric_space_toml(args.input_bundle.task_root)
     if args.objective:
-        return list(args.objective)
-    return list(_load_metric_space_toml(args.input_bundle.task_root).objectives)
+        return MetricSpace(
+            objectives=tuple(args.objective),
+            relative_noise=space.relative_noise,
+        )
+    return space
 
 
 def _build_evolve_parser() -> argparse.ArgumentParser:
@@ -2362,7 +2371,7 @@ def _run_evolve(args: argparse.Namespace, integration: RunIntegration) -> None:
     from vibesys.loops.evolve.loop import run_evolve_loop  # noqa: PLC0415  # tracked: #288
 
     objective = _load_objective(bundle)
-    objectives = _resolve_objectives(args)
+    space = _resolve_metric_space(args)
 
     existing = False
     exp_name = args.exp_name
@@ -2370,9 +2379,12 @@ def _run_evolve(args: argparse.Namespace, integration: RunIntegration) -> None:
         exp_name = args.resume
         existing = True
         print(f"Resuming evolve run {exp_name} in {bundle.root}/")  # noqa: T201  # tracked: #288
-    if objectives:
-        spec = ", ".join(f"{o.name}({o.direction})" for o in objectives)
-        print(f"Pareto mode active: [{spec}]; frontier_bias={args.frontier_bias}")  # noqa: T201  # tracked: #288
+    if space.objectives:
+        spec = ", ".join(f"{o.name}({o.direction})" for o in space.objectives)
+        print(  # noqa: T201  # tracked: #288
+            f"Pareto mode active: [{spec}]; frontier_bias={args.frontier_bias}; "
+            f"tolerance={space.relative_noise:.0%}"
+        )
 
     search_policy, openevolve_config = _resolve_openevolve_options(args)
 
@@ -2406,7 +2418,7 @@ def _run_evolve(args: argparse.Namespace, integration: RunIntegration) -> None:
         backend=backend,
         modality=args.modality,
         domain=bundle.domain,
-        objectives=objectives,
+        space=space,
         frontier_bias=args.frontier_bias,
         bootstrap_max_attempts=args.bootstrap_max_attempts,
         keep_deployments=args.keep_deployments,

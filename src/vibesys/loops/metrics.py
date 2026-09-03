@@ -160,14 +160,25 @@ class MetricSpace(BaseModel):
             return MetricComparison.WORSE
         return MetricComparison.WITHIN_NOISE
 
-    def best(self, measurements: Sequence[Measurement]) -> Measurement | None:
-        """Return the best reading among *measurements* on a single axis."""
-        best: Measurement | None = None
-        for item in measurements:
-            if self.direction(item) is None:
+    def best[T](
+        self,
+        points: Sequence[T],
+        reading: Callable[[T], Measurement | None],
+    ) -> T | None:
+        """Return the member of *points* whose reading leads on its axis.
+
+        Ties, including ties within the tolerance, keep the earlier member, so
+        callers order *points* to express their own tie-break. Members with no
+        reading, or on an axis with no known direction, are skipped.
+        """
+        best: T | None = None
+        best_reading: Measurement | None = None
+        for point in points:
+            item = reading(point)
+            if item is None or self.direction(item) is None:
                 continue
-            if best is None or self.compare(item, best) is MetricComparison.BETTER:
-                best = item
+            if best_reading is None or self.compare(item, best_reading) is MetricComparison.BETTER:
+                best, best_reading = point, item
         return best
 
     def compare_to_best(
@@ -183,7 +194,10 @@ class MetricSpace(BaseModel):
         """
         if candidate is None or self.direction(candidate) is None:
             return MetricComparison.INCOMPARABLE
-        best = self.best([item for item in prior if item.metric == candidate.metric])
+        best = self.best(
+            [item for item in prior if item.metric == candidate.metric],
+            lambda item: item,
+        )
         if best is None:
             return MetricComparison.BETTER
         return self.compare(candidate, best)

@@ -5,12 +5,14 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from vibesys.loops.evolve.population import Individual, Population
+from vibesys.loops.metrics import MetricSpace
 from vs_loop_state import IndividualRecord, PopulationSnapshot
 
 if TYPE_CHECKING:
     from vs_project import StateNamespace, StateSlot
 
 _POPULATION_FILE = "population.json"
+_METRICS_FILE = "metrics.json"
 
 
 def population_snapshot(population: Population) -> PopulationSnapshot:
@@ -71,6 +73,10 @@ class EvolutionStateStore:
             _POPULATION_FILE,
             PopulationSnapshot,
         )
+        self._metrics: StateSlot[MetricSpace] = namespace.slot(
+            _METRICS_FILE,
+            MetricSpace,
+        )
 
     def load_population(self) -> Population:
         """Load the population, starting empty only when it is absent."""
@@ -80,6 +86,18 @@ class EvolutionStateStore:
     def save_population(self, population: Population) -> None:
         """Validate and atomically save the complete population."""
         self._population.save(population_snapshot(population))
+
+    def load_metric_space(self) -> MetricSpace:
+        """Load the run's metric space.
+
+        State written before the space was persisted has no document; it loads
+        as the empty strict space, which is how those runs already compared.
+        """
+        return self._metrics.load_optional() or MetricSpace()
+
+    def save_metric_space(self, space: MetricSpace) -> None:
+        """Atomically record the axes and tolerance this run selects within."""
+        self._metrics.save(space)
 
     @property
     def namespace(self) -> StateNamespace:

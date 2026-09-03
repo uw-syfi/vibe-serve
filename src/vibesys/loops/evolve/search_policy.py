@@ -24,7 +24,8 @@ from openevolve.config import DatabaseConfig
 from openevolve.database import Program, ProgramDatabase
 from pydantic import BaseModel, ConfigDict, Field
 
-from vibesys.loops.evolve.population import Individual, Objective, Population
+from vibesys.loops.evolve.population import Individual, Population  # noqa: TC001  # tracked: #288
+from vibesys.loops.metrics import MetricSpace, Objective
 
 
 class SearchPolicyName(StrEnum):  # noqa: D101  # tracked: #288
@@ -137,7 +138,7 @@ class SearchPolicy(Protocol):
         k_top_inspirations: int,
         k_random_inspirations: int,
         selection_temperature: float,
-        objectives: list[Objective] | None,
+        space: MetricSpace,
         frontier_bias: float,
     ) -> SearchSelection | None: ...
 
@@ -148,7 +149,7 @@ class SearchPolicy(Protocol):
         code: str,
         policy_parent_id: str | None,
         target_island: int | None,
-        objectives: list[Objective] | None,
+        space: MetricSpace,
     ) -> None: ...
 
     def finish_generation(self, generation: int) -> None: ...  # noqa: D102  # tracked: #288
@@ -169,13 +170,13 @@ class VibeSysSearchPolicy:
         k_top_inspirations: int,
         k_random_inspirations: int,
         selection_temperature: float,
-        objectives: list[Objective] | None,
+        space: MetricSpace,
         frontier_bias: float,
     ) -> SearchSelection | None:
         parent = population.select_parent(
             rng=rng,
             temperature=selection_temperature,
-            objectives=objectives,
+            space=space,
             frontier_bias=frontier_bias,
         )
         inspirations = population.select_inspirations(
@@ -183,7 +184,7 @@ class VibeSysSearchPolicy:
             k_top=k_top_inspirations,
             k_random=k_random_inspirations,
             rng=rng,
-            objectives=objectives,
+            space=space,
         )
         if parent is None:
             passers = population.passed
@@ -199,7 +200,7 @@ class VibeSysSearchPolicy:
         code: str,  # noqa: ARG002  # tracked: #288
         policy_parent_id: str | None,  # noqa: ARG002  # tracked: #288
         target_island: int | None,  # noqa: ARG002  # tracked: #288
-        objectives: list[Objective] | None,  # noqa: ARG002  # tracked: #288
+        space: MetricSpace,  # noqa: ARG002  # tracked: #288
     ) -> None:
         return None
 
@@ -239,7 +240,7 @@ class OpenEvolveSearchPolicy:
         state_dir: Path,
         seed: int | None,
         config: OpenEvolveSearchConfig | None,
-        objectives: list[Objective] | None = None,
+        space: MetricSpace,
     ) -> None:
         self.state_dir = state_dir
         self._snapshot_dir = self._resolve_snapshot_dir(state_dir)
@@ -251,7 +252,7 @@ class OpenEvolveSearchPolicy:
                 f"saved={saved_config}, requested={config}"
             )
         self.config = config or saved_config or OpenEvolveSearchConfig()
-        self._objective_signature = self._objectives_signature(objectives)
+        self._objective_signature = self._objectives_signature(space)
         saved_objectives = saved_state.objective_signature if saved_state else None
         if saved_objectives is not None and saved_objectives != self._objective_signature:
             raise ValueError(  # noqa: TRY003  # tracked: #288
@@ -339,11 +340,11 @@ class OpenEvolveSearchPolicy:
 
     @staticmethod
     def _objectives_signature(
-        objectives: list[Objective] | None,
+        space: MetricSpace,
     ) -> tuple[_PersistedObjective, ...]:
         return tuple(
             _PersistedObjective(name=objective.name, direction=objective.direction)
-            for objective in (objectives or [])
+            for objective in space.objectives
         )
 
     @contextmanager
@@ -436,10 +437,10 @@ class OpenEvolveSearchPolicy:
         k_top_inspirations: int,
         k_random_inspirations: int,
         selection_temperature: float,
-        objectives: list[Objective] | None,
+        space: MetricSpace,
         frontier_bias: float,
     ) -> SearchSelection | None:
-        del rng, selection_temperature, objectives, frontier_bias
+        del rng, selection_temperature, space, frontier_bias
         if not self._database.programs:
             return None
 
@@ -485,11 +486,11 @@ class OpenEvolveSearchPolicy:
         code: str,
         policy_parent_id: str | None,
         target_island: int | None,
-        objectives: list[Objective] | None,
+        space: MetricSpace,
     ) -> None:
         if not individual.passed or not individual.commit:
             return
-        if self._objectives_signature(objectives) != self._objective_signature:
+        if self._objectives_signature(space) != self._objective_signature:
             raise ValueError("OpenEvolve fitness objective changed during the run")  # noqa: TRY003  # tracked: #288
         if individual.id in self._admitted_individual_ids:
             return
@@ -500,7 +501,7 @@ class OpenEvolveSearchPolicy:
             self._admitted_individual_ids = prospective_ids
             return
         metrics = dict(individual.metrics)
-        metrics["combined_score"] = self._combined_score(individual, objectives)
+        metrics["combined_score"] = self._combined_score(individual, space)
         program = Program(
             id=program_id,
             code=code,
@@ -642,11 +643,13 @@ class OpenEvolveSearchPolicy:
     @staticmethod
     def _combined_score(
         individual: Individual,
-        objectives: list[Objective] | None,
+        space: MetricSpace,
     ) -> float:
-        if objectives:
-            primary = objectives[0]
+        primary = space.primary
+        if primary is not None:
             value = individual.metrics.get(primary.name)
             if value is not None:
+                # A ranking score for the upstream database, not a comparison:
+                # it must stay monotone in the primary axis.
                 return primary.signed(value)
         return float(individual.perf_metric or 0.0)

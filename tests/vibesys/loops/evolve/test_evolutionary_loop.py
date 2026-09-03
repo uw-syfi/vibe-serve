@@ -42,7 +42,6 @@ from vibesys.loops.evolve.loop import (
 )
 from vibesys.loops.evolve.population import (
     Individual,
-    Objective,
     Population,
 )
 from vibesys.loops.evolve.search_policy import (
@@ -52,6 +51,7 @@ from vibesys.loops.evolve.search_policy import (
     VibeSysSearchPolicy,
 )
 from vibesys.loops.evolve.state import EvolutionStateStore
+from vibesys.loops.metrics import MetricSpace, Objective
 from vibesys.profilers import ProfilerKind
 from vibesys.run import GitTracker, LoopContext, RunState, RunStateNamespace
 from vibesys.sandbox.run_environment import CandidateRuntime, RunEnvironmentSpec
@@ -107,7 +107,7 @@ class _EvolveLoopKwargs(TypedDict, total=False):
     backend: ComputeBackend
     modality: str | None
     domain: DomainName | None
-    objectives: list[Objective] | None
+    space: MetricSpace
     frontier_bias: float
     bootstrap_max_attempts: int
     keep_deployments: bool
@@ -290,6 +290,7 @@ def _invoke_loop(
         "children_per_generation": 1,
         "seed": 0,
         "domain": DomainName.LLM_SERVING,
+        "space": MetricSpace(),
     }
     defaults.update(kwargs)
     with (
@@ -636,7 +637,7 @@ def test_final_project_tree_is_the_deterministic_scalar_best(tmp_path, ref_file)
     )
 
     assert result is True
-    best = _load_population(tmp_path).best()
+    best = _load_population(tmp_path).best(MetricSpace())
     assert best is not None and best.perf_metric == 100.0  # noqa: PT018  # tracked: #288
     project = _project_dir(tmp_path)
     assert (project / "mutant_2.py").is_file()
@@ -710,13 +711,15 @@ def test_accuracy_rejected_child_is_not_profiled_or_selected(tmp_path, ref_file)
 
 
 def test_pareto_mode_records_metrics_dict_on_individuals(tmp_path, ref_file):  # noqa: ANN001, ANN201  # tracked: #288
-    """When objectives are configured the loop should pass `objectives` through
-    to selection AND copy `ProfilerSummary.metrics` onto every passing
-    Individual so the frontier can be computed across the run."""
-    objectives = [
-        Objective("tput", "max"),
-        Objective("lat_ms", "min"),
-    ]
+    """When axes are configured the loop should pass the space through to
+    selection AND copy `ProfilerSummary.metrics` onto every passing Individual
+    so the frontier can be computed across the run."""
+    space = MetricSpace(
+        objectives=(
+            Objective(name="tput", direction="max"),
+            Objective(name="lat_ms", direction="min"),
+        )
+    )
     profiler_responses = [
         ProfilerSummary(
             analysis="ok",
@@ -742,7 +745,7 @@ def test_pareto_mode_records_metrics_dict_on_individuals(tmp_path, ref_file):  #
         runner,
         max_generations=1,  # bootstrap seed + one gen-1 child
         children_per_generation=1,
-        objectives=objectives,
+        space=space,
         frontier_bias=1.0,
     )
     assert result is True
@@ -754,7 +757,7 @@ def test_pareto_mode_records_metrics_dict_on_individuals(tmp_path, ref_file):  #
     assert child.metrics == {"tput": 80.0, "lat_ms": 50.0}
 
     # The two individuals trade off — both should be on the frontier.
-    front_ids = {i.id for i in pop.frontier(objectives)}
+    front_ids = {i.id for i in pop.frontier(space)}
     assert front_ids == {seed.id, child.id}
 
 
@@ -792,12 +795,17 @@ def test_pareto_addendum_appears_in_profiler_prompt(tmp_path, ref_file):  # noqa
         return runner
 
     runner = _make_runner_with_profiler_capture()
-    objectives = [Objective("tput", "max"), Objective("lat_ms", "min")]
+    space = MetricSpace(
+        objectives=(
+            Objective(name="tput", direction="max"),
+            Objective(name="lat_ms", direction="min"),
+        )
+    )
     _invoke_bootstrap(
         tmp_path,
         ref_file,
         runner,
-        objectives=objectives,
+        space=space,
         frontier_bias=1.0,
     )
     assert len(captured_profiler_prompts) == 1
@@ -808,15 +816,14 @@ def test_pareto_addendum_appears_in_profiler_prompt(tmp_path, ref_file):  # noqa
 
 
 def test_no_objectives_keeps_metrics_empty_and_legacy_behavior(tmp_path, ref_file):  # noqa: ANN001, ANN201  # tracked: #288
-    """Single-objective mode (no objectives passed) keeps `Individual.metrics`
-    empty even if the profiler stub doesn't supply one — preserves the
-    pre-Pareto behavior."""
+    """A space with no axes keeps `Individual.metrics` empty even if the
+    profiler stub doesn't supply one — preserves the pre-Pareto behavior."""
     runner = _make_runner()
     result = _invoke_bootstrap(
         tmp_path,
         ref_file,
         runner,
-        # Note: no `objectives` kwarg → single-objective mode.
+        # Note: an empty space → single-objective mode.
     )
     assert result is True
     pop = _load_population(tmp_path)
@@ -980,6 +987,7 @@ def test_search_policy_initialization_failure_closes_context(tmp_path):  # noqa:
             "objective",
             runs_dir=tmp_path / "exp_env",
             domain=DomainName.GENERIC,
+            space=MetricSpace(),
             search_policy="openevolve",
         )
 
@@ -998,7 +1006,7 @@ def test_programmatic_openevolve_config_infers_policy(tmp_path):  # noqa: ANN001
         requested=None,
         seed=1,
         config=config,
-        objectives=None,
+        space=MetricSpace(),
     )
 
     assert name.value == "openevolve"
@@ -1017,7 +1025,7 @@ def test_programmatic_openevolve_config_rejects_vibesys_policy(tmp_path):  # noq
             requested="vibesys",
             seed=1,
             config=OpenEvolveSearchConfig(),
-            objectives=None,
+            space=MetricSpace(),
         )
 
 
@@ -1191,7 +1199,7 @@ def test_plan_candidate_falls_back_to_latest_passer_then_none(tmp_path):  # noqa
             k_top_inspirations=1,
             k_random_inspirations=1,
             selection_temperature=0.5,
-            objectives=None,
+            space=MetricSpace(),
             frontier_bias=0.7,
         )
         is None
@@ -1207,7 +1215,7 @@ def test_plan_candidate_falls_back_to_latest_passer_then_none(tmp_path):  # noqa
         k_top_inspirations=1,
         k_random_inspirations=1,
         selection_temperature=0.5,
-        objectives=None,
+        space=MetricSpace(),
         frontier_bias=0.7,
     )
     assert plan is not None
@@ -1262,7 +1270,7 @@ def test_run_generation_parallel_bounds_concurrency_and_records_all(tmp_path, mo
         k_random_inspirations=1,
         selection_temperature=0.5,
         objective="obj",
-        objectives=None,
+        space=MetricSpace(),
         frontier_bias=0.7,
         modality="text_generation",
         domain_definition=_LLM_SERVING_DOMAIN,
@@ -1320,7 +1328,7 @@ def test_run_generation_parallel_skips_parent_without_commit(tmp_path, monkeypat
         k_random_inspirations=1,
         selection_temperature=0.5,
         objective="obj",
-        objectives=None,
+        space=MetricSpace(),
         frontier_bias=0.7,
         modality="text_generation",
         domain_definition=_LLM_SERVING_DOMAIN,
@@ -1355,7 +1363,7 @@ def test_evaluate_in_subcontext_skips_parent_without_commit():  # noqa: ANN201  
         parent=parentless,
         inspirations=[],
         objective="obj",
-        objectives=None,
+        space=MetricSpace(),
         modality="text_generation",
         domain_definition=_LLM_SERVING_DOMAIN,
         pass_criteria="crit",  # noqa: S106  # tracked: #288
@@ -1432,7 +1440,7 @@ def test_evaluate_in_subcontext_builds_worktree_and_evaluates(tmp_path, ref_file
             parent=parent_ind,
             inspirations=[],
             objective="Maximize tok/s throughput.",
-            objectives=None,
+            space=MetricSpace(),
             modality="text_generation",
             domain_definition=_LLM_SERVING_DOMAIN,
             pass_criteria="be faster",  # noqa: S106  # tracked: #288

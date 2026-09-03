@@ -122,14 +122,24 @@ def test_best_and_compare_to_best_order_a_scalar_history() -> None:
     space = MetricSpace(objectives=(_OPS,), relative_noise=0.05)
     history = [_reading(100.0), _reading(90.0), _reading(99.0)]
 
-    assert space.best(history) == _reading(100.0)
-    assert space.best([]) is None
+    assert space.best(history, lambda item: item) == _reading(100.0)
+    assert space.best([], lambda item: item) is None
+    # Ties, including ties within the tolerance, keep the earlier member, so
+    # callers order their own tie-break.
+    assert space.best([_reading(100.0, "a"), _reading(103.0, "a")], _named_a) == _reading(
+        100.0, "a"
+    )
     # An empty history is advanced by anything measurable.
     assert space.compare_to_best(_reading(1.0), []) is MetricComparison.BETTER
     assert space.compare_to_best(None, history) is MetricComparison.INCOMPARABLE
     assert space.compare_to_best(_reading(1.0, "unconfigured"), []) is MetricComparison.INCOMPARABLE
     assert space.compare_to_best(_reading(104.0), history) is MetricComparison.WITHIN_NOISE
     assert space.compare_to_best(_reading(120.0), history) is MetricComparison.BETTER
+
+
+def _named_a(item: Measurement) -> Measurement:
+    """Read every member on one axis so the space can order them."""
+    return Measurement(metric="ops", value=item.value)
 
 
 def test_dominance_needs_every_axis_and_one_material_win() -> None:
