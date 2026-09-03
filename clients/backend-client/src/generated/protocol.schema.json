@@ -1597,7 +1597,8 @@
         "inconclusive",
         "implementation_failed",
         "blocked",
-        "rejected"
+        "rejected",
+        "unmeasured"
       ],
       "title": "HypothesisResolution",
       "type": "string"

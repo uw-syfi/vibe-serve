@@ -4626,3 +4626,76 @@ def test_single_agent_round_without_a_metric_carries_no_provenance(tmp_path, ref
     rounds = _round_payloads(tmp_path)
     assert rounds[0]["perf_metric"] is None
     assert rounds[0]["perf_provenance"] is None
+
+
+def test_framework_measured_improvement_resolves_proven(tmp_path, ref_file):  # noqa: ANN001, ANN201  # tracked: #288
+    """The positive case: a trusted measurement can still prove a hypothesis.
+
+    Every other end-to-end expectation in this file reads `unmeasured`,
+    because the harness's rounds carry no framework-owned number. Strictness
+    is only correct if the gate still opens: a framework-stamped reading that
+    beats its causal baseline must resolve `proven`, or this change would have
+    made the resolution unreachable rather than honest.
+    """
+    runner = _make_orchestrate_runner(
+        plans=[
+            OrchestratorPlan(
+                hypothesis_id="baseline-claim",
+                hypothesis="first causal claim",
+                task="establish the baseline",
+                pass_criteria="collect evidence",  # noqa: S106  # tracked: #288
+                reasoning="first experiment",
+            ),
+            OrchestratorPlan(
+                hypothesis_id="improvement-claim",
+                hypothesis="second causal claim",
+                task="beat the baseline",
+                pass_criteria="collect evidence",  # noqa: S106  # tracked: #288
+                reasoning="second experiment",
+            ),
+        ],
+        implementer_outcomes=[
+            HypothesisOutcome.NOMINATED,
+            HypothesisOutcome.NOMINATED,
+        ],
+    )
+
+    with patch(
+        "vibesys.loops.agent.loop._run_framework_benchmark",
+        side_effect=[
+            FrameworkBenchmarkOutcome(
+                metric_name="total_ops_per_sec",
+                metric_value=100.0,
+                metric_direction="max",
+            ),
+            FrameworkBenchmarkOutcome(
+                metric_name="total_ops_per_sec",
+                metric_value=200.0,
+                metric_direction="max",
+            ),
+        ],
+    ):
+        _invoke_orchestrate(
+            tmp_path,
+            ref_file,
+            runner,
+            max_rounds=2,
+            judge_every=1,
+            official_eval_every=1,
+            benchmark_result_protocol=2,
+        )
+
+    rounds = _round_payloads(tmp_path)
+    assert [round_data["perf_provenance"] for round_data in rounds] == [
+        "framework",
+        "framework",
+    ]
+    # Round one has no causal baseline to order against; round two beats it.
+    assert [round_data["perf_comparison"] for round_data in rounds] == [
+        "incomparable",
+        "better",
+    ]
+    assert [round_data["hypothesis_outcome"] for round_data in rounds] == [
+        "inconclusive",
+        "proven",
+    ]

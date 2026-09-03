@@ -395,7 +395,7 @@ export type HypothesisOutcome1 =
  * Framework-owned resolution after all available evidence is known.
  */
 export type HypothesisResolution =
-  "proven" | "disproven" | "inconclusive" | "implementation_failed" | "blocked" | "rejected";
+  "proven" | "disproven" | "inconclusive" | "implementation_failed" | "blocked" | "rejected" | "unmeasured";
 export type JudgeVerdict1 = ("pass" | "fail" | "deferred") | null;
 export type PerfMetric2 = number | null;
 export type PerfUnit2 = string | null;

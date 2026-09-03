@@ -30,7 +30,7 @@ from vibesys.schemas import (
     HypothesisStrategyUpdate,
     OrchestratorPlan,
 )
-from vs_loop_state import RoundRecord
+from vs_loop_state import PerfProvenance, RoundRecord
 
 
 def _plan(identifier: str, *, updates: list[HypothesisStrategyUpdate] | None = None):  # noqa: ANN202
@@ -56,6 +56,7 @@ def _round(  # noqa: PLR0913
     direction: Literal["max", "min"] = "max",
     retained: bool | None = True,
     comparison: MetricComparison | None = None,
+    provenance: PerfProvenance | None = "framework",
 ) -> RoundRecord:
     return RoundRecord(
         round_number=number,
@@ -76,6 +77,7 @@ def _round(  # noqa: PLR0913
         perf_direction=direction if metric is not None else None,
         candidate_retained=retained,
         perf_comparison=comparison,
+        perf_provenance=provenance if metric is not None else None,
     )
 
 
@@ -546,3 +548,102 @@ def _strip_stored_comparisons(state: AgentRunState) -> AgentRunState:
         for record in hypothesis["rounds"]:
             record["perf_comparison"] = None
     return AgentRunState.model_validate(payload)
+
+
+def _implementer_reported_run() -> AgentRunState:
+    """Two official rounds whose numbers the implementer reported itself.
+
+    Shaped so a trusted reading would resolve the second hypothesis: 100 then
+    200 on a maximize axis, an unmissable improvement. The only thing standing
+    between it and ``PROVEN`` is that the framework measured neither number.
+    """
+    state = AgentRunState(
+        metrics=MetricSpace(objectives=(Objective(name="total_ops_per_sec", direction="max"),))
+    )
+    baseline = append_round(
+        start_hypothesis(state, _plan("H-base"), started_round=1),
+        _round(1, 100.0, hypothesis_id="H-base", provenance="implementer"),
+        keep_active=False,
+    )
+    started = start_hypothesis(
+        baseline,
+        _plan("H-1"),
+        started_round=2,
+        parent_round=1,
+        parent_commit=f"{1:040x}",
+    )
+    return append_round(
+        started,
+        _round(
+            2,
+            200.0,
+            hypothesis_id="H-1",
+            parent_round=1,
+            parent_commit=f"{1:040x}",
+            outcome="unmeasured",
+            provenance="implementer",
+        ),
+        keep_active=False,
+    )
+
+
+def test_a_self_reported_improvement_never_resolves_proven() -> None:
+    """Regression for #475: the agent's own number cannot prove its own claim.
+
+    An implementer-reported round stores no comparison, so resolution has
+    nothing to order and the hypothesis is unmeasured, not proven.
+    """
+    hypothesis = _implementer_reported_run().by_id("H-1")
+
+    assert hypothesis is not None
+    assert hypothesis.resolution is HypothesisResolution.UNMEASURED
+
+
+def test_reprojection_of_a_self_reported_round_stays_unmeasured() -> None:
+    """The guard `round_comparison` needs, stated as the property it protects.
+
+    An implementer round stores no comparison, which on disk is
+    indistinguishable from a round written before the framework stored one.
+    The re-derivation fallback would happily order 200 against 100 and hand
+    back ``BETTER``, so ``--resume`` and the server read path would report
+    ``INCONCLUSIVE``-or-better where the loop recorded ``UNMEASURED``.
+    Reprojection must agree with the round record.
+    """
+    completed = _implementer_reported_run()
+    live = completed.by_id("H-1")
+    resumed = reproject_run_evidence(completed).by_id("H-1")
+
+    assert live is not None
+    assert resumed is not None
+    assert resumed.resolution is live.resolution
+    assert resumed.resolution is HypothesisResolution.UNMEASURED
+    assert [record.hypothesis_outcome for record in resumed.rounds] == ["unmeasured"]
+
+
+def test_a_self_reported_round_is_not_a_baseline_for_a_later_trusted_one() -> None:
+    """A trusted round is never ordered against an untrusted baseline."""
+    state = _implementer_reported_run()
+    started = start_hypothesis(
+        state,
+        _plan("H-2"),
+        started_round=3,
+        parent_round=2,
+        parent_commit=f"{2:040x}",
+    )
+    completed = append_round(
+        started,
+        _round(
+            3,
+            300.0,
+            hypothesis_id="H-2",
+            parent_round=2,
+            parent_commit=f"{2:040x}",
+        ),
+        keep_active=False,
+    )
+    hypothesis = completed.by_id("H-2")
+
+    assert hypothesis is not None
+    # Nothing trusted precedes round three, so its reading cannot be ordered:
+    # incomparable, not "better than the implementer's 200".
+    assert hypothesis.resolution is HypothesisResolution.INCONCLUSIVE
