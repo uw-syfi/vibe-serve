@@ -4,7 +4,7 @@
       "protocol_version": 1,
       "run_id": "mock-run",
       "sequence": 0,
-      "status": "active",
+      "status": "starting",
       "agent_kind": null,
       "round_label": null,
       "active_executions": [],

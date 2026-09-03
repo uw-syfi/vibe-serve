@@ -152,6 +152,38 @@ function resolveFixture(name: string): string {
   throw new Error(`no fixture found for ${name}`);
 }
 
+/**
+ * The run's lifecycle status, derived from the events the replay has delivered.
+ *
+ * `RunEvent.status` is an `EventStatus` (`active`, `answered`, `consumed`), a
+ * different closed set from the `RunStatus` this field takes (`starting`,
+ * `running`, `pausing`, `paused`, `completed`, `failed`). Echoing the last
+ * event's own status therefore answered a snapshot query with a value the
+ * protocol does not allow there: the recorded fixtures carry `active` on 235
+ * events and `answered` on four. What the client asks for is the run's status,
+ * so it comes from the lifecycle events instead.
+ *
+ * Newest first, because the latest lifecycle event is the current one. A
+ * fixture recorded after the lifecycle became a state machine carries
+ * `run_status_changed` and states the status outright; one recorded before it
+ * has only the coarse start and end events, which map onto the same set.
+ */
+function replayRunStatus(delivered: RunEventRecord[]): string {
+  for (let index = delivered.length - 1; index >= 0; index -= 1) {
+    const event = delivered[index];
+    if (event === undefined) continue;
+    if (event.type === 'run_status_changed') {
+      const status = event.data?.['status'];
+      if (typeof status === 'string') return status;
+    }
+    if (event.type === 'run_finished') return 'completed';
+    if (event.type === 'run_failed' || event.type === 'run_interrupted') return 'failed';
+    if (event.type === 'run_started') return 'running';
+  }
+  // Nothing delivered yet, so the run has started but reported nothing.
+  return 'starting';
+}
+
 function loadFixture(path: string): RunEventRecord[] {
   const raw = readFileSync(path);
   const text = path.endsWith('.gz') ? gunzipSync(raw).toString('utf8') : raw.toString('utf8');
@@ -388,7 +420,7 @@ function main(): void {
               snapshot: withValues(template, {
                 run_id: replay.runId,
                 sequence: replay.latestSequence,
-                status: last?.status ?? 'active',
+                status: replayRunStatus(replay.delivered),
                 agent_kind: last?.agent_kind ?? null,
                 round_label: last?.round_label ?? null,
               }),
