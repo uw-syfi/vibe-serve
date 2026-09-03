@@ -157,7 +157,9 @@ describe('hypothesis planning activity', () => {
   });
 
   it('does not treat an unrelated retry label as planning', () => {
-    expect(hypothesisPlanningActivity(stateFor('orchestrator', 'round-3-retry-1-judge'))).toBeNull();
+    expect(
+      hypothesisPlanningActivity(stateFor('orchestrator', 'round-3-retry-1-judge')),
+    ).toBeNull();
   });
 
   it('does not present a phase as planning after its round has a hypothesis', () => {
