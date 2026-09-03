@@ -4,6 +4,8 @@ export type ProtocolRequest = ProtocolDocument['request'];
 export type ProtocolResponse = ProtocolDocument['response'];
 export type RunEvent = ProtocolDocument['event'];
 export type RunSnapshot = ProtocolDocument['snapshot'];
+/** Run lifecycle statuses the backend reports. Source: `RunStatus` in `src/server/controller.py`. */
+export type RunStatus = RunSnapshot['status'];
 export type ServerMessage = ProtocolDocument['server_message'];
 export type Diagnostic = NonNullable<ProtocolResponse['diagnostic']>;
 export type HypothesisEntry = NonNullable<ProtocolResponse['experiments']>[number];

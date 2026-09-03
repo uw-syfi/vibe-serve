@@ -68,6 +68,7 @@ jobs:
               - 'src/server/api/schema.py'
               - 'src/server/events.py'
               - 'src/server/api/protocol.py'
+              - 'src/server/controller.py'
               - 'src/server/diagnostics.py'
               - 'src/server/settings.py'
               - 'scripts/fetch_bun.py'

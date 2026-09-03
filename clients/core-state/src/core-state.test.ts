@@ -3,6 +3,7 @@ import type {RunEvent, RunSnapshot} from '@vibesys/backend-client';
 import {
   DEFAULT_CHAT_THREAD_ID,
   initialCoreState,
+  isTerminalRunStatus,
   latestDiagnosticChange,
   reconcileActiveExecutions,
   reduceEvent,
@@ -542,7 +543,7 @@ describe('core state projection', () => {
       },
     });
 
-    expect(state.terminal).toBe(true);
+    expect(isTerminalRunStatus(state.status)).toBe(true);
     expect(state.diagnostics).toMatchObject([
       {id: 'diag-1', summary: 'Agent failed.', severity: 'fatal', sequence: 3},
     ]);
@@ -660,6 +661,41 @@ describe('core state projection', () => {
 
     expect(state.experimentsRevision).toBe(12);
     expect('experimentLog' in state).toBe(false);
+  });
+});
+
+describe('run status terminality', () => {
+  it('classifies every run status the projection can hold', () => {
+    expect(isTerminalRunStatus('completed')).toBe(true);
+    expect(isTerminalRunStatus('failed')).toBe(true);
+    expect(isTerminalRunStatus('connecting')).toBe(false);
+    expect(isTerminalRunStatus('starting')).toBe(false);
+    expect(isTerminalRunStatus('running')).toBe(false);
+    expect(isTerminalRunStatus('paused')).toBe(false);
+  });
+
+  it('reads terminality from a bootstrapped snapshot', () => {
+    const snapshot = {run_id: 'run', status: 'completed', sequence: 4} satisfies RunSnapshot;
+
+    const state = reduceSnapshot(initialCoreState(), snapshot);
+
+    expect(isTerminalRunStatus(state.status)).toBe(true);
+  });
+
+  // A resumed run replays the previous process's failure ahead of its own
+  // start. Terminality is derived from the status, so the later `run_started`
+  // cannot leave the projection looking finished while the run is live.
+  it('is not terminal after a resumed run replays a failure then a start', () => {
+    const state = reduceEventBatch(initialCoreState(), [
+      baseEvent(1, 'run_failed'),
+      {
+        ...baseEvent(2, 'run_started'),
+        data: {kind: 'run_started', outer_loop: 'agent', input: '.', max_rounds: 3},
+      },
+    ]);
+
+    expect(state.status).toBe('running');
+    expect(isTerminalRunStatus(state.status)).toBe(false);
   });
 });
 

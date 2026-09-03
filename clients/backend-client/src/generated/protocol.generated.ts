@@ -144,7 +144,14 @@ export type TuiTheme =
 export type ProtocolVersion14 = 1;
 export type RunId = string;
 export type Sequence = number;
-export type Status1 = string;
+/**
+ * Lifecycle status of one run, as frontends observe it.
+ *
+ * This is the authoritative closed set for the ``status`` field of
+ * ``RunSnapshot``; the generated TypeScript protocol types derive their union
+ * from it.
+ */
+export type RunStatus = "starting" | "running" | "paused" | "completed" | "failed";
 export type AgentKind = string | null;
 export type RoundLabel = string | null;
 export type ExecutionId = string;
@@ -329,7 +336,7 @@ export type Value1 =
   | unknown[];
 export type Kind23 = "todo_update";
 export type Content4 = string;
-export type Status2 = string;
+export type Status1 = string;
 export type Todos = TodoItemData[];
 export type Kind24 = "usage_update";
 export type InputTokens1 = number;
@@ -611,7 +618,7 @@ export interface RunSnapshot {
   protocol_version?: ProtocolVersion14;
   run_id: RunId;
   sequence: Sequence;
-  status: Status1;
+  status: RunStatus;
   agent_kind?: AgentKind;
   round_label?: RoundLabel;
   active_executions?: ActiveExecutions;
@@ -873,7 +880,7 @@ export interface TodoUpdateData {
 }
 export interface TodoItemData {
   content: Content4;
-  status: Status2;
+  status: Status1;
   [k: string]: unknown;
 }
 export interface UsageUpdateData {

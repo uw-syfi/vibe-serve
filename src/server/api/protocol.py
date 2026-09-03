@@ -9,6 +9,7 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field, FiniteFloat
 
 from server.chat.options import ChatOptions
+from server.controller import RunStatus
 from server.diagnostics import Diagnostic, DiagnosticScope, exception_to_diagnostic
 from server.events import RunEvent
 from server.execution import ActiveAgentExecution
@@ -152,7 +153,7 @@ class RunSnapshot(ProtocolModel):  # noqa: D101  # tracked: #288
     protocol_version: Literal[1] = PROTOCOL_VERSION
     run_id: str
     sequence: int
-    status: str
+    status: RunStatus
     agent_kind: str | None = None
     round_label: str | None = None
     active_executions: list[ActiveAgentExecution] = Field(default_factory=list)

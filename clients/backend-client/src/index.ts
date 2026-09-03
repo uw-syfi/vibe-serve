@@ -24,6 +24,7 @@ export type {
   RequestInput,
   RunEvent,
   RunSnapshot,
+  RunStatus,
   ServerMessage,
   TuiDefaults,
 } from './protocol.js';

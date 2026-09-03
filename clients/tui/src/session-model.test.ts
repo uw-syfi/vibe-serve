@@ -1,5 +1,6 @@
 import {describe, expect, it, test} from 'bun:test';
 import type {RunEvent} from '@vibesys/backend-client';
+import {isTerminalRunStatus} from '@vibesys/core-state';
 import type {SessionState} from './session-model.js';
 import {
   applyActiveExecutionCheckpoint,
@@ -74,7 +75,7 @@ describe('event batch projection', () => {
     ]);
 
     expect(state.core.status).toBe('running');
-    expect(state.core.terminal).toBe(false);
+    expect(isTerminalRunStatus(state.core.status)).toBe(false);
     expect(state.core.diagnostics).toHaveLength(1);
     expect(state.errorBanner).toEqual(before.errorBanner);
   });
@@ -719,7 +720,7 @@ describe('session event model', () => {
 
     expect(state.core.status).toBe('completed');
     expect(state.core.sequence).toBe(4);
-    expect(state.core.terminal).toBe(true);
+    expect(isTerminalRunStatus(state.core.status)).toBe(true);
   });
 
   it('shows structured configuration failures as terminal conversation entries', () => {
@@ -736,7 +737,7 @@ describe('session event model', () => {
     );
 
     expect(state.core.status).toBe('failed');
-    expect(state.core.terminal).toBe(true);
+    expect(isTerminalRunStatus(state.core.status)).toBe(true);
     expect(state.overlay).toBeNull();
     expect(state.errorBanner).toMatchObject({
       title: 'Configuration failed',

@@ -2549,8 +2549,7 @@
           "type": "integer"
         },
         "status": {
-          "title": "Status",
-          "type": "string"
+          "$ref": "#/$defs/RunStatus"
         },
         "agent_kind": {
           "anyOf": [
@@ -2627,6 +2626,18 @@
       ],
       "title": "RunStartedData",
       "type": "object"
+    },
+    "RunStatus": {
+      "description": "Lifecycle status of one run, as frontends observe it.\n\nThis is the authoritative closed set for the ``status`` field of\n``RunSnapshot``; the generated TypeScript protocol types derive their union\nfrom it.",
+      "enum": [
+        "starting",
+        "running",
+        "paused",
+        "completed",
+        "failed"
+      ],
+      "title": "RunStatus",
+      "type": "string"
     },
     "ServerReadyData": {
       "properties": {

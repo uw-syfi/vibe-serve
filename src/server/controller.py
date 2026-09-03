@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path  # noqa: TC003
 from typing import TYPE_CHECKING, Any
 
@@ -15,6 +16,30 @@ if TYPE_CHECKING:
     from server.execution import ExecutionHandle, ExecutionTracker
     from server.journal import EventJournal
     from vs_project import Project, StateSnapshot
+
+
+class RunStatus(StrEnum):
+    """Lifecycle status of one run, as frontends observe it.
+
+    This is the authoritative closed set for the ``status`` field of
+    ``RunSnapshot``; the generated TypeScript protocol types derive their union
+    from it.
+    """
+
+    STARTING = "starting"
+    RUNNING = "running"
+    PAUSED = "paused"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+    @property
+    def is_terminal(self) -> bool:
+        """Whether the run has settled into a status it never leaves."""
+        match self:
+            case RunStatus.COMPLETED | RunStatus.FAILED:
+                return True
+            case RunStatus.STARTING | RunStatus.RUNNING | RunStatus.PAUSED:
+                return False
 
 
 @dataclass(frozen=True)
@@ -48,7 +73,7 @@ class RunController:
         self._pause_after_call = False
         self._paused = False
         self._pending_steer: list[str] = []
-        self._run_status = "starting"
+        self._run_status: RunStatus = RunStatus.STARTING
         self._project_run: ProjectRunState | None = None
 
     @property
@@ -76,7 +101,7 @@ class RunController:
             if project is not None and run_id is not None:
                 self._project_run = ProjectRunState(project, run_id)
             self._journal.attach(log_dir, run_id=run_id)
-            self._run_status = "running"
+            self._run_status = RunStatus.RUNNING
 
     def pause_after_call(self) -> None:
         """Request a pause after the current controlled invocation finishes."""
@@ -197,11 +222,11 @@ class RunController:
             kind, round_label = self._executions.current_locked()
         return f"{state} · {kind or 'starting'} · {round_label or 'no round yet'}"
 
-    def status_locked(self) -> str:
+    def status_locked(self) -> RunStatus:
         """Return run status while the caller holds the shared condition."""
-        return "paused" if self._paused else self._run_status
+        return RunStatus.PAUSED if self._paused else self._run_status
 
-    def run_status(self) -> str:
+    def run_status(self) -> RunStatus:
         """Return the terminal-aware run status token."""
         with self._condition:
             return self._run_status
@@ -215,10 +240,10 @@ class RunController:
     ) -> None:
         """Transition the run to its terminal state exactly once."""
         with self._condition:
-            if self._run_status in {"completed", "failed"}:
+            if self._run_status.is_terminal:
                 return
             self._executions.interrupt_controlled_locked()
-            self._run_status = "failed" if error else "completed"
+            self._run_status = RunStatus.FAILED if error else RunStatus.COMPLETED
             self._condition.notify_all()
         event_diagnostic = diagnostic
         if error is not None and event_diagnostic is not None:

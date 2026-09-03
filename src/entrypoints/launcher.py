@@ -73,6 +73,7 @@ _REBUILD_WATCH_FILES: tuple[str, ...] = (
     "src/server/api/schema.py",
     "src/server/events.py",
     "src/server/api/protocol.py",
+    "src/server/controller.py",
     "src/server/diagnostics.py",
     "src/server/settings.py",
 )

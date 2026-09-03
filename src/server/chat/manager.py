@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     import threading
 
     from server.chat.options import ChatRunSettings
+    from server.controller import RunStatus
     from server.journal import EventJournal
 
 _CHAT_DRAIN_TIMEOUT_SECONDS = 5.0
@@ -54,7 +55,7 @@ class ChatManager:
         condition: threading.Condition,
         journal: EventJournal,
         *,
-        run_status: Callable[[], str],
+        run_status: Callable[[], RunStatus],
     ) -> None:
         """Initialize chat routing over the shared server condition and journal."""
         self._condition = condition
@@ -341,10 +342,9 @@ class ChatManager:
             )
 
     def _unavailable_reason(self) -> str:
-        status = self._run_status()
         return (
             "the run has finished"
-            if status in {"completed", "failed"}
+            if self._run_status().is_terminal
             else "the run has not finished starting up"
         )
 

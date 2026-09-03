@@ -1,4 +1,4 @@
-import type {Diagnostic, RunEvent, RunSnapshot} from '@vibesys/backend-client';
+import type {Diagnostic, RunEvent, RunSnapshot, RunStatus} from '@vibesys/backend-client';
 import {
   type AgentPhase,
   applyRunMapEvent,
@@ -117,14 +117,46 @@ export interface CoreDiagnostic {
   sequence: number;
 }
 
+/**
+ * Run status as core state carries it: every status the backend reports, plus
+ * the client-only `connecting` that precedes the first snapshot or event.
+ */
+export type CoreRunStatus = RunStatus | 'connecting';
+
+/** The statuses a run never leaves. Named once; `terminate` writes only these. */
+export type TerminalRunStatus = Extract<CoreRunStatus, 'completed' | 'failed'>;
+
+/**
+ * Whether a run status is one the run never leaves.
+ *
+ * Terminality is a function of the status, so core state stores the status
+ * alone and every reader asks this predicate. The switch is exhaustive: a new
+ * status in the protocol is a compile error here rather than a silent `false`.
+ */
+export function isTerminalRunStatus(status: CoreRunStatus): status is TerminalRunStatus {
+  switch (status) {
+    case 'completed':
+    case 'failed':
+      return true;
+    case 'connecting':
+    case 'starting':
+    case 'running':
+    case 'paused':
+      return false;
+    default: {
+      const unhandled: never = status;
+      return unhandled;
+    }
+  }
+}
+
 export interface CoreState {
   sequence: number;
-  status: string;
+  status: CoreRunStatus;
   agentKind: string | null;
   roundLabel: string | null;
   outerLoop: string | null;
   maxRounds: number | null;
-  terminal: boolean;
   rounds: RoundSummary[];
   phases: AgentPhase[];
   activeExecutions: Record<string, ActiveAgentExecution>;
@@ -162,7 +194,6 @@ export function initialCoreState(): CoreState {
     roundLabel: null,
     outerLoop: null,
     maxRounds: null,
-    terminal: false,
     rounds: [],
     phases: [],
     activeExecutions: {},
@@ -213,7 +244,6 @@ export function reduceSnapshot(state: CoreState, snapshot: RunSnapshot): CoreSta
     status: snapshot.status,
     agentKind: snapshot.agent_kind ?? null,
     roundLabel: snapshot.round_label ?? null,
-    terminal: snapshot.status === 'completed' || snapshot.status === 'failed',
     activeExecutions: activeExecutionsFromCheckpoint(snapshot.active_executions ?? []),
   };
 }
@@ -305,7 +335,6 @@ export function reduceEventPrefix(
     sequence: state.sequence,
     // The newer events own run termination.
     status: state.status,
-    terminal: state.terminal,
     agentKind: state.agentKind ?? older.agentKind,
     roundLabel: state.roundLabel ?? older.roundLabel,
     outerLoop: state.outerLoop ?? older.outerLoop,
@@ -539,7 +568,6 @@ function foldEvent(state: CoreState, event: RunEvent, folder: TranscriptFolder |
 
   if (event.type === 'run_started') {
     next.status = 'running';
-    next.terminal = false;
     if (data?.kind === 'run_started') next.maxRounds = data.max_rounds;
   }
   if (event.type === 'configuration_failed') return terminate(next, 'failed');
@@ -562,8 +590,8 @@ export function latestDiagnosticChange(
   );
 }
 
-function terminate(state: CoreState, status: string): CoreState {
-  return {...state, status, terminal: true, activeExecutions: {}};
+function terminate(state: CoreState, status: TerminalRunStatus): CoreState {
+  return {...state, status, activeExecutions: {}};
 }
 
 function activeExecutionsFromCheckpoint(

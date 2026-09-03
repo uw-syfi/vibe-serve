@@ -1847,7 +1847,6 @@ describe('OpenTUI presentation', () => {
       core: {
         ...initialSessionState().core,
         status: 'failed',
-        terminal: true,
         transcript: [
           {
             id: 'configuration-error',
@@ -1881,7 +1880,6 @@ describe('OpenTUI presentation', () => {
       core: {
         ...initialSessionState().core,
         status: 'failed',
-        terminal: true,
         transcript: [
           {
             id: 'configuration-error',
