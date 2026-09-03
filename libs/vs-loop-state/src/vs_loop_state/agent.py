@@ -22,6 +22,12 @@ The on-disk key ``reviewed`` predates it and is kept only so legacy records
 still load; ``RoundRecord.reviewed`` derives the boolean instead of storing a
 second copy that can disagree with the verdict.
 
+``perf_comparison`` records how the round's headline reading compared with
+its baseline. The framework decides that once, when the round is written,
+using the run's declared measurement tolerance; every later reader consumes
+the stored answer instead of recomputing it from a tolerance it would have to
+be handed.
+
 ``RoundHistory`` owns only in-memory collection behavior and rollback-base
 resolution. The application-level project-state library owns persistence and
 the on-disk layout.
@@ -33,6 +39,8 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import ConfigDict, Field, TypeAdapter, model_validator
 from pydantic.dataclasses import dataclass
+
+from vs_loop_state.metrics import MetricComparison  # noqa: TC001  # tracked: #288
 
 if TYPE_CHECKING:
     from collections.abc import Container
@@ -111,6 +119,12 @@ class RoundRecord:
     perf_baseline_commit: str | None = None
     perf_baseline_metric: float | None = None
     perf_delta_pct: float | None = None
+    # How this round's headline reading compared with ``perf_baseline_metric``
+    # under the run's declared measurement tolerance, decided once when the
+    # round was recorded. ``None`` identifies a record written before the
+    # framework stored the comparison; readers then re-derive it from the
+    # run's persisted metric space.
+    perf_comparison: MetricComparison | None = None
 
     @model_validator(mode="after")
     def _normalize_review(self) -> RoundRecord:
