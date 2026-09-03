@@ -1968,6 +1968,112 @@ describe('OpenTUI presentation', () => {
   });
 });
 
+describe('overlay scrolling', () => {
+  /** Content taller than the overlay box at any terminal size it is used at. */
+  function longOverlayContent(): string {
+    return Array.from(
+      {length: 60},
+      (_, index) => `overlay line ${String(index).padStart(2, '0')}`,
+    ).join('\n');
+  }
+
+  function hintRows(frame: string): number {
+    return frameRows(frame).filter(row => row.includes('PgUp/PgDn: scroll')).length;
+  }
+
+  it('reaches the last line of content taller than the box', async () => {
+    const testRenderer = await createTestRenderer({width: 100, height: 24});
+    const controller = new FakeController({
+      ...initialSessionState(),
+      overlay: {kind: 'help', content: longOverlayContent()},
+    });
+    const app = createOpenTuiApp(testRenderer.renderer, controller);
+    registerCleanup(testRenderer.renderer, app);
+
+    const first = await testRenderer.waitForFrame(value => value.includes('overlay line 00'));
+    expect(first).not.toContain('overlay line 59');
+
+    // No named page key in the mock input; send the raw terminal sequence.
+    for (let index = 0; index < 12; index += 1) testRenderer.mockInput.pressKey('\x1B[6~');
+    const scrolled = await frameAfter(testRenderer);
+
+    // The last row of content is the one the hint used to overpaint.
+    expect(scrolled).toContain('overlay line 59');
+    expect(scrolled).not.toContain('overlay line 00');
+
+    for (let index = 0; index < 12; index += 1) testRenderer.mockInput.pressKey('\x1B[5~');
+    expect(await frameAfter(testRenderer)).toContain('overlay line 00');
+  });
+
+  it('keeps one hint row however often the content changes', async () => {
+    const testRenderer = await createTestRenderer({width: 100, height: 24});
+    const controller = new FakeController({
+      ...initialSessionState(),
+      overlay: {kind: 'detail', content: 'ack 0'},
+    });
+    const app = createOpenTuiApp(testRenderer.renderer, controller);
+    registerCleanup(testRenderer.renderer, app);
+    expect(hintRows(await frameAfter(testRenderer))).toBe(1);
+
+    for (let index = 1; index <= 6; index += 1) {
+      controller.publish({
+        ...controller.state,
+        overlay: {kind: 'detail', content: `ack ${index}`},
+      });
+      const frame = await frameAfter(testRenderer);
+      expect(frame, `after ${index} content changes`).toContain(`ack ${index}`);
+      expect(hintRows(frame), `after ${index} content changes`).toBe(1);
+    }
+  });
+
+  it('reopens the same overlay at the top', async () => {
+    const testRenderer = await createTestRenderer({width: 100, height: 24});
+    const overlay = {kind: 'help' as const, content: longOverlayContent()};
+    const controller = new FakeController({...initialSessionState(), overlay});
+    const app = createOpenTuiApp(testRenderer.renderer, controller);
+    registerCleanup(testRenderer.renderer, app);
+    await testRenderer.waitForFrame(value => value.includes('overlay line 00'));
+
+    for (let index = 0; index < 12; index += 1) testRenderer.mockInput.pressKey('\x1B[6~');
+    expect(await frameAfter(testRenderer)).toContain('overlay line 59');
+
+    controller.publish({...controller.state, overlay: null});
+    await frameAfter(testRenderer);
+    controller.publish({...controller.state, overlay});
+    const reopened = await frameAfter(testRenderer);
+
+    expect(reopened).toContain('overlay line 00');
+    expect(reopened).not.toContain('overlay line 59');
+  });
+
+  it('scrolls the overlay rather than the docked chat behind it', async () => {
+    const testRenderer = await createTestRenderer({width: 140, height: 24});
+    const controller = logController();
+    const app = createOpenTuiApp(testRenderer.renderer, controller);
+    registerCleanup(testRenderer.renderer, app);
+    await controller.openExperimentLog();
+    await frameAfter(testRenderer);
+    testRenderer.mockInput.pressKey('w', {ctrl: true});
+    await frameAfter(testRenderer);
+    expect(controller.state.layout.focus).toBe('chat');
+
+    controller.publish({
+      ...controller.state,
+      overlay: {kind: 'help', content: longOverlayContent()},
+    });
+    await testRenderer.waitForFrame(value => value.includes('overlay line 00'));
+
+    const chatScroll = testRenderer.renderer.root.findDescendantById('chat-pane-scroll');
+    if (!(chatScroll instanceof ScrollBoxRenderable)) throw new Error('no docked chat scroll box');
+    for (let index = 0; index < 12; index += 1) testRenderer.mockInput.pressKey('\x1B[6~');
+    const scrolled = await frameAfter(testRenderer);
+
+    expect(scrolled).toContain('overlay line 59');
+    expect(chatScroll.scrollTop).toBe(0);
+    expect(controller.state.layout.focus).toBe('chat');
+  });
+});
+
 describe('theming', () => {
   const assistantEntry = {
     id: 'themed',

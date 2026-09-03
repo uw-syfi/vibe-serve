@@ -156,6 +156,10 @@ export function bindKeybindings(
       if (key.name === 'escape') {
         controller.live();
         viewport.scrollTo(viewport.scrollHeight);
+      } else if (key.name === 'pageup' || key.name === 'pagedown') {
+        // Content taller than the box scrolls here rather than falling through
+        // to the transcript behind it.
+        actions.scrollOverlay(key.name === 'pageup' ? -1 : 1);
       }
       // The overlay is modal: everything it does not handle is swallowed so
       // keys cannot reach the panes or the hidden command input behind it.
@@ -181,55 +185,6 @@ export function bindKeybindings(
         return;
       }
       return;
-    }
-    if (controller.state.themePicker !== null) {
-      if (key.name === 'up') controller.moveThemeSelection(-1);
-      else if (key.name === 'down') controller.moveThemeSelection(1);
-      else if (key.name === 'pageup') controller.moveThemeSelection(-10);
-      else if (key.name === 'pagedown') controller.moveThemeSelection(10);
-      else if (key.name === 'escape') controller.closeThemePicker();
-      else if (key.name === 'return' || key.name === 'enter') {
-        if (!actions.inputIsEmpty()) return;
-        controller.applySelectedTheme();
-      } else return;
-      key.preventDefault();
-      return;
-    }
-    if (controller.state.chatOpen) {
-      if (key.name === 'escape') {
-        if (controller.state.layout.right !== null) controller.closeOverlays();
-        else actions.closeChat();
-        key.preventDefault();
-        return;
-      }
-      // Same suggestion-menu priority as the docked chat above.
-      if (key.name === 'up' || key.name === 'down') {
-        if (actions.navigateChatSuggestions(key.name === 'up' ? -1 : 1)) key.preventDefault();
-        return;
-      }
-      if (key.name === 'tab' && !key.shift) {
-        if (actions.completeChatInput()) key.preventDefault();
-        return;
-      }
-      return;
-    }
-    if (controller.state.overlay !== null) {
-      if (key.name === 'escape') {
-        controller.live();
-        viewport.scrollTo(viewport.scrollHeight);
-        key.preventDefault();
-        return;
-      }
-      if (key.name === 'pageup') {
-        actions.scrollOverlay(-1);
-        key.preventDefault();
-        return;
-      }
-      if (key.name === 'pagedown') {
-        actions.scrollOverlay(1);
-        key.preventDefault();
-        return;
-      }
     }
     // The experiment surface owns navigation while it is on screen. The index
     // opens a hypothesis summary; that summary selects and opens one round.

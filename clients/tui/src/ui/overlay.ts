@@ -10,6 +10,19 @@ const TITLE: Record<OverlayKind, string> = {
   error: 'Error',
 };
 
+const HINT = 'Esc to close · PgUp/PgDn: scroll';
+
+/**
+ * The share of the screen the box takes. It is applied in whole rows and
+ * columns rather than as a Yoga percentage: a fractional box edge rounds the
+ * hint back onto the scroll viewport's last row, which hides the final line of
+ * content.
+ */
+const WIDTH_SHARE = 0.7;
+const LEFT_SHARE = 0.15;
+const HEIGHT_SHARE = 0.6;
+const TOP_SHARE = 0.18;
+
 function borderFor(theme: Theme, kind: OverlayKind): string {
   if (kind === 'help') return theme.success;
   if (kind === 'error') return theme.error;
@@ -18,10 +31,11 @@ function borderFor(theme: Theme, kind: OverlayKind): string {
 
 export class OverlayView {
   readonly output: BoxRenderable;
+  readonly #scroll: ScrollBoxRenderable;
+  readonly #hint: TextRenderable;
   #theme: Theme;
   #renderedKind: OverlayKind | null = null;
   #renderedContent = '';
-  readonly #scroll: ScrollBoxRenderable;
 
   constructor(
     private readonly renderer: CliRenderer,
@@ -30,11 +44,7 @@ export class OverlayView {
     this.#theme = theme;
     this.output = new BoxRenderable(renderer, {
       id: 'overlay',
-      width: '70%',
-      height: '60%',
       position: 'absolute',
-      left: '15%',
-      top: '18%',
       flexDirection: 'column',
       paddingLeft: 1,
       paddingRight: 1,
@@ -50,10 +60,27 @@ export class OverlayView {
       id: 'overlay-scroll',
       width: '100%',
       flexGrow: 1,
+      stickyScroll: false,
+      viewportCulling: true,
+      verticalScrollbarOptions: {showArrows: false},
+    });
+    // The box owns its scroll viewport and its hint row for the whole life of
+    // the view: only the scrolled content is rebuilt per overlay. The hint has
+    // a reserved row of its own so it cannot overpaint the last content line.
+    this.#hint = new TextRenderable(renderer, {
+      content: HINT,
+      fg: theme.textSubtle,
+      width: '100%',
+      height: 1,
+      flexShrink: 0,
+      wrapMode: 'none',
+      truncate: true,
     });
     this.output.add(this.#scroll);
+    this.output.add(this.#hint);
   }
 
+  /** Scrolled by Page Up/Page Down while the overlay is open. */
   scrollBy(delta: number): void {
     this.#scroll.scrollBy(delta, 'viewport');
   }
@@ -62,6 +89,7 @@ export class OverlayView {
     this.#theme = theme;
     this.output.backgroundColor = theme.elevatedSurface;
     this.output.borderColor = borderFor(theme, this.#renderedKind ?? 'detail');
+    this.#hint.fg = theme.textSubtle;
     this.#renderedKind = null;
     this.#renderedContent = '';
   }
@@ -70,16 +98,21 @@ export class OverlayView {
     const overlay = state.overlay;
     if (overlay === null) {
       this.output.visible = false;
+      // Scroll position belongs to one viewing of one overlay. Forgetting what
+      // is on screen makes the next open rebuild the content, which puts the
+      // viewport back at the top even when the same overlay is reopened.
+      this.#renderedKind = null;
+      this.#renderedContent = '';
       return;
     }
     this.output.visible = true;
+    this.#applyGeometry();
     if (this.#renderedKind === overlay.kind && this.#renderedContent === overlay.content) return;
     this.#renderedKind = overlay.kind;
     this.#renderedContent = overlay.content;
     this.output.borderColor = borderFor(this.#theme, overlay.kind);
     this.output.title = ` ${TITLE[overlay.kind]} `;
     this.#clear();
-    this.#scroll.scrollTo(0);
     this.#scroll.add(
       new TextRenderable(this.renderer, {
         content: overlay.content,
@@ -88,15 +121,21 @@ export class OverlayView {
             ? this.#theme.conversation.failure.content
             : this.#theme.textPrimary,
         width: '100%',
+        flexShrink: 0,
+        wrapMode: 'word',
       }),
     );
-    this.output.add(
-      new TextRenderable(this.renderer, {
-        content: 'Esc to close · PgUp/PgDn: scroll',
-        fg: this.#theme.textSubtle,
-        width: '100%',
-      }),
-    );
+    this.#scroll.scrollTo(0);
+  }
+
+  /** Whole-row, whole-column geometry, recomputed as the terminal resizes. */
+  #applyGeometry(): void {
+    const columns = this.renderer.terminalWidth;
+    const rows = this.renderer.terminalHeight;
+    this.output.width = Math.round(columns * WIDTH_SHARE);
+    this.output.left = Math.round(columns * LEFT_SHARE);
+    this.output.height = Math.round(rows * HEIGHT_SHARE);
+    this.output.top = Math.round(rows * TOP_SHARE);
   }
 
   #clear(): void {
