@@ -16,6 +16,7 @@ type Application struct {
 	timeout time.Duration
 	seed    int64
 	catalog map[string]profile
+	strict  hotelsupport.Strictness
 }
 
 func New(workload api.Workload) (api.AccuracyApplication, error) {
@@ -27,7 +28,12 @@ func New(workload api.Workload) (api.AccuracyApplication, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Application{timeout: config.Timeout, seed: workload.Load.Seed, catalog: catalog}, nil
+	return &Application{
+		timeout: config.Timeout,
+		seed:    workload.Load.Seed,
+		catalog: catalog,
+		strict:  config.Strict,
+	}, nil
 }
 
 func (a *Application) Name() string { return "hotel" }
@@ -47,7 +53,17 @@ func (a *Application) Properties() []api.AccuracyProperty {
 		{Name: "reservation_capacity", Required: true},
 		{Name: "read_your_write", Required: true},
 		{Name: "reservation_isolation", Required: true},
+		{Name: "degenerate_date_ranges", Required: true},
+		{Name: "multi_night_atomicity", Required: true},
+		{Name: "concurrent_isolation", Required: true},
 		{Name: "crash_recovery", Required: false},
+		{Name: "durable_capacity", Required: false},
+		// The remaining properties are violated by the pinned upstream
+		// implementation, so they are reported only when a workload opts in
+		// through application_config. See README.md for the counterexamples.
+		{Name: "linearizable_capacity", Required: false},
+		{Name: "durable_availability", Required: false},
+		{Name: "endpoint_liveness", Required: false},
 	}
 }
 

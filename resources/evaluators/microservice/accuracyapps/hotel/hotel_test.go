@@ -260,13 +260,23 @@ func TestApplicationContractAndReservationNamespace(t *testing.T) {
 		t.Fatalf("policy=%+v", policy)
 	}
 	properties := application.Properties()
-	if len(properties) != 14 {
+	if len(properties) != 21 {
 		t.Fatalf("properties=%v", properties)
 	}
+	// Lifecycle-dependent and opt-in properties stay optional: the pinned
+	// upstream implementation violates the opt-in ones, so promoting them
+	// silently would reject the reference rather than a candidate regression.
+	optional := map[string]struct{}{
+		"crash_recovery":        {},
+		"durable_capacity":      {},
+		"linearizable_capacity": {},
+		"durable_availability":  {},
+		"endpoint_liveness":     {},
+	}
 	for _, property := range properties {
-		if property.Name == "crash_recovery" {
+		if _, expected := optional[property.Name]; expected {
 			if property.Required {
-				t.Fatal("crash_recovery must remain optional without a lifecycle hook")
+				t.Fatalf("property %s must remain optional", property.Name)
 			}
 			continue
 		}

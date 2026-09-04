@@ -98,6 +98,54 @@ func (a *Application) Check(
 	if err := recorder.Pass("reservation_capacity", "read_your_write", "reservation_isolation"); err != nil {
 		return err
 	}
+
+	checks, err = a.verifyDegenerateDateRanges(ctx, c, check.Seed, random)
+	recorder.AddChecks(checks)
+	if err != nil {
+		return err
+	}
+	if err := recorder.Pass("degenerate_date_ranges"); err != nil {
+		return err
+	}
+
+	checks, err = a.verifyMultiNightAtomicity(ctx, c, check.Seed, check.Cases, random)
+	recorder.AddChecks(checks)
+	if err != nil {
+		return err
+	}
+	if err := recorder.Pass("multi_night_atomicity"); err != nil {
+		return err
+	}
+
+	checks, err = a.verifyConcurrentIsolation(ctx, c, check.Seed, random)
+	recorder.AddChecks(checks)
+	if err != nil {
+		return err
+	}
+	if err := recorder.Pass("concurrent_isolation"); err != nil {
+		return err
+	}
+
+	if a.strict.LinearizableCapacity {
+		checks, err = a.verifyLinearizableCapacity(ctx, c, check.Seed, check.Cases, random)
+		recorder.AddChecks(checks)
+		if err != nil {
+			return err
+		}
+		if err := recorder.Pass("linearizable_capacity"); err != nil {
+			return err
+		}
+	}
+	if a.strict.EndpointLiveness {
+		checks, err = a.verifyEndpointLiveness(ctx, c, check.Seed, random)
+		recorder.AddChecks(checks)
+		if err != nil {
+			return err
+		}
+		if err := recorder.Pass("endpoint_liveness"); err != nil {
+			return err
+		}
+	}
 	if check.Restart == nil {
 		return nil
 	}
@@ -106,7 +154,22 @@ func (a *Application) Check(
 	if err != nil {
 		return err
 	}
-	return recorder.Pass("crash_recovery")
+	if err := recorder.Pass("crash_recovery"); err != nil {
+		return err
+	}
+
+	checks, err = a.verifyDurableState(
+		ctx, c, check.Seed, check.Cases, random, check.Restart, a.strict.DurableAvailability,
+	)
+	recorder.AddChecks(checks)
+	if err != nil {
+		return err
+	}
+	durable := []string{"durable_capacity"}
+	if a.strict.DurableAvailability {
+		durable = append(durable, "durable_availability")
+	}
+	return recorder.Pass(durable...)
 }
 
 func (a *Application) verifySearch(ctx context.Context, c client, random *rand.Rand, cases int) (int, error) {
