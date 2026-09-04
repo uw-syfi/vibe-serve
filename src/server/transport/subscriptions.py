@@ -13,8 +13,10 @@ if TYPE_CHECKING:
 # before declaring the server subscriber-free. A dropped client redials on a
 # finite backoff whose first delay is 500ms, so returning the instant the
 # count hits zero would let teardown unlink the socket underneath that
-# redial. The window must stay well under the launcher's 2s backend exit
-# grace so a deliberate quit still tears down without a SIGTERM.
+# redial. The window shares the launcher's 2s backend exit grace with the
+# transport's disconnect and shutdown polls (``unix_jsonl.py``); the three
+# together must stay under it so a deliberate quit still tears down without a
+# SIGTERM.
 RECONNECT_SETTLE_SECONDS = 1.0
 
 

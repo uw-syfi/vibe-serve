@@ -210,7 +210,10 @@ describe('header', () => {
     // `selectAgent` stores the phase kind verbatim, so an operator selecting
     // the measurement phase put `selected perf_eval` on the curated header:
     // the backend identifier this header exists to remove.
-    const seeded = applyRunMapEvent({outerLoop: 'plain', rounds: [], phases: []}, perfEvalStart());
+    const seeded = applyRunMapEvent(
+      {outerLoop: 'plain', expectedRoles: null, rounds: [], phases: []},
+      perfEvalStart(),
+    );
     const kinds = seeded.phases.map(phase => phase.kind);
     expect(kinds).toContain('perf_eval');
 

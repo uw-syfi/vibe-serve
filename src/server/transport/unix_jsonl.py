@@ -30,6 +30,16 @@ if TYPE_CHECKING:
 
 _REQUEST_ADAPTER = TypeAdapter(ProtocolRequest)
 
+# Polling slack on the teardown path. After the last client hangs up, the
+# server exits only once the stream loop notices the closed peer, the
+# ``RECONNECT_SETTLE_SECONDS`` window elapses, and ``serve_forever`` observes
+# ``shutdown``. The sum must stay under the launcher's 2s backend exit grace,
+# or a deliberate quit is reported as a hung backend and SIGTERMed. Both polls
+# were 1.0s and 0.5s (the ``socketserver`` default), which with the settle
+# window overran that grace.
+_DISCONNECT_POLL_SECONDS = 0.1
+_SHUTDOWN_POLL_SECONDS = 0.1
+
 
 class _RequestHandler(socketserver.StreamRequestHandler):
     server: _JsonlUnixServer
@@ -90,7 +100,7 @@ class _RequestHandler(socketserver.StreamRequestHandler):
         )
         cursor, reported_floor = self._write_bootstrap(request, bootstrap)
         while True:
-            if not api.wait_for_change(cursor, timeout=1.0):
+            if not api.wait_for_change(cursor, timeout=_DISCONNECT_POLL_SECONDS):
                 if self._client_disconnected():
                     return
                 time.sleep(0.05)
@@ -200,6 +210,7 @@ class UnixJsonlServer:
         os.chmod(self.path, 0o600)  # noqa: PTH101  # tracked: #288
         self._thread = threading.Thread(
             target=self._server.serve_forever,
+            kwargs={"poll_interval": _SHUTDOWN_POLL_SECONDS},
             name="vibesys-server-jsonl",
             daemon=True,
         )
