@@ -62,8 +62,9 @@ strict_endpoint_liveness = true
 | `durable_availability` | `CheckAvailability` serves availability from cached counts; its datastore miss path is unreachable, so a full hotel is advertised again once the cache tier restarts. |
 | `endpoint_liveness` | The capacity lookup calls `log.Panic` when no seeded row matches, so one request for an out-of-catalog hotel takes the reservation service down. |
 
-`DIFFERENTIAL-FINDINGS.md` records the measured counterexamples, the exact
-commands, and what they imply for using this oracle as an accuracy gate.
+Issue [#254](https://github.com/uw-syfi/vibesys/issues/254) records the measured
+counterexamples, the exact commands, and what they imply for using this oracle
+as an accuracy gate.
 
 ## Scope
 
