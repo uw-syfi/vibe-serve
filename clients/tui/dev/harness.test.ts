@@ -17,7 +17,7 @@
  */
 
 import {afterEach, expect, test} from 'bun:test';
-import {spawn, spawnSync} from 'node:child_process';
+import {type ChildProcess, spawn, spawnSync} from 'node:child_process';
 import {chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync} from 'node:fs';
 import {createConnection, type Socket} from 'node:net';
 import {tmpdir} from 'node:os';
@@ -52,16 +52,57 @@ const WAIT_TIMEOUT_MS = 15_000;
  */
 const MID_EXECUTION_BOOTSTRAP = 40;
 
-const cleanups: (() => void)[] = [];
+const cleanups: (() => void | Promise<void>)[] = [];
 
-afterEach(() => {
-  while (cleanups.length > 0) cleanups.pop()?.();
+afterEach(async () => {
+  while (cleanups.length > 0) await cleanups.pop()?.();
 });
 
 function scratchDirectory(prefix: string): string {
   const directory = mkdtempSync(join(tmpdir(), prefix));
-  cleanups.push(() => rmSync(directory, {recursive: true, force: true}));
+  cleanups.push(() => removeScratchDirectory(directory));
   return directory;
+}
+
+/**
+ * Removes a scratch directory, retrying while the filesystem still counts a
+ * dying process's open files against it. Unlinking an open file succeeds on a
+ * local filesystem, but an NFS client silly-renames it to `.nfsXXXX` instead,
+ * so until the holder has exited and the client has reaped the rename, the
+ * rename refuses to unlink (EBUSY) and the directory stays non-empty
+ * (ENOTEMPTY). Both clear on their own once the process is gone; anything else
+ * is a real bug and is rethrown immediately.
+ */
+async function removeScratchDirectory(directory: string): Promise<void> {
+  const deadline = Date.now() + WAIT_TIMEOUT_MS;
+  while (true) {
+    try {
+      rmSync(directory, {recursive: true, force: true});
+      return;
+    } catch (error) {
+      const code = (error as {code?: unknown}).code;
+      if ((code !== 'EBUSY' && code !== 'ENOTEMPTY') || Date.now() >= deadline) throw error;
+      await delay(25);
+    }
+  }
+}
+
+/**
+ * SIGKILLs `child` and resolves once the process has actually exited. The kill
+ * alone is not enough for teardown: signal delivery is asynchronous, so at the
+ * moment `kill` returns the process can still hold its files in the scratch
+ * directory open, which is exactly what the removal that follows in LIFO order
+ * must not race.
+ */
+function killAndAwaitExit(child: ChildProcess): Promise<void> {
+  return new Promise(resolve => {
+    if (child.pid === undefined || child.exitCode !== null || child.signalCode !== null) {
+      resolve();
+      return;
+    }
+    child.once('exit', () => resolve());
+    child.kill('SIGKILL');
+  });
 }
 
 function delay(ms: number): Promise<void> {
@@ -96,7 +137,7 @@ function connect(socketPath: string): Promise<Socket> {
   return new Promise((resolve, reject) => {
     const socket = createConnection(socketPath);
     socket.on('connect', () => {
-      cleanups.push(() => socket.destroy());
+      cleanups.push(() => void socket.destroy());
       resolve(socket);
     });
     socket.on('error', reject);
@@ -135,7 +176,7 @@ async function startMockServer(socketPath: string, args: string[]): Promise<void
     [MOCK_SERVER, '--socket', socketPath, '--owner-pid', String(process.pid), ...args],
     {stdio: 'ignore'},
   );
-  cleanups.push(() => server.kill('SIGKILL'));
+  cleanups.push(() => killAndAwaitExit(server));
   await waitFor('the mock server to bind', () => isListening(socketPath));
 }
 
@@ -290,6 +331,50 @@ test(
     expect(countByType(all, 'agent_execution_finished')).toBe(3);
     expect(countByType(all, 'invocation_started')).toBe(0);
     expect(countByType(all, 'invocation_finished')).toBe(0);
+  },
+  TEST_TIMEOUT_MS,
+);
+
+test(
+  'kill cleanup resolves only after the mock server has exited',
+  async () => {
+    const directory = scratchDirectory('vs-mock-exit-');
+    const socketPath = join(directory, 'mock.sock');
+    const server = spawn(
+      'bun',
+      [MOCK_SERVER, '--socket', socketPath, '--owner-pid', String(process.pid), '--paused'],
+      {stdio: 'ignore'},
+    );
+    cleanups.push(() => killAndAwaitExit(server));
+    await waitFor('the mock server to bind', () => isListening(socketPath));
+
+    await killAndAwaitExit(server);
+    // What LIFO teardown relies on: by the time the kill cleanup resolves, the
+    // process is gone, so the removal that follows cannot race its open files.
+    expect(server.exitCode !== null || server.signalCode !== null).toBe(true);
+    // And it is idempotent, because afterEach runs the pushed cleanup again.
+    await killAndAwaitExit(server);
+  },
+  TEST_TIMEOUT_MS,
+);
+
+test(
+  'scratch removal outwaits a straggler that still holds a file open',
+  async () => {
+    const directory = scratchDirectory('vs-mock-straggler-');
+    const heldPath = join(directory, 'held.log');
+    const holder = spawn('bash', ['-c', 'exec 3>"$1"; sleep 0.4', 'bash', heldPath], {
+      stdio: 'ignore',
+    });
+    cleanups.push(() => killAndAwaitExit(holder));
+    await waitFor('the straggler to open its file', async () => existsSync(heldPath));
+
+    // On a silly-renaming tmpdir this is the exact shape the suite used to die
+    // on: the open file cannot be unlinked until the holder exits, so the first
+    // attempts fail and the removal has to retry. On a local filesystem the
+    // first attempt simply succeeds; either way the directory must end up gone.
+    await removeScratchDirectory(directory);
+    expect(existsSync(directory)).toBe(false);
   },
   TEST_TIMEOUT_MS,
 );
