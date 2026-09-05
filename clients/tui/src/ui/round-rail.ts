@@ -142,7 +142,12 @@ export class RoundRailView {
   #renderedWidth = 0;
   #renderedRows = 0;
   #elapsedTimer: ReturnType<typeof setInterval> | null = null;
-  #runningRound: {round: RoundState; state: SessionState; text: TextRenderable} | null = null;
+  #runningRound: {
+    round: RoundState;
+    state: SessionState;
+    text: TextRenderable;
+    compact: boolean;
+  } | null = null;
 
   constructor(
     private readonly renderer: CliRenderer,
@@ -271,7 +276,9 @@ export class RoundRailView {
         this.controller.selectRound(round.number);
       },
     });
-    if (isRunning && hasActiveAgentTiming(round)) this.#runningRound = {round, state, text};
+    if (isRunning && hasActiveAgentTiming(round)) {
+      this.#runningRound = {round, state, text, compact};
+    }
     return text;
   }
 
@@ -315,12 +322,12 @@ export class RoundRailView {
     if (this.#runningRound === null || this.#elapsedTimer !== null) return;
     this.#elapsedTimer = setInterval(() => {
       if (this.#runningRound === null) return;
-      const {round, state, text} = this.#runningRound;
+      const {round, state, text, compact} = this.#runningRound;
       text.content = this.#roundLabel(
         round,
         state,
         round.number === visibleRoundNumber(state),
-        false,
+        compact,
       );
     }, 1000);
   }

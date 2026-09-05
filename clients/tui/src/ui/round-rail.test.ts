@@ -234,6 +234,64 @@ describe('RoundRailView row budget', () => {
   });
 });
 
+describe('RoundRailView elapsed timer refresh', () => {
+  /** A single active round with a live agent, so the rail arms the elapsed timer. */
+  function activeRoundState(): SessionState {
+    const base = railState(1);
+    return {
+      ...base,
+      selectedRound: 1,
+      core: {
+        ...base.core,
+        rounds: [
+          {
+            number: 1,
+            status: 'active',
+            startedAt: new Date().toISOString(),
+            activeAgentStarts: {worker: new Date().toISOString()},
+          },
+        ],
+      },
+    };
+  }
+
+  function textOf(text: TextRenderable): string {
+    const content = (text.content as {chunks?: {text?: string}[]} | undefined)?.chunks ?? [];
+    return content.map(chunk => chunk.text ?? '').join('');
+  }
+
+  test('keeps the compact label after the elapsed timer refreshes at a compact width', async () => {
+    const {renderer} = await createTestRenderer({width: 120, height: 40});
+    const view = new RoundRailView(
+      renderer,
+      {} as unknown as SessionController,
+      resolveTheme(null),
+    );
+    view.render(activeRoundState(), RAIL_COMPACT_WIDTH, 10);
+    // The elapsed timer ticks on a real one-second interval; wait past a tick so the
+    // refresh runs, then read the row it rewrote.
+    await new Promise(resolve => setTimeout(resolve, 1100));
+    const text = textOf(view.output.getChildren()[0] as TextRenderable);
+    view.destroy();
+    expect(text).not.toContain(' run ');
+    expect(text.length).toBeLessThanOrEqual(RAIL_COMPACT_WIDTH);
+  });
+
+  test('keeps the elapsed suffix after the timer refreshes at full width', async () => {
+    const {renderer} = await createTestRenderer({width: 120, height: 40});
+    const view = new RoundRailView(
+      renderer,
+      {} as unknown as SessionController,
+      resolveTheme(null),
+    );
+    view.render(activeRoundState(), RAIL_FULL_WIDTH, 10);
+    await new Promise(resolve => setTimeout(resolve, 1100));
+    const text = textOf(view.output.getChildren()[0] as TextRenderable);
+    view.destroy();
+    expect(text).toContain(' run ');
+  });
+});
+
 describe('RoundRailView profile-skipped rounds', () => {
   test('marks a completed profile-skipped round hollow and dim', async () => {
     const base = railState(3);
