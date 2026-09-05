@@ -83,6 +83,46 @@ export function stageKinds(phases: AgentPhase[]): string[] {
   return kinds;
 }
 
+export interface GraphWindow {
+  phases: AgentPhase[];
+  /** Agents the rows could not hold; 0 when the whole round is on screen. */
+  hidden: number;
+}
+
+/**
+ * The phases that fit in `rows`, and the count of those that do not.
+ *
+ * A stage stacks: an interrupted attempt and the attempt that replaced it are
+ * two agents in one column, so a round can be taller than the pane. The layout
+ * itself is unbounded, so something has to decide what is on screen, and a
+ * graph that silently ran off the bottom is what this replaces. Each column
+ * keeps its newest agents, because the live attempt is the one an operator is
+ * watching, and the count says what was left behind. One row is reserved for
+ * that count when there is one, so the indicator never sits on a node.
+ */
+export function graphWindow(phases: AgentPhase[], rows: number): GraphWindow {
+  const full = fitColumns(phases, rows);
+  if (full.hidden === 0) return full;
+  return fitColumns(phases, rows - 1);
+}
+
+/** Agents a column can stack in `rows` rows, 0 when not even one fits. */
+function columnCapacity(rows: number): number {
+  return Math.max(0, Math.floor((rows + ROW_GAP) / (NODE_HEIGHT + ROW_GAP)));
+}
+
+function fitColumns(phases: AgentPhase[], rows: number): GraphWindow {
+  const capacity = columnCapacity(rows);
+  const dropped = new Set<AgentPhase>();
+  for (const kind of stageKinds(phases)) {
+    const column = phases.filter(phase => phase.kind === kind);
+    for (const phase of column.slice(0, Math.max(0, column.length - capacity))) {
+      dropped.add(phase);
+    }
+  }
+  return {phases: phases.filter(phase => !dropped.has(phase)), hidden: dropped.size};
+}
+
 export function layoutAgentGraph(phases: AgentPhase[], availableWidth: number): AgentGraph {
   const kinds = stageKinds(phases);
   const columns = kinds.map(kind => phases.filter(phase => phase.kind === kind));

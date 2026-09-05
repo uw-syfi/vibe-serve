@@ -102,6 +102,19 @@ def write_plan_artifact(progress_path: Path, round_number: int, plan: Orchestrat
     return _write_json_atomic(path, plan.model_dump(mode="json"))
 
 
+#: Name tail of a completed implementer attempt artifact.
+_IMPLEMENTER_ARTIFACT_SUFFIX = "-implementer.json"
+#: Name tail of an attempt's start marker. The completed-artifact glob requires
+#: the exact ``-implementer.json`` tail, so a marker never reads back as a
+#: completed attempt.
+_IMPLEMENTER_START_MARKER_SUFFIX = "-implementer.started.json"
+
+
+def _implementer_evidence_root(progress_path: Path) -> Path:
+    """Return the framework-owned directory of per-attempt implementer evidence."""
+    return _structured_artifact_root(progress_path) / "evidence"
+
+
 def write_implementer_artifact(
     progress_path: Path,
     round_number: int,
@@ -109,12 +122,18 @@ def write_implementer_artifact(
     response: ImplementerResponse,
 ) -> Path:
     """Persist parsed implementer claims as untrusted data for Judge audit."""
-    path = (
-        _structured_artifact_root(progress_path)
-        / "evidence"
-        / f"round-{round_number:04d}-attempt-{retry:02d}-implementer.json"
+    path = _implementer_evidence_root(progress_path) / (
+        f"round-{round_number:04d}-attempt-{retry:02d}{_IMPLEMENTER_ARTIFACT_SUFFIX}"
     )
     return _write_json_atomic(path, response.model_dump(mode="json"))
+
+
+def write_implementer_start_marker(progress_path: Path, round_number: int, retry: int) -> Path:
+    """Record that one implementer attempt began, before its turn runs."""
+    path = _implementer_evidence_root(progress_path) / (
+        f"round-{round_number:04d}-attempt-{retry:02d}{_IMPLEMENTER_START_MARKER_SUFFIX}"
+    )
+    return _write_json_atomic(path, {"round": round_number, "attempt": retry})
 
 
 def validation_artifact_root(progress_path: Path) -> Path:
@@ -166,20 +185,31 @@ def validation_result_artifact_paths(progress_path: Path) -> list[Path]:
 
 def implementer_artifact_paths(progress_path: Path, round_number: int) -> list[Path]:
     """Return persisted implementer attempts for one round in attempt order."""
-    evidence_root = _structured_artifact_root(progress_path) / "evidence"
-    pattern = f"round-{round_number:04d}-attempt-*-implementer.json"
-    return sorted(evidence_root.glob(pattern))
+    pattern = f"round-{round_number:04d}-attempt-*{_IMPLEMENTER_ARTIFACT_SUFFIX}"
+    return sorted(_implementer_evidence_root(progress_path).glob(pattern))
+
+
+def _implementer_attempt_numbers(progress_path: Path, round_number: int, suffix: str) -> list[int]:
+    """Return the attempt numbers named by one round's *suffix* evidence files."""
+    prefix = f"round-{round_number:04d}-attempt-"
+    names = _implementer_evidence_root(progress_path).glob(f"{prefix}*{suffix}")
+    attempts = (path.name.removeprefix(prefix).removesuffix(suffix) for path in names)
+    return [int(attempt) for attempt in attempts if attempt.isdigit()]
 
 
 def next_implementer_attempt(progress_path: Path, round_number: int) -> int:
-    """Return the next durable attempt number for an interrupted round."""
-    attempts: list[int] = []
-    prefix = f"round-{round_number:04d}-attempt-"
-    suffix = "-implementer.json"
-    for path in implementer_artifact_paths(progress_path, round_number):
-        attempt_text = path.name.removeprefix(prefix).removesuffix(suffix)
-        if attempt_text.isdigit():
-            attempts.append(int(attempt_text))
+    """Return the next durable attempt number for an interrupted round.
+
+    Start markers count alongside completed artifacts, which makes the attempt
+    number durable at attempt start rather than only once the turn returns. A
+    process killed mid-invoke therefore resumes on a fresh attempt instead of
+    replaying the killed attempt's round label.
+    """
+    attempts = [
+        attempt
+        for suffix in (_IMPLEMENTER_ARTIFACT_SUFFIX, _IMPLEMENTER_START_MARKER_SUFFIX)
+        for attempt in _implementer_attempt_numbers(progress_path, round_number, suffix)
+    ]
     return max(attempts, default=0) + 1
 
 

@@ -434,10 +434,28 @@ export function createOpenTuiApp(
     roundRail.output.visible = railWidth > 0;
     todoStrip.output.visible = !showLog && zoomedPane === null;
     if (!showLog) {
+      // The row budget the main area draws from, shared by the rail and the
+      // agents pane because they are columns of the same row. It comes from the
+      // strip height the state implies, not from `todoStrip.output.height`: the
+      // box height reflects the last committed layout, so reading it back in the
+      // same paint that expanded or collapsed the strip bills the panes the
+      // previous frame's height and leaves them a row long or short (clipping
+      // the selected late round, the overflow indicator, or a graph node) until
+      // the next paint.
+      const mainRows = Math.max(
+        0,
+        renderer.terminalHeight -
+          headerFrame.height -
+          errorHeight -
+          todoStripHeight(state) -
+          help.height -
+          commandInput.box.height,
+      );
       agentMap.render(
         state,
         zoomedPane === 'agents' ? renderer.terminalWidth : undefined,
         railWidth,
+        mainRows,
       );
       // The todo box sits under the agent pane and stops where it stops: the
       // todos belong to an agent, so running them under the transcript would
@@ -448,20 +466,7 @@ export function createOpenTuiApp(
         state,
         typeof agentWidth === 'number' ? todoStripWidth(agentWidth, renderer.terminalWidth) : null,
       );
-      // The rail's row budget comes from the strip height the state implies, not
-      // from `todoStrip.output.height`: the box height reflects the last
-      // committed layout, so reading it back in the same paint that expanded or
-      // collapsed the strip bills the rail the previous frame's height and leaves
-      // it a row long or short (clipping the selected late round or the overflow
-      // indicator) until the next paint.
-      const railRows =
-        renderer.terminalHeight -
-        headerFrame.height -
-        errorHeight -
-        todoStripHeight(state) -
-        help.height -
-        commandInput.box.height;
-      if (railWidth > 0) roundRail.render(state, railWidth, Math.max(0, railRows));
+      if (railWidth > 0) roundRail.render(state, railWidth, mainRows);
       conversation.render(state);
     }
     // The agent map is the first thing to give up room: it is a summary the

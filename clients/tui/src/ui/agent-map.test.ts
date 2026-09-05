@@ -1,6 +1,11 @@
-import {describe, expect, test} from 'bun:test';
-import {agentPaneWidth, STACKED_WIDTH, TRANSCRIPT_MIN} from './agent-map.js';
+import {afterEach, describe, expect, test} from 'bun:test';
+import {createTestRenderer, type TestRendererSetup} from '@opentui/core/testing';
+import type {AgentPhase} from '@vibesys/core-state';
+import type {SessionController} from '../session-controller.js';
+import {initialSessionState, type SessionState} from '../session-model.js';
+import {AgentMapView, agentPaneWidth, STACKED_WIDTH, TRANSCRIPT_MIN} from './agent-map.js';
 import {RAIL_COMPACT_WIDTH, roundRailWidth} from './round-rail.js';
+import {resolveTheme} from './theme.js';
 
 /**
  * The round view lays out rail -> agents -> transcript. app.ts sizes the agent
@@ -50,5 +55,89 @@ describe('agentPaneWidth transcript floor beside the rail', () => {
         TRANSCRIPT_MIN,
       );
     }
+  });
+});
+
+/**
+ * A killed attempt and the attempt that resumed it are two agents in one stage,
+ * so a round can be taller than the pane. The symptom is stated in rows, so it
+ * is reproduced through the real renderable tree at a fixed terminal size: the
+ * frame is what says whether a node was drawn past the bottom border.
+ */
+describe('agent graph row budget', () => {
+  const cleanup: Array<() => void> = [];
+
+  afterEach(() => {
+    for (const destroy of cleanup.splice(0).reverse()) destroy();
+  });
+
+  const ROWS = 20;
+
+  /** One round whose implementer stage stacks `attempts` agents. */
+  function stackedState(attempts: number): SessionState {
+    const base = initialSessionState();
+    const phases: AgentPhase[] = [
+      {kind: 'orchestrator', status: 'completed', roundNumber: 1, roundLabel: 'round-1'},
+      ...Array.from({length: attempts}, (_, index) => ({
+        kind: 'implementer',
+        status: (index === attempts - 1 ? 'active' : 'interrupted') as AgentPhase['status'],
+        roundNumber: 1,
+        roundLabel: `round-1-retry-${index + 1}-implementer`,
+        executionId: `e${index}`,
+      })),
+      {kind: 'judge', status: 'pending', roundNumber: 1, roundLabel: null},
+    ];
+    return {
+      ...base,
+      experimentLog: null,
+      selectedRound: 1,
+      core: {...base.core, rounds: [{number: 1, status: 'active'}], phases},
+    };
+  }
+
+  async function renderGraph(attempts: number): Promise<{frame: string; nodes: number}> {
+    const testRenderer: TestRendererSetup = await createTestRenderer({width: 120, height: ROWS});
+    const view = new AgentMapView(
+      testRenderer.renderer,
+      {} as unknown as SessionController,
+      resolveTheme(null),
+    );
+    testRenderer.renderer.root.add(view.output);
+    cleanup.push(() => {
+      view.destroy();
+      view.output.destroyRecursively();
+      testRenderer.renderer.destroy();
+    });
+    view.render(stackedState(attempts), 120, 0, ROWS);
+    await testRenderer.renderOnce();
+    const frame = testRenderer.captureCharFrame();
+    // Every node draws its kind on its first row, so the markers count nodes.
+    const nodes = (frame.match(/[●!] implementer/g) ?? []).length;
+    return {frame, nodes};
+  }
+
+  test('keeps a stacked round inside the pane and says what it left out', async () => {
+    const {frame, nodes} = await renderGraph(6);
+    const rows = frame.trimEnd().split('\n');
+
+    // The pane's bottom border is the boundary: a node drawn past the rows on
+    // hand lands on it, or off screen entirely.
+    expect(rows).toHaveLength(ROWS);
+    expect(rows[ROWS - 1]).toMatch(/^╰[─╯]*$/);
+    // 20 rows minus two border rows minus the heading minus the count leaves 16,
+    // which holds two five-row nodes and the two-row gap between them.
+    expect(nodes).toBe(2);
+    expect(frame).toContain('↑ 4');
+    // The stage is still on screen, so selecting it still has something to
+    // select: a column never loses its last node.
+    expect(frame).toContain('orchestrator');
+    expect(frame).toContain('judge');
+  });
+
+  test('draws a round that fits whole, with no count', async () => {
+    const {frame, nodes} = await renderGraph(1);
+
+    expect(nodes).toBe(1);
+    expect(frame).not.toContain('↑');
   });
 });

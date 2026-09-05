@@ -3,6 +3,7 @@ import {
   activeTimingElapsedMs,
   closeActiveAgentTimings,
   finishAgentTiming,
+  hasActiveAgentTiming,
   type RoundTimingState,
   startAgentTiming,
 } from './round-timing.js';
@@ -46,19 +47,120 @@ export interface RunMapState {
   expectedRoles: readonly string[] | null;
   rounds: RoundSummary[];
   phases: AgentPhase[];
+  /**
+   * Timestamp of the newest event this state has folded, or null before the
+   * first one.
+   *
+   * A run that is killed hard emits no terminal event, so the moment it stopped
+   * is not recoverable from any later event: the next thing the journal carries
+   * is the resumed process's `run_started`, minutes or hours afterwards.
+   * Recording when the run was last seen alive is what lets the closeout stop
+   * the clocks there rather than charging the downtime to the round.
+   */
+  lastEventTimestamp: string | null;
 }
 
 export function applyRunMapEvent(state: RunMapState, event: RunEvent): RunMapState {
+  const seen: RunMapState = {...state, lastEventTimestamp: event.timestamp};
+  // Run-scoped terminal events say the run ended, not which agent ended it, so
+  // they carry no `agent_kind` and no `round_label`. Every projection below is
+  // keyed by that scope and would drop them, which is why the closeout runs
+  // first and returns: one owner for "the run ended", sweeping the whole map
+  // rather than the one round a label happened to name.
+  if (event.type === 'run_failed') return closeOpenRunState(seen, 'failed', event.timestamp);
+  if (event.type === 'run_interrupted') {
+    return closeOpenRunState(seen, 'interrupted', event.timestamp);
+  }
+  const base =
+    event.type === 'run_started'
+      ? closeAbandonedRunState(seen, state.lastEventTimestamp ?? event.timestamp)
+      : seen;
   const started =
     event.type === 'run_started' && event.data?.kind === 'run_started' ? event.data : null;
-  const outerLoop = started === null ? state.outerLoop : started.outer_loop;
+  const outerLoop = started === null ? base.outerLoop : started.outer_loop;
   const expectedRoles =
     started?.expected_roles !== undefined && started.expected_roles.length > 0
       ? started.expected_roles
-      : state.expectedRoles;
-  const rounds = applyRoundEvent(state.rounds, state.phases, event);
-  const phases = applyPhaseEvent({...state, outerLoop, expectedRoles, rounds}, event);
-  return {outerLoop, expectedRoles, rounds, phases};
+      : base.expectedRoles;
+  const rounds = applyRoundEvent(base.rounds, base.phases, event);
+  const phases = applyPhaseEvent({...base, outerLoop, expectedRoles, rounds}, event);
+  return {outerLoop, expectedRoles, rounds, phases, lastEventTimestamp: event.timestamp};
+}
+
+/**
+ * Closes every phase and round the run left open, at `timestamp`.
+ *
+ * `activeStatus` is what an agent that was running becomes: `interrupted` when
+ * an operator or a signal stopped the run, `failed` when the run itself did. A
+ * phase that never started becomes `cancelled`: it is not a failure, it is work
+ * that will never be attempted. Phases that already reached a terminal status
+ * keep it, so this is idempotent over the per-execution `phase_finished` events
+ * a graceful teardown emits before its run-scoped event.
+ *
+ * Timings close on every round, not just one: an open `activeAgentStarts` entry
+ * is what the elapsed selectors treat as "still running", so a round that keeps
+ * one ticks forever after the process it was measuring is gone.
+ */
+function closeOpenRunState(
+  state: RunMapState,
+  activeStatus: Extract<AgentPhaseStatus, 'failed' | 'interrupted'>,
+  timestamp: string,
+): RunMapState {
+  return {
+    ...state,
+    rounds: state.rounds.map(round => closeRound(round, timestamp)),
+    phases: state.phases.map(phase => closePhase(phase, activeStatus, timestamp)),
+  };
+}
+
+/**
+ * Closes state a previous life of the same run left behind.
+ *
+ * A resumed process appends to the journal of a run that may have died without
+ * a terminal event, because a hard kill gets no chance to emit one. Its open
+ * phases and rounds belong to a process that no longer exists: nothing will
+ * finish them, and their open timings would keep the round clocks running. The
+ * new `run_started` is where the fold learns a new life began, so it is where
+ * the old one ends, dated to when that life was last seen rather than to the
+ * resume, so the downtime in between is not charged to the round. The first
+ * `run_started` of a run has nothing open and leaves the state untouched.
+ */
+function closeAbandonedRunState(state: RunMapState, timestamp: string): RunMapState {
+  if (!hasOpenRunState(state)) return state;
+  return closeOpenRunState(state, 'interrupted', timestamp);
+}
+
+function hasOpenRunState(state: RunMapState): boolean {
+  return (
+    state.phases.some(phase => phase.status === 'active' || phase.status === 'pending') ||
+    state.rounds.some(round => !isRoundClosed(round.status) || hasActiveAgentTiming(round))
+  );
+}
+
+/** Whether a round has reached a status the run map never moves it off. */
+function isRoundClosed(status: RoundStatus): boolean {
+  return status === 'completed' || status === 'failed';
+}
+
+function closeRound(round: RoundSummary, timestamp: string): RoundSummary {
+  const closed = isRoundClosed(round.status)
+    ? round
+    : {...round, status: 'failed' as const, finishedAt: round.finishedAt ?? timestamp};
+  return hasActiveAgentTiming(closed) ? closeActiveAgentTimings(closed, timestamp) : closed;
+}
+
+function closePhase(
+  phase: AgentPhase,
+  activeStatus: Extract<AgentPhaseStatus, 'failed' | 'interrupted'>,
+  timestamp: string,
+): AgentPhase {
+  if (phase.status === 'active') {
+    return {...phase, status: activeStatus, finishedAt: phase.finishedAt ?? timestamp};
+  }
+  // A phase that never started has no end to record, so it takes the status and
+  // no `finishedAt`: an agent that never ran did not run until `timestamp`.
+  if (phase.status === 'pending') return {...phase, status: 'cancelled'};
+  return phase;
 }
 
 export function roundNumberFromLabel(label: string | null | undefined): number | null {
@@ -177,13 +279,6 @@ function applyPhaseEvent(state: RunMapState, event: RunEvent): AgentPhase[] {
   if (roundNumber !== null && roles !== null) {
     phases = seedExpectedPhases(roles, phases, roundNumber);
   }
-  if (event.type === 'run_failed' || event.type === 'run_interrupted') {
-    return phases.map(phase =>
-      phase.roundNumber === roundNumber && phase.status === 'active'
-        ? {...phase, status: 'failed', finishedAt: event.timestamp}
-        : phase,
-    );
-  }
   const started = event.type === 'agent_execution_started' || event.type === 'phase_started';
   const finished = event.type === 'agent_execution_finished' || event.type === 'phase_finished';
   if (!started && !finished) return ensurePhase(phases, kind, roundNumber);
@@ -219,17 +314,17 @@ function applyRoundEvent(
   const number = roundNumberFromLabel(event.round_label);
   if (number === null || event.type === 'run_finished') return rounds;
   const existing = rounds.find(round => round.number === number);
-  const terminalFailure = event.type === 'run_failed' || event.type === 'run_interrupted';
-  const status = terminalFailure
-    ? 'failed'
-    : event.type === 'round_finished'
+  // Run-scoped terminal events never reach here: `applyRunMapEvent` closes every
+  // round for them, because the round a label names is not the only one open.
+  const status =
+    event.type === 'round_finished'
       ? event.status === 'failed'
         ? 'failed'
         : 'completed'
       : existing?.status === 'completed' || existing?.status === 'failed'
         ? existing.status
         : 'active';
-  const terminal = terminalFailure || event.type === 'round_finished';
+  const terminal = event.type === 'round_finished';
   const patch: RoundSummary = {
     number,
     status,
@@ -362,13 +457,7 @@ function updateRoundAgentElapsed(
   const started = event.type === 'agent_execution_started' || event.type === 'phase_started';
   const finished = event.type === 'agent_execution_finished' || event.type === 'phase_finished';
   if (!started && !finished) {
-    if (
-      event.type !== 'round_finished' &&
-      event.type !== 'run_failed' &&
-      event.type !== 'run_interrupted'
-    ) {
-      return round;
-    }
+    if (event.type !== 'round_finished') return round;
     return closeActiveAgentTimings(round, event.timestamp);
   }
   if (event.type === 'phase_started' || event.type === 'phase_finished') {

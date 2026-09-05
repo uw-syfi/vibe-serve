@@ -151,6 +151,11 @@ export interface CoreState {
   maxRounds: number | null;
   rounds: RoundState[];
   phases: AgentPhase[];
+  /**
+   * Timestamp of the newest event the run map folded, or null before the first
+   * one. The run map owns the field and its meaning; see `RunMapState`.
+   */
+  lastEventTimestamp: string | null;
   activeExecutions: Record<string, ActiveAgentExecution>;
   transcript: TranscriptEntry[];
   /** The default thread's transcript; equals `chatTranscripts[DEFAULT_CHAT_THREAD_ID]`. */
@@ -189,6 +194,7 @@ export function initialCoreState(): CoreState {
     maxRounds: null,
     rounds: [],
     phases: [],
+    lastEventTimestamp: null,
     activeExecutions: {},
     transcript: [],
     chatTranscript: [],
@@ -371,6 +377,8 @@ export function reduceEventPrefix(
     maxRounds: state.maxRounds ?? older.maxRounds,
     rounds: mergeRoundLists(older.rounds, state.rounds),
     phases: mergePhaseLists(older.phases, state.phases),
+    // The newer batch folded the newer events, so it saw the run more recently.
+    lastEventTimestamp: state.lastEventTimestamp ?? older.lastEventTimestamp,
     // Liveness comes from the backend checkpoint, never from replayed history.
     activeExecutions: state.activeExecutions,
     transcript: mergeTranscriptPrefix(older.transcript, state.transcript),
@@ -562,6 +570,7 @@ function foldEvent(state: CoreState, event: RunEvent, folder: TranscriptFolder |
   next.expectedRoles = runMap.expectedRoles;
   next.rounds = runMap.rounds;
   next.phases = runMap.phases;
+  next.lastEventTimestamp = runMap.lastEventTimestamp;
 
   const data = event.data;
   // The run map owns a round's status and timing; the carried-forward flag is

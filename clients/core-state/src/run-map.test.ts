@@ -1,5 +1,6 @@
 import {describe, expect, it} from 'bun:test';
 import type {RunEvent} from '@vibesys/backend-client';
+import {hasActiveAgentTiming} from './round-timing.js';
 import {
   applyRunMapEvent,
   expectedRolesForSeeding,
@@ -72,16 +73,120 @@ describe('run map projection', () => {
     ]);
   });
 
-  it('closes active timing when a run is interrupted', () => {
+  it('closes active timing when a run is interrupted, with no agent scope on the event', () => {
+    // The three backends that emit this event (`runtime.py` on SIGTERM,
+    // `controller.py`, `headless.py`) all describe the run, not an agent, so
+    // the event carries no `agent_kind` and no `round_label`. A fold that reads
+    // the scope first drops it and the round's clock never stops.
     let state = applyRunMapEvent(emptyRunMap(), execution(1, 'agent_execution_started', 'a'));
-    state = applyRunMapEvent(state, {
-      ...execution(4, 'run_interrupted', 'a'),
-      data: {kind: 'run_interrupted', reason: 'operator', signal: 'SIGINT'},
-    });
+    state = applyRunMapEvent(state, runInterrupted(4));
 
     const round = requiredRound(state);
     expect(round.status).toBe('failed');
+    expect(hasActiveAgentTiming(round)).toBe(false);
+    // Frozen where the run died: the same value ten seconds later.
     expect(roundAgentElapsedMs(round, new Date('2026-01-01T00:00:10Z'))).toBe(3000);
+    expect(roundAgentElapsedMs(round, new Date('2026-01-01T00:10:00Z'))).toBe(3000);
+  });
+});
+
+describe('run-level closeout', () => {
+  it('closes every round and phase on interrupt, not just the labelled one', () => {
+    let state = applyRunMapEvent(initialRunMap(), runStarted('agent'));
+    state = applyRunMapEvent(state, execution(2, 'agent_execution_started', 'a'));
+    state = applyRunMapEvent(state, execution(3, 'agent_execution_finished', 'a'));
+    state = applyRunMapEvent(state, roundFinished(4, 1));
+    state = applyRunMapEvent(state, execution(5, 'agent_execution_started', 'b', 2));
+    state = applyRunMapEvent(state, runInterrupted(6));
+
+    expect(state.phases.map(phase => [phase.roundNumber, phase.kind, phase.status])).toEqual([
+      [1, 'orchestrator', 'cancelled'],
+      [1, 'implementer', 'completed'],
+      [1, 'judge', 'cancelled'],
+      [1, 'profiler', 'cancelled'],
+      [2, 'orchestrator', 'cancelled'],
+      [2, 'implementer', 'interrupted'],
+      [2, 'judge', 'cancelled'],
+      [2, 'profiler', 'cancelled'],
+    ]);
+    // Round one closed on its own event and keeps that status; round two was
+    // still open, so the run-level event is what ends it.
+    expect(state.rounds.map(round => [round.number, round.status])).toEqual([
+      [1, 'completed'],
+      [2, 'failed'],
+    ]);
+    expect(state.rounds.every(round => !hasActiveAgentTiming(round))).toBe(true);
+  });
+
+  it('fails the running agents and cancels the unstarted ones when a run fails', () => {
+    let state = applyRunMapEvent(initialRunMap(), runStarted('agent'));
+    state = applyRunMapEvent(state, execution(2, 'agent_execution_started', 'a'));
+    state = applyRunMapEvent(state, runFailed(3));
+
+    expect(state.phases.map(phase => [phase.kind, phase.status])).toEqual([
+      ['orchestrator', 'cancelled'],
+      ['implementer', 'failed'],
+      ['judge', 'cancelled'],
+      ['profiler', 'cancelled'],
+    ]);
+    expect(requiredRound(state).status).toBe('failed');
+  });
+
+  it('never overwrites a phase that already reached a terminal status', () => {
+    // The graceful teardown emits per-execution `phase_finished(interrupted)`
+    // before the run-scoped event, so the sweep runs over phases it has already
+    // settled and must leave both their status and their end alone.
+    let state = applyRunMapEvent(emptyRunMap(), execution(1, 'agent_execution_started', 'a'));
+    state = applyRunMapEvent(state, {
+      ...execution(2, 'phase_finished', 'a'),
+      status: 'interrupted',
+    });
+    state = applyRunMapEvent(state, execution(3, 'agent_execution_started', 'b'));
+    state = applyRunMapEvent(state, execution(4, 'agent_execution_finished', 'b'));
+    state = applyRunMapEvent(state, runInterrupted(5));
+
+    expect(state.phases.map(phase => [phase.kind, phase.status, phase.finishedAt])).toEqual([
+      // Never started, so it is not run rather than ended, and has no end.
+      ['orchestrator', 'cancelled', undefined],
+      ['implementer', 'interrupted', '2026-01-01T00:00:02Z'],
+      ['judge', 'cancelled', undefined],
+      ['profiler', 'cancelled', undefined],
+      ['implementer', 'completed', '2026-01-01T00:00:04Z'],
+    ]);
+  });
+
+  it('closes the state a killed run left open when a resumed run starts', () => {
+    // Repro step six: SIGKILL, so no terminal event is ever written. The next
+    // thing the journal carries is the resumed process's `run_started`.
+    let state = applyRunMapEvent(initialRunMap(), runStarted('agent'));
+    state = applyRunMapEvent(state, execution(2, 'agent_execution_started', 'a'));
+    state = applyRunMapEvent(state, streamedChunk(5));
+    state = applyRunMapEvent(state, {
+      ...runStarted('agent'),
+      sequence: 6,
+      timestamp: '2026-01-01T01:00:00Z',
+    });
+
+    expect(state.phases.map(phase => [phase.kind, phase.status])).toEqual([
+      ['orchestrator', 'cancelled'],
+      ['implementer', 'interrupted'],
+      ['judge', 'cancelled'],
+      ['profiler', 'cancelled'],
+    ]);
+    const round = requiredRound(state);
+    expect(round.status).toBe('failed');
+    expect(hasActiveAgentTiming(round)).toBe(false);
+    // Closed at the last event the dead process wrote (00:00:05), not at the
+    // resume an hour later: the downtime is not the round's elapsed time.
+    expect(roundAgentElapsedMs(round, new Date('2026-01-01T02:00:00Z'))).toBe(3000);
+  });
+
+  it('leaves a first run_started alone, having nothing open to close', () => {
+    const state = applyRunMapEvent(initialRunMap(), runStarted('agent'));
+
+    expect(state.rounds).toEqual([]);
+    expect(state.phases).toEqual([]);
+    expect(state.outerLoop).toBe('agent');
   });
 });
 
@@ -151,7 +256,36 @@ describe('expected phase seeding', () => {
 });
 
 function initialRunMap(): RunMapState {
-  return {outerLoop: null, expectedRoles: null, rounds: [], phases: []};
+  return {outerLoop: null, expectedRoles: null, rounds: [], phases: [], lastEventTimestamp: null};
+}
+
+/** A timestamped event with no agent scope, the shape run-scoped events have. */
+function runScoped(sequence: number, type: RunEvent['type']): RunEvent {
+  return {sequence, timestamp: `2026-01-01T00:00:0${sequence}Z`, type};
+}
+
+function runInterrupted(sequence: number): RunEvent {
+  return {
+    ...runScoped(sequence, 'run_interrupted'),
+    data: {kind: 'run_interrupted', reason: 'operator', signal: 'SIGTERM'},
+  };
+}
+
+function runFailed(sequence: number): RunEvent {
+  return runScoped(sequence, 'run_failed');
+}
+
+/** An output chunk: folded for its timestamp alone, which no phase records. */
+function streamedChunk(sequence: number): RunEvent {
+  return runScoped(sequence, 'agent_output_chunk');
+}
+
+function roundFinished(sequence: number, roundNumber: number): RunEvent {
+  return {
+    ...runScoped(sequence, 'round_finished'),
+    status: 'completed',
+    round_label: `round-${roundNumber}`,
+  };
 }
 
 function runStarted(outerLoop: string, expectedRoles?: string[]): RunEvent {
@@ -171,7 +305,13 @@ function runStarted(outerLoop: string, expectedRoles?: string[]): RunEvent {
 }
 
 function emptyRunMap(): RunMapState {
-  return {outerLoop: 'agent', expectedRoles: null, rounds: [], phases: []};
+  return {
+    outerLoop: 'agent',
+    expectedRoles: null,
+    rounds: [],
+    phases: [],
+    lastEventTimestamp: null,
+  };
 }
 
 function requiredRound(state: RunMapState): RunMapState['rounds'][number] {
@@ -180,7 +320,12 @@ function requiredRound(state: RunMapState): RunMapState['rounds'][number] {
   return round;
 }
 
-function execution(sequence: number, type: RunEvent['type'], executionId: string): RunEvent {
+function execution(
+  sequence: number,
+  type: RunEvent['type'],
+  executionId: string,
+  roundNumber = 1,
+): RunEvent {
   const started = type === 'agent_execution_started';
   return {
     sequence,
@@ -189,7 +334,7 @@ function execution(sequence: number, type: RunEvent['type'], executionId: string
     execution_id: executionId,
     invocation_id: executionId,
     agent_kind: 'implementer',
-    round_label: 'round-1-implementer',
+    round_label: `round-${roundNumber}-implementer`,
     ...(started
       ? {
           data: {

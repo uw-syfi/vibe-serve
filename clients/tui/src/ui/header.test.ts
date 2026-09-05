@@ -211,7 +211,7 @@ describe('header', () => {
     // the measurement phase put `selected perf_eval` on the curated header:
     // the backend identifier this header exists to remove.
     const seeded = applyRunMapEvent(
-      {outerLoop: 'plain', expectedRoles: null, rounds: [], phases: []},
+      {outerLoop: 'plain', expectedRoles: null, rounds: [], phases: [], lastEventTimestamp: null},
       perfEvalStart(),
     );
     const kinds = seeded.phases.map(phase => phase.kind);

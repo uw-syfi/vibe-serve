@@ -1283,6 +1283,11 @@ def _run_implementer(  # noqa: PLR0913  # tracked: #288
         recommended_skills=resolved_skills,
         prior_attempt_artifact_locations=prior_attempt_artifact_locations,
     )
+    # Make this attempt number durable before the turn starts. A process killed
+    # mid-invoke writes no completed artifact, so a resume that counted only
+    # those would reuse this attempt number and replay the round label below
+    # over paid work.
+    issue_board.write_implementer_start_marker(progress_path, round_number, retry)
     fallback = ResponseFallback(_missing_implementer_response)
     timed_out = False
     try:

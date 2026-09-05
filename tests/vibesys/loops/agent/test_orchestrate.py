@@ -1393,6 +1393,34 @@ def test_persisted_implementer_attempts_define_resume_boundary(tmp_path):  # noq
     assert issue_board.next_implementer_attempt(progress, 9) == 1
 
 
+def test_implementer_start_marker_advances_the_resume_boundary(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
+    progress = tmp_path / "progress"
+    implementation = ImplementerResponse(
+        summary="Recorded after the marker.",
+        expected_behavior="A killed attempt must not be replayed under its label.",
+    )
+    marker = issue_board.write_implementer_start_marker(progress, 8, 1)
+
+    assert marker == (
+        tmp_path / "progress" / "evidence" / "round-0008-attempt-01-implementer.started.json"
+    )
+    # An attempt killed mid-invoke leaves the marker and no completed artifact,
+    # yet the round must resume on attempt 2.
+    assert issue_board.implementer_artifact_paths(progress, 8) == []
+    assert issue_board.next_implementer_attempt(progress, 8) == 2
+
+    completed = issue_board.write_implementer_artifact(progress, 8, 1, implementation)
+
+    # The marker and its own completed artifact name one attempt, not two.
+    assert issue_board.implementer_artifact_paths(progress, 8) == [completed]
+    assert issue_board.next_implementer_attempt(progress, 8) == 2
+
+    issue_board.write_implementer_start_marker(progress, 9, 1)
+
+    assert issue_board.next_implementer_attempt(progress, 8) == 2
+    assert issue_board.next_implementer_attempt(progress, 9) == 2
+
+
 def test_agent_memory_paths_distinguish_files_from_directories(tmp_path):  # noqa: ANN001, ANN201  # tracked: #288
     workspace = tmp_path / "workspace"
     directory = workspace / "progress"
@@ -2652,6 +2680,43 @@ def test_timed_out_implementer_persists_fail_closed_attempt_and_retries(
         if call.kwargs.get("response_cls") is ImplementerResponse
     ]
     assert "round-0001-attempt-01-implementer.json" in implementer_calls[1].kwargs["system_prompt"]
+
+
+def test_implementer_start_marker_precedes_the_invocation(
+    tmp_path: Path,
+    ref_file: str,
+) -> None:
+    """A process killed mid-invoke must not resume under the killed label."""
+    runner = _make_orchestrate_runner(
+        plans=[
+            OrchestratorPlan(
+                task="Build server",
+                pass_criteria="tests pass",  # noqa: S106  # tracked: #288
+                reasoning="cold start",
+            ),
+        ],
+        implementer_outcomes=[HypothesisOutcome.NOMINATED],
+    )
+    delegate = runner.invoke.side_effect
+
+    def invoke_killed_mid_implementer(**kwargs):  # noqa: ANN003, ANN202  # tracked: #288
+        if kwargs["kind"] == "implementer":
+            raise RuntimeError("killed mid-invoke")  # noqa: TRY003  # tracked: #288
+        return delegate(**kwargs)
+
+    runner.invoke.side_effect = invoke_killed_mid_implementer
+
+    # The loop does not catch this, so the attempt ends exactly where an
+    # external kill would end it: after the marker, before any artifact.
+    with pytest.raises(RuntimeError, match="killed mid-invoke"):
+        _invoke_orchestrate(tmp_path, ref_file, runner, max_rounds=1, max_retries_per_round=2)
+
+    project = _created_project(tmp_path)
+    markers = list(project.rglob("round-0001-attempt-01-implementer.started.json"))
+    assert len(markers) == 1
+    assert not list(project.rglob("round-0001-attempt-01-implementer.json"))
+    workspace = runner.invoke.call_args_list[0].kwargs["workspace"]
+    assert issue_board.next_implementer_attempt(workspace / "progress.md", 1) == 2
 
 
 def test_unparseable_implementer_responses_commit_fail_closed_once_exhausted(tmp_path, ref_file):  # noqa: ANN001, ANN201  # tracked: #288
