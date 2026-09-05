@@ -1,5 +1,7 @@
-import {describe, expect, it} from 'bun:test';
+import {afterEach, describe, expect, it} from 'bun:test';
+import {createTestRenderer} from '@opentui/core/testing';
 import type {HypothesisEntry} from '@vibesys/backend-client';
+import type {SessionController} from '../session-controller.js';
 import {
   entryKey,
   initialSessionState,
@@ -9,7 +11,9 @@ import {
   setExperiments,
 } from '../session-model.js';
 import {
+  ExperimentLogView,
   entryCells,
+  entryLeadingMarker,
   entryRow,
   formatMeasured,
   formatRounds,
@@ -19,6 +23,7 @@ import {
   outcomeColor,
   outcomeLabel,
   resolveColumns,
+  selectionCaret,
   sentenceCase,
 } from './experiment-log.js';
 import {resolveTheme, THEME_NAMES} from './theme.js';
@@ -114,7 +119,11 @@ describe('experiment log rows', () => {
       resolveColumns(WIDE),
     );
 
-    expect(row.startsWith('▸')).toBe(true);
+    // The leading column reserves a selection caret ahead of the active
+    // marker; unselected, that slot is a blank rather than absent, so the
+    // active marker lands in the same place whether or not the row is
+    // selected.
+    expect(row.startsWith(' ▸')).toBe(true);
     expect(row).toContain('Active');
   });
 
@@ -196,7 +205,9 @@ describe('experiment log rows', () => {
       resolveColumns(WIDE),
     );
 
-    expect(row).toContain('(unidentified)');
+    // The two-character selection-caret slot leaves one fewer column for the
+    // id itself, so a 15-character placeholder now truncates one char sooner.
+    expect(row).toContain('(unidentifie…');
     expect(row).toContain('—');
     expect(row).not.toContain('Active');
   });
@@ -207,7 +218,7 @@ describe('experiment log rows', () => {
     const row = entryRow(entry({hypothesis_id: 'm1-preallocated-spsc-ring'}), columns);
     const roundsStart = header.indexOf('Rounds');
 
-    expect(row).toContain('m1-preallocat…  41');
+    expect(row).toContain('m1-prealloca…  41');
     expect(row[roundsStart - 1]).toBe(' ');
     expect(row.slice(roundsStart).startsWith('41')).toBe(true);
   });
@@ -245,6 +256,42 @@ describe('experiment log rows', () => {
       resolveColumns(WIDE),
     );
     expect(withActionOnly.leading).toContain('Batch prefill');
+  });
+});
+
+describe('selectionCaret', () => {
+  it('renders a caret for the selected row and a matching blank otherwise', () => {
+    expect(selectionCaret(true)).toBe('›');
+    expect(selectionCaret(false)).toBe(' ');
+  });
+});
+
+describe('entryLeadingMarker', () => {
+  it('carries the selection caret and the active marker as independent signals', () => {
+    expect(entryLeadingMarker(entry({active: false}), false)).toBe('  ');
+    expect(entryLeadingMarker(entry({active: false}), true)).toBe('› ');
+    expect(entryLeadingMarker(entry({active: true}), false)).toBe(' ▸');
+    expect(entryLeadingMarker(entry({active: true}), true)).toBe('›▸');
+  });
+});
+
+describe('entryCells and entryRow with selection', () => {
+  it('shows the caret only on the selected row, at the same column as an unselected row', () => {
+    const columns = resolveColumns(WIDE);
+    const selected = entryRow(entry({hypothesis_id: 'H-01'}), columns, true);
+    const unselected = entryRow(entry({hypothesis_id: 'H-01'}), columns, false);
+
+    expect(selected.startsWith('›')).toBe(true);
+    expect(unselected.startsWith(' ')).toBe(true);
+    // Everything past the reserved caret column is identical: selection never
+    // reflows the row's other columns.
+    expect(selected.slice(1)).toBe(unselected.slice(1));
+  });
+
+  it('defaults to unselected when the caller does not pass a selection flag', () => {
+    const columns = resolveColumns(WIDE);
+    expect(entryRow(entry(), columns)).toBe(entryRow(entry(), columns, false));
+    expect(entryCells(entry(), columns)).toEqual(entryCells(entry(), columns, false));
   });
 });
 
@@ -343,5 +390,103 @@ describe('experiment log selection', () => {
     ]);
 
     expect(replaced.experimentLog?.selectedId).toBe('H-99');
+  });
+});
+
+/**
+ * The pure helpers above prove the caret occupies a reserved column; these
+ * tests reproduce the symptom the issue reported (selection legible only by a
+ * background swap) through the real OpenTUI test renderer, per
+ * coding-best-practices.md's rule that a terminal-geometry symptom needs the
+ * renderer, not just a formatter test.
+ */
+describe('experiment log rendered selection glyph', () => {
+  const cleanup: Array<() => void> = [];
+
+  afterEach(() => {
+    for (const destroy of cleanup.splice(0).reverse()) destroy();
+  });
+
+  /** None of these fire in a render-only test; onMouseUp is never simulated. */
+  const controller = {
+    focusPane: () => {},
+    openHypothesisDetail: () => {},
+    moveExperimentSelection: () => {},
+    selectExperimentActivity: () => {},
+    openRound: () => {},
+  } as unknown as SessionController;
+
+  async function renderLog(state: SessionState): Promise<string> {
+    const testRenderer = await createTestRenderer({width: 100, height: 24});
+    const view = new ExperimentLogView(testRenderer.renderer, controller, resolveTheme(null));
+    testRenderer.renderer.root.add(view.output);
+    cleanup.push(() => {
+      view.destroy();
+      view.output.destroyRecursively();
+      testRenderer.renderer.destroy();
+    });
+    view.render(state);
+    await testRenderer.renderOnce();
+    return testRenderer.captureCharFrame();
+  }
+
+  it('puts the caret at the same column on the selected row as the blank it replaces elsewhere', async () => {
+    const initial = logState([
+      entry({hypothesis_id: 'H-01', first_round: 1, last_round: 1}),
+      entry({hypothesis_id: 'H-02', first_round: 2, last_round: 2}),
+    ]);
+    expect(initial.experimentLog?.selectedId).toBe('H-01');
+
+    const h01Selected = (await renderLog(initial)).split('\n');
+    const rowH01Selected = h01Selected.findIndex(line => line.includes('H-01'));
+    const rowH02Unselected = h01Selected.findIndex(line => line.includes('H-02'));
+    const colH01 = h01Selected[rowH01Selected]?.indexOf('H-01') ?? -1;
+    const colH02 = h01Selected[rowH02Unselected]?.indexOf('H-02') ?? -1;
+    expect(colH01).toBeGreaterThan(0);
+    expect(colH01).toBe(colH02);
+    // The active marker sits directly before the id; the caret is one column
+    // further left again, so it never displaces the marker or the id.
+    expect(h01Selected[rowH01Selected]?.[colH01 - 2]).toBe('›');
+    expect(h01Selected[rowH02Unselected]?.[colH02 - 2]).toBe(' ');
+
+    const moved = moveExperimentSelection(initial, 1);
+    expect(moved.experimentLog?.selectedId).toBe('H-02');
+    const h02Selected = (await renderLog(moved)).split('\n');
+    const rowH01AfterMove = h02Selected.findIndex(line => line.includes('H-01'));
+    const rowH02AfterMove = h02Selected.findIndex(line => line.includes('H-02'));
+
+    // Moving the selection off H-01 does not reflow its row: the id lands in
+    // exactly the column it held while selected.
+    expect(h02Selected[rowH01AfterMove]?.indexOf('H-01')).toBe(colH01);
+    expect(h02Selected[rowH02AfterMove]?.indexOf('H-02')).toBe(colH02);
+    expect(h02Selected[rowH01AfterMove]?.[colH01 - 2]).toBe(' ');
+    expect(h02Selected[rowH02AfterMove]?.[colH02 - 2]).toBe('›');
+  });
+
+  it('marks the selected unowned round row with the same caret, in its own reserved column', async () => {
+    const withActivity = setExperiments(
+      openExperimentLog({
+        ...initialSessionState(),
+        core: {
+          ...initialSessionState().core,
+          rounds: [
+            {number: 3, status: 'completed'},
+            {number: 4, status: 'completed'},
+          ],
+        },
+      }),
+      [],
+    );
+    const frame = (await renderLog(withActivity)).split('\n');
+    const rowSelected = frame.findIndex(line => line.includes('Round 3'));
+    const rowUnselected = frame.findIndex(line => line.includes('Round 4'));
+    const colSelected = frame[rowSelected]?.indexOf('Round 3') ?? -1;
+    const colUnselected = frame[rowUnselected]?.indexOf('Round 4') ?? -1;
+    expect(colSelected).toBeGreaterThan(0);
+    expect(colSelected).toBe(colUnselected);
+    // The caret sits two columns before "Round": one column for itself, one
+    // for the space that always follows it.
+    expect(frame[rowSelected]?.[colSelected - 2]).toBe('›');
+    expect(frame[rowUnselected]?.[colUnselected - 2]).toBe(' ');
   });
 });

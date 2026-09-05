@@ -51,6 +51,18 @@ function statusColor(theme: Theme, status: AgentPhase['status']): string {
   return theme.textSubtle;
 }
 
+/**
+ * The status marker and agent kind, with a selection caret prefixed when this
+ * is the selected node. The caret is independent of `STATUS_MARKER`, which
+ * encodes run status, not selection; before this, selecting a node changed
+ * only border, background, and text color, invisible on a low-contrast
+ * terminal. Follows the '›' precedent in theme-picker.ts and the hypothesis
+ * drill-down (`experiment-log.ts#renderDetail`).
+ */
+export function nodeLabel(phase: AgentPhase, selected: boolean): string {
+  return `${selected ? '› ' : ''}${STATUS_MARKER[phase.status]} ${phase.kind}`;
+}
+
 function edgeColor(theme: Theme, tone: EdgeTone): string {
   if (tone === 'failed') return theme.error;
   if (tone === 'live') return theme.accent;
@@ -292,7 +304,7 @@ export class AgentMapView {
     const inner = node.width - 2;
     box.add(
       new TextRenderable(this.renderer, {
-        content: truncate(`${STATUS_MARKER[phase.status]} ${phase.kind}`, inner),
+        content: truncate(nodeLabel(phase, selected), inner),
         fg: selected ? this.#theme.textStrong : color,
         width: '100%',
       }),
@@ -355,7 +367,7 @@ export class AgentMapView {
     const color = statusColor(this.#theme, phase.status);
     row.add(
       new TextRenderable(this.renderer, {
-        content: `${STATUS_MARKER[phase.status]} ${phase.kind}`,
+        content: nodeLabel(phase, selected),
         fg: selected ? this.#theme.textStrong : color,
         width: '100%',
       }),

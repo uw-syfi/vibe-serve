@@ -382,7 +382,7 @@ export class ExperimentLogView {
     isSelected: boolean,
     index: number,
   ): void {
-    const cells = entryCells(entry, columns);
+    const cells = entryCells(entry, columns, isSelected);
     // The active hypothesis is called out on its own, so it stays visible
     // whether or not it happens to be the selected row.
     const base = entry.active === true ? this.#theme.warning : this.#theme.textPrimary;
@@ -422,7 +422,7 @@ export class ExperimentLogView {
     });
     row.add(
       this.#cell(
-        ` Round ${roundNumber} · recorded agent turns · no hypothesis`,
+        `${selectionCaret(isSelected)} Round ${roundNumber} · recorded agent turns · no hypothesis`,
         this.#theme.textPrimary,
         isSelected,
       ),
@@ -478,8 +478,9 @@ export class ExperimentLogView {
         this.controller.selectExperimentActivity();
       },
     });
+    const prefixed = `${selectionCaret(selected)} ${content}`;
     const text = new TextRenderable(this.renderer, {
-      content,
+      content: prefixed,
       fg: this.#theme.warning,
       width: '100%',
       ...(selected ? {bg: this.#theme.selectedSurface} : {}),
@@ -490,7 +491,7 @@ export class ExperimentLogView {
     this.#rows.add(row);
     if (activity.startedAt === undefined || !Number.isFinite(Date.parse(activity.startedAt)))
       return;
-    this.#activeActivityLine = {text, content, startedAt: activity.startedAt};
+    this.#activeActivityLine = {text, content: prefixed, startedAt: activity.startedAt};
     this.#refreshElapsedActivity();
     this.#syncElapsedTimer();
   }
@@ -607,6 +608,29 @@ export function headerRow(columns: Columns, direction: 'max' | 'min' | null = nu
 }
 
 /**
+ * The selection caret shared by every selectable row in the log: `'›'` for the
+ * selected row, a matching blank otherwise, so a row's other columns land in
+ * the same place whether or not it is selected. Independent of any
+ * status/active glyph the row also carries, following the precedent in
+ * theme-picker.ts and the hypothesis drill-down (`#renderDetail`), where the
+ * background swap alone was not enough to read selection on a low-contrast
+ * terminal.
+ */
+export function selectionCaret(isSelected: boolean): string {
+  return isSelected ? '›' : ' ';
+}
+
+/**
+ * The two-character leading marker on a hypothesis row: the selection caret,
+ * then the active-hypothesis marker. The two are independent signals, so both
+ * render in the same row without either overwriting the other.
+ */
+export function entryLeadingMarker(entry: HypothesisEntry, isSelected: boolean): string {
+  const active = entry.active === true ? '▸' : ' ';
+  return `${selectionCaret(isSelected)}${active}`;
+}
+
+/**
  * The row split into the segments the view colors independently. Widths are
  * baked in so the segments still line up as separate renderables.
  */
@@ -616,10 +640,14 @@ export interface EntryCells {
   trailing: string;
 }
 
-export function entryCells(entry: HypothesisEntry, columns: Columns): EntryCells {
-  const marker = entry.active === true ? '▸' : ' ';
+export function entryCells(
+  entry: HypothesisEntry,
+  columns: Columns,
+  isSelected = false,
+): EntryCells {
+  const marker = entryLeadingMarker(entry, isSelected);
   const leading = [
-    fitColumn(`${marker}${truncate(entry.hypothesis_id, ID_WIDTH - 1)}`, ID_WIDTH),
+    fitColumn(`${marker}${truncate(entry.hypothesis_id, ID_WIDTH - marker.length)}`, ID_WIDTH),
     fitColumn(formatRounds(entry), ROUNDS_WIDTH),
   ];
   if (columns.claim) {
@@ -650,8 +678,8 @@ function fitColumn(value: string, width: number): string {
   return truncate(value, width).padEnd(width);
 }
 
-export function entryRow(entry: HypothesisEntry, columns: Columns): string {
-  const cells = entryCells(entry, columns);
+export function entryRow(entry: HypothesisEntry, columns: Columns, isSelected = false): string {
+  const cells = entryCells(entry, columns, isSelected);
   return `${cells.leading}${cells.outcome}${cells.trailing}`;
 }
 
