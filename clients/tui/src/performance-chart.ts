@@ -11,7 +11,11 @@ interface PerfPoint {
 type PerformanceContext = NonNullable<ProtocolResponse['performance_context']>;
 
 const PLOT_HEIGHT = 8;
-const PLOT_WIDTH = 48;
+/**
+ * Plot columns, excluding the axis gutter. `right-pane.ts` derives the pane's
+ * minimum width from this so the two cannot drift apart.
+ */
+export const PLOT_WIDTH = 48;
 const CONTEXT_LABEL_WIDTH = 10;
 
 export function renderPerformanceCurve(
@@ -51,7 +55,14 @@ export function renderPerformanceCurve(
     lines.push(`${formatAxis(value).padStart(8)} ┤${(grid[row] ?? []).join('')}`);
   }
   lines.push(`         └${'─'.repeat(PLOT_WIDTH)}`);
-  lines.push(`${''.padStart(11)}r${minRound}${String(`r${maxRound}`).padStart(PLOT_WIDTH - 2)}`);
+  // The row must total the same 10 + PLOT_WIDTH columns as the axis and
+  // border rows above, with the left label starting under the plot's first
+  // column (right after the border row's '└'). Padding the right label to a
+  // fixed PLOT_WIDTH - 2 assumed a single-digit minRound; pad relative to the
+  // actual left-label length instead so double-digit rounds still align.
+  const minLabel = `r${minRound}`;
+  const maxLabel = `r${maxRound}`;
+  lines.push(`${''.padStart(10)}${minLabel}${maxLabel.padStart(PLOT_WIDTH - minLabel.length)}`);
 
   const best = visible.reduce((current, point) => (point.value > current.value ? point : current));
   const latest = visible.at(-1);

@@ -1,6 +1,6 @@
 import {describe, expect, it} from 'bun:test';
 import type {ProtocolResponse, RunEvent} from '@vibesys/backend-client';
-import {renderPerformanceCurve} from './performance-chart.js';
+import {PLOT_WIDTH, renderPerformanceCurve} from './performance-chart.js';
 
 describe('renderPerformanceCurve', () => {
   it('plots persisted performance records by round', () => {
@@ -115,6 +115,66 @@ describe('renderPerformanceCurve', () => {
     expect(chart).toContain('Measures  Ops per second.');
     expect(chart.endsWith('No performance data yet.')).toBe(true);
     expect(chart).not.toContain('●');
+  });
+});
+
+describe('chart geometry', () => {
+  // The axis rows, bottom border row, and bottom round-label row are drawn
+  // to look like one fixed-width grid. Unlike the free-text summary and
+  // context lines (which the right pane word-wraps on purpose), these rows
+  // must never exceed PLOT_WIDTH + 10 (8-char axis gutter + ' ┤' = 10, plus
+  // the PLOT_WIDTH plot columns) or they wrap and break the grid.
+  function structuralRows(chart: string): {
+    axisRows: string[];
+    borderRow: string;
+    labelRow: string;
+  } {
+    const lines = chart.split('\n');
+    const axisRows = lines.filter(line => line.includes('┤'));
+    const borderIndex = lines.findIndex(line => line.includes('└'));
+    const borderRow = lines[borderIndex] ?? '';
+    const labelRow = lines[borderIndex + 1] ?? '';
+    return {axisRows, borderRow, labelRow};
+  }
+
+  it('keeps every structural row within PLOT_WIDTH + 10 columns for single-digit rounds', () => {
+    const chart = renderPerformanceCurve([
+      performance(1, 1000),
+      performance(2, 2000),
+      performance(9, 1500),
+    ]);
+    const {axisRows, borderRow, labelRow} = structuralRows(chart);
+    expect(axisRows.length).toBeGreaterThan(0);
+    for (const row of [...axisRows, borderRow, labelRow]) {
+      expect(row.length).toBeLessThanOrEqual(PLOT_WIDTH + 10);
+    }
+  });
+
+  it('keeps every structural row within PLOT_WIDTH + 10 columns for double-digit rounds', () => {
+    // Before the fix, the label row hardcoded its right-hand pad width
+    // assuming a 2-character left label ('r' + a single digit), so a
+    // double-digit minRound pushed the row past PLOT_WIDTH + 10.
+    const chart = renderPerformanceCurve([
+      performance(10, 1000),
+      performance(11, 2000),
+      performance(99, 1500),
+    ]);
+    const {axisRows, borderRow, labelRow} = structuralRows(chart);
+    expect(axisRows.length).toBeGreaterThan(0);
+    for (const row of [...axisRows, borderRow, labelRow]) {
+      expect(row.length).toBeLessThanOrEqual(PLOT_WIDTH + 10);
+    }
+  });
+
+  it('aligns the left round label under the plot area, in the same column the border row draws └ before', () => {
+    const chart = renderPerformanceCurve([
+      performance(10, 1000),
+      performance(11, 2000),
+      performance(99, 1500),
+    ]);
+    const {borderRow, labelRow} = structuralRows(chart);
+    const plotStartColumn = borderRow.indexOf('└') + 1;
+    expect(labelRow.indexOf('r10')).toBe(plotStartColumn);
   });
 });
 

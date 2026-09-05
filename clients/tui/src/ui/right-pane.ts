@@ -1,4 +1,5 @@
 import {BoxRenderable, type CliRenderer, ScrollBoxRenderable, TextRenderable} from '@opentui/core';
+import {PLOT_WIDTH} from '../performance-chart.js';
 import {focusedPane, type RightPane, type SessionState} from '../session-model.js';
 import {applyPaneFocus, paneBorderColor, paneBorderStyle, paneTitle} from './focus.js';
 import type {Theme} from './theme.js';
@@ -12,8 +13,18 @@ import type {Theme} from './theme.js';
  */
 export const MIN_SPLIT_WIDTH = 100;
 
-/** Chart plot width plus axis gutter, border, and padding. */
-const RIGHT_PANE_MIN = 62;
+/**
+ * Columns around the plot that aren't plot columns: an 8-char axis value
+ * gutter plus 2 for the ' ┤' separator (10 columns of chart gutter), plus 1
+ * column of border and 1 column of padding on each side of the pane (4
+ * columns).
+ */
+const RIGHT_PANE_CHROME = 10 + 4;
+/**
+ * Chart plot width plus its gutter, border, and padding. Derived from the
+ * chart's own PLOT_WIDTH so the two cannot drift apart.
+ */
+const RIGHT_PANE_MIN = PLOT_WIDTH + RIGHT_PANE_CHROME;
 const RIGHT_PANE_MAX = 84;
 const RIGHT_PANE_SHARE = 0.45;
 /** Columns the transcript needs to stay worth reading beside the pane. */
