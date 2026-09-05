@@ -12,7 +12,12 @@ import type {SessionController} from '../session-controller.js';
 import type {ConversationEntry, SessionState} from '../session-model.js';
 import {visibleConversation} from '../session-model.js';
 import {promptPreview, toolCallPreview, toolResultPreview} from './previews.js';
-import {createMarkdownBlockOptions, entryPalette, type MarkdownBlockOptions} from './styles.js';
+import {
+  conversationRole,
+  createMarkdownBlockOptions,
+  entryPalette,
+  type MarkdownBlockOptions,
+} from './styles.js';
 import type {Theme} from './theme.js';
 
 export interface ConversationViewOptions {
@@ -326,19 +331,27 @@ export class ConversationView {
   #renderEntry(entry: ConversationEntry): BoxRenderable {
     const palette = entryPalette(entry, this.#theme);
     const selected = this.#selectedId === entry.id;
+    const bare = isBareEntry(entry);
     const card = new BoxRenderable(this.renderer, {
       id: `event-${entry.id}`,
       width: '100%',
       flexDirection: 'column',
-      marginTop: 1,
-      paddingLeft: entry.kind === 'status' ? 0 : 1,
+      marginTop: bare && entry.kind !== 'status' ? 0 : 1,
+      paddingLeft: bare ? 0 : 1,
       paddingRight: 1,
-      border: entry.kind !== 'status',
-      borderStyle: 'rounded',
-      // The cursor is the card's border, not a fill: a filled card reads as
-      // selected text, and the transcript already uses fills for roles.
-      borderColor: selected ? this.#theme.borderFocus : palette.border,
       backgroundColor: palette.background,
+      // `border: false` is not enough on its own: OpenTUI turns the border
+      // back on whenever any border styling option is present, so a borderless
+      // entry has to omit `borderStyle` and `borderColor` as well.
+      ...(bare
+        ? {border: false}
+        : {
+            border: true,
+            borderStyle: 'rounded' as const,
+            // The cursor is the card's border, not a fill: a filled card reads
+            // as selected text, and the transcript already uses fills for roles.
+            borderColor: selected ? this.#theme.borderFocus : palette.border,
+          }),
       ...(this.#showsSelection
         ? {
             onMouseUp: () => {
@@ -394,7 +407,16 @@ export class ConversationView {
           ? toolResultPreview(entry.content, entry.toolResult?.payload)
           : null;
       const content = prompt ? prompt.content : (output?.content ?? entry.content);
-      card.add(new TextRenderable(this.renderer, {content, fg: palette.content, width: '100%'}));
+      card.add(
+        new TextRenderable(this.renderer, {
+          content,
+          fg: palette.content,
+          width: '100%',
+          // A command line, a stderr trace, or a banner runs past the card;
+          // truncating it mid-path is worse than a second row.
+          wrapMode: 'word',
+        }),
+      );
       if (output?.collapsible) {
         const hidden =
           output.hiddenLines > 0
@@ -461,6 +483,10 @@ export class ConversationView {
         fg: this.#theme.toolCall.foreground,
         bg: this.#theme.toolCall.background,
         width: '100%',
+        // A shell command is longer than the card is wide more often than not.
+        // Wrapping keeps the whole command readable; clipping it at the border
+        // hides exactly the flags and paths that say what ran.
+        wrapMode: 'word',
       }),
     );
     if (toolResponse) {
@@ -472,6 +498,9 @@ export class ConversationView {
           fg: this.#theme.toolResult.foreground,
           bg: this.#theme.toolResult.background,
           width: '100%',
+          // Expanded output is stdout and stderr verbatim, which is wider than
+          // the card whenever a compiler or a test runner produced it.
+          wrapMode: 'word',
         }),
       );
       if (response.collapsible) {
@@ -491,6 +520,22 @@ export class ConversationView {
       }
     }
   }
+}
+
+/**
+ * Whether an entry is drawn as bare lines instead of a bordered card.
+ *
+ * Provider lifecycle chatter and driver banners arrive on the diagnostic and
+ * subprocess channels a line at a time, and a rounded card turns each of those
+ * lines into five rows of chrome around three words. They read better as a
+ * muted run of text between the cards that carry real turns. A failure is the
+ * exception: whether the backend marked it or the driver's own error marker
+ * did, it keeps the card so it still stops the eye.
+ */
+function isBareEntry(entry: ConversationEntry): boolean {
+  if (entry.kind === 'status') return true;
+  if (entry.kind !== 'diagnostic' && entry.kind !== 'subprocess') return false;
+  return conversationRole(entry) !== 'failure';
 }
 
 function sameEntries(left: ConversationEntry[], right: ConversationEntry[]): boolean {

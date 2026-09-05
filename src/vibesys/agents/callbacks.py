@@ -1,4 +1,5 @@
 import json  # noqa: D100  # tracked: #288
+import re
 import time
 import traceback
 import uuid
@@ -14,6 +15,22 @@ from vibesys.agents.todos import todos_from_tool_call
 from vibesys.render.format import format_status_prefix
 from vibesys.render.sink import output_sink
 from vibesys.run.events import AgentOutputChannel, AgentStatusData, ToolResultPayload
+
+_DRIVER_LIFECYCLE_RE = re.compile(r"\[[^\s\]]+ (?:stderr|thread|turn|error)[\s\]]")
+"""Matches AgentShim's driver lifecycle marker at the head of a chunk.
+
+Used with ``re.match``, so it is anchored at the start of the text and runs a
+bounded character class before a literal alternation: no backtracking.
+
+AgentShim CLI drivers have no diagnostic hook, so they route their own
+plumbing through ``on_thinking`` tagged with a ``[<provider> <event>]``
+marker: ``[codex thread <id> started]``, ``[codex turn started]``,
+``[codex turn complete: ...]``, ``[codex stderr] <line>``, and
+``[codex error] <message>``. Without this classification the transcript
+presents a provider heartbeat as the agent's own chain of thought, glued
+onto whatever reasoning preceded it. The marker text is published verbatim;
+only the channel changes.
+"""
 
 ContextWindowLookup = Callable[[str | None], int | None]
 """Resolves a model name to its context window size in tokens.
@@ -440,7 +457,10 @@ class AgentLogger(BaseCallbackHandler):
         if not text:
             return
         status = self._status()
-        self._publish(text, "analysis", status=status)
+        channel: AgentOutputChannel = (
+            "diagnostic" if _DRIVER_LIFECYCLE_RE.match(text) else "analysis"
+        )
+        self._publish(text, channel, status=status)
         self._log_line(f"{format_status_prefix(status)}{text}")
 
     def on_tool_call(self, tool: str, args: dict[str, Any] | str | None = None) -> None:  # noqa: D102  # tracked: #288

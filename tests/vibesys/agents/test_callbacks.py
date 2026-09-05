@@ -11,7 +11,7 @@ from vibesys.agents.callbacks import AgentLogger
 from vibesys.agents.progress import RoundProgress
 from vibesys.constants import DIM, GREEN, RED, RESET
 from vibesys.render.sink import output_sink
-from vibesys.run.events import ToolCallData, ToolResultData
+from vibesys.run.events import AgentOutputChunkData, ToolCallData, ToolResultData
 
 _ANSI_RE = re.compile(r"\033\[[0-9;]*m")
 
@@ -108,6 +108,58 @@ class TestOnLlmEnd:
         log_text = log.getvalue()
         assert "[thinking]" in log_text
         assert "let me think..." in log_text
+
+
+class TestOnThinkingChannel:
+    """Driver plumbing must not be published as the agent's chain of thought."""
+
+    @staticmethod
+    def _channels(*texts: str) -> list[str]:
+        seen = []
+        unsubscribe = output_sink().subscribe(seen.append)
+        try:
+            logger = AgentLogger()
+            for text in texts:
+                logger.on_thinking(text)
+        finally:
+            unsubscribe()
+        return [
+            event.data.channel for event in seen if isinstance(event.data, AgentOutputChunkData)
+        ]
+
+    def test_lifecycle_markers_publish_as_diagnostics(self) -> None:
+        assert (
+            self._channels(
+                "[codex thread 01a0 started]",
+                "[codex turn started]",
+                "[codex turn complete: in=10 cached=0 out=2]",
+                "[codex stderr] warning: slow filesystem",
+                "[codex error] stream disconnected",
+                "[copilot error] rate limited",
+            )
+            == ["diagnostic"] * 6
+        )
+
+    def test_reasoning_still_publishes_as_analysis(self) -> None:
+        assert (
+            self._channels(
+                "The ring buffer is the hot path.",
+                "[note] a bracketed aside is not a driver marker",
+                "[codex thread-safety] neither is a hyphenated word",
+            )
+            == ["analysis"] * 3
+        )
+
+    def test_marker_text_is_published_verbatim(self) -> None:
+        seen = []
+        unsubscribe = output_sink().subscribe(seen.append)
+        try:
+            AgentLogger().on_thinking("[codex stderr] permission denied")
+        finally:
+            unsubscribe()
+
+        chunk = next(event.data for event in seen if isinstance(event.data, AgentOutputChunkData))
+        assert chunk.content == "[codex stderr] permission denied"
 
 
 class TestOnToolStart:

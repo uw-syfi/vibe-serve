@@ -11,6 +11,7 @@ import {
 } from '@opentui/core';
 import {createTestRenderer, MockTreeSitterClient} from '@opentui/core/testing';
 import {
+  conversationRole,
   createMarkdownBlockOptions,
   createMarkdownStyle,
   createMarkdownTableOptions,
@@ -164,6 +165,35 @@ const NESTED_FENCES = [
   '```',
   '',
 ].join('\n');
+
+describe('diagnostic entry roles', () => {
+  const diagnostic = (content: string) => conversationRole({id: 'd', kind: 'diagnostic', content});
+
+  it('keeps provider lifecycle chatter in the muted narration role', () => {
+    expect(diagnostic('[codex thread 01a0 started]\n[codex turn started]')).toBe('analysis');
+    expect(diagnostic('[codex stderr] compiling 42 crates')).toBe('analysis');
+    expect(diagnostic('driver: agentshim, provider: codex, model: gpt-5.6')).toBe('analysis');
+  });
+
+  it('promotes a driver error marker to the failure role', () => {
+    expect(diagnostic('[codex error] stream disconnected')).toBe('failure');
+    expect(diagnostic('[claude error] rate limited')).toBe('failure');
+    // A marker anywhere in a glued block still counts.
+    expect(diagnostic('[codex turn started]\n[codex error] boom')).toBe('failure');
+  });
+
+  it('promotes a stderr line whose own text opens with an error token', () => {
+    expect(diagnostic('[codex stderr] ERROR: sandbox denied')).toBe('failure');
+    expect(diagnostic('[codex stderr] Traceback (most recent call last):')).toBe('failure');
+    expect(diagnostic('[codex stderr] panic: index out of range')).toBe('failure');
+  });
+
+  it('lets a backend-marked tone win over the text heuristic', () => {
+    expect(conversationRole({id: 'd', kind: 'diagnostic', content: 'quiet', tone: 'failure'})).toBe(
+      'failure',
+    );
+  });
+});
 
 describe('markdown table options', () => {
   it('sizes columns to content rather than to the pane', () => {

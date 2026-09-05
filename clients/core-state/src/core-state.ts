@@ -1243,14 +1243,34 @@ function foldTranscriptEntry(
     // must not glue onto a neighbor that is just as complete.
     last.turnId !== undefined &&
     last.turnId === incoming.turnId &&
-    (incoming.kind === 'assistant' || incoming.kind === 'prompt' || incoming.kind === 'analysis')
+    (incoming.kind === 'assistant' ||
+      incoming.kind === 'prompt' ||
+      incoming.kind === 'analysis' ||
+      incoming.kind === 'diagnostic')
   ) {
-    entries[entries.length - 1] = {...last, content: last.content + incoming.content};
+    entries[entries.length - 1] = {...last, content: last.content + glue(last, incoming)};
     return;
   }
   entries.push(incoming);
   index?.record(incoming, entries.length - 1);
   capTranscript(entries, index);
+}
+
+/**
+ * What joins `incoming` onto the entry it glues into.
+ *
+ * Assistant, prompt, and analysis chunks are mid-sentence fragments of a token
+ * stream and must concatenate raw; inserting anything between them would break
+ * words. Diagnostic chunks are whole lines a driver already terminated in
+ * meaning but not in text (`[codex turn started]` carries no newline), so
+ * concatenating them raw produced one squished blob per turn.
+ */
+function glue(last: TranscriptEntry, incoming: TranscriptEntry): string {
+  const separator =
+    incoming.kind === 'diagnostic' && last.content !== '' && !last.content.endsWith('\n')
+      ? '\n'
+      : '';
+  return separator + incoming.content;
 }
 
 const MAX_TRANSCRIPT_ENTRIES = 20_000;

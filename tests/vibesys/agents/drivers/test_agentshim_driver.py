@@ -74,6 +74,7 @@ class _FakeAgent:
         self.error: BaseException | None = None
         self.generate_override: _GenerateOverride | None = None
         self.uninstall_override: Callable[[Path, list[Any]], None] | None = None
+        self.tool_call_events: list[tuple[str, dict[str, Any]]] = []
         self.tool_result_events: list[dict[str, Any]] = []
         self._last_session = SimpleNamespace(
             final_usage={"input_tokens": 12, "output_tokens": 3},
@@ -121,6 +122,8 @@ class _FakeAgent:
         assert self.event_handler is not None
         self.generate_calls.append((prompt, cwd, timeout))
         self.event_handler.on_thinking("working")
+        for tool, args in self.tool_call_events:
+            self.event_handler.on_tool_call(tool, args)
         for tool_result in self.tool_result_events:
             self.event_handler.on_tool_result(**tool_result)
         self.event_handler.on_usage({"input_tokens": 12, "output_tokens": 3})
@@ -249,6 +252,102 @@ def test_turn_translates_tool_results_into_typed_command_payloads(
     assert event.payload["stderr"] == "warn"
     assert event.payload["exit_code"] == 3
     assert event.payload["duration"] == 0.7
+
+
+def _self_referential() -> dict[str, Any]:
+    """Arguments ``json.dumps`` refuses even with a fallback serializer."""
+    args: dict[str, Any] = {}
+    args["self"] = args
+    return args
+
+
+def test_codex_item_lifecycle_does_not_open_two_turns_for_one_action(
+    fake_agent: list[_FakeAgent], tmp_path: Path
+) -> None:
+    """AgentShim reports one codex ``file_change`` item as start *and* complete.
+
+    Both arrive as identical ``on_tool_call`` callbacks with no item id, and
+    neither is followed by a result, so forwarding both left a second tool turn
+    that never closed.
+    """
+    driver = subject.AgentShimDriver(provider="codex")
+    session = driver.create_session(_spec(tmp_path))
+    changes = {"changes": [{"path": "src/lib.rs", "kind": "delete"}]}
+    fake_agent[0].tool_call_events = [("file_change", changes), ("file_change", changes)]
+    observer = _Observer()
+
+    session.run_turn(AgentTurnRequest(message="Do it"), observer)
+
+    calls = [event for event in observer.events if event.kind is subject.AgentEventKind.TOOL_CALL]
+    assert len(calls) == 1
+    assert calls[0].payload == {"tool": "file_change", "args": changes}
+
+
+def test_a_repeat_call_after_a_result_is_its_own_turn() -> None:
+    handler = subject._AgentShimEventHandler("codex")  # noqa: SLF001
+    observer = _Observer()
+    handler.observer = observer
+
+    handler.on_tool_call("execute", {"command": "cargo test"})
+    handler.on_tool_result("execute", stdout="ok", exit_code=0)
+    handler.on_tool_call("execute", {"command": "cargo test"})
+
+    kinds = [event.kind for event in observer.events]
+    assert kinds == [
+        subject.AgentEventKind.TOOL_CALL,
+        subject.AgentEventKind.TOOL_RESULT,
+        subject.AgentEventKind.TOOL_CALL,
+    ]
+
+
+def test_a_repeat_call_behind_another_tool_is_its_own_turn() -> None:
+    handler = subject._AgentShimEventHandler("codex")  # noqa: SLF001
+    observer = _Observer()
+    handler.observer = observer
+
+    handler.on_tool_call("file_change", {"changes": []})
+    handler.on_tool_call("todo_list", {"items": []})
+    handler.on_tool_call("file_change", {"changes": []})
+
+    tools = [
+        event.payload["tool"]
+        for event in observer.events
+        if event.kind is subject.AgentEventKind.TOOL_CALL
+    ]
+    assert tools == ["file_change", "todo_list", "file_change"]
+
+
+def test_providers_without_the_codex_item_defect_forward_every_call() -> None:
+    handler = subject._AgentShimEventHandler("claude")  # noqa: SLF001
+    observer = _Observer()
+    handler.observer = observer
+
+    handler.on_tool_call("Read", {"path": "a.rs"})
+    handler.on_tool_call("Read", {"path": "a.rs"})
+
+    assert len(observer.events) == 2
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        pytest.param({"cursor": object()}, id="unserializable-value"),
+        pytest.param(_self_referential(), id="circular-structure"),
+    ],
+)
+def test_call_arguments_json_cannot_render_still_compare(
+    fake_agent: list[_FakeAgent], tmp_path: Path, args: dict[str, Any]
+) -> None:
+    """An MCP tool's arguments are arbitrary, so the key must never raise."""
+    driver = subject.AgentShimDriver(provider="codex")
+    session = driver.create_session(_spec(tmp_path))
+    fake_agent[0].tool_call_events = [("mcp_tool_call", args), ("mcp_tool_call", args)]
+    observer = _Observer()
+
+    session.run_turn(AgentTurnRequest(message="Do it"), observer)
+
+    calls = [event for event in observer.events if event.kind is subject.AgentEventKind.TOOL_CALL]
+    assert len(calls) == 1
 
 
 def test_independent_sessions_overlap_and_chat_cleanup_does_not_interrupt_optimizer(

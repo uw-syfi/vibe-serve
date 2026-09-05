@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 import weakref
@@ -72,6 +73,7 @@ def supported_providers() -> list[str]:
     return sorted(_PROVIDER_CLASSES)
 
 
+_CODEX_PROVIDER = "codex"
 _REASONING_EFFORT_PROVIDERS = frozenset({"codex", "claude"})
 _PYTHON_MCP_COMMANDS = frozenset({"python", "python3"})
 
@@ -127,11 +129,31 @@ def _as_agentshim_mcp(spec: MCPServerSpec, *, in_container: bool) -> AgentShimMC
     )
 
 
+def _call_signature(args: dict[str, Any] | str) -> str:
+    """Render tool arguments as a comparable key, whatever they contain."""
+    try:
+        return json.dumps(args, sort_keys=True, default=repr)
+    except (TypeError, ValueError):
+        return repr(args)
+
+
 class _AgentShimEventHandler:
     """Translate AgentShim callbacks into neutral driver events."""
 
-    def __init__(self) -> None:
+    def __init__(self, provider: str) -> None:
         self.observer: AgentObserver | None = None
+        self._provider = provider
+        # The last tool call no result has closed, as ``(tool, args key)``.
+        #
+        # AgentShim's codex driver turns both ``item.started`` and
+        # ``item.completed`` into the same ``ToolUseEvent`` for every item type
+        # except ``command_execution``, so one ``file_change`` or ``todo_list``
+        # action reaches ``on_tool_call`` twice and opens two transcript turns,
+        # the second of which never receives a result. The callback signature
+        # carries no item id, so the repeat is recognizable only as an
+        # identical call arriving before any result: a later identical call, or
+        # one separated by another tool call, still gets its own turn.
+        self._open_call: tuple[str, str] | None = None
 
     def _emit(self, event: AgentEvent) -> None:
         if self.observer is not None:
@@ -141,10 +163,15 @@ class _AgentShimEventHandler:
         self._emit(AgentEvent(kind=AgentEventKind.THINKING, text=text))
 
     def on_tool_call(self, tool: str, args: dict[str, Any] | str | None = None) -> None:
+        normalized = args if args is not None else {}
+        call = (tool, _call_signature(normalized))
+        if self._provider == _CODEX_PROVIDER and call == self._open_call:
+            return
+        self._open_call = call
         self._emit(
             AgentEvent(
                 kind=AgentEventKind.TOOL_CALL,
-                payload={"tool": tool, "args": args if args is not None else {}},
+                payload={"tool": tool, "args": normalized},
             )
         )
 
@@ -156,6 +183,7 @@ class _AgentShimEventHandler:
         exit_code: int | None = None,
         duration: float | None = None,
     ) -> None:
+        self._open_call = None
         self._emit(
             AgentEvent(
                 kind=AgentEventKind.TOOL_RESULT,
@@ -484,7 +512,7 @@ class AgentShimDriver:
                 "AgentShim execution mode"
             )
 
-        event_handler = _AgentShimEventHandler()
+        event_handler = _AgentShimEventHandler(self._provider)
         if in_container:
             assert self._docker_sandboxes is not None  # noqa: S101  # tracked: #288
             sandbox = self._docker_sandboxes.get(spec.role)

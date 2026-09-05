@@ -212,16 +212,34 @@ export function createMarkdownBlockOptions(
   };
 }
 
+/**
+ * A driver lifecycle line that reports a failure rather than a heartbeat.
+ *
+ * AgentShim drivers stream provider stderr and driver errors through the
+ * diagnostic channel behind a `[<provider> error]` or `[<provider> stderr]`
+ * marker, and nothing in the event distinguishes a crash from a turn
+ * boundary. The marker is the only signal the transcript gets, so the failure
+ * palette is chosen from it: `[codex error] ...` always, and a stderr line
+ * whose own text opens with an error token.
+ */
+const FAILURE_DIAGNOSTIC =
+  /^\[[^\s\]]+ error\]|^\[[^\s\]]+ stderr\] *(?:ERROR|FATAL|error:|fatal:|panic:|Traceback)/m;
+
 export function conversationRole(entry: ConversationEntry): ConversationRole {
   if (entry.tone === 'failure') return 'failure';
   if (entry.tone === 'success') return 'success';
   if (entry.kind === 'assistant') return 'assistant';
   if (entry.kind === 'user') return 'user';
   if (entry.kind === 'prompt') return 'prompt';
+  // A driver's own error markers are the only failure signal on this channel,
+  // so they are promoted out of the muted narration style.
+  if (entry.kind === 'diagnostic') {
+    return FAILURE_DIAGNOSTIC.test(entry.content) ? 'failure' : 'analysis';
+  }
   // An agent narrating its own work is analysis whichever channel carried it:
   // the diagnostic channel is where most backends put that narration, and
   // slate-on-slate buried it. Tool turns keep the neutral surface.
-  if (entry.kind === 'analysis' || entry.kind === 'diagnostic') return 'analysis';
+  if (entry.kind === 'analysis') return 'analysis';
   if (entry.kind === 'tool' || entry.kind === 'subprocess') return 'tool';
   return 'neutral';
 }

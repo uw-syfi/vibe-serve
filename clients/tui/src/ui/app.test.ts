@@ -1701,7 +1701,7 @@ describe('OpenTUI presentation', () => {
     registerCleanup(testRenderer.renderer, app);
 
     const frame = await testRenderer.waitForFrame(value => value.includes('2 passed'));
-    expect(frame).toContain('→ Bash(command="pytest")');
+    expect(frame).toContain('→ Bash pytest');
     expect(frame).toContain('← 2 passed');
     // Header housing, agents pane, transcript frame, and the card's call and
     // result regions: the rail is absent because this fixture has no rounds.
@@ -1748,6 +1748,162 @@ describe('OpenTUI presentation', () => {
     expect(frame).toContain('← 1 failed');
     expect(frame).toContain('stderr:');
     expect(frame).toContain('assertion error');
+  });
+
+  it('unwraps the shell wrapper codex writes around an execute command', async () => {
+    // Wide enough that the unwrapped command is one row, so the assertion is
+    // about the text and not about where the renderer chose to wrap it.
+    const testRenderer = await createTestRenderer({width: 100, height: 16});
+    const controller = new FakeController(
+      toolCallState({
+        toolName: 'execute',
+        toolArguments: {command: `/bin/bash -lc "cargo test -p queue-rs 'ring buffer'"`},
+      }),
+    );
+    const app = createOpenTuiApp(testRenderer.renderer, controller);
+    registerCleanup(testRenderer.renderer, app);
+
+    const frame = await testRenderer.waitForFrame(value => value.includes('→ execute'));
+    expect(frame).toContain(`→ execute cargo test -p queue-rs 'ring buffer'`);
+    expect(frame).not.toContain('/bin/bash');
+    expect(frame).not.toContain('command=');
+  });
+
+  it('summarizes a structured file_change call instead of inlining its JSON', async () => {
+    const testRenderer = await createTestRenderer({width: 130, height: 16});
+    const controller = new FakeController(
+      toolCallState({
+        toolName: 'file_change',
+        toolArguments: {
+          changes: [
+            {path: 'src/lib.rs', kind: 'delete'},
+            {path: 'src/queue.rs', kind: 'modified'},
+            {path: 'src/new.rs', kind: 'added'},
+          ],
+        },
+      }),
+    );
+    const app = createOpenTuiApp(testRenderer.renderer, controller);
+    registerCleanup(testRenderer.renderer, app);
+
+    const frame = await testRenderer.waitForFrame(value => value.includes('→ file_change'));
+    expect(frame).toContain('3 changes: delete src/lib.rs, modify src/queue.rs, +1 more');
+    expect(frame).not.toContain('"path"');
+  });
+
+  it('collapses a long command result to its exit status and output size', async () => {
+    const stdout = `${Array.from({length: 40}, (_, index) => `compiling crate ${index}`).join('\n')}\n`;
+    const testRenderer = await createTestRenderer({width: 80, height: 18});
+    const controller = new FakeController(
+      toolCallState({
+        toolName: 'execute',
+        toolArguments: {command: 'cargo build'},
+        content: stdout,
+        toolResult: {
+          kind: 'tool_result',
+          tool: 'execute',
+          content: stdout,
+          payload: {
+            kind: 'command',
+            stdout,
+            stderr: 'error: could not compile\n',
+            exit_code: 101,
+            duration: 12.5,
+          },
+        },
+      }),
+    );
+    const app = createOpenTuiApp(testRenderer.renderer, controller);
+    registerCleanup(testRenderer.renderer, app);
+
+    const collapsed = await testRenderer.waitForFrame(value => value.includes('exit 101'));
+    expect(collapsed).toContain('← exit 101 · 12.5s · 41 lines');
+    expect(collapsed).not.toContain('compiling crate 0');
+    expect(collapsed).toContain('Show full response');
+  });
+
+  it('collapses a json tool result to its top-level shape', async () => {
+    const value = Object.fromEntries(Array.from({length: 9}, (_, index) => [`k${index}`, index]));
+    const testRenderer = await createTestRenderer({width: 80, height: 16});
+    const controller = new FakeController(
+      toolCallState({
+        toolName: 'Read',
+        toolArguments: {path: 'run-state.json'},
+        content: 'irrelevant',
+        toolResult: {
+          kind: 'tool_result',
+          tool: 'Read',
+          content: 'irrelevant',
+          payload: {kind: 'json', value},
+        },
+      }),
+    );
+    const app = createOpenTuiApp(testRenderer.renderer, controller);
+    registerCleanup(testRenderer.renderer, app);
+
+    const frame = await testRenderer.waitForFrame(value_ => value_.includes('keys:'));
+    expect(frame).toContain('← {keys: k0, k1, k2, k3, +5 more}');
+    expect(frame).not.toContain('"k8"');
+  });
+
+  it('draws provider lifecycle chatter without cards and keeps an error prominent', async () => {
+    const testRenderer = await createTestRenderer({width: 90, height: 26});
+    const controller = new FakeController({
+      ...initialSessionState(),
+      core: {
+        ...initialSessionState().core,
+        transcript: [
+          {
+            id: 'lifecycle',
+            kind: 'diagnostic',
+            label: 'implementer · round 1',
+            content: '[codex thread 01a0 started]\n[codex turn started]',
+          },
+          {
+            id: 'banner',
+            kind: 'diagnostic',
+            label: 'implementer · round 1',
+            content: 'driver: agentshim, provider: codex, model: gpt-5.6',
+          },
+          {
+            id: 'failure',
+            kind: 'diagnostic',
+            label: 'implementer · round 1',
+            content: '[codex error] stream disconnected before completion',
+          },
+        ],
+      },
+    });
+    const app = createOpenTuiApp(testRenderer.renderer, controller);
+    registerCleanup(testRenderer.renderer, app);
+
+    const frame = await testRenderer.waitForFrame(value => value.includes('[codex error]'));
+    expect(frame).toContain('[codex turn started]');
+    expect(frame).toContain('driver: agentshim');
+    // Header housing, agents pane, transcript frame, command bar, and the one
+    // card the error diagnostic still earns. The two quiet diagnostics draw no
+    // border at all, so they add nothing to the count.
+    expect(frame.match(/[╭┏]/g)).toHaveLength(5);
+  });
+
+  it('renders an unanswered tool call once, with no response band', async () => {
+    const testRenderer = await createTestRenderer({width: 100, height: 16});
+    const controller = new FakeController(
+      toolCallState({
+        toolName: 'file_change',
+        toolArguments: {changes: [{path: 'a.rs', kind: 'delete'}]},
+      }),
+    );
+    const app = createOpenTuiApp(testRenderer.renderer, controller);
+    registerCleanup(testRenderer.renderer, app);
+
+    const frame = await testRenderer.waitForFrame(value => value.includes('→ file_change'));
+    expect(frame.match(/→ file_change/g)).toHaveLength(1);
+    // The response band is the only thing that draws a left arrow followed by
+    // text; the footer's key hint is the glyph pair, not this.
+    expect(frame).not.toContain('← ');
+    // One card: the header, the two panes, the command bar, and this turn.
+    expect(frame.match(/[╭┏]/g)).toHaveLength(5);
   });
 
   it('collapses, prettifies, and expands long JSON tool responses', async () => {
@@ -5178,6 +5334,24 @@ function hugeTranscriptState(entries: number): SessionState {
         kind: 'status' as const,
         content: `event ${index}`,
       })),
+    },
+  };
+}
+
+/** One typed tool turn, the shape `tool_call`/`tool_result` events fold into. */
+function toolCallState(
+  entry: Omit<SessionState['core']['transcript'][number], 'id' | 'kind' | 'label' | 'content'> & {
+    content?: string;
+  },
+): SessionState {
+  const initial = initialSessionState();
+  return {
+    ...initial,
+    core: {
+      ...initial.core,
+      transcript: [
+        {id: 'tool', kind: 'tool' as const, label: 'implementer · round 1', content: '', ...entry},
+      ],
     },
   };
 }

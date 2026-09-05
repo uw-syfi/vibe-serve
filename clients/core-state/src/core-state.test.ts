@@ -895,6 +895,40 @@ describe('batched transcript folding', () => {
   });
 });
 
+describe('chunk gluing per channel', () => {
+  it('joins consecutive diagnostic chunks with the line breaks they lack', () => {
+    const state = reduceEventBatch(initialCoreState(), [
+      channelEvent(1, 'diagnostic', '[codex thread 01a0 started]'),
+      channelEvent(2, 'diagnostic', '[codex turn started]'),
+      channelEvent(3, 'diagnostic', '[codex turn complete: in=10 out=2]'),
+    ]);
+
+    expect(state.transcript).toHaveLength(1);
+    expect(state.transcript[0]?.content).toBe(
+      '[codex thread 01a0 started]\n[codex turn started]\n[codex turn complete: in=10 out=2]',
+    );
+  });
+
+  it('does not double the separator when a chunk already ends a line', () => {
+    const state = reduceEventBatch(initialCoreState(), [
+      channelEvent(1, 'diagnostic', 'driver: agentshim\n'),
+      channelEvent(2, 'diagnostic', '--- input ---'),
+    ]);
+
+    expect(state.transcript[0]?.content).toBe('driver: agentshim\n--- input ---');
+  });
+
+  it('still concatenates analysis chunks raw, because they are stream fragments', () => {
+    const state = reduceEventBatch(initialCoreState(), [
+      channelEvent(1, 'analysis', 'the ring buffer '),
+      channelEvent(2, 'analysis', 'is the hot path'),
+    ]);
+
+    expect(state.transcript).toHaveLength(1);
+    expect(state.transcript[0]?.content).toBe('the ring buffer is the hot path');
+  });
+});
+
 describe('the carried-forward profile flag', () => {
   it('lands on the round whose round_finished event skipped profiling', () => {
     const state = reduceEvent(initialCoreState(), roundFinishedEvent(1, {profile_skipped: true}));
@@ -1024,6 +1058,19 @@ function chatTitledEvent(sequence: number, threadId: string, title: string): Run
     round_label: 'experiment-chat',
     chat_thread_id: threadId,
     data: {kind: 'chat', answer: 'answer', thread_title: title},
+  };
+}
+
+/** One `agent_output_chunk` on a named channel, all within a single turn. */
+function channelEvent(
+  sequence: number,
+  channel: 'analysis' | 'diagnostic',
+  content: string,
+): RunEvent {
+  return {
+    ...baseEvent(sequence, 'agent_output_chunk'),
+    invocation_id: 'turn',
+    data: {kind: 'agent_output_chunk', channel, content},
   };
 }
 
