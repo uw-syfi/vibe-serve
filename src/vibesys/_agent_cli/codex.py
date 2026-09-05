@@ -1,5 +1,6 @@
+import time
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from agentshim.codex import CodexGenerationSession
 from agentshim.events import AgentEventHandler
@@ -9,6 +10,55 @@ from .cli_agent import CLICodingAgent
 
 if TYPE_CHECKING:
     from agentshim.executor import CommandExecutor
+
+_COMMAND_TOOL = "execute"
+
+
+class _PairedCodexToolEvents:
+    """Repair the codex adapter's tool-event stream into call/result pairs.
+
+    agentshim through 0.5.1 maps a generic codex item's ``item.started`` and
+    ``item.completed`` both to tool-use, so one ``file_change`` (or
+    ``web_search``, ``mcp_tool_call``, ...) reaches ``on_tool_call`` twice
+    with identical arguments and never reaches ``on_tool_result``. This
+    wrapper treats the second identical call for a still-open item as that
+    item's completion: it swallows the duplicate and emits the missing
+    ``on_tool_result`` instead. Command executions (``execute``) already
+    arrive correctly paired and pass through untouched, as does every other
+    callback. Under an adapter that reports completions as results, no
+    duplicate ever arrives and the wrapper forwards everything unchanged.
+    """
+
+    def __init__(self, inner: AgentEventHandler) -> None:
+        self._inner = inner
+        # One open (args, start time) per tool name: codex items in a turn
+        # are sequential, so a second identical call while the first is open
+        # can only be the same item's completion echo.
+        self._open: dict[str, tuple[Any, float]] = {}
+
+    def __getattr__(self, name: str) -> Any:  # noqa: ANN401  # tracked: #288
+        return getattr(self._inner, name)
+
+    def on_tool_call(self, tool: str, args: Any = None) -> None:  # noqa: ANN401  # tracked: #288
+        """Forward a tool call, folding a completion echo into its result."""
+        if tool != _COMMAND_TOOL:
+            opened = self._open.pop(tool, None)
+            if opened is not None and opened[0] == args:
+                self._inner.on_tool_result(
+                    tool=tool,
+                    stdout="",
+                    exit_code=None,
+                    duration=time.monotonic() - opened[1],
+                )
+                return
+            self._open[tool] = (args, time.monotonic())
+        self._inner.on_tool_call(tool, args)
+
+    def on_tool_result(self, *args: Any, **kwargs: Any) -> None:  # noqa: ANN401  # tracked: #288
+        """Forward a real result verbatim and close the matching open call."""
+        tool = kwargs.get("tool", args[0] if args else None)
+        self._open.pop(tool, None)
+        self._inner.on_tool_result(*args, **kwargs)
 
 
 def _toml_str(value: str) -> str:
@@ -139,6 +189,11 @@ class CodexCodingAgent(CLICodingAgent[CodexGenerationSession]):
         timeout: int | None = None,
         silent: bool = False,  # noqa: FBT001, FBT002  # tracked: #288
     ) -> CodexGenerationSession:
+        # A fresh wrapper per session: open-call state must not leak across
+        # turns.
+        event_handler = (
+            _PairedCodexToolEvents(self.event_handler) if self.event_handler is not None else None
+        )
         return CodexGenerationSession(
             binary_name=self.binary_name,
             env=self.env,
@@ -148,7 +203,7 @@ class CodexCodingAgent(CLICodingAgent[CodexGenerationSession]):
             cwd=cwd,
             timeout=timeout,
             silent=silent,
-            event_handler=self.event_handler,
+            event_handler=event_handler,
             executor=self.executor,
         )
 

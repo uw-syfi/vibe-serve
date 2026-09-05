@@ -20,6 +20,7 @@ from unittest.mock import MagicMock
 from vibesys._agent_cli.codex import (
     CodexCodingAgent,
     CodexGenerationSession,
+    _PairedCodexToolEvents,
     _shell_path_config_args,
 )
 from vibesys._agent_cli.gemini import GeminiCodingAgent
@@ -363,6 +364,124 @@ class TestProcessStdout:
         session = _session()
         session._process_stdout("   \n")  # noqa: SLF001  # tracked: #288
         assert session.stdout_lines == []
+
+
+# ---------------------------------------------------------------------------
+# Tool-event pairing
+# ---------------------------------------------------------------------------
+
+
+def _agent_session(handler) -> CodexGenerationSession:  # noqa: ANN001  # tracked: #288
+    """Build a session through the agent, so the pairing wrapper is wired in."""
+    agent = _agent()
+    agent.binary_name = "codex"
+    agent.env = {}
+    agent.logger = MagicMock()
+    agent.executor = None
+    agent.event_handler = handler
+    return agent._create_session(["codex", "exec", "--json", "-"], silent=True)  # noqa: SLF001  # tracked: #288
+
+
+class TestToolEventPairing:
+    def test_generic_item_lifecycle_reaches_handler_as_one_call_and_one_result(self):  # noqa: ANN202  # tracked: #288
+        """One codex ``file_change`` item must surface exactly one tool call
+        and one tool result, whichever agentshim maps its lifecycle events to
+        (agentshim <= 0.5.1 reports ``item.completed`` as a second identical
+        tool call and no result)."""
+        handler = MagicMock()
+        session = _agent_session(handler)
+        for event_type, status in [
+            ("item.started", "in_progress"),
+            ("item.completed", "completed"),
+        ]:
+            session._process_stdout(  # noqa: SLF001  # tracked: #288
+                json.dumps(
+                    {
+                        "type": event_type,
+                        "item": {
+                            "id": "fc1",
+                            "type": "file_change",
+                            "status": status,
+                            "path": "engine.py",
+                            "kind": "update",
+                        },
+                    }
+                )
+            )
+        handler.on_tool_call.assert_called_once_with(
+            "file_change", {"path": "engine.py", "kind": "update"}
+        )
+        handler.on_tool_result.assert_called_once()
+        result = handler.on_tool_result.call_args.kwargs
+        assert result["tool"] == "file_change"
+        assert result.get("stdout", "") == ""
+        assert result["exit_code"] is None
+        assert result["duration"] is not None
+        assert result["duration"] >= 0
+        # The result must follow the call.
+        tool_events = [name for name, *_ in handler.method_calls if name.startswith("on_tool")]
+        assert tool_events == ["on_tool_call", "on_tool_result"]
+
+    def test_create_session_without_handler_adds_no_wrapper(self):  # noqa: ANN202  # tracked: #288
+        session = _agent_session(None)
+        assert not isinstance(session.event_handler, _PairedCodexToolEvents)
+
+    def test_duplicate_call_becomes_the_missing_result(self):  # noqa: ANN202  # tracked: #288
+        inner = MagicMock()
+        paired = _PairedCodexToolEvents(inner)
+        paired.on_tool_call("file_change", {"path": "a.py"})
+        paired.on_tool_call("file_change", {"path": "a.py"})
+        inner.on_tool_call.assert_called_once_with("file_change", {"path": "a.py"})
+        inner.on_tool_result.assert_called_once()
+        assert inner.on_tool_result.call_args.kwargs["tool"] == "file_change"
+        assert inner.on_tool_result.call_args.kwargs["duration"] >= 0
+
+    def test_consecutive_identical_items_each_get_a_call_and_a_result(self):  # noqa: ANN202  # tracked: #288
+        """started/completed, twice over: two items, two calls, two results."""
+        inner = MagicMock()
+        paired = _PairedCodexToolEvents(inner)
+        for _ in range(2):
+            paired.on_tool_call("file_change", {"path": "a.py"})
+            paired.on_tool_call("file_change", {"path": "a.py"})
+        assert inner.on_tool_call.call_count == 2
+        assert inner.on_tool_result.call_count == 2
+
+    def test_execute_calls_are_never_folded(self):  # noqa: ANN202  # tracked: #288
+        """Command executions already pair correctly upstream; repeating an
+        identical command must stay two distinct calls."""
+        inner = MagicMock()
+        paired = _PairedCodexToolEvents(inner)
+        paired.on_tool_call("execute", {"command": "ls"})
+        paired.on_tool_call("execute", {"command": "ls"})
+        assert inner.on_tool_call.call_count == 2
+        inner.on_tool_result.assert_not_called()
+
+    def test_real_result_closes_the_open_call(self):  # noqa: ANN202  # tracked: #288
+        """Under a fixed adapter the completion arrives as a result; the next
+        identical call is then a new item, not an echo to fold."""
+        inner = MagicMock()
+        paired = _PairedCodexToolEvents(inner)
+        paired.on_tool_call("file_change", {"path": "a.py"})
+        paired.on_tool_result(tool="file_change", stdout="", exit_code=None, duration=0.1)
+        paired.on_tool_call("file_change", {"path": "a.py"})
+        assert inner.on_tool_call.call_count == 2
+        inner.on_tool_result.assert_called_once_with(
+            tool="file_change", stdout="", exit_code=None, duration=0.1
+        )
+
+    def test_changed_args_are_a_new_call_not_an_echo(self):  # noqa: ANN202  # tracked: #288
+        inner = MagicMock()
+        paired = _PairedCodexToolEvents(inner)
+        paired.on_tool_call("file_change", {"path": "a.py"})
+        paired.on_tool_call("file_change", {"path": "b.py"})
+        assert inner.on_tool_call.call_count == 2
+        inner.on_tool_result.assert_not_called()
+
+    def test_other_callbacks_delegate_to_the_inner_handler(self):  # noqa: ANN202  # tracked: #288
+        inner = MagicMock()
+        paired = _PairedCodexToolEvents(inner)
+        paired.on_thinking("hello")
+        inner.on_thinking.assert_called_once_with("hello")
 
 
 class TestProcessStderr:
