@@ -32,6 +32,7 @@ import shlex
 import subprocess
 import sys
 import tarfile
+import tempfile
 import threading
 import time
 import urllib.error
@@ -47,8 +48,6 @@ _MODAL_DEPLOYMENT = re.compile(
     r"https://modal\.com/apps/[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+/deployed/"
     r"([a-zA-Z0-9_.-]+)"
 )
-_LOCK_PATH = "/tmp/vibesys-modal-evaluator.lock"  # noqa: S108  # tracked: #288
-_DEPLOYMENT_LEASE_PATH = Path("/tmp/vibesys-modal-evaluator-deployment.json")  # noqa: S108  # tracked: #288
 _CANDIDATE_REVISION_ENV = "VIBESYS_CANDIDATE_REVISION"
 _RELEASE_DEPLOYMENT_ENV = "VIBESYS_RELEASE_MODAL_DEPLOYMENT"
 _MAX_DIAGNOSTIC_CHARS = 20_000
@@ -69,6 +68,50 @@ _MAX_ENCODED_SETUP_COMMAND_CHARS = 60_000
 _MAX_STAGE_ARCHIVE_BYTES = 8 * 1024 * 1024
 _CONTAINER_DISCOVERY_TIMEOUT_SECONDS = 90.0
 _KEEPWARM_INTERVAL_SECONDS = 30.0
+
+
+def _runtime_dir() -> Path:
+    """Return this process's private per-user runtime directory.
+
+    Prefers ``XDG_RUNTIME_DIR``, which is already private per user by POSIX
+    convention; otherwise falls back to a uid-suffixed directory under the
+    system temp directory so unrelated users sharing a host cannot collide
+    on the evaluator's lock or lease files.
+    """
+    xdg_runtime_dir = os.environ.get("XDG_RUNTIME_DIR")
+    if xdg_runtime_dir:
+        return Path(xdg_runtime_dir) / "vibesys"
+    return Path(tempfile.gettempdir()) / f"vibesys-{os.getuid()}"
+
+
+_LOCK_PATH = _runtime_dir() / "modal-evaluator.lock"
+_DEPLOYMENT_LEASE_PATH = _runtime_dir() / "modal-evaluator-deployment.json"
+
+
+def _ensure_runtime_dir(path: Path) -> None:
+    """Create and validate the private per-user runtime directory for ``path``.
+
+    Raises ``RuntimeError`` naming the directory and its owning uid when the
+    location cannot be used as a private per-user directory, for example a
+    plain file already occupies it or another user owns it, so a hostile or
+    stale runtime-directory entry fails with a clear message instead of a
+    deep ``PermissionError`` surfacing from ``flock`` or ``open``.
+    """
+    runtime_dir = path.parent
+    try:
+        runtime_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+        owner_uid = runtime_dir.stat().st_uid
+        is_directory = runtime_dir.is_dir()
+    except OSError as exc:
+        raise RuntimeError(  # noqa: TRY003
+            f"cannot use {runtime_dir} as the evaluator runtime directory: {exc}"
+        ) from exc
+    if not is_directory or owner_uid != os.getuid():
+        raise RuntimeError(  # noqa: TRY003
+            f"refusing to use {runtime_dir} as the evaluator runtime directory: "
+            f"expected a directory owned by uid {os.getuid()}"
+        )
+    runtime_dir.chmod(0o700)
 
 
 @dataclass(frozen=True)
@@ -135,6 +178,7 @@ def _compact_rich_output(output: str) -> str:
 @contextmanager
 def _exclusive_evaluation() -> Generator[None]:
     """Serialize deploy-and-evaluate callers sharing the editor container."""
+    _ensure_runtime_dir(_LOCK_PATH)
     with open(_LOCK_PATH, "w") as lock_file:  # noqa: PTH123  # tracked: #288
         fcntl.flock(lock_file, fcntl.LOCK_EX)
         try:
@@ -244,6 +288,7 @@ def _write_deployment_lease(
     base_url: str,
     app_identifier: str | None,
 ) -> None:
+    _ensure_runtime_dir(_DEPLOYMENT_LEASE_PATH)
     temporary = _DEPLOYMENT_LEASE_PATH.with_suffix(".tmp")
     payload = {
         "candidate_revision": candidate_revision,
