@@ -73,6 +73,28 @@ class CandidateDisposition(StrEnum):
     PARETO_FRONTIER = "pareto_frontier"
 
 
+class PerfDeltaReason(StrEnum):
+    """Why a headline measurement carries no causal delta.
+
+    Always re-derived from round evidence (``perf_provenance`` and the
+    baseline fields), never stored on the round record, so it cannot drift
+    from them. Absent entirely for records that predate provenance tracking:
+    a legacy absolute number keeps reading as a deliberate absolute rather
+    than being relabelled as unresolved.
+    """
+
+    # No trusted official measurement of the metric existed yet, so there was
+    # legitimately nothing to compare against.
+    NO_BASELINE_YET = "no_baseline_yet"
+    # Trusted measurements existed but none was admissible as this round's
+    # causal baseline: the lookup failed closed rather than inverting cause
+    # and effect.
+    BASELINE_UNRESOLVED = "baseline_unresolved"
+    # The only headline number is the implementer's own report, which the
+    # framework never orders against anything.
+    NOT_FRAMEWORK_MEASURED = "not_framework_measured"
+
+
 HypothesisStrategyDisposition = Literal["parked", "abandoned"]
 
 

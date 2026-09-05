@@ -422,6 +422,18 @@ export type PerfDeltaPct1 = number | null;
 export type PerfMetricName = string | null;
 export type PerfDirection = ("max" | "min") | null;
 export type PerfBaselineValue = number | null;
+export type PerfBaselineRound = number | null;
+export type PerfBaselineCommit = string | null;
+/**
+ * Why a headline measurement carries no causal delta.
+ *
+ * Always re-derived from round evidence (``perf_provenance`` and the
+ * baseline fields), never stored on the round record, so it cannot drift
+ * from them. Absent entirely for records that predate provenance tracking:
+ * a legacy absolute number keeps reading as a deliberate absolute rather
+ * than being relabelled as unresolved.
+ */
+export type PerfDeltaReason = "no_baseline_yet" | "baseline_unresolved" | "not_framework_measured";
 export type Kept = boolean | null;
 export type StrategyDisposition = ("available" | "parked" | "abandoned") | null;
 export type StrategyReason = string | null;
@@ -1018,6 +1030,9 @@ export interface HypothesisEntry {
   perf_metric_name?: PerfMetricName;
   perf_direction?: PerfDirection;
   perf_baseline_value?: PerfBaselineValue;
+  perf_baseline_round?: PerfBaselineRound;
+  perf_baseline_commit?: PerfBaselineCommit;
+  perf_delta_reason?: PerfDeltaReason | null;
   kept?: Kept;
   strategy_disposition?: StrategyDisposition;
   strategy_reason?: StrategyReason;

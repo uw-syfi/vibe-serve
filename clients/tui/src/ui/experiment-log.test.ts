@@ -131,6 +131,43 @@ describe('experiment log rows', () => {
     expect(formatMeasured(entry({perf_delta_pct: -2, perf_unit: 'ops/s'}))).toBe('-2.0%');
   });
 
+  it('renders the three no-delta reasons and a zero delta as four distinct cells', () => {
+    const noBaselineYet = formatMeasured(
+      entry({
+        perf_delta_pct: null,
+        perf_metric: 101,
+        perf_unit: 'ops/s',
+        perf_delta_reason: 'no_baseline_yet',
+      }),
+    );
+    const baselineUnresolved = formatMeasured(
+      entry({
+        perf_delta_pct: null,
+        perf_metric: 102,
+        perf_unit: 'ops/s',
+        perf_delta_reason: 'baseline_unresolved',
+      }),
+    );
+    const selfReported = formatMeasured(
+      entry({perf_delta_pct: null, perf_metric: null, perf_delta_reason: 'not_framework_measured'}),
+    );
+    const zeroDelta = formatMeasured(entry({perf_delta_pct: 0}));
+
+    expect(noBaselineYet).toBe('101 ops/s');
+    expect(baselineUnresolved).toBe('? 102 ops/s');
+    expect(selfReported).toBe('self-reported');
+    expect(zeroDelta).toBe('0.0%');
+    expect(new Set([noBaselineYet, baselineUnresolved, selfReported, zeroDelta]).size).toBe(4);
+  });
+
+  it('renders a legacy entry with no delta_reason as a bare value and leaves a delta unaffected', () => {
+    const legacy = entry({perf_delta_pct: null, perf_metric: 2412.5, perf_unit: 'ops/s'});
+    expect(legacy.perf_delta_reason).toBeUndefined();
+    expect(formatMeasured(legacy)).toBe('2412.5 ops/s');
+
+    expect(formatMeasured(entry({perf_delta_pct: 5.9}))).toBe('+5.9%');
+  });
+
   it('points the header the way improvement goes when the log agrees on one', () => {
     const columns = resolveColumns(WIDE);
 
@@ -183,6 +220,39 @@ describe('experiment log rows', () => {
     expect(metadata).toContain('Measured 2412.5 ops/s');
   });
 
+  it('spells out the baseline identity in the drill-down metadata', () => {
+    const metadata = hypothesisMetadata(
+      entry({
+        perf_metric: 55434.2,
+        perf_baseline_value: 52340.1,
+        perf_baseline_round: 3,
+        perf_baseline_commit: 'abc1234deadbeef',
+        perf_delta_pct: 5.9,
+      }),
+    );
+
+    expect(metadata).toContain('Baseline round 3');
+    expect(metadata).toContain('Baseline commit abc1234');
+  });
+
+  it('spells out each no-delta reason in the drill-down metadata', () => {
+    expect(
+      hypothesisMetadata(entry({perf_delta_pct: null, perf_delta_reason: 'no_baseline_yet'})),
+    ).toContain('No baseline existed yet');
+    expect(
+      hypothesisMetadata(entry({perf_delta_pct: null, perf_delta_reason: 'baseline_unresolved'})),
+    ).toContain('No trusted baseline resolved');
+    expect(
+      hypothesisMetadata(
+        entry({
+          perf_delta_pct: null,
+          perf_metric: null,
+          perf_delta_reason: 'not_framework_measured',
+        }),
+      ),
+    ).toContain('Self-reported, not framework-measured');
+  });
+
   it('renders a record with no hypothesis id as an explicit placeholder', () => {
     const row = entryRow(
       entry({
@@ -210,6 +280,24 @@ describe('experiment log rows', () => {
     expect(row).toContain('m1-preallocat…  41');
     expect(row[roundsStart - 1]).toBe(' ');
     expect(row.slice(roundsStart).startsWith('41')).toBe(true);
+  });
+
+  it('keeps the ? marker readable when a long unit truncates at MEASURED_WIDTH', () => {
+    const columns = resolveColumns(70);
+    expect(columns.measured).toBe(true);
+    const header = headerRow(columns);
+    const measuredStart = header.indexOf('Measured');
+    const row = entryRow(
+      entry({
+        perf_delta_pct: null,
+        perf_metric: 55434.2,
+        perf_unit: 'total_operations_per_second_sustained',
+        perf_delta_reason: 'baseline_unresolved',
+      }),
+      columns,
+    );
+
+    expect(row.slice(measuredStart, measuredStart + 2)).toBe('? ');
   });
 
   it('keeps gutters across the separately colored outcome segments', () => {

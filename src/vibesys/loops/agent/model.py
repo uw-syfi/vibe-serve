@@ -12,6 +12,7 @@ from vibesys.schemas import (
     CandidateDisposition,
     HypothesisOutcome,
     OrchestratorPlan,
+    PerfDeltaReason,
 )
 from vs_loop_state import RoundRecord
 
@@ -62,6 +63,9 @@ class HypothesisMeasurement(BaseModel):
     baseline_commit: str | None = None
     baseline_value: FiniteFloat | None = None
     delta_pct: FiniteFloat | None = None
+    # Why ``delta_pct`` is None, when the evidence can say. None whenever a
+    # baseline was found or the record predates provenance tracking.
+    delta_reason: PerfDeltaReason | None = None
 
 
 class Hypothesis(BaseModel):

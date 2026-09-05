@@ -692,11 +692,21 @@ export function formatRounds(entry: HypothesisEntry): string {
     : `${entry.first_round}-${entry.last_round}`;
 }
 
+/**
+ * Delta wins when present. `not_framework_measured` is checked next, before
+ * the metric fallback, because the entry-level `perf_metric` is null in that
+ * case anyway. A `baseline_unresolved` absolute value gets a `? ` prefix, not
+ * a suffix, so the MEASURED_WIDTH truncation in `fitColumn` can never cut it
+ * off. `no_baseline_yet` and a legacy entry with no reason keep the bare
+ * value: a first measurement is itself a deliberate absolute display.
+ */
 export function formatMeasured(entry: HypothesisEntry): string {
   const delta = entry.perf_delta_pct;
   if (typeof delta === 'number') return formatDelta(delta);
+  if (entry.perf_delta_reason === 'not_framework_measured') return 'self-reported';
   if (typeof entry.perf_metric === 'number') {
-    return `${trimNumber(entry.perf_metric)}${entry.perf_unit ? ` ${entry.perf_unit}` : ''}`;
+    const marker = entry.perf_delta_reason === 'baseline_unresolved' ? '? ' : '';
+    return `${marker}${trimNumber(entry.perf_metric)}${entry.perf_unit ? ` ${entry.perf_unit}` : ''}`;
   }
   return '—';
 }
@@ -759,10 +769,37 @@ function measurementMetadata(entry: HypothesisEntry): string[] {
   if (typeof entry.perf_baseline_value === 'number') {
     parts.push(`Baseline ${trimNumber(entry.perf_baseline_value)}${unit}`);
   }
+  if (typeof entry.perf_baseline_round === 'number') {
+    parts.push(`Baseline round ${entry.perf_baseline_round}`);
+  }
+  if (entry.perf_baseline_commit) {
+    parts.push(`Baseline commit ${entry.perf_baseline_commit.slice(0, 7)}`);
+  }
   if (typeof entry.perf_delta_pct === 'number') {
     parts.push(`Delta ${formatDelta(entry.perf_delta_pct)}`);
   }
+  const reason = deltaReasonLabel(entry.perf_delta_reason);
+  if (reason !== null) parts.push(reason);
   return parts;
+}
+
+/**
+ * Spells out why `perf_delta_pct` is absent. Exhaustive over the wire union
+ * with no default case, so a reason value the client does not yet know how
+ * to word fails the build instead of silently rendering nothing.
+ */
+function deltaReasonLabel(reason: HypothesisEntry['perf_delta_reason']): string | null {
+  switch (reason) {
+    case 'no_baseline_yet':
+      return 'No baseline existed yet';
+    case 'baseline_unresolved':
+      return 'No trusted baseline resolved';
+    case 'not_framework_measured':
+      return 'Self-reported, not framework-measured';
+    case null:
+    case undefined:
+      return null;
+  }
 }
 
 function roundMetadata(roundNumber: number, round: HypothesisRound | undefined): string {

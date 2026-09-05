@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Literal
 
 from server.api.protocol import HypothesisEntry, HypothesisRound
+from vibesys.loops.agent.hypotheses import measurement_delta_reason
 from vibesys.loops.agent.model import HypothesisResolution
 from vibesys.schemas import CandidateDisposition, HypothesisOutcome, derive_hypothesis_title
 
@@ -54,6 +55,11 @@ def _entry(hypothesis: Hypothesis, *, active_id: str | None) -> HypothesisEntry:
         perf_metric_name=_text(measurement.metric) if measurement is not None else None,
         perf_direction=measurement.direction if measurement is not None else None,
         perf_baseline_value=measurement.baseline_value if measurement is not None else None,
+        perf_baseline_round=measurement.baseline_round if measurement is not None else None,
+        perf_baseline_commit=(
+            _text(measurement.baseline_commit) if measurement is not None else None
+        ),
+        perf_delta_reason=measurement_delta_reason(hypothesis),
         kept=hypothesis.candidate_retained,
         strategy_disposition=hypothesis.strategy.value,
         strategy_reason=hypothesis.strategy_reason,

@@ -89,9 +89,17 @@ When every measured hypothesis shares one objective direction the column
 header carries it as an arrow (`Measured ↑` for maximize, `↓` for minimize),
 so a signed delta reads as good or bad without task knowledge. The hypothesis
 summary spells the measurement out in words: metric name, direction, absolute
-value, baseline, and delta. The framework records a verified metric only when
-its own official evaluation ran, on the sparse cadence or the final round, so
-a hypothesis resolved between evaluations legitimately shows no measurement.
+value, baseline (with the round and commit it came from, when known), and
+delta. The framework records a verified metric only when its own official
+evaluation ran, on the sparse cadence or the final round, so a hypothesis
+resolved between evaluations legitimately shows no measurement.
+
+An absolute value with a leading `?` (`? 55434.2 ops/s`) means a baseline
+should have existed but none was admissible, so the lookup failed closed
+rather than compare against something untrusted; the drill-down spells this
+out as `No trusted baseline resolved`. `self-reported` means the only number
+for that hypothesis is the implementer's own claim, never verified by the
+framework's official evaluation.
 
 The table refetches when an agent phase or a round finishes, so it stays
 current without being reopened. Rows are ordered by first round and never

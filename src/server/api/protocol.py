@@ -15,7 +15,7 @@ from server.execution import ActiveAgentExecution
 from server.run_lifecycle import RunStatus
 from server.settings import InteractiveSetupDefaults
 from vibesys.loops.agent.model import HypothesisResolution
-from vibesys.schemas import CandidateDisposition, HypothesisOutcome
+from vibesys.schemas import CandidateDisposition, HypothesisOutcome, PerfDeltaReason
 from vs_loop_state import JudgeVerdict
 
 PROTOCOL_VERSION = 1
@@ -291,6 +291,15 @@ class HypothesisEntry(ProtocolModel):
     # The other side of ``perf_delta_pct``, from the same official
     # measurement, so the comparison stays interpretable in absolute terms.
     perf_baseline_value: FiniteFloat | None = None
+    # Causal identity of that baseline, so the comparison is auditable from
+    # the client: which round it was, and which workspace commit it measured.
+    perf_baseline_round: int | None = None
+    perf_baseline_commit: str | None = None
+    # Why ``perf_delta_pct`` is absent, when the server can say. None when a
+    # delta is present, when no official metric was recorded at all, or for
+    # records predating provenance tracking, which keep reading as deliberate
+    # absolute measurements.
+    perf_delta_reason: PerfDeltaReason | None = None
     # Integration, not truth: the framework's explicit retention decision.
     # None means legacy or not yet assessed, never "official evaluation ran".
     kept: bool | None = None

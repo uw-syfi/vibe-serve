@@ -11,6 +11,7 @@ from vibesys.loops.agent.hypotheses import (
     adopt_metric_space,
     append_round,
     apply_strategy_updates,
+    measurement_delta_reason,
     metric_baseline,
     project_round_evidence,
     reproject_run_evidence,
@@ -30,6 +31,7 @@ from vibesys.schemas import (
     HypothesisOutcome,
     HypothesisStrategyUpdate,
     OrchestratorPlan,
+    PerfDeltaReason,
 )
 from vs_loop_state import PerfProvenance, RoundRecord
 
@@ -637,6 +639,70 @@ def _implementer_reported_run() -> AgentRunState:
         ),
         keep_active=False,
     )
+
+
+def test_delta_reason_separates_a_first_reading_from_a_failed_lookup() -> None:
+    """Round one, a fail-closed lookup, and a resolved baseline stay apart."""
+    first = _round(1, 100.0, hypothesis_id="H-1")
+    state = start_hypothesis(AgentRunState(), _plan("H-1"), started_round=1)
+    state = append_round(state, first, keep_active=False)
+    # The parent commit matches no trusted official round and no parent round
+    # bounds the fallback: the exact shape `metric_baseline` fails closed on.
+    state = start_hypothesis(state, _plan("H-2"), started_round=2, parent_commit="f" * 40)
+    state = append_round(
+        state,
+        _round(2, 200.0, hypothesis_id="H-2", parent_commit="f" * 40),
+        keep_active=False,
+    )
+    state = start_hypothesis(
+        state, _plan("H-3"), started_round=3, parent_round=1, parent_commit=first.commit
+    )
+    state = append_round(
+        state,
+        _round(3, 300.0, hypothesis_id="H-3", parent_round=1, parent_commit=first.commit),
+        keep_active=False,
+    )
+
+    round_one = state.by_id("H-1")
+    unresolved = state.by_id("H-2")
+    resolved = state.by_id("H-3")
+    assert round_one is not None
+    assert round_one.measurement is not None
+    assert round_one.measurement.delta_pct is None
+    assert round_one.measurement.delta_reason is PerfDeltaReason.NO_BASELINE_YET
+    assert measurement_delta_reason(round_one) is PerfDeltaReason.NO_BASELINE_YET
+    assert unresolved is not None
+    assert unresolved.measurement is not None
+    assert unresolved.measurement.delta_pct is None
+    assert unresolved.measurement.delta_reason is PerfDeltaReason.BASELINE_UNRESOLVED
+    assert measurement_delta_reason(unresolved) is PerfDeltaReason.BASELINE_UNRESOLVED
+    assert resolved is not None
+    assert resolved.measurement is not None
+    assert resolved.measurement.delta_pct is not None
+    assert resolved.measurement.delta_reason is None
+    assert measurement_delta_reason(resolved) is None
+
+
+def test_a_self_reported_headline_reads_as_not_framework_measured() -> None:
+    """No measurement exists to carry the reason, so the rounds answer it."""
+    hypothesis = _implementer_reported_run().by_id("H-1")
+
+    assert hypothesis is not None
+    assert hypothesis.measurement is None
+    assert measurement_delta_reason(hypothesis) is PerfDeltaReason.NOT_FRAMEWORK_MEASURED
+
+
+def test_a_legacy_absolute_reading_carries_no_delta_reason() -> None:
+    """A record predating provenance keeps reading as a deliberate absolute."""
+    state = start_hypothesis(AgentRunState(), _plan("H-1"), started_round=1)
+    state = append_round(state, _legacy_evidence_round(1, 100.0), keep_active=False)
+
+    hypothesis = state.by_id("H-1")
+    assert hypothesis is not None
+    assert hypothesis.measurement is not None
+    assert hypothesis.measurement.delta_pct is None
+    assert hypothesis.measurement.delta_reason is None
+    assert measurement_delta_reason(hypothesis) is None
 
 
 def test_a_self_reported_improvement_never_resolves_proven() -> None:

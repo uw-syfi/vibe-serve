@@ -1520,6 +1520,41 @@
           "default": null,
           "title": "Perf Baseline Value"
         },
+        "perf_baseline_round": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Perf Baseline Round"
+        },
+        "perf_baseline_commit": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Perf Baseline Commit"
+        },
+        "perf_delta_reason": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PerfDeltaReason"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "kept": {
           "anyOf": [
             {
@@ -1954,6 +1989,16 @@
       },
       "title": "PauseCommand",
       "type": "object"
+    },
+    "PerfDeltaReason": {
+      "description": "Why a headline measurement carries no causal delta.\n\nAlways re-derived from round evidence (``perf_provenance`` and the\nbaseline fields), never stored on the round record, so it cannot drift\nfrom them. Absent entirely for records that predate provenance tracking:\na legacy absolute number keeps reading as a deliberate absolute rather\nthan being relabelled as unresolved.",
+      "enum": [
+        "no_baseline_yet",
+        "baseline_unresolved",
+        "not_framework_measured"
+      ],
+      "title": "PerfDeltaReason",
+      "type": "string"
     },
     "PerformanceContext": {
       "additionalProperties": false,

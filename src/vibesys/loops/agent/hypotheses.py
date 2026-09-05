@@ -18,6 +18,7 @@ from vibesys.schemas import (
     HypothesisOutcome,
     HypothesisStrategyUpdate,
     OrchestratorPlan,
+    PerfDeltaReason,
 )
 
 if TYPE_CHECKING:
@@ -153,14 +154,7 @@ def metric_baseline(
     postdate the parent round; comparing against a later measurement would
     invert cause and effect.
     """
-    comparable = [
-        item
-        for item in rounds
-        if item.official_evaluation
-        and item.perf_metric is not None
-        and trusted_perf_provenance(item.perf_provenance)
-        and (item.perf_unit == metric or (metric is not None and metric in item.metrics))
-    ]
+    comparable = baseline_candidates(metric=metric, rounds=rounds)
     if not comparable:
         return None
     if parent_commit is not None:
@@ -183,6 +177,48 @@ def metric_baseline(
         # effect. Fail closed instead.
         return None
     return comparable[-1]
+
+
+def baseline_candidates(
+    *,
+    metric: str | None,
+    rounds: Sequence[RoundRecord],
+) -> list[RoundRecord]:
+    """Return the rounds admissible as a baseline for *metric*, in order.
+
+    The one admissibility rule behind ``metric_baseline``: a trusted official
+    measurement that carries the axis, whether as its headline unit or in its
+    objective row. Whether this set is empty is what separates "no baseline
+    existed yet" from "a baseline existed but could not be resolved".
+    """
+    return [
+        item
+        for item in rounds
+        if item.official_evaluation
+        and item.perf_metric is not None
+        and trusted_perf_provenance(item.perf_provenance)
+        and (item.perf_unit == metric or (metric is not None and metric in item.metrics))
+    ]
+
+
+def measurement_delta_reason(hypothesis: Hypothesis) -> PerfDeltaReason | None:
+    """Why *hypothesis*'s headline number carries no causal delta.
+
+    ``None`` when a delta exists, when no official metric was recorded at
+    all, or when the evidence predates provenance tracking. A hypothesis
+    whose only official headline is the implementer's own report has no
+    measurement to carry the reason, so it is answered from the rounds.
+    """
+    if hypothesis.measurement is not None:
+        return hypothesis.measurement.delta_reason
+    if any(
+        record.official_evaluation
+        and record.perf_metric is not None
+        and not trusted_perf_provenance(record.perf_provenance)
+        for record in hypothesis.rounds
+    ):
+        return PerfDeltaReason.NOT_FRAMEWORK_MEASURED
+    return None
 
 
 def start_hypothesis(
@@ -558,6 +594,20 @@ def _measurement(
         )
     )
     baseline = _baseline(record, prior_rounds)
+    baseline_round = (
+        record.perf_baseline_round
+        if record.perf_baseline_round is not None
+        else baseline.round_number
+        if baseline is not None
+        else None
+    )
+    # The commit of the record actually used as the baseline, which the
+    # fallback makes distinct from the hypothesis's parent commit: with
+    # `official_eval_every > 1` the causal parent is usually a provisional
+    # round, and the baseline is an earlier official one.
+    baseline_commit = record.perf_baseline_commit or (
+        baseline.commit if baseline is not None else None
+    )
     baseline_value = record.perf_baseline_metric
     if baseline_value is None and baseline is not None:
         baseline_value = record_metric_value(baseline, record.perf_unit)
@@ -565,28 +615,32 @@ def _measurement(
     if delta is None and baseline_value not in {None, 0}:
         assert baseline_value is not None  # noqa: S101  # narrowed above
         delta = (record.perf_metric - baseline_value) / abs(baseline_value) * 100
+    delta_reason = None
+    if (
+        delta is None
+        and baseline_round is None
+        and baseline_commit is None
+        and baseline_value is None
+        # A legacy record carries no provenance and keeps reading as a
+        # deliberate absolute; only provenance-era evidence is labelled.
+        and record.perf_provenance is not None
+    ):
+        delta_reason = (
+            PerfDeltaReason.BASELINE_UNRESOLVED
+            if baseline_candidates(metric=record.perf_unit, rounds=prior_rounds)
+            else PerfDeltaReason.NO_BASELINE_YET
+        )
     return HypothesisMeasurement(
         round=record.round_number,
         metric=record.perf_unit,
         value=record.perf_metric,
         unit=record.perf_unit,
         direction=direction,
-        baseline_round=(
-            record.perf_baseline_round
-            if record.perf_baseline_round is not None
-            else baseline.round_number
-            if baseline is not None
-            else None
-        ),
-        # The commit of the record actually used as the baseline, which the
-        # fallback makes distinct from the hypothesis's parent commit: with
-        # `official_eval_every > 1` the causal parent is usually a provisional
-        # round, and the baseline is an earlier official one.
-        baseline_commit=(
-            record.perf_baseline_commit or (baseline.commit if baseline is not None else None)
-        ),
+        baseline_round=baseline_round,
+        baseline_commit=baseline_commit,
         baseline_value=baseline_value,
         delta_pct=delta,
+        delta_reason=delta_reason,
     )
 
 

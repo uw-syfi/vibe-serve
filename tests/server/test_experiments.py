@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Literal, TypedDict, Unpack
 from tests.server.support import build_server_parts
 
 from server.api.experiments import build_experiment_log
-from server.api.protocol import ExperimentQuery, PerformanceQuery
+from server.api.protocol import ExperimentQuery, HypothesisEntry, PerformanceQuery
 from vibesys.loops.agent.model import (
     AgentRunState,
     Hypothesis,
@@ -18,8 +18,13 @@ from vibesys.loops.agent.model import (
 )
 from vibesys.loops.agent.state import AgentRunStateStore
 from vibesys.loops.metrics import MetricSpace, Objective
-from vibesys.schemas import CandidateDisposition, HypothesisOutcome, OrchestratorPlan
-from vs_loop_state import MetricComparison, RoundRecord
+from vibesys.schemas import (
+    CandidateDisposition,
+    HypothesisOutcome,
+    OrchestratorPlan,
+    PerfDeltaReason,
+)
+from vs_loop_state import MetricComparison, PerfProvenance, RoundRecord
 from vs_project import AgentRunConfiguration, Project, RunEnvironmentRecord
 
 if TYPE_CHECKING:
@@ -60,6 +65,7 @@ class _RoundFields(TypedDict, total=False):
     perf_baseline_metric: float | None
     perf_delta_pct: float | None
     perf_comparison: MetricComparison | None
+    perf_provenance: PerfProvenance | None
 
 
 class _HypothesisFields(TypedDict, total=False):
@@ -242,6 +248,98 @@ def test_projection_uses_nested_rounds_and_one_official_measurement_tuple() -> N
         "max",
         110.0,
     )
+
+
+def test_projection_carries_baseline_identity_and_the_no_delta_reason() -> None:
+    """Why a number has no delta crosses as a typed value, not as an absence."""
+    state = AgentRunState(
+        hypotheses=[
+            _hypothesis(
+                "H-01",
+                1,
+                measurement=HypothesisMeasurement(
+                    round=1,
+                    metric="throughput",
+                    value=125.0,
+                    unit="ops_s",
+                    baseline_round=1,
+                    baseline_commit="c1",
+                    baseline_value=100.0,
+                    delta_pct=25.0,
+                ),
+            ),
+            _hypothesis(
+                "H-02",
+                2,
+                measurement=HypothesisMeasurement(
+                    round=2,
+                    metric="throughput",
+                    value=130.0,
+                    unit="ops_s",
+                    delta_reason=PerfDeltaReason.NO_BASELINE_YET,
+                ),
+            ),
+            _hypothesis(
+                "H-03",
+                3,
+                measurement=HypothesisMeasurement(
+                    round=3,
+                    metric="throughput",
+                    value=140.0,
+                    unit="ops_s",
+                    delta_reason=PerfDeltaReason.BASELINE_UNRESOLVED,
+                ),
+            ),
+            _hypothesis(
+                "H-04",
+                4,
+                rounds=[
+                    _round(
+                        4,
+                        hypothesis_id="H-04",
+                        perf_metric=150.0,
+                        perf_unit="ops_s",
+                        official_evaluation=True,
+                        perf_provenance="implementer",
+                    )
+                ],
+            ),
+        ]
+    )
+
+    measured, first, unresolved, reported = build_experiment_log(state)
+
+    assert (measured.perf_baseline_round, measured.perf_baseline_commit) == (1, "c1")
+    assert measured.perf_delta_reason is None
+    assert first.perf_delta_reason is PerfDeltaReason.NO_BASELINE_YET
+    assert unresolved.perf_delta_reason is PerfDeltaReason.BASELINE_UNRESOLVED
+    assert (unresolved.perf_baseline_round, unresolved.perf_baseline_commit) == (None, None)
+    # The self-reported number itself stays off the entry-level measurement
+    # tuple; only the reason says a number exists that nobody trusted-measured.
+    assert reported.perf_metric is None
+    assert reported.perf_delta_reason is PerfDeltaReason.NOT_FRAMEWORK_MEASURED
+
+
+def test_hypothesis_entry_round_trips_the_no_delta_reason() -> None:
+    """The new fields survive the wire, and a legacy payload stays valid."""
+    entry = HypothesisEntry(
+        hypothesis_id="H-01",
+        first_round=1,
+        last_round=1,
+        perf_delta_reason=PerfDeltaReason.BASELINE_UNRESOLVED,
+        perf_baseline_round=3,
+        perf_baseline_commit="abc1234deadbeef",
+    )
+
+    decoded = HypothesisEntry.model_validate_json(entry.model_dump_json())
+    assert decoded.perf_delta_reason is PerfDeltaReason.BASELINE_UNRESOLVED
+    assert (decoded.perf_baseline_round, decoded.perf_baseline_commit) == (3, "abc1234deadbeef")
+
+    legacy = HypothesisEntry.model_validate(
+        {"hypothesis_id": "H-02", "first_round": 1, "last_round": 1}
+    )
+    assert legacy.perf_delta_reason is None
+    assert (legacy.perf_baseline_round, legacy.perf_baseline_commit) == (None, None)
 
 
 def test_projection_surfaces_active_hypothesis_before_a_round_finishes() -> None:
