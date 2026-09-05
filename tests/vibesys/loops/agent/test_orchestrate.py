@@ -975,6 +975,35 @@ def test_pareto_archive_distinguishes_trusted_and_pending_candidates():  # noqa:
     assert "round 51" in summary
 
 
+def test_pareto_archive_summary_lists_every_pending_claim_without_a_cap():  # noqa: ANN201  # tracked: #288
+    """Ten pending claims all appear, including the earliest two."""
+    pending_records = [
+        RoundRecord(
+            round_number,
+            chr(ord("a") + round_number) * 40,
+            None,
+            None,
+            False,  # noqa: FBT003  # tracked: #288
+            reviewed=False,
+            candidate_disposition=CandidateDisposition.PARETO_FRONTIER.value,
+            candidate_metrics={
+                "throughput": 6000.0 + round_number,
+                "latency": 3000.0 + round_number,
+            },
+            candidate_evaluation_artifact=f"h{round_number}.json",
+            candidate_operating_point="concurrency=192",
+            candidate_retention_reason="higher-throughput tradeoff",
+        )
+        for round_number in range(1, 11)
+    ]
+
+    summary = _pareto_archive_summary(pending_records, _THROUGHPUT_LATENCY)
+
+    for record in pending_records:
+        assert record.commit is not None
+        assert f"round {record.round_number}, commit {record.commit[:12]}" in summary
+
+
 def _accuracy_row(
     round_number: int,
     accuracy: float,

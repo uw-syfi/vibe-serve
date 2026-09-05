@@ -391,7 +391,7 @@ def _pareto_archive_summary(records: list[RoundRecord], space: MetricSpace) -> s
             "have not passed independent review, or because its numbers are the "
             "implementer's own report rather than a framework measurement:"
         )
-        for record in pending[-8:]:
+        for record in pending:
             assert record.commit is not None  # noqa: S101  # tracked: #288
             lines.append(
                 f"- round {record.round_number}, commit {record.commit[:12]}: "
