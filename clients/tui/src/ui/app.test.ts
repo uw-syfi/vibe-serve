@@ -1204,7 +1204,7 @@ describe('OpenTUI presentation', () => {
     expect(frame).toMatch(/▸r9\s+·\s+plan/);
   });
 
-  it('closes a visualization and the chat together on one Escape', async () => {
+  it('unwinds the modal chat over a visualization one Escape at a time', async () => {
     const testRenderer = await createTestRenderer({width: 130, height: 22});
     const controller = new FakeController({
       ...initialSessionState(),
@@ -1223,14 +1223,71 @@ describe('OpenTUI presentation', () => {
     registerCleanup(testRenderer.renderer, app);
     await controller.openPane('perf');
     controller.publish({...controller.state, chatOpen: true});
+    let frame = await frameAfter(testRenderer);
+    expect(frame).toContain('1200');
+
+    // The modal chat is the innermost layer: the first Escape closes only it,
+    // and the visualization behind it stays exactly where it was.
+    testRenderer.mockInput.pressKey('ESCAPE');
+    frame = await frameAfterEscape(testRenderer);
+    expect(controller.state.chatOpen).toBe(false);
+    expect(controller.state.layout.right).not.toBeNull();
+    expect(controller.state.layout.focus).toBe('right');
+    expect(controller.state.hypothesisScope).not.toBeNull();
+    expect(frame).toContain('1200');
+
+    // The second Escape is the pane's own: it closes now, leaving the round
+    // trajectory that was always behind both of them.
+    testRenderer.mockInput.pressKey('ESCAPE');
+    frame = await frameAfterEscape(testRenderer);
+    expect(controller.state.layout.right).toBeNull();
+    expect(controller.state.layout.focus).toBe('left');
+    expect(controller.state.hypothesisScope).not.toBeNull();
+    expect(frame).not.toContain('1200');
+  });
+
+  it('closes the chat alone on Escape when no pane is behind it', async () => {
+    const testRenderer = await createTestRenderer({width: 100, height: 20});
+    const controller = new FakeController({...initialSessionState(), chatOpen: true});
+    const app = createOpenTuiApp(testRenderer.renderer, controller);
+    registerCleanup(testRenderer.renderer, app);
     await frameAfter(testRenderer);
 
     testRenderer.mockInput.pressKey('ESCAPE');
     await frameAfterEscape(testRenderer);
 
-    // Back on the round in one press, not part way with the chat still over it.
     expect(controller.state.chatOpen).toBe(false);
     expect(controller.state.layout.right).toBeNull();
+    expect(controller.state.layout.focus).toBe('left');
+  });
+
+  it('closes the pane alone on Escape when no chat is open', async () => {
+    const testRenderer = await createTestRenderer({width: 130, height: 22});
+    const controller = new FakeController({
+      ...initialSessionState(),
+      hypothesisScope: {id: 'H-01', label: 'H-01 · r1', title: 'H-01', rounds: [1]},
+      selectedRound: 1,
+      core: {
+        ...initialSessionState().core,
+        rounds: [{number: 1, status: 'active'}],
+        phases: [{kind: 'judge', status: 'active', roundNumber: 1, roundLabel: 'round-1-judge'}],
+        transcript: [
+          {id: 'e1', kind: 'assistant', label: 'judge', content: 'weighing it', roundNumber: 1},
+        ],
+      },
+    });
+    const app = createOpenTuiApp(testRenderer.renderer, controller);
+    registerCleanup(testRenderer.renderer, app);
+    await controller.openPane('perf');
+    await frameAfter(testRenderer);
+    expect(controller.state.layout.focus).toBe('right');
+
+    testRenderer.mockInput.pressKey('ESCAPE');
+    await frameAfterEscape(testRenderer);
+
+    expect(controller.state.layout.right).toBeNull();
+    expect(controller.state.chatOpen).toBe(false);
+    expect(controller.state.layout.focus).toBe('left');
     expect(controller.state.hypothesisScope).not.toBeNull();
   });
 

@@ -112,15 +112,15 @@ export function bindKeybindings(
       key.preventDefault();
       return;
     }
-    // The focused pane takes the scroll keys. Everything else the chat or the
-    // transcript would normally handle is left alone.
+    // The focused pane takes the scroll keys. Escape belongs to the modal/pane
+    // ladder below, so a right pane's own Escape waits until any modal chat in
+    // front of it has already closed.
     if (
       controller.state.layout.focus === 'right' &&
       controller.state.layout.right !== null &&
-      (key.name === 'pageup' || key.name === 'pagedown' || key.name === 'escape')
+      (key.name === 'pageup' || key.name === 'pagedown')
     ) {
-      if (key.name === 'escape') controller.closeOverlays();
-      else actions.scrollRightPane(key.name === 'pageup' ? -1 : 1);
+      actions.scrollRightPane(key.name === 'pageup' ? -1 : 1);
       key.preventDefault();
       return;
     }
@@ -143,8 +143,10 @@ export function bindKeybindings(
     }
     if (controller.state.chatOpen) {
       if (key.name === 'escape') {
-        if (controller.state.layout.right !== null) controller.closeOverlays();
-        else actions.closeChat();
+        // The modal chat is the innermost layer: Escape closes only it,
+        // regardless of whatever pane sits behind it. A pane open behind the
+        // chat unwinds on its own Escape, once the chat is gone.
+        actions.closeChat();
         key.preventDefault();
         return;
       }
@@ -157,6 +159,18 @@ export function bindKeybindings(
         if (actions.completeChatInput()) key.preventDefault();
         return;
       }
+      return;
+    }
+    // With the chat closed (or never open), Escape's next layer is the
+    // visualization pane: one press folds it away on its own, leaving
+    // whatever is behind it (a hypothesis trajectory, the round view) intact.
+    if (
+      key.name === 'escape' &&
+      controller.state.layout.focus === 'right' &&
+      controller.state.layout.right !== null
+    ) {
+      controller.closePane();
+      key.preventDefault();
       return;
     }
     if (controller.state.overlay !== null) {
