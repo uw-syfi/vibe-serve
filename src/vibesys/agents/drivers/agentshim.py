@@ -89,6 +89,12 @@ def _is_missing_codex_rollout(exc: RuntimeError) -> bool:
     return "thread/resume failed" in message and "no rollout found" in message
 
 
+def _is_missing_opencode_session(exc: RuntimeError) -> bool:
+    # ``opencode run --session <id>`` prints ``Error: Session not found`` when
+    # its session store no longer has the session (rebuilt or cleaned up).
+    return "session not found" in str(exc).lower()
+
+
 def _heavy_codex_turn_reason(agent: CodingAgent) -> str | None:
     session = getattr(agent, "_last_session", None)
     usage = getattr(session, "final_usage", None) or {}
@@ -418,6 +424,8 @@ class AgentShimSession:
         if self._provider == "codex":
             # Codex names the cause: the rollout the thread ID points at is gone.
             return _is_missing_codex_rollout(exc)
+        if self._provider == "opencode":
+            return _is_missing_opencode_session(exc)
         # Claude Code reports a rejected ``--resume`` as a plain nonzero exit
         # with no distinguishing message, and a session it will not resume is
         # unrecoverable, so any failed resumed turn is retried once from a
@@ -501,6 +509,10 @@ class AgentShimDriver:
             agent = self._provider_cls(model=spec.model, event_handler=event_handler)
         if spec.environment:
             agent.env = {**agent.env, **dict(spec.environment)}
+        # A subprocess cwd does not rewrite $PWD, and bun-based CLIs (opencode)
+        # trust $PWD over the real cwd for workspace config discovery: a stale
+        # value makes them miss <workspace>/opencode.json. Let the cwd win.
+        agent.env = {key: value for key, value in agent.env.items() if key != "PWD"}
 
         if not in_container:
             resources = declare_agent_host_resources(

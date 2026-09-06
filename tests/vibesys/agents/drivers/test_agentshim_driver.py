@@ -545,3 +545,77 @@ def test_a_fresh_claude_turn_that_fails_is_not_retried(
     with pytest.raises(RuntimeError):
         session.run_turn(AgentTurnRequest(message="one"))
     assert attempts == [None]
+
+
+@pytest.fixture
+def fake_opencode_agent(monkeypatch: pytest.MonkeyPatch) -> list[_FakeAgent]:
+    built: list[_FakeAgent] = []
+
+    def factory(
+        model: str | None = None,
+        event_handler: Any | None = None,  # noqa: ANN401  # tracked: #288
+        *,
+        executor: Any | None = None,  # noqa: ANN401  # tracked: #288
+    ) -> _FakeAgent:
+        agent = _FakeAgent(model, event_handler, executor=executor)
+        built.append(agent)
+        return agent
+
+    monkeypatch.setitem(subject._PROVIDER_CLASSES, "opencode", factory)  # noqa: SLF001
+    monkeypatch.setattr(subject, "declare_agent_host_resources", lambda *_args, **_kwargs: ())
+    monkeypatch.setattr(subject, "build_host_sandbox", lambda *_args, **_kwargs: "sandbox")
+    return built
+
+
+def test_opencode_missing_session_retries_once_with_a_fresh_session(
+    fake_opencode_agent: list[_FakeAgent], tmp_path: Path
+) -> None:
+    driver = subject.AgentShimDriver(provider="opencode")
+    session = driver.create_session(_spec(tmp_path, provider="opencode"))
+    agent = fake_opencode_agent[0]
+    seen: list[str | None] = []
+
+    def generate(prompt: str, /, *, cwd: str | None, timeout: int | None, silent: bool) -> str:  # noqa: ARG001
+        seen.append(agent.session_id)
+        if agent.session_id is not None:
+            raise RuntimeError("opencode exited with code 1: Error: Session not found")  # noqa: TRY003  # tracked: #288
+        return "fresh"
+
+    agent.generate_override = generate
+
+    result = session.run_turn(AgentTurnRequest(message="again"), _Observer())
+
+    assert result.text == "fresh"
+    assert result.disposition is subject.SessionDisposition.RESET_REQUIRED
+    assert seen == ["session-1", None]
+
+
+def test_opencode_other_failures_are_not_retried(
+    fake_opencode_agent: list[_FakeAgent], tmp_path: Path
+) -> None:
+    driver = subject.AgentShimDriver(provider="opencode")
+    session = driver.create_session(_spec(tmp_path, provider="opencode"))
+    agent = fake_opencode_agent[0]
+    calls = 0
+
+    def generate(prompt: str, /, *, cwd: str | None, timeout: int | None, silent: bool) -> str:  # noqa: ARG001
+        nonlocal calls
+        calls += 1
+        raise RuntimeError("opencode exited with code 1: provider error")  # noqa: TRY003  # tracked: #288
+
+    agent.generate_override = generate
+
+    with pytest.raises(RuntimeError, match="provider error"):
+        session.run_turn(AgentTurnRequest(message="again"), _Observer())
+    assert calls == 1
+    assert agent.session_id == "session-1"
+
+
+def test_session_environment_drops_the_inherited_pwd(
+    fake_agent: list[_FakeAgent], tmp_path: Path
+) -> None:
+    driver = subject.AgentShimDriver(provider="codex")
+    driver.create_session(_spec(tmp_path, environment=(("PWD", "/somewhere/stale"), ("GPU", "1"))))
+
+    assert "PWD" not in fake_agent[0].env
+    assert fake_agent[0].env["GPU"] == "1"
